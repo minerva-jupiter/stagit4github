@@ -1,4 +1,4 @@
-name: Build Stagit Portal
+ name: Build Stagit Portal
 
 on:
   schedule:
@@ -16,47 +16,30 @@ jobs:
       id-token: write
 
     steps:
-      - name: Fetch and Generate with Alpine Container
+      - name: Clone All Repositories
         env:
           GH_TOKEN: ${{ secrets.PORTAL_PAT }}
         run: |
-          mkdir -p repos site
-          ROOT_DIR="$(pwd)"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          
+          mkdir -p repositories html
 
-          # 1. ホスト側で gh CLI を使ってリポジトリ一覧を取得
-          gh repo list --limit 1000 --json cloneUrl -q '.[].cloneUrl' > repos.txt
+          # アカウント配下の全リポジトリを bare clone
+          gh repo list --limit 1000 --json cloneUrl -q '.[].cloneUrl' | while read -r url; do
+            [ -z "$url" ] && continue
+            repo_name=$(basename "$url" .git)
+            git clone --bare "$url" "repositories/${repo_name}.git"
+          done
 
-          # 2. Alpineコンテナ内で stagit / git を実行
+      - name: Generate HTML with Stagit Container
+        run: |
           docker run --rm \
-            -v "${ROOT_DIR}/repos:/workspace/repos" \
-            -v "${ROOT_DIR}/site:/workspace/site" \
-            -v "${ROOT_DIR}/repos.txt:/workspace/repos.txt" \
-            -e GH_TOKEN="${GH_TOKEN}" \
-            -w /workspace \
-            alpine:latest sh -c '
-              apk add --no-cache stagit git jq
-
-              git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-
-              cd repos
-              while read -r url; do
-                [ -z "$url" ] && continue
-                repo_name=$(basename "$url" .git)
-                
-                git clone --bare "$url" "${repo_name}.git"
-                
-                mkdir -p "/workspace/site/${repo_name}"
-                cd "${repo_name}.git"
-                stagit "/workspace/site/${repo_name}"
-                cd ..
-              done < /workspace/repos.txt
-
-              stagit-index *.git > /workspace/site/index.html
-            '
+            -v "$PWD/html:/html" \
+            -v "$PWD/repositories:/repositories" \
+            servercontainers/stagit
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./site
-          
+          publish_dir: ./html        
