@@ -16,50 +16,53 @@ jobs:
       id-token: write
 
     steps:
-
       - name: Install dependencies & stagit
         run: |
           sudo apt-get update
           sudo apt-get install -y libgit2-dev gcc make
-          git clone https://github.com/oxalorg/stagit.git /tmp/stagit
+          git clone https://git.codemadness.org/stagit /tmp/stagit
           cd /tmp/stagit
           make -j$(nproc)
           sudo make install
 
-
-      - name: Clone All Repositories & Build Static Files
+      - name: Clone All Repositories
         env:
-           GH_TOKEN: ${{ secrets.PORTAL_PAT }}
+          GH_TOKEN: ${{ secrets.PORTAL_PAT }}
         run: |
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
           
-          mkdir -p repositories html
-          ROOT_DIR="$(pwd)"
-          pwd
+          mkdir -p repositories
+
           gh repo list --limit 1000 --json url -q '.[].url' | while read -r url; do
             [ -z "$url" ] && continue
             repo_name=$(basename "$url" .git)
-            
-            repo_path="${ROOT_DIR}/repositories/${repo_name}.git"
-            site_path="${ROOT_DIR}/html/${repo_name}"
-            
-            git clone --bare "$url" "$repo_path"
-            
-            mkdir -p "$site_path"
-            
-            # リポジトリディレクトリの中で stagit を実行し、出力先を絶対パスで指定
-            cd "$repo_path"
-            stagit "$site_path"
-            cd "$ROOT_DIR"
+            git clone --bare "$url" "repositories/${repo_name}.git"
           done
 
-          # ルート目録（index.html）の生成
-          cd "${ROOT_DIR}/repositories"
-          stagit-index *.git > "${ROOT_DIR}/html/index.html"
-          cd "$ROOT_DIR"
-                  
+      - name: Generate Stagit HTML
+        run: |
+          mkdir -p html
+          ROOT_DIR="$(pwd)"
+
+          # 各 bare リポジトリの HTML ページを生成
+          for repo_dir in "${ROOT_DIR}/repositories"/*.git; do
+            [ -d "$repo_dir" ] || continue
+            
+            repo_name=$(basename "$repo_dir" .git)
+            site_dir="${ROOT_DIR}/html/${repo_name}"
+            
+            # 1. 出力先ディレクトリを作成して cd
+            mkdir -p "$site_dir"
+            
+            # 2. htmldir 内で stagit <path-to-repo> を実行
+            (cd "$site_dir" && stagit "$repo_dir")
+          done
+
+          # 3. ルート目録（index.html）の生成
+          (cd "${ROOT_DIR}/repositories" && stagit-index *.git > "${ROOT_DIR}/html/index.html")
+
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@main
+        uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./html        
+          publish_dir: ./html
