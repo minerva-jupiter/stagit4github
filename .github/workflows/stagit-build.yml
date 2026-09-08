@@ -16,37 +16,47 @@ jobs:
       id-token: write
 
     steps:
-      - name: Install stagit
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y stagit git
-
-      - name: Fetch repository list and generate HTML
+      - name: Fetch and Generate with Alpine Container
         env:
-          GH_TOKEN: ${{ secrets.PORTAL_PAT }} # PAT(Personal Access Token)
+          GH_TOKEN: ${{ secrets.PORTAL_PAT }}
         run: |
-          mkdir repos site
-          cd repos
+          mkdir -p repos site
+          ROOT_DIR="$(pwd)"
 
-          # API経由でアカウント内の全パブリック/プライベートリポジトリのclone URLを取得
-          gh repo list --limit 1000 --json name,cloneUrl,description,isPrivate -q '.[]' > repos_info.json
+          # 1. ホスト側で gh CLI を使ってリポジトリ一覧を取得
+          gh repo list --limit 1000 --json cloneUrl -q '.[].cloneUrl' > repos.txt
 
-          # 各リポジトリを bare clone して stagit を個別ビルド
-          cat repos_info.json | jq -r '.cloneUrl' | while read -r url; do
-            repo_name=$(basename "$url" .git)
-            git clone --bare "$url" "${repo_name}.git"
-            
-            mkdir -p "../site/${repo_name}"
-            cd "${repo_name}.git"
-            stagit "../site/${repo_name}"
-            cd ..
-          done
+          # 2. Alpineコンテナ内で stagit / git を実行
+          docker run --rm \
+            -v "${ROOT_DIR}/repos:/workspace/repos" \
+            -v "${ROOT_DIR}/site:/workspace/site" \
+            -v "${ROOT_DIR}/repos.txt:/workspace/repos.txt" \
+            -e GH_TOKEN="${GH_TOKEN}" \
+            -w /workspace \
+            alpine:latest sh -c '
+              apk add --no-cache stagit git jq
 
-          # ルート目録用（stagit-index）の生成
-          stagit-index *.git > ../site/index.html
+              git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+              cd repos
+              while read -r url; do
+                [ -z "$url" ] && continue
+                repo_name=$(basename "$url" .git)
+                
+                git clone --bare "$url" "${repo_name}.git"
+                
+                mkdir -p "/workspace/site/${repo_name}"
+                cd "${repo_name}.git"
+                stagit "/workspace/site/${repo_name}"
+                cd ..
+              done < /workspace/repos.txt
+
+              stagit-index *.git > /workspace/site/index.html
+            '
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@main
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./site
+          
