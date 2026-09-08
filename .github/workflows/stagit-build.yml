@@ -17,28 +17,40 @@ jobs:
 
     steps:
 
-      - name: Clone All Repositories
+      - name: Install dependencies & stagit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgit2-dev gcc make
+          git clone https://git.codemadness.org/stagit /tmp/stagit
+          cd /tmp/stagit
+          make -j$(nproc)
+          sudo make install
+
+
+      - name: Clone All Repositories & Build Static Files
         env:
           GH_TOKEN: ${{ secrets.PORTAL_PAT }}
         run: |
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
           
           mkdir -p repositories html
+          ROOT_DIR="$(pwd)"
 
-          # url フィールドを使用する
           gh repo list --limit 1000 --json url -q '.[].url' | while read -r url; do
             [ -z "$url" ] && continue
             repo_name=$(basename "$url" .git)
+            
             git clone --bare "$url" "repositories/${repo_name}.git"
+            
+            mkdir -p "html/${repo_name}"
+            cd "repositories/${repo_name}.git"
+            stagit "${ROOT_DIR}/html/${repo_name}"
+            cd "${ROOT_DIR}"
           done
 
-      - name: Generate HTML with Stagit Container
-        run: |
-          docker run --rm \
-            -v "$PWD/html:/html" \
-            -v "$PWD/repositories:/repositories" \
-            servercontainers/stagit
-
+          cd repositories
+          stagit-index *.git > "${ROOT_DIR}/html/index.html"
+          
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@main
         with:
