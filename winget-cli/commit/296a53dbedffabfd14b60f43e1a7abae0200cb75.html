@@ -1,0 +1,2224 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Performance improvements (#3808) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/296a53dbedffabfd14b60f43e1a7abae0200cb75.html">296a53dbedffabfd14b60f43e1a7abae0200cb75</a>
+<b>parent</b> <a href="../commit/b96598a6038ac0fb0f58cf935eb466c4484dea3c.html">b96598a6038ac0fb0f58cf935eb466c4484dea3c</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue,  7 Nov 2023 19:05:12 -0800
+
+Performance improvements (#3808)
+
+## Change
+This change has several performance improvements based on profiling.
+
+### Installed package caching
+A global process cache is stored for the unfiltered install data. It is
+very basic for updates right now to make it more reasonable to service,
+but future changes could improve things to examine the system data and
+only do delta updates. It could also be saved to disk to improve the
+performance of future processes.
+
+The cache itself is not used by any callers, but instead in-memory
+copies are handed out. The cache sets up event listeners for the current
+data sources and waits for these events before it will attempt to update
+again. A full cache hit requires only copying the memory database, which
+SQLite has an efficient method for.
+
+The only performance gain to the update path that is provided by this
+implementation is to reuse the names of MSIX packages, but since this
+accounts for a huge amount of creating the index it results in ~50% time
+reduction in creating an updated installed source (without any MSIX
+changes).
+
+### ICU regex caching
+The regular expressions that we use were being compiled repeatedly.
+Since this is a fixed set of expressions, they are all now cached and
+copies are used for actual operation.
+
+### Version lookup (string)
+The version lookup by string (such as `winget show FOO -v VER`) was
+doing a full table scan. This change shifts to pulling all of the
+version for the given identifier out and using `Version` object
+comparisons to find the proper result. This has the side effect of
+fixing a somewhat annoying user interaction where trailing 0s in a
+version were still required to find from the command line. One can now
+provide the smaller version string and still find the expected package
+version (eg `1.2` will now find version `1.2.0`).
+
+### Version lookup (available version)
+The round trip from retrieving the available version information to
+getting the manifest has been improved by including the manifest id
+value directly in the available version data. The available version
+package object now caches the version string to manifest id data as
+well, meaning that any usage of a `PackageVersionKey` that was retrieved
+from `GetAvailableVersions` will directly return the package version
+object without querying the index.
+
+### Let property lookups handle an unknown manifest id
+The `GetProperty` code was enforcing that the manifest id was valid and
+then reusing existing code that did not handle a missing manifest.
+Creating new methods that can handle the missing manifest allows us to
+remove the initial check.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">azure-pipelines.yml</a></td><td> | </td><td class="num">8</td><td><span class="i">+++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Workflows/SourceFlow.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/Workflows/SourceFlow.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLIE2ETests/Constants.cs</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCLIE2ETests/Interop/InstallInterop.cs</a></td><td> | </td><td class="num">67</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h9">src/AppInstallerCLITests/ArpHelper.cpp</a></td><td> | </td><td class="num">71</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/AppInstallerCLITests/PredefinedInstalledSource.cpp</a></td><td> | </td><td class="num">81</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/AppInstallerCLITests/SQLiteIndex.cpp</a></td><td> | </td><td class="num">39</td><td><span class="i">++++++++++++++++++++</span><span class="d">-------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h12">src/AppInstallerCLITests/TestHooks.h</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h13">src/AppInstallerCommonCore/Regex.cpp</a></td><td> | </td><td class="num">66</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h14">src/AppInstallerRepositoryCore/ArpVersionValidation.cpp</a></td><td> | </td><td class="num">100</td><td><span class="i">++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h15">src/AppInstallerRepositoryCore/Microsoft/ARPHelper.cpp</a></td><td> | </td><td class="num">51</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h16">src/AppInstallerRepositoryCore/Microsoft/ARPHelper.h</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h17">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></td><td> | </td><td class="num">237</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h18">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.h</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h19">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a></td><td> | </td><td class="num">19</td><td><span class="i">++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h20">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></td><td> | </td><td class="num">17</td><td><span class="i">++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h21">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp</a></td><td> | </td><td class="num">77</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h22">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h23">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface_1_0.cpp</a></td><td> | </td><td class="num">91</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h24">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp</a></td><td> | </td><td class="num">30</td><td><span class="i">++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h25">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h</a></td><td> | </td><td class="num">49</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h26">src/AppInstallerRepositoryCore/Microsoft/Schema/1_3/Interface_1_3.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h27">src/AppInstallerRepositoryCore/Microsoft/Schema/1_4/Interface_1_4.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h28">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp</a></td><td> | </td><td class="num">22</td><td><span class="i">+++++++++</span><span class="d">-------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h29">src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h</a></td><td> | </td><td class="num">11</td><td><span class="i">++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h30">src/AppInstallerRepositoryCore/PackageDependenciesValidation.cpp</a></td><td> | </td><td class="num">25</td><td><span class="i">+++++++++++</span><span class="d">--------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h31">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a></td><td> | </td><td class="num">7</td><td><span class="i">+</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h32">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h33">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h34">src/AppInstallerRepositoryCore/pch.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h35">src/AppInstallerSharedLib/Public/AppInstallerVersions.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h36">src/AppInstallerSharedLib/Public/winget/Registry.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h37">src/AppInstallerSharedLib/Public/winget/SQLiteMetadataTable.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h38">src/AppInstallerSharedLib/Public/winget/SQLiteStorageBase.h</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h39">src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h</a></td><td> | </td><td class="num">22</td><td><span class="i">++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h40">src/AppInstallerSharedLib/SQLiteStorageBase.cpp</a></td><td> | </td><td class="num">24</td><td><span class="i">++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h41">src/AppInstallerSharedLib/SQLiteWrapper.cpp</a></td><td> | </td><td class="num">46</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h42">src/AppInstallerSharedLib/Versions.cpp</a></td><td> | </td><td class="num">12</td><td><span class="i">+++++++++</span><span class="d">---</span></td></tr>
+</table></pre><pre>43 files changed, 1006 insertions(+), 237 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -131,6 +131,7 @@ ENDSESSION
+</a> EPester
+ epth
+ EQU
+<a href="#h0-0-3" id="h0-0-3" class="i">+errcode
+</a> errmsg
+ ERRORONEXIT
+ ESource
+<b>diff --git a/<a id="h1" href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a> b/<a href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -123,9 +123,11 @@ jobs:
+</a>                     /p:UapAppxPackageBuildMode=SideloadOnly&#39;
+ 
+   - task: CopyFiles@2
+<a href="#h1-0-3" id="h1-0-3" class="d">-    displayName: &#39;Copy WindowsPackageManager.dll Symbols to artifacts folder&#39;
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    displayName: &#39;Copy Symbols to artifacts folder&#39;
+</a>     inputs:
+<a href="#h1-0-6" id="h1-0-6" class="d">-      Contents: &#39;$(buildOutDir)\WindowsPackageManager\WindowsPackageManager.pdb&#39;
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+      Contents: |
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+          $(buildOutDir)\WindowsPackageManager\WindowsPackageManager.pdb
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+          $(buildOutDir)\Microsoft.Management.Configuration\Microsoft.Management.Configuration.pdb
+</a>       TargetFolder: &#39;$(artifactsDir)&#39;
+     condition: succeededOrFailed()
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -306,7 +308,7 @@ jobs:
+</a>       platform: &#39;$(buildPlatform)&#39;
+       configuration: &#39;$(BuildConfiguration)&#39;
+       diagnosticsEnabled: true
+<a href="#h1-1-3" id="h1-1-3" class="d">-    condition: succeededOrFailed()
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+    condition: and(succeededOrFailed(), eq(variables.buildPlatform, &#39;x86&#39;))
+</a> 
+   - task: PowerShell@2
+     displayName: Prepare for Microsoft.Management.Configuration.UnitTests (OutOfProc)
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -16,6 +16,7 @@
+</a> #include &quot;WorkflowBase.h&quot;
+ #include &quot;DependenciesFlow.h&quot;
+ #include &quot;PromptFlow.h&quot;
+<a href="#h2-0-3" id="h2-0-3" class="i">+#include &quot;SourceFlow.h&quot;
+</a> #include &lt;AppInstallerMsixInfo.h&gt;
+ #include &lt;AppInstallerDeployment.h&gt;
+ #include &lt;AppInstallerSynchronization.h&gt;
+<a href="#h2-1" id="h2-1" class="h">@@ -553,6 +554,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             Workflow::ReportExecutionStage(ExecutionStage::PostExecution) &lt;&lt;
+             Workflow::ReportARPChanges &lt;&lt;
+             Workflow::RecordInstall &lt;&lt;
+<a href="#h2-1-3" id="h2-1-3" class="i">+            Workflow::ForceInstalledCacheUpdate &lt;&lt;
+</a>             Workflow::RemoveInstaller &lt;&lt;
+             Workflow::DisplayInstallationNotes;
+     }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Workflows/SourceFlow.cpp.html">src/AppInstallerCLICore/Workflows/SourceFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/SourceFlow.cpp.html">src/AppInstallerCLICore/Workflows/SourceFlow.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -301,4 +301,10 @@ namespace AppInstaller::CLI::Workflow
+</a>             }
+         }
+     }
+<a href="#h3-0-3" id="h3-0-3" class="i">+
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    void ForceInstalledCacheUpdate(Execution::Context&amp;)
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+    {
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        // Creating this object is currently sufficient to mark the cache as needing an update for the next time it is opened.
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+        Repository::Source ignore{ Repository::PredefinedSource::InstalledForceCacheUpdate };
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/Workflows/SourceFlow.h.html">src/AppInstallerCLICore/Workflows/SourceFlow.h</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/SourceFlow.h.html">src/AppInstallerCLICore/Workflows/SourceFlow.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -77,4 +77,10 @@ namespace AppInstaller::CLI::Workflow
+</a>     // Inputs: SourceList
+     // Outputs: None
+     void ExportSourceList(Execution::Context&amp; context);
+<a href="#h4-0-3" id="h4-0-3" class="i">+
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+    // Forces an update to the cache of installed packages.
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+    // Required Args: None
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+    // Inputs: None
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+    // Outputs: None
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+    void ForceInstalledCacheUpdate(Execution::Context&amp; context);
+</a> }
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIE2ETests/Constants.cs.html">src/AppInstallerCLIE2ETests/Constants.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/Constants.cs.html">src/AppInstallerCLIE2ETests/Constants.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -82,6 +82,7 @@ namespace AppInstallerCLIE2ETests
+</a>         public const string PortableExePackageId = &quot;AppInstallerTest.TestPortableExe&quot;;
+         public const string PortableExeWithCommandPackageId = &quot;AppInstallerTest.TestPortableExeWithCommand&quot;;
+ 
+<a href="#h5-0-3" id="h5-0-3" class="i">+        public const string ExeInstalledDefaultProductCode = &quot;{A499DD5E-8DC5-4AD2-911A-BCD0263295E9}&quot;;
+</a>         public const string MsiInstallerProductCode = &quot;{A5D36CF1-1993-4F63-BFB4-3ACD910D36A1}&quot;;
+         public const string MsixInstallerName = &quot;6c6338fe-41b7-46ca-8ba6-b5ad5312bb0e&quot;;
+         public const string MsixInstallerPackageFamilyName = &quot;6c6338fe-41b7-46ca-8ba6-b5ad5312bb0e_8wekyb3d8bbwe&quot;;
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCLIE2ETests/Interop/InstallInterop.cs.html">src/AppInstallerCLIE2ETests/Interop/InstallInterop.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/Interop/InstallInterop.cs.html">src/AppInstallerCLIE2ETests/Interop/InstallInterop.cs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -657,5 +657,72 @@ namespace AppInstallerCLIE2ETests.Interop
+</a>             Assert.AreEqual(PackageInstallerScope.User, packageInstallerInfo.Scope);
+             Assert.AreEqual(&quot;en-US&quot;, packageInstallerInfo.Locale);
+         }
+<a href="#h6-0-3" id="h6-0-3" class="i">+
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+        /// Install exe and verify that we can find it as installed after.
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous unit test.&lt;/returns&gt;
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+        [Test]
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+        public async Task InstallExe_VerifyInstalledCatalog()
+</a><a href="#h6-0-10" id="h6-0-10" class="i">+        {
+</a><a href="#h6-0-11" id="h6-0-11" class="i">+            var installedCatalogReference = this.packageManager.GetLocalPackageCatalog(LocalPackageCatalog.InstalledPackages);
+</a><a href="#h6-0-12" id="h6-0-12" class="i">+
+</a><a href="#h6-0-13" id="h6-0-13" class="i">+            // Ensure package is not installed
+</a><a href="#h6-0-14" id="h6-0-14" class="i">+            var installedResult = this.FindAllPackages(installedCatalogReference, PackageMatchField.ProductCode, PackageFieldMatchOption.Equals, Constants.ExeInstalledDefaultProductCode);
+</a><a href="#h6-0-15" id="h6-0-15" class="i">+            Assert.IsNotNull(installedResult);
+</a><a href="#h6-0-16" id="h6-0-16" class="i">+            Assert.AreEqual(0, installedResult.Count);
+</a><a href="#h6-0-17" id="h6-0-17" class="i">+
+</a><a href="#h6-0-18" id="h6-0-18" class="i">+            // Find package
+</a><a href="#h6-0-19" id="h6-0-19" class="i">+            var searchResult = this.FindOnePackage(this.testSource, PackageMatchField.Id, PackageFieldMatchOption.Equals, &quot;AppInstallerTest.TestExeInstaller&quot;);
+</a><a href="#h6-0-20" id="h6-0-20" class="i">+
+</a><a href="#h6-0-21" id="h6-0-21" class="i">+            // Configure installation
+</a><a href="#h6-0-22" id="h6-0-22" class="i">+            var installOptions = this.TestFactory.CreateInstallOptions();
+</a><a href="#h6-0-23" id="h6-0-23" class="i">+            installOptions.PackageInstallMode = PackageInstallMode.Silent;
+</a><a href="#h6-0-24" id="h6-0-24" class="i">+            installOptions.PreferredInstallLocation = this.installDir;
+</a><a href="#h6-0-25" id="h6-0-25" class="i">+            installOptions.AcceptPackageAgreements = true;
+</a><a href="#h6-0-26" id="h6-0-26" class="i">+
+</a><a href="#h6-0-27" id="h6-0-27" class="i">+            // Install
+</a><a href="#h6-0-28" id="h6-0-28" class="i">+            var installResult = await this.packageManager.InstallPackageAsync(searchResult.CatalogPackage, installOptions);
+</a><a href="#h6-0-29" id="h6-0-29" class="i">+
+</a><a href="#h6-0-30" id="h6-0-30" class="i">+            // Assert
+</a><a href="#h6-0-31" id="h6-0-31" class="i">+            Assert.AreEqual(InstallResultStatus.Ok, installResult.Status);
+</a><a href="#h6-0-32" id="h6-0-32" class="i">+
+</a><a href="#h6-0-33" id="h6-0-33" class="i">+            // Check installed catalog after
+</a><a href="#h6-0-34" id="h6-0-34" class="i">+            this.FindOnePackage(installedCatalogReference, PackageMatchField.ProductCode, PackageFieldMatchOption.Equals, Constants.ExeInstalledDefaultProductCode);
+</a><a href="#h6-0-35" id="h6-0-35" class="i">+
+</a><a href="#h6-0-36" id="h6-0-36" class="i">+            Assert.True(TestCommon.VerifyTestExeInstalledAndCleanup(this.installDir));
+</a><a href="#h6-0-37" id="h6-0-37" class="i">+        }
+</a><a href="#h6-0-38" id="h6-0-38" class="i">+
+</a><a href="#h6-0-39" id="h6-0-39" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-40" id="h6-0-40" class="i">+        /// Install msix and verify that we can find it as installed after.
+</a><a href="#h6-0-41" id="h6-0-41" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-42" id="h6-0-42" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous unit test.&lt;/returns&gt;
+</a><a href="#h6-0-43" id="h6-0-43" class="i">+        [Test]
+</a><a href="#h6-0-44" id="h6-0-44" class="i">+        public async Task InstallMSIX_VerifyInstalledCatalog()
+</a><a href="#h6-0-45" id="h6-0-45" class="i">+        {
+</a><a href="#h6-0-46" id="h6-0-46" class="i">+            var installedCatalogReference = this.packageManager.GetLocalPackageCatalog(LocalPackageCatalog.InstalledPackages);
+</a><a href="#h6-0-47" id="h6-0-47" class="i">+
+</a><a href="#h6-0-48" id="h6-0-48" class="i">+            // Ensure package is not installed
+</a><a href="#h6-0-49" id="h6-0-49" class="i">+            var installedResult = this.FindAllPackages(installedCatalogReference, PackageMatchField.PackageFamilyName, PackageFieldMatchOption.Equals, Constants.MsixInstallerPackageFamilyName);
+</a><a href="#h6-0-50" id="h6-0-50" class="i">+            Assert.IsNotNull(installedResult);
+</a><a href="#h6-0-51" id="h6-0-51" class="i">+            Assert.AreEqual(0, installedResult.Count);
+</a><a href="#h6-0-52" id="h6-0-52" class="i">+
+</a><a href="#h6-0-53" id="h6-0-53" class="i">+            // Find package
+</a><a href="#h6-0-54" id="h6-0-54" class="i">+            var searchResult = this.FindOnePackage(this.testSource, PackageMatchField.Name, PackageFieldMatchOption.Equals, &quot;TestMsixInstaller&quot;);
+</a><a href="#h6-0-55" id="h6-0-55" class="i">+
+</a><a href="#h6-0-56" id="h6-0-56" class="i">+            // Configure installation
+</a><a href="#h6-0-57" id="h6-0-57" class="i">+            var installOptions = this.TestFactory.CreateInstallOptions();
+</a><a href="#h6-0-58" id="h6-0-58" class="i">+
+</a><a href="#h6-0-59" id="h6-0-59" class="i">+            // Install
+</a><a href="#h6-0-60" id="h6-0-60" class="i">+            var installResult = await this.packageManager.InstallPackageAsync(searchResult.CatalogPackage, installOptions);
+</a><a href="#h6-0-61" id="h6-0-61" class="i">+
+</a><a href="#h6-0-62" id="h6-0-62" class="i">+            // Assert
+</a><a href="#h6-0-63" id="h6-0-63" class="i">+            Assert.AreEqual(InstallResultStatus.Ok, installResult.Status);
+</a><a href="#h6-0-64" id="h6-0-64" class="i">+
+</a><a href="#h6-0-65" id="h6-0-65" class="i">+            // Check installed catalog after
+</a><a href="#h6-0-66" id="h6-0-66" class="i">+            this.FindOnePackage(installedCatalogReference, PackageMatchField.PackageFamilyName, PackageFieldMatchOption.Equals, Constants.MsixInstallerPackageFamilyName);
+</a><a href="#h6-0-67" id="h6-0-67" class="i">+
+</a><a href="#h6-0-68" id="h6-0-68" class="i">+            Assert.True(TestCommon.VerifyTestMsixInstalledAndCleanup());
+</a><a href="#h6-0-69" id="h6-0-69" class="i">+        }
+</a>     }
+ } 
+\ No newline at end of file
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -197,6 +197,7 @@
+</a>     &lt;ClCompile Include=&quot;Archive.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;Argument.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;ARPChanges.cpp&quot; /&gt;
+<a href="#h7-0-3" id="h7-0-3" class="i">+    &lt;ClCompile Include=&quot;ArpHelper.cpp&quot; /&gt;
+</a>     &lt;ClCompile Include=&quot;Certificates.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;CheckpointDatabase.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;Command.cpp&quot; /&gt;
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -326,6 +326,9 @@
+</a>     &lt;ClCompile Include=&quot;DateTime.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files\Common&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h8-0-3" id="h8-0-3" class="i">+    &lt;ClCompile Include=&quot;ArpHelper.cpp&quot;&gt;
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+      &lt;Filter&gt;Source Files\Repository&lt;/Filter&gt;
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+    &lt;/ClCompile&gt;
+</a>   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;None Include=&quot;PropertySheet.props&quot; /&gt;
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerCLITests/ArpHelper.cpp.html">src/AppInstallerCLITests/ArpHelper.cpp</a> b/<a href="../file/src/AppInstallerCLITests/ArpHelper.cpp.html">src/AppInstallerCLITests/ArpHelper.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -0,0 +1,71 @@
+</a><a href="#h9-0-0" id="h9-0-0" class="i">+// Copyright (c) Microsoft Corporation.
+</a><a href="#h9-0-1" id="h9-0-1" class="i">+// Licensed under the MIT License.
+</a><a href="#h9-0-2" id="h9-0-2" class="i">+#include &quot;pch.h&quot;
+</a><a href="#h9-0-3" id="h9-0-3" class="i">+#include &quot;TestCommon.h&quot;
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+#include &quot;TestHooks.h&quot;
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+#include &quot;Microsoft/ARPHelper.h&quot;
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+#include &quot;AppInstallerStrings.h&quot;
+</a><a href="#h9-0-7" id="h9-0-7" class="i">+
+</a><a href="#h9-0-8" id="h9-0-8" class="i">+using namespace AppInstaller::Manifest;
+</a><a href="#h9-0-9" id="h9-0-9" class="i">+using namespace AppInstaller::Repository::Microsoft;
+</a><a href="#h9-0-10" id="h9-0-10" class="i">+using namespace AppInstaller::Utility;
+</a><a href="#h9-0-11" id="h9-0-11" class="i">+using namespace AppInstaller::Registry;
+</a><a href="#h9-0-12" id="h9-0-12" class="i">+
+</a><a href="#h9-0-13" id="h9-0-13" class="i">+
+</a><a href="#h9-0-14" id="h9-0-14" class="i">+TEST_CASE(&quot;ARPHelper_Watcher&quot;, &quot;[ARPHelper]&quot;)
+</a><a href="#h9-0-15" id="h9-0-15" class="i">+{
+</a><a href="#h9-0-16" id="h9-0-16" class="i">+    ARPHelper helper;
+</a><a href="#h9-0-17" id="h9-0-17" class="i">+
+</a><a href="#h9-0-18" id="h9-0-18" class="i">+    wil::unique_event callbackEvent;
+</a><a href="#h9-0-19" id="h9-0-19" class="i">+    callbackEvent.create();
+</a><a href="#h9-0-20" id="h9-0-20" class="i">+
+</a><a href="#h9-0-21" id="h9-0-21" class="i">+    ScopeEnum scopeCallback = ScopeEnum::Unknown;
+</a><a href="#h9-0-22" id="h9-0-22" class="i">+    Architecture architectureCallback = Architecture::Unknown;
+</a><a href="#h9-0-23" id="h9-0-23" class="i">+
+</a><a href="#h9-0-24" id="h9-0-24" class="i">+    ScopeEnum scopeTarget = ScopeEnum::Machine;
+</a><a href="#h9-0-25" id="h9-0-25" class="i">+    Architecture architectureTarget = Architecture::X86;
+</a><a href="#h9-0-26" id="h9-0-26" class="i">+
+</a><a href="#h9-0-27" id="h9-0-27" class="i">+    auto fakeRoot = TestCommon::RegCreateVolatileTestRoot();
+</a><a href="#h9-0-28" id="h9-0-28" class="i">+    TestHook::SetGetARPKey_Override arpOverride([&amp;](ScopeEnum scope, Architecture arch)
+</a><a href="#h9-0-29" id="h9-0-29" class="i">+        {
+</a><a href="#h9-0-30" id="h9-0-30" class="i">+            if (scope == scopeTarget &amp;&amp; arch == architectureTarget)
+</a><a href="#h9-0-31" id="h9-0-31" class="i">+            {
+</a><a href="#h9-0-32" id="h9-0-32" class="i">+                return Key(fakeRoot.get(), L&quot;&quot;);
+</a><a href="#h9-0-33" id="h9-0-33" class="i">+            }
+</a><a href="#h9-0-34" id="h9-0-34" class="i">+            else
+</a><a href="#h9-0-35" id="h9-0-35" class="i">+            {
+</a><a href="#h9-0-36" id="h9-0-36" class="i">+                return Key{};
+</a><a href="#h9-0-37" id="h9-0-37" class="i">+            }
+</a><a href="#h9-0-38" id="h9-0-38" class="i">+        });
+</a><a href="#h9-0-39" id="h9-0-39" class="i">+
+</a><a href="#h9-0-40" id="h9-0-40" class="i">+    auto watchers = helper.CreateRegistryWatchers(scopeTarget, [&amp;](ScopeEnum scope, Architecture arch, wil::RegistryChangeKind)
+</a><a href="#h9-0-41" id="h9-0-41" class="i">+        {
+</a><a href="#h9-0-42" id="h9-0-42" class="i">+            scopeCallback = scope;
+</a><a href="#h9-0-43" id="h9-0-43" class="i">+            architectureCallback = arch;
+</a><a href="#h9-0-44" id="h9-0-44" class="i">+            callbackEvent.SetEvent();
+</a><a href="#h9-0-45" id="h9-0-45" class="i">+        });
+</a><a href="#h9-0-46" id="h9-0-46" class="i">+
+</a><a href="#h9-0-47" id="h9-0-47" class="i">+    auto arpKey = helper.GetARPKey(scopeTarget, architectureTarget);
+</a><a href="#h9-0-48" id="h9-0-48" class="i">+    REQUIRE(!!arpKey);
+</a><a href="#h9-0-49" id="h9-0-49" class="i">+
+</a><a href="#h9-0-50" id="h9-0-50" class="i">+    GUID guid;
+</a><a href="#h9-0-51" id="h9-0-51" class="i">+    std::ignore = CoCreateGuid(&amp;guid);
+</a><a href="#h9-0-52" id="h9-0-52" class="i">+    std::ostringstream stream;
+</a><a href="#h9-0-53" id="h9-0-53" class="i">+    stream &lt;&lt; guid;
+</a><a href="#h9-0-54" id="h9-0-54" class="i">+
+</a><a href="#h9-0-55" id="h9-0-55" class="i">+    auto testKey = TestCommon::RegCreateVolatileSubKey(arpKey, ConvertToUTF16(stream.str()));
+</a><a href="#h9-0-56" id="h9-0-56" class="i">+
+</a><a href="#h9-0-57" id="h9-0-57" class="i">+    REQUIRE(callbackEvent.wait(1000));
+</a><a href="#h9-0-58" id="h9-0-58" class="i">+    REQUIRE(scopeTarget == scopeCallback);
+</a><a href="#h9-0-59" id="h9-0-59" class="i">+    REQUIRE(architectureTarget == architectureCallback);
+</a><a href="#h9-0-60" id="h9-0-60" class="i">+
+</a><a href="#h9-0-61" id="h9-0-61" class="i">+    // Reset for changing a value
+</a><a href="#h9-0-62" id="h9-0-62" class="i">+    scopeCallback = ScopeEnum::Unknown;
+</a><a href="#h9-0-63" id="h9-0-63" class="i">+    architectureCallback = Architecture::Unknown;
+</a><a href="#h9-0-64" id="h9-0-64" class="i">+
+</a><a href="#h9-0-65" id="h9-0-65" class="i">+    TestCommon::SetRegistryValue(testKey.get(), L&quot;testValue&quot;, L&quot;valueValue&quot;);
+</a><a href="#h9-0-66" id="h9-0-66" class="i">+
+</a><a href="#h9-0-67" id="h9-0-67" class="i">+    REQUIRE(callbackEvent.wait(1000));
+</a><a href="#h9-0-68" id="h9-0-68" class="i">+    REQUIRE(scopeTarget == scopeCallback);
+</a><a href="#h9-0-69" id="h9-0-69" class="i">+    REQUIRE(architectureTarget == architectureCallback);
+</a><a href="#h9-0-70" id="h9-0-70" class="i">+}
+</a><b>diff --git a/<a id="h10" href="../file/src/AppInstallerCLITests/PredefinedInstalledSource.cpp.html">src/AppInstallerCLITests/PredefinedInstalledSource.cpp</a> b/<a href="../file/src/AppInstallerCLITests/PredefinedInstalledSource.cpp.html">src/AppInstallerCLITests/PredefinedInstalledSource.cpp</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -7,6 +7,7 @@
+</a> #include &lt;AppInstallerStrings.h&gt;
+ #include &lt;Microsoft/PredefinedInstalledSourceFactory.h&gt;
+ #include &lt;Microsoft/ARPHelper.h&gt;
+<a href="#h10-0-3" id="h10-0-3" class="i">+#include &lt;Microsoft/SQLiteIndexSource.h&gt;
+</a> 
+ using namespace std::string_literals;
+ using namespace std::string_view_literals;
+<a href="#h10-1" id="h10-1" class="h">@@ -18,6 +19,7 @@ using namespace AppInstaller::Runtime;
+</a> using namespace AppInstaller::Utility;
+ 
+ using SQLiteIndex = AppInstaller::Repository::Microsoft::SQLiteIndex;
+<a href="#h10-1-3" id="h10-1-3" class="i">+using SQLiteIndexSource = AppInstaller::Repository::Microsoft::SQLiteIndexSource;
+</a> using Factory = AppInstaller::Repository::Microsoft::PredefinedInstalledSourceFactory;
+ using ARPHelper = AppInstaller::Repository::Microsoft::ARPHelper;
+ 
+<a href="#h10-2" id="h10-2" class="h">@@ -400,3 +402,82 @@ TEST_CASE(&quot;PredefinedInstalledSource_Search&quot;, &quot;[installed][list]&quot;)
+</a> 
+     REQUIRE_FALSE(results.Matches.empty());
+ }
+<a href="#h10-2-3" id="h10-2-3" class="i">+
+</a><a href="#h10-2-4" id="h10-2-4" class="i">+std::string GetDatabaseIdentifier(const std::shared_ptr&lt;Repository::ISource&gt;&amp; source)
+</a><a href="#h10-2-5" id="h10-2-5" class="i">+{
+</a><a href="#h10-2-6" id="h10-2-6" class="i">+    return reinterpret_cast&lt;SQLiteIndexSource*&gt;(source-&gt;CastTo(ISourceType::SQLiteIndexSource))-&gt;GetIndex().GetDatabaseIdentifier();
+</a><a href="#h10-2-7" id="h10-2-7" class="i">+}
+</a><a href="#h10-2-8" id="h10-2-8" class="i">+
+</a><a href="#h10-2-9" id="h10-2-9" class="i">+void RequirePackagesHaveSameNames(std::shared_ptr&lt;ISource&gt;&amp; source1, std::shared_ptr&lt;ISource&gt;&amp; source2)
+</a><a href="#h10-2-10" id="h10-2-10" class="i">+{
+</a><a href="#h10-2-11" id="h10-2-11" class="i">+    auto result1 = source1-&gt;Search({});
+</a><a href="#h10-2-12" id="h10-2-12" class="i">+    REQUIRE(!result1.Matches.empty());
+</a><a href="#h10-2-13" id="h10-2-13" class="i">+
+</a><a href="#h10-2-14" id="h10-2-14" class="i">+    // Ensure that all packages have the same name values
+</a><a href="#h10-2-15" id="h10-2-15" class="i">+    for (const auto&amp; match : result1.Matches)
+</a><a href="#h10-2-16" id="h10-2-16" class="i">+    {
+</a><a href="#h10-2-17" id="h10-2-17" class="i">+        std::string packageId = match.Package-&gt;GetProperty(PackageProperty::Id).get();
+</a><a href="#h10-2-18" id="h10-2-18" class="i">+        INFO(packageId);
+</a><a href="#h10-2-19" id="h10-2-19" class="i">+
+</a><a href="#h10-2-20" id="h10-2-20" class="i">+        SearchRequest id2;
+</a><a href="#h10-2-21" id="h10-2-21" class="i">+        id2.Inclusions.emplace_back(PackageMatchFilter{ PackageMatchField::Id, MatchType::CaseInsensitive, packageId });
+</a><a href="#h10-2-22" id="h10-2-22" class="i">+        auto result2 = source2-&gt;Search(id2);
+</a><a href="#h10-2-23" id="h10-2-23" class="i">+        REQUIRE(result2.Matches.size() == 1);
+</a><a href="#h10-2-24" id="h10-2-24" class="i">+        REQUIRE(match.Package-&gt;GetProperty(PackageProperty::Name) == result2.Matches[0].Package-&gt;GetProperty(PackageProperty::Name));
+</a><a href="#h10-2-25" id="h10-2-25" class="i">+    }
+</a><a href="#h10-2-26" id="h10-2-26" class="i">+}
+</a><a href="#h10-2-27" id="h10-2-27" class="i">+
+</a><a href="#h10-2-28" id="h10-2-28" class="i">+TEST_CASE(&quot;PredefinedInstalledSource_Create_Cached&quot;, &quot;[installed][list][installed-cache]&quot;)
+</a><a href="#h10-2-29" id="h10-2-29" class="i">+{
+</a><a href="#h10-2-30" id="h10-2-30" class="i">+    auto source1 = CreatePredefinedInstalledSource();
+</a><a href="#h10-2-31" id="h10-2-31" class="i">+    auto source2 = CreatePredefinedInstalledSource();
+</a><a href="#h10-2-32" id="h10-2-32" class="i">+
+</a><a href="#h10-2-33" id="h10-2-33" class="i">+    // Ensure the same identifier (which should mean the cache was not updated)
+</a><a href="#h10-2-34" id="h10-2-34" class="i">+    REQUIRE(
+</a><a href="#h10-2-35" id="h10-2-35" class="i">+        GetDatabaseIdentifier(source1)
+</a><a href="#h10-2-36" id="h10-2-36" class="i">+        ==
+</a><a href="#h10-2-37" id="h10-2-37" class="i">+        GetDatabaseIdentifier(source2)
+</a><a href="#h10-2-38" id="h10-2-38" class="i">+    );
+</a><a href="#h10-2-39" id="h10-2-39" class="i">+
+</a><a href="#h10-2-40" id="h10-2-40" class="i">+    RequirePackagesHaveSameNames(source1, source2);
+</a><a href="#h10-2-41" id="h10-2-41" class="i">+    RequirePackagesHaveSameNames(source2, source1);
+</a><a href="#h10-2-42" id="h10-2-42" class="i">+}
+</a><a href="#h10-2-43" id="h10-2-43" class="i">+
+</a><a href="#h10-2-44" id="h10-2-44" class="i">+TEST_CASE(&quot;PredefinedInstalledSource_Create_ForceCacheUpdate&quot;, &quot;[installed][list][installed-cache]&quot;)
+</a><a href="#h10-2-45" id="h10-2-45" class="i">+{
+</a><a href="#h10-2-46" id="h10-2-46" class="i">+    auto source1 = CreatePredefinedInstalledSource();
+</a><a href="#h10-2-47" id="h10-2-47" class="i">+    auto source2 = CreatePredefinedInstalledSource(Factory::Filter::NoneWithForcedCacheUpdate);
+</a><a href="#h10-2-48" id="h10-2-48" class="i">+
+</a><a href="#h10-2-49" id="h10-2-49" class="i">+    // Ensure different identifier (which should mean the cache was updated)
+</a><a href="#h10-2-50" id="h10-2-50" class="i">+    REQUIRE(
+</a><a href="#h10-2-51" id="h10-2-51" class="i">+        GetDatabaseIdentifier(source1)
+</a><a href="#h10-2-52" id="h10-2-52" class="i">+        !=
+</a><a href="#h10-2-53" id="h10-2-53" class="i">+        GetDatabaseIdentifier(source2)
+</a><a href="#h10-2-54" id="h10-2-54" class="i">+    );
+</a><a href="#h10-2-55" id="h10-2-55" class="i">+
+</a><a href="#h10-2-56" id="h10-2-56" class="i">+    RequirePackagesHaveSameNames(source1, source2);
+</a><a href="#h10-2-57" id="h10-2-57" class="i">+    RequirePackagesHaveSameNames(source2, source1);
+</a><a href="#h10-2-58" id="h10-2-58" class="i">+}
+</a><a href="#h10-2-59" id="h10-2-59" class="i">+
+</a><a href="#h10-2-60" id="h10-2-60" class="i">+TEST_CASE(&quot;PredefinedInstalledSource_Create_ForceCacheUpdate_StillCached&quot;, &quot;[installed][list][installed-cache]&quot;)
+</a><a href="#h10-2-61" id="h10-2-61" class="i">+{
+</a><a href="#h10-2-62" id="h10-2-62" class="i">+    auto source1 = CreatePredefinedInstalledSource();
+</a><a href="#h10-2-63" id="h10-2-63" class="i">+    auto source2 = CreatePredefinedInstalledSource(Factory::Filter::NoneWithForcedCacheUpdate);
+</a><a href="#h10-2-64" id="h10-2-64" class="i">+    auto source3 = CreatePredefinedInstalledSource();
+</a><a href="#h10-2-65" id="h10-2-65" class="i">+
+</a><a href="#h10-2-66" id="h10-2-66" class="i">+    CAPTURE(GetDatabaseIdentifier(source1), GetDatabaseIdentifier(source2), GetDatabaseIdentifier(source3));
+</a><a href="#h10-2-67" id="h10-2-67" class="i">+
+</a><a href="#h10-2-68" id="h10-2-68" class="i">+    // Ensure different identifier (which should mean the cache was updated)
+</a><a href="#h10-2-69" id="h10-2-69" class="i">+    REQUIRE(
+</a><a href="#h10-2-70" id="h10-2-70" class="i">+        GetDatabaseIdentifier(source1)
+</a><a href="#h10-2-71" id="h10-2-71" class="i">+        !=
+</a><a href="#h10-2-72" id="h10-2-72" class="i">+        GetDatabaseIdentifier(source2)
+</a><a href="#h10-2-73" id="h10-2-73" class="i">+    );
+</a><a href="#h10-2-74" id="h10-2-74" class="i">+
+</a><a href="#h10-2-75" id="h10-2-75" class="i">+    // Ensure the same identifier (which should mean the cache was not updated)
+</a><a href="#h10-2-76" id="h10-2-76" class="i">+    REQUIRE(
+</a><a href="#h10-2-77" id="h10-2-77" class="i">+        GetDatabaseIdentifier(source2)
+</a><a href="#h10-2-78" id="h10-2-78" class="i">+        ==
+</a><a href="#h10-2-79" id="h10-2-79" class="i">+        GetDatabaseIdentifier(source3)
+</a><a href="#h10-2-80" id="h10-2-80" class="i">+    );
+</a><a href="#h10-2-81" id="h10-2-81" class="i">+}
+</a><b>diff --git a/<a id="h11" href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a> b/<a href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -339,6 +339,13 @@ bool IsMapDataFolded(const SQLiteIndex&amp; index)
+</a>     return (index.GetVersion() &gt;= SQLiteVersion{ 1, 7 });
+ }
+ 
+<a href="#h11-0-3" id="h11-0-3" class="i">+std::string GetPropertyStringByKey(const SQLiteIndex&amp; index, rowid_t manifestId, PackageVersionProperty property)
+</a><a href="#h11-0-4" id="h11-0-4" class="i">+{
+</a><a href="#h11-0-5" id="h11-0-5" class="i">+    auto result = index.GetPropertyByManifestId(manifestId, property);
+</a><a href="#h11-0-6" id="h11-0-6" class="i">+    REQUIRE(result);
+</a><a href="#h11-0-7" id="h11-0-7" class="i">+    return result.value();
+</a><a href="#h11-0-8" id="h11-0-8" class="i">+}
+</a><a href="#h11-0-9" id="h11-0-9" class="i">+
+</a> std::string GetPropertyStringByKey(const SQLiteIndex&amp; index, rowid_t id, PackageVersionProperty property, std::string_view version, std::string_view channel)
+ {
+     auto manifestId = index.GetManifestIdByKey(id, version, channel);
+<a href="#h11-1" id="h11-1" class="h">@@ -352,7 +359,7 @@ std::string GetPropertyStringById(const SQLiteIndex&amp; index, rowid_t id, PackageV
+</a> {
+     auto versions = index.GetVersionKeysById(id);
+     REQUIRE(!versions.empty());
+<a href="#h11-1-3" id="h11-1-3" class="d">-    return GetPropertyStringByKey(index, id, property, versions[0].GetVersion().ToString(), versions[0].GetChannel().ToString());
+</a><a href="#h11-1-4" id="h11-1-4" class="i">+    return GetPropertyStringByKey(index, versions[0].ManifestId, property);
+</a> }
+ 
+ std::string GetIdStringById(const SQLiteIndex&amp; index, rowid_t id)
+<a href="#h11-2" id="h11-2" class="h">@@ -1839,8 +1846,8 @@ TEST_CASE(&quot;SQLiteIndex_Versions&quot;, &quot;[sqliteindex]&quot;)
+</a> 
+     auto result = index.GetVersionKeysById(results.Matches[0].first);
+     REQUIRE(result.size() == 1);
+<a href="#h11-2-3" id="h11-2-3" class="d">-    REQUIRE(result[0].GetVersion().ToString() == manifest.Version);
+</a><a href="#h11-2-4" id="h11-2-4" class="d">-    REQUIRE(result[0].GetChannel().ToString() == manifest.Channel);
+</a><a href="#h11-2-5" id="h11-2-5" class="i">+    REQUIRE(result[0].VersionAndChannel.GetVersion().ToString() == manifest.Version);
+</a><a href="#h11-2-6" id="h11-2-6" class="i">+    REQUIRE(result[0].VersionAndChannel.GetChannel().ToString() == manifest.Channel);
+</a> }
+ 
+ TEST_CASE(&quot;SQLiteIndex_Search_VersionSorting&quot;, &quot;[sqliteindex]&quot;)
+<a href="#h11-3" id="h11-3" class="h">@@ -1885,7 +1892,7 @@ TEST_CASE(&quot;SQLiteIndex_Search_VersionSorting&quot;, &quot;[sqliteindex]&quot;)
+</a>     for (size_t i = 0; i &lt; result.size(); ++i)
+     {
+         const VersionAndChannel&amp; sortedVAC = sortedList[i];
+<a href="#h11-3-3" id="h11-3-3" class="d">-        const VersionAndChannel&amp; resultVAC = result[i];
+</a><a href="#h11-3-4" id="h11-3-4" class="i">+        const VersionAndChannel&amp; resultVAC = result[i].VersionAndChannel;
+</a> 
+         INFO(i);
+         REQUIRE(sortedVAC.GetVersion().ToString() == resultVAC.GetVersion().ToString());
+<a href="#h11-4" id="h11-4" class="h">@@ -1973,7 +1980,7 @@ TEST_CASE(&quot;SQLiteIndex_PathString_CaseInsensitive&quot;, &quot;[sqliteindex]&quot;)
+</a>     REQUIRE(result.has_value());
+ 
+     result = index.GetManifestIdByKey(results.Matches[0].first, &quot;13.2.0-BugFix&quot;, &quot;BETA&quot;);
+<a href="#h11-4-3" id="h11-4-3" class="d">-    REQUIRE(!result.has_value());
+</a><a href="#h11-4-4" id="h11-4-4" class="i">+    REQUIRE(result.has_value());
+</a> }
+ 
+ TEST_CASE(&quot;SQLiteIndex_SearchResultsTableSearches&quot;, &quot;[sqliteindex][V1_0]&quot;)
+<a href="#h11-5" id="h11-5" class="h">@@ -3270,14 +3277,11 @@ TEST_CASE(&quot;SQLiteIndex_MapDataFolding_PFNs&quot;, &quot;[sqliteindex][mapdatafolding]&quot;)
+</a>     auto versionKeys = index.GetVersionKeysById(results1.Matches[0].first);
+     REQUIRE(versionKeys.size() == 2);
+ 
+<a href="#h11-5-3" id="h11-5-3" class="d">-    auto manifestId1 = index.GetManifestIdByKey(results1.Matches[0].first, versionKeys[0].GetVersion().ToString(), versionKeys[0].GetChannel().ToString());
+</a><a href="#h11-5-4" id="h11-5-4" class="d">-    auto manifestId2 = index.GetManifestIdByKey(results1.Matches[0].first, versionKeys[1].GetVersion().ToString(), versionKeys[1].GetChannel().ToString());
+</a><a href="#h11-5-5" id="h11-5-5" class="i">+    auto manifestId1 = versionKeys[0].ManifestId;
+</a><a href="#h11-5-6" id="h11-5-6" class="i">+    auto manifestId2 = versionKeys[1].ManifestId;
+</a> 
+<a href="#h11-5-8" id="h11-5-8" class="d">-    REQUIRE(manifestId1.has_value());
+</a><a href="#h11-5-9" id="h11-5-9" class="d">-    REQUIRE(manifestId2.has_value());
+</a><a href="#h11-5-10" id="h11-5-10" class="d">-
+</a><a href="#h11-5-11" id="h11-5-11" class="d">-    auto pfnValues1 = index.GetMultiPropertyByManifestId(manifestId1.value(), PackageVersionMultiProperty::PackageFamilyName);
+</a><a href="#h11-5-12" id="h11-5-12" class="d">-    auto pfnValues2 = index.GetMultiPropertyByManifestId(manifestId2.value(), PackageVersionMultiProperty::PackageFamilyName);
+</a><a href="#h11-5-13" id="h11-5-13" class="i">+    auto pfnValues1 = index.GetMultiPropertyByManifestId(manifestId1, PackageVersionMultiProperty::PackageFamilyName);
+</a><a href="#h11-5-14" id="h11-5-14" class="i">+    auto pfnValues2 = index.GetMultiPropertyByManifestId(manifestId2, PackageVersionMultiProperty::PackageFamilyName);
+</a> 
+     if (IsMapDataFoldingSupported(index, testVersion))
+     {
+<a href="#h11-6" id="h11-6" class="h">@@ -3341,14 +3345,11 @@ TEST_CASE(&quot;SQLiteIndex_MapDataFolding_ProductCodes&quot;, &quot;[sqliteindex][mapdatafoldi
+</a>     auto versionKeys = index.GetVersionKeysById(results1.Matches[0].first);
+     REQUIRE(versionKeys.size() == 2);
+ 
+<a href="#h11-6-3" id="h11-6-3" class="d">-    auto manifestId1 = index.GetManifestIdByKey(results1.Matches[0].first, versionKeys[0].GetVersion().ToString(), versionKeys[0].GetChannel().ToString());
+</a><a href="#h11-6-4" id="h11-6-4" class="d">-    auto manifestId2 = index.GetManifestIdByKey(results1.Matches[0].first, versionKeys[1].GetVersion().ToString(), versionKeys[1].GetChannel().ToString());
+</a><a href="#h11-6-5" id="h11-6-5" class="d">-
+</a><a href="#h11-6-6" id="h11-6-6" class="d">-    REQUIRE(manifestId1.has_value());
+</a><a href="#h11-6-7" id="h11-6-7" class="d">-    REQUIRE(manifestId2.has_value());
+</a><a href="#h11-6-8" id="h11-6-8" class="i">+    auto manifestId1 = versionKeys[0].ManifestId;
+</a><a href="#h11-6-9" id="h11-6-9" class="i">+    auto manifestId2 = versionKeys[1].ManifestId;
+</a> 
+<a href="#h11-6-11" id="h11-6-11" class="d">-    auto pcValues1 = index.GetMultiPropertyByManifestId(manifestId1.value(), PackageVersionMultiProperty::ProductCode);
+</a><a href="#h11-6-12" id="h11-6-12" class="d">-    auto pcValues2 = index.GetMultiPropertyByManifestId(manifestId2.value(), PackageVersionMultiProperty::ProductCode);
+</a><a href="#h11-6-13" id="h11-6-13" class="i">+    auto pcValues1 = index.GetMultiPropertyByManifestId(manifestId1, PackageVersionMultiProperty::ProductCode);
+</a><a href="#h11-6-14" id="h11-6-14" class="i">+    auto pcValues2 = index.GetMultiPropertyByManifestId(manifestId2, PackageVersionMultiProperty::ProductCode);
+</a> 
+     REQUIRE(pcValues1.size() == 1);
+     REQUIRE(pcValues2.size() == 1);
+<b>diff --git a/<a id="h12" href="../file/src/AppInstallerCLITests/TestHooks.h.html">src/AppInstallerCLITests/TestHooks.h</a> b/<a href="../file/src/AppInstallerCLITests/TestHooks.h.html">src/AppInstallerCLITests/TestHooks.h</a></b>
+<a href="#h12-0" id="h12-0" class="h">@@ -39,6 +39,9 @@ namespace AppInstaller
+</a>     namespace Repository::Microsoft
+     {
+         void TestHook_SetPinningIndex_Override(std::optional&lt;std::filesystem::path&gt;&amp;&amp; indexPath);
+<a href="#h12-0-3" id="h12-0-3" class="i">+
+</a><a href="#h12-0-4" id="h12-0-4" class="i">+        using GetARPKeyFunc = std::function&lt;Registry::Key(Manifest::ScopeEnum, Utility::Architecture)&gt;;
+</a><a href="#h12-0-5" id="h12-0-5" class="i">+        void SetGetARPKeyOverride(GetARPKeyFunc value);
+</a>     }
+ 
+     namespace Logging
+<a href="#h12-1" id="h12-1" class="h">@@ -177,4 +180,19 @@ namespace TestHook
+</a>     private:
+         bool m_status;
+     };
+<a href="#h12-1-3" id="h12-1-3" class="i">+
+</a><a href="#h12-1-4" id="h12-1-4" class="i">+    struct SetGetARPKey_Override
+</a><a href="#h12-1-5" id="h12-1-5" class="i">+    {
+</a><a href="#h12-1-6" id="h12-1-6" class="i">+        SetGetARPKey_Override(std::function&lt;AppInstaller::Registry::Key(AppInstaller::Manifest::ScopeEnum, AppInstaller::Utility::Architecture)&gt; function)
+</a><a href="#h12-1-7" id="h12-1-7" class="i">+        {
+</a><a href="#h12-1-8" id="h12-1-8" class="i">+            AppInstaller::Repository::Microsoft::SetGetARPKeyOverride(function);
+</a><a href="#h12-1-9" id="h12-1-9" class="i">+        }
+</a><a href="#h12-1-10" id="h12-1-10" class="i">+
+</a><a href="#h12-1-11" id="h12-1-11" class="i">+        ~SetGetARPKey_Override()
+</a><a href="#h12-1-12" id="h12-1-12" class="i">+        {
+</a><a href="#h12-1-13" id="h12-1-13" class="i">+            AppInstaller::Repository::Microsoft::SetGetARPKeyOverride({});
+</a><a href="#h12-1-14" id="h12-1-14" class="i">+        }
+</a><a href="#h12-1-15" id="h12-1-15" class="i">+
+</a><a href="#h12-1-16" id="h12-1-16" class="i">+    private:
+</a><a href="#h12-1-17" id="h12-1-17" class="i">+    };
+</a> } 
+\ No newline at end of file
+<b>diff --git a/<a id="h13" href="../file/src/AppInstallerCommonCore/Regex.cpp.html">src/AppInstallerCommonCore/Regex.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Regex.cpp.html">src/AppInstallerCommonCore/Regex.cpp</a></b>
+<a href="#h13-0" id="h13-0" class="h">@@ -4,6 +4,7 @@
+</a> #include &quot;Public/winget/Regex.h&quot;
+ #include &quot;Public/AppInstallerErrors.h&quot;
+ #include &quot;Public/AppInstallerLogging.h&quot;
+<a href="#h13-0-3" id="h13-0-3" class="i">+#include &quot;Public/AppInstallerLanguageUtilities.h&quot;
+</a> 
+ #define WINGET_THROW_REGEX_ERROR_IF_FAILED(_err_,_func_) \
+     if (U_FAILURE(_err_)) \
+<a href="#h13-1" id="h13-1" class="h">@@ -20,6 +21,69 @@ namespace AppInstaller::Regex
+</a>         using uregex_ptr = wil::unique_any&lt;URegularExpression*, decltype(uregex_close), uregex_close&gt;;
+         using utext_ptr = wil::unique_any&lt;UText*, decltype(utext_close), utext_close&gt;;
+ 
+<a href="#h13-1-3" id="h13-1-3" class="i">+        // Create caches the original ICU regex objects in a static map and hands out copies of them
+</a><a href="#h13-1-4" id="h13-1-4" class="i">+        // when requested. Since we have a limited set, this is a very simple cache-all-forever pattern.
+</a><a href="#h13-1-5" id="h13-1-5" class="i">+        static std::unique_ptr&lt;impl&gt; Create(std::string_view pattern, Options options)
+</a><a href="#h13-1-6" id="h13-1-6" class="i">+        {
+</a><a href="#h13-1-7" id="h13-1-7" class="i">+            struct key
+</a><a href="#h13-1-8" id="h13-1-8" class="i">+            {
+</a><a href="#h13-1-9" id="h13-1-9" class="i">+                std::string pattern;
+</a><a href="#h13-1-10" id="h13-1-10" class="i">+                Options options = Options::None;
+</a><a href="#h13-1-11" id="h13-1-11" class="i">+
+</a><a href="#h13-1-12" id="h13-1-12" class="i">+                bool operator&lt;(const key&amp; other) const
+</a><a href="#h13-1-13" id="h13-1-13" class="i">+                {
+</a><a href="#h13-1-14" id="h13-1-14" class="i">+                    if (pattern &lt; other.pattern)
+</a><a href="#h13-1-15" id="h13-1-15" class="i">+                    {
+</a><a href="#h13-1-16" id="h13-1-16" class="i">+                        return true;
+</a><a href="#h13-1-17" id="h13-1-17" class="i">+                    }
+</a><a href="#h13-1-18" id="h13-1-18" class="i">+                    else if (pattern == other.pattern)
+</a><a href="#h13-1-19" id="h13-1-19" class="i">+                    {
+</a><a href="#h13-1-20" id="h13-1-20" class="i">+                        return ToIntegral(options) &lt; ToIntegral(other.options);
+</a><a href="#h13-1-21" id="h13-1-21" class="i">+                    }
+</a><a href="#h13-1-22" id="h13-1-22" class="i">+                    else
+</a><a href="#h13-1-23" id="h13-1-23" class="i">+                    {
+</a><a href="#h13-1-24" id="h13-1-24" class="i">+                        return false;
+</a><a href="#h13-1-25" id="h13-1-25" class="i">+                    }
+</a><a href="#h13-1-26" id="h13-1-26" class="i">+                }
+</a><a href="#h13-1-27" id="h13-1-27" class="i">+            };
+</a><a href="#h13-1-28" id="h13-1-28" class="i">+
+</a><a href="#h13-1-29" id="h13-1-29" class="i">+            struct statics
+</a><a href="#h13-1-30" id="h13-1-30" class="i">+            {
+</a><a href="#h13-1-31" id="h13-1-31" class="i">+                std::map&lt;key, impl&gt; map;
+</a><a href="#h13-1-32" id="h13-1-32" class="i">+                wil::srwlock lock;
+</a><a href="#h13-1-33" id="h13-1-33" class="i">+            };
+</a><a href="#h13-1-34" id="h13-1-34" class="i">+
+</a><a href="#h13-1-35" id="h13-1-35" class="i">+            static statics s_regex_cache;
+</a><a href="#h13-1-36" id="h13-1-36" class="i">+
+</a><a href="#h13-1-37" id="h13-1-37" class="i">+            key requested;
+</a><a href="#h13-1-38" id="h13-1-38" class="i">+            requested.pattern = pattern;
+</a><a href="#h13-1-39" id="h13-1-39" class="i">+            requested.options = options;
+</a><a href="#h13-1-40" id="h13-1-40" class="i">+
+</a><a href="#h13-1-41" id="h13-1-41" class="i">+            {
+</a><a href="#h13-1-42" id="h13-1-42" class="i">+                // Attempt to find in the cache
+</a><a href="#h13-1-43" id="h13-1-43" class="i">+                auto sharedLock = s_regex_cache.lock.lock_shared();
+</a><a href="#h13-1-44" id="h13-1-44" class="i">+
+</a><a href="#h13-1-45" id="h13-1-45" class="i">+                auto itr = s_regex_cache.map.find(requested);
+</a><a href="#h13-1-46" id="h13-1-46" class="i">+                if (itr != s_regex_cache.map.end())
+</a><a href="#h13-1-47" id="h13-1-47" class="i">+                {
+</a><a href="#h13-1-48" id="h13-1-48" class="i">+                    return std::make_unique&lt;impl&gt;(itr-&gt;second);
+</a><a href="#h13-1-49" id="h13-1-49" class="i">+                }
+</a><a href="#h13-1-50" id="h13-1-50" class="i">+            }
+</a><a href="#h13-1-51" id="h13-1-51" class="i">+
+</a><a href="#h13-1-52" id="h13-1-52" class="i">+            auto exclusiveLock = s_regex_cache.lock.lock_exclusive();
+</a><a href="#h13-1-53" id="h13-1-53" class="i">+
+</a><a href="#h13-1-54" id="h13-1-54" class="i">+            // Check if another thread created it while we waited for the lock.
+</a><a href="#h13-1-55" id="h13-1-55" class="i">+            auto itr = s_regex_cache.map.find(requested);
+</a><a href="#h13-1-56" id="h13-1-56" class="i">+            if (itr != s_regex_cache.map.end())
+</a><a href="#h13-1-57" id="h13-1-57" class="i">+            {
+</a><a href="#h13-1-58" id="h13-1-58" class="i">+                return std::make_unique&lt;impl&gt;(itr-&gt;second);
+</a><a href="#h13-1-59" id="h13-1-59" class="i">+            }
+</a><a href="#h13-1-60" id="h13-1-60" class="i">+            else
+</a><a href="#h13-1-61" id="h13-1-61" class="i">+            {
+</a><a href="#h13-1-62" id="h13-1-62" class="i">+                return std::make_unique&lt;impl&gt;(s_regex_cache.map.emplace(std::move(requested), impl{ pattern, options }).first-&gt;second);
+</a><a href="#h13-1-63" id="h13-1-63" class="i">+            }
+</a><a href="#h13-1-64" id="h13-1-64" class="i">+        }
+</a><a href="#h13-1-65" id="h13-1-65" class="i">+
+</a>         impl(std::string_view pattern, Options options)
+         {
+             UErrorCode uec = U_ZERO_ERROR;
+<a href="#h13-2" id="h13-2" class="h">@@ -167,7 +231,7 @@ namespace AppInstaller::Regex
+</a> 
+     Expression::Expression() = default;
+ 
+<a href="#h13-2-3" id="h13-2-3" class="d">-    Expression::Expression(std::string_view pattern, Options options) : pImpl(std::make_unique&lt;impl&gt;(pattern, options)) {}
+</a><a href="#h13-2-4" id="h13-2-4" class="i">+    Expression::Expression(std::string_view pattern, Options options) : pImpl(impl::Create(pattern, options)) {}
+</a> 
+     Expression::Expression(const Expression&amp; other)
+     {
+<b>diff --git a/<a id="h14" href="../file/src/AppInstallerRepositoryCore/ArpVersionValidation.cpp.html">src/AppInstallerRepositoryCore/ArpVersionValidation.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/ArpVersionValidation.cpp.html">src/AppInstallerRepositoryCore/ArpVersionValidation.cpp</a></b>
+<a href="#h14-0" id="h14-0" class="h">@@ -1,49 +1,45 @@
+</a><a href="#h14-0-0" id="h14-0-0" class="d">-// Copyright (c) Microsoft Corporation.
+</a><a href="#h14-0-1" id="h14-0-1" class="d">-// Licensed under the MIT License.
+</a><a href="#h14-0-2" id="h14-0-2" class="d">-#pragma once
+</a><a href="#h14-0-3" id="h14-0-3" class="d">-#include &quot;pch.h&quot;
+</a><a href="#h14-0-4" id="h14-0-4" class="d">-#include &quot;ArpVersionValidation.h&quot;
+</a><a href="#h14-0-5" id="h14-0-5" class="d">-#include &lt;winget/ManifestValidation.h&gt;
+</a><a href="#h14-0-6" id="h14-0-6" class="d">-
+</a><a href="#h14-0-7" id="h14-0-7" class="d">-namespace AppInstaller::Repository
+</a><a href="#h14-0-8" id="h14-0-8" class="d">-{
+</a><a href="#h14-0-9" id="h14-0-9" class="d">-    namespace
+</a><a href="#h14-0-10" id="h14-0-10" class="d">-    {
+</a><a href="#h14-0-11" id="h14-0-11" class="d">-        std::vector&lt;Utility::VersionRange&gt; GetArpVersionRangesByPackageRowId(const Microsoft::SQLiteIndex* index, Microsoft::SQLiteIndex::IdType packageRowId, const Utility::VersionAndChannel&amp; excludeVersionAndChannel = {})
+</a><a href="#h14-0-12" id="h14-0-12" class="d">-        {
+</a><a href="#h14-0-13" id="h14-0-13" class="d">-            std::vector&lt;Utility::VersionRange&gt; result;
+</a><a href="#h14-0-14" id="h14-0-14" class="d">-
+</a><a href="#h14-0-15" id="h14-0-15" class="d">-            auto versionKeys = index-&gt;GetVersionKeysById(packageRowId);
+</a><a href="#h14-0-16" id="h14-0-16" class="d">-            for (auto const&amp; versionKey : versionKeys)
+</a><a href="#h14-0-17" id="h14-0-17" class="d">-            {
+</a><a href="#h14-0-18" id="h14-0-18" class="d">-                // For manifest update, the manifest to be updated does not need to be checked.
+</a><a href="#h14-0-19" id="h14-0-19" class="d">-                // In unlikely cases if both version 1.0.0 and 1.0 of the same package exist, we compare raw values here as what sqlite index does.
+</a><a href="#h14-0-20" id="h14-0-20" class="d">-                if (versionKey.GetVersion().ToString() == excludeVersionAndChannel.GetVersion().ToString() &amp;&amp;
+</a><a href="#h14-0-21" id="h14-0-21" class="d">-                    versionKey.GetChannel().ToString() == excludeVersionAndChannel.GetChannel().ToString())
+</a><a href="#h14-0-22" id="h14-0-22" class="d">-                {
+</a><a href="#h14-0-23" id="h14-0-23" class="d">-                    continue;
+</a><a href="#h14-0-24" id="h14-0-24" class="d">-                }
+</a><a href="#h14-0-25" id="h14-0-25" class="d">-
+</a><a href="#h14-0-26" id="h14-0-26" class="d">-                std::optional&lt;Microsoft::SQLiteIndex::IdType&gt; manifestRowId = index-&gt;GetManifestIdByKey(packageRowId, versionKey.GetVersion().ToString(), versionKey.GetChannel().ToString());
+</a><a href="#h14-0-27" id="h14-0-27" class="d">-                if (manifestRowId)
+</a><a href="#h14-0-28" id="h14-0-28" class="i">+// Copyright (c) Microsoft Corporation.
+</a><a href="#h14-0-29" id="h14-0-29" class="i">+// Licensed under the MIT License.
+</a><a href="#h14-0-30" id="h14-0-30" class="i">+#pragma once
+</a><a href="#h14-0-31" id="h14-0-31" class="i">+#include &quot;pch.h&quot;
+</a><a href="#h14-0-32" id="h14-0-32" class="i">+#include &quot;ArpVersionValidation.h&quot;
+</a><a href="#h14-0-33" id="h14-0-33" class="i">+#include &lt;winget/ManifestValidation.h&gt;
+</a><a href="#h14-0-34" id="h14-0-34" class="i">+
+</a><a href="#h14-0-35" id="h14-0-35" class="i">+namespace AppInstaller::Repository
+</a><a href="#h14-0-36" id="h14-0-36" class="i">+{
+</a><a href="#h14-0-37" id="h14-0-37" class="i">+    namespace
+</a><a href="#h14-0-38" id="h14-0-38" class="i">+    {
+</a><a href="#h14-0-39" id="h14-0-39" class="i">+        std::vector&lt;Utility::VersionRange&gt; GetArpVersionRangesByPackageRowId(const Microsoft::SQLiteIndex* index, Microsoft::SQLiteIndex::IdType packageRowId, const Utility::VersionAndChannel&amp; excludeVersionAndChannel = {})
+</a><a href="#h14-0-40" id="h14-0-40" class="i">+        {
+</a><a href="#h14-0-41" id="h14-0-41" class="i">+            std::vector&lt;Utility::VersionRange&gt; result;
+</a><a href="#h14-0-42" id="h14-0-42" class="i">+
+</a><a href="#h14-0-43" id="h14-0-43" class="i">+            auto versionKeys = index-&gt;GetVersionKeysById(packageRowId);
+</a><a href="#h14-0-44" id="h14-0-44" class="i">+            for (auto const&amp; versionKey : versionKeys)
+</a><a href="#h14-0-45" id="h14-0-45" class="i">+            {
+</a><a href="#h14-0-46" id="h14-0-46" class="i">+                // For manifest update, the manifest to be updated does not need to be checked.
+</a><a href="#h14-0-47" id="h14-0-47" class="i">+                // In unlikely cases if both version 1.0.0 and 1.0 of the same package exist, we compare raw values here as what sqlite index does.
+</a><a href="#h14-0-48" id="h14-0-48" class="i">+                if (versionKey.VersionAndChannel.GetVersion().ToString() == excludeVersionAndChannel.GetVersion().ToString() &amp;&amp;
+</a><a href="#h14-0-49" id="h14-0-49" class="i">+                    versionKey.VersionAndChannel.GetChannel().ToString() == excludeVersionAndChannel.GetChannel().ToString())
+</a>                 {
+<a href="#h14-0-51" id="h14-0-51" class="d">-                    auto arpMinVersion = index-&gt;GetPropertyByManifestId(manifestRowId.value(), PackageVersionProperty::ArpMinVersion).value_or(&quot;&quot;);
+</a><a href="#h14-0-52" id="h14-0-52" class="d">-                    auto arpMaxVersion = index-&gt;GetPropertyByManifestId(manifestRowId.value(), PackageVersionProperty::ArpMaxVersion).value_or(&quot;&quot;);
+</a><a href="#h14-0-53" id="h14-0-53" class="i">+                    continue;
+</a><a href="#h14-0-54" id="h14-0-54" class="i">+                }
+</a><a href="#h14-0-55" id="h14-0-55" class="i">+
+</a><a href="#h14-0-56" id="h14-0-56" class="i">+                auto arpMinVersion = index-&gt;GetPropertyByManifestId(versionKey.ManifestId, PackageVersionProperty::ArpMinVersion).value_or(&quot;&quot;);
+</a><a href="#h14-0-57" id="h14-0-57" class="i">+                auto arpMaxVersion = index-&gt;GetPropertyByManifestId(versionKey.ManifestId, PackageVersionProperty::ArpMaxVersion).value_or(&quot;&quot;);
+</a> 
+<a href="#h14-0-59" id="h14-0-59" class="d">-                    // Either both empty or both not empty
+</a><a href="#h14-0-60" id="h14-0-60" class="d">-                    THROW_HR_IF(E_UNEXPECTED, arpMinVersion.empty() != arpMaxVersion.empty());
+</a><a href="#h14-0-61" id="h14-0-61" class="i">+                // Either both empty or both not empty
+</a><a href="#h14-0-62" id="h14-0-62" class="i">+                THROW_HR_IF(E_UNEXPECTED, arpMinVersion.empty() != arpMaxVersion.empty());
+</a><a href="#h14-0-63" id="h14-0-63" class="i">+
+</a><a href="#h14-0-64" id="h14-0-64" class="i">+                if (!arpMinVersion.empty() &amp;&amp; !arpMaxVersion.empty())
+</a><a href="#h14-0-65" id="h14-0-65" class="i">+                {
+</a><a href="#h14-0-66" id="h14-0-66" class="i">+                    result.emplace_back(Utility::VersionRange{ Utility::Version{ std::move(arpMinVersion) }, Utility::Version{ std::move(arpMaxVersion) } });
+</a><a href="#h14-0-67" id="h14-0-67" class="i">+                }
+</a><a href="#h14-0-68" id="h14-0-68" class="i">+            }
+</a><a href="#h14-0-69" id="h14-0-69" class="i">+
+</a><a href="#h14-0-70" id="h14-0-70" class="i">+            return result;
+</a><a href="#h14-0-71" id="h14-0-71" class="i">+        }
+</a><a href="#h14-0-72" id="h14-0-72" class="i">+    }
+</a> 
+<a href="#h14-0-74" id="h14-0-74" class="d">-                    if (!arpMinVersion.empty() &amp;&amp; !arpMaxVersion.empty())
+</a><a href="#h14-0-75" id="h14-0-75" class="d">-                    {
+</a><a href="#h14-0-76" id="h14-0-76" class="d">-                        result.emplace_back(Utility::VersionRange{ Utility::Version{ std::move(arpMinVersion) }, Utility::Version{ std::move(arpMaxVersion) } });
+</a><a href="#h14-0-77" id="h14-0-77" class="d">-                    }
+</a><a href="#h14-0-78" id="h14-0-78" class="d">-                }
+</a><a href="#h14-0-79" id="h14-0-79" class="d">-            }
+</a><a href="#h14-0-80" id="h14-0-80" class="d">-
+</a><a href="#h14-0-81" id="h14-0-81" class="d">-            return result;
+</a><a href="#h14-0-82" id="h14-0-82" class="d">-        }
+</a><a href="#h14-0-83" id="h14-0-83" class="d">-    }
+</a><a href="#h14-0-84" id="h14-0-84" class="d">-
+</a>     void ValidateManifestArpVersion(const Microsoft::SQLiteIndex* index, const Manifest::Manifest&amp; manifest)
+     {
+         try
+<a href="#h14-1" id="h14-1" class="h">@@ -54,14 +50,14 @@ namespace AppInstaller::Repository
+</a>                 return;
+             }
+ 
+<a href="#h14-1-3" id="h14-1-3" class="d">-            SearchRequest request;
+</a><a href="#h14-1-4" id="h14-1-4" class="d">-            request.Filters.emplace_back(PackageMatchField::Id, MatchType::CaseInsensitive, manifest.Id);
+</a><a href="#h14-1-5" id="h14-1-5" class="d">-            auto searchResult = index-&gt;Search(request);
+</a><a href="#h14-1-6" id="h14-1-6" class="d">-            if (searchResult.Matches.empty())
+</a><a href="#h14-1-7" id="h14-1-7" class="d">-            {
+</a><a href="#h14-1-8" id="h14-1-8" class="d">-                return;
+</a><a href="#h14-1-9" id="h14-1-9" class="d">-            }
+</a><a href="#h14-1-10" id="h14-1-10" class="d">-
+</a><a href="#h14-1-11" id="h14-1-11" class="i">+            SearchRequest request;
+</a><a href="#h14-1-12" id="h14-1-12" class="i">+            request.Filters.emplace_back(PackageMatchField::Id, MatchType::CaseInsensitive, manifest.Id);
+</a><a href="#h14-1-13" id="h14-1-13" class="i">+            auto searchResult = index-&gt;Search(request);
+</a><a href="#h14-1-14" id="h14-1-14" class="i">+            if (searchResult.Matches.empty())
+</a><a href="#h14-1-15" id="h14-1-15" class="i">+            {
+</a><a href="#h14-1-16" id="h14-1-16" class="i">+                return;
+</a><a href="#h14-1-17" id="h14-1-17" class="i">+            }
+</a><a href="#h14-1-18" id="h14-1-18" class="i">+
+</a>             auto arpVersionRangesInIndex = GetArpVersionRangesByPackageRowId(index, searchResult.Matches[0].first, { Utility::Version{ manifest.Version }, Utility::Channel{ manifest.Channel } });
+             for (auto const&amp; arpInIndex : arpVersionRangesInIndex)
+             {
+<a href="#h14-2" id="h14-2" class="h">@@ -89,5 +85,5 @@ namespace AppInstaller::Repository
+</a>                 { Manifest::ValidationError(Manifest::ManifestError::ArpVersionValidationInternalError) },
+                 APPINSTALLER_CLI_ERROR_DEPENDENCIES_VALIDATION_FAILED));
+         }
+<a href="#h14-2-3" id="h14-2-3" class="d">-    }
+</a><a href="#h14-2-4" id="h14-2-4" class="i">+    }
+</a> } 
+\ No newline at end of file
+<b>diff --git a/<a id="h15" href="../file/src/AppInstallerRepositoryCore/Microsoft/ARPHelper.cpp.html">src/AppInstallerRepositoryCore/Microsoft/ARPHelper.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/ARPHelper.cpp.html">src/AppInstallerRepositoryCore/Microsoft/ARPHelper.cpp</a></b>
+<a href="#h15-0" id="h15-0" class="h">@@ -108,15 +108,32 @@ namespace AppInstaller::Repository::Microsoft
+</a>                         CATCH_LOG_MSG(&quot;Failed to read upgrade code: %hs&quot;, keyName.c_str());
+                     }
+                 }
+<a href="#h15-0-3" id="h15-0-3" class="d">-            }
+</a><a href="#h15-0-4" id="h15-0-4" class="i">+            }
+</a>             CATCH_LOG_MSG(&quot;Failed to read upgrade codes.&quot;);
+ 
+             return upgradeCodes;
+         }
+     }
+ 
+<a href="#h15-0-11" id="h15-0-11" class="i">+#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h15-0-12" id="h15-0-12" class="i">+    using GetARPKeyFunc = std::function&lt;Registry::Key(Manifest::ScopeEnum, Utility::Architecture)&gt;;
+</a><a href="#h15-0-13" id="h15-0-13" class="i">+    static GetARPKeyFunc s_GetARPKey_Override;
+</a><a href="#h15-0-14" id="h15-0-14" class="i">+
+</a><a href="#h15-0-15" id="h15-0-15" class="i">+    void SetGetARPKeyOverride(GetARPKeyFunc value)
+</a><a href="#h15-0-16" id="h15-0-16" class="i">+    {
+</a><a href="#h15-0-17" id="h15-0-17" class="i">+        s_GetARPKey_Override = value;
+</a><a href="#h15-0-18" id="h15-0-18" class="i">+    }
+</a><a href="#h15-0-19" id="h15-0-19" class="i">+#endif
+</a><a href="#h15-0-20" id="h15-0-20" class="i">+
+</a>     Registry::Key ARPHelper::GetARPKey(Manifest::ScopeEnum scope, Utility::Architecture architecture) const
+     {
+<a href="#h15-0-23" id="h15-0-23" class="i">+#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h15-0-24" id="h15-0-24" class="i">+        if (s_GetARPKey_Override)
+</a><a href="#h15-0-25" id="h15-0-25" class="i">+        {
+</a><a href="#h15-0-26" id="h15-0-26" class="i">+            return s_GetARPKey_Override(scope, architecture);
+</a><a href="#h15-0-27" id="h15-0-27" class="i">+        }
+</a><a href="#h15-0-28" id="h15-0-28" class="i">+#endif
+</a><a href="#h15-0-29" id="h15-0-29" class="i">+
+</a>         HKEY rootKey = NULL;
+ 
+         switch (scope)
+<a href="#h15-1" id="h15-1" class="h">@@ -368,7 +385,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     void ARPHelper::PopulateIndexFromKey(SQLiteIndex&amp; index, const Registry::Key&amp; key, std::string_view scope, std::string_view architecture, const std::map&lt;std::string, std::string&gt;&amp; upgradeCodes) const
+     {
+<a href="#h15-1-3" id="h15-1-3" class="d">-        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Examining ARP entries for &quot; &lt;&lt; scope &lt;&lt; &quot; | &quot; &lt;&lt; architecture);
+</a><a href="#h15-1-4" id="h15-1-4" class="i">+        AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Examining ARP entries for &quot; &lt;&lt; scope &lt;&lt; &quot; | &quot; &lt;&lt; architecture);
+</a> 
+         for (const auto&amp; arpEntry : key)
+         {
+<a href="#h15-2" id="h15-2" class="h">@@ -532,4 +549,34 @@ namespace AppInstaller::Repository::Microsoft
+</a>             }
+         }
+     }
+<a href="#h15-2-3" id="h15-2-3" class="i">+
+</a><a href="#h15-2-4" id="h15-2-4" class="i">+    std::vector&lt;wil::unique_registry_watcher&gt; ARPHelper::CreateRegistryWatchers(Manifest::ScopeEnum scope, std::function&lt;void(Manifest::ScopeEnum, Utility::Architecture, wil::RegistryChangeKind)&gt; callback)
+</a><a href="#h15-2-5" id="h15-2-5" class="i">+    {
+</a><a href="#h15-2-6" id="h15-2-6" class="i">+        std::vector&lt;wil::unique_registry_watcher&gt; result;
+</a><a href="#h15-2-7" id="h15-2-7" class="i">+
+</a><a href="#h15-2-8" id="h15-2-8" class="i">+        auto addToResult = [&amp;](Manifest::ScopeEnum scopeToUse)
+</a><a href="#h15-2-9" id="h15-2-9" class="i">+            {
+</a><a href="#h15-2-10" id="h15-2-10" class="i">+                for (auto architecture : Utility::GetApplicableArchitectures())
+</a><a href="#h15-2-11" id="h15-2-11" class="i">+                {
+</a><a href="#h15-2-12" id="h15-2-12" class="i">+                    Registry::Key arpRootKey = GetARPKey(scopeToUse, architecture);
+</a><a href="#h15-2-13" id="h15-2-13" class="i">+
+</a><a href="#h15-2-14" id="h15-2-14" class="i">+                    if (arpRootKey)
+</a><a href="#h15-2-15" id="h15-2-15" class="i">+                    {
+</a><a href="#h15-2-16" id="h15-2-16" class="i">+                        result.emplace_back(wil::make_registry_watcher(arpRootKey, L&quot;&quot;, true, [scopeToUse, architecture, callback](wil::RegistryChangeKind change) { callback(scopeToUse, architecture, change); }));
+</a><a href="#h15-2-17" id="h15-2-17" class="i">+                    }
+</a><a href="#h15-2-18" id="h15-2-18" class="i">+                }
+</a><a href="#h15-2-19" id="h15-2-19" class="i">+            };
+</a><a href="#h15-2-20" id="h15-2-20" class="i">+
+</a><a href="#h15-2-21" id="h15-2-21" class="i">+        if (scope == Manifest::ScopeEnum::Unknown)
+</a><a href="#h15-2-22" id="h15-2-22" class="i">+        {
+</a><a href="#h15-2-23" id="h15-2-23" class="i">+            addToResult(Manifest::ScopeEnum::User);
+</a><a href="#h15-2-24" id="h15-2-24" class="i">+            addToResult(Manifest::ScopeEnum::Machine);
+</a><a href="#h15-2-25" id="h15-2-25" class="i">+        }
+</a><a href="#h15-2-26" id="h15-2-26" class="i">+        else
+</a><a href="#h15-2-27" id="h15-2-27" class="i">+        {
+</a><a href="#h15-2-28" id="h15-2-28" class="i">+            addToResult(scope);
+</a><a href="#h15-2-29" id="h15-2-29" class="i">+        }
+</a><a href="#h15-2-30" id="h15-2-30" class="i">+
+</a><a href="#h15-2-31" id="h15-2-31" class="i">+        return result;
+</a><a href="#h15-2-32" id="h15-2-32" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h16" href="../file/src/AppInstallerRepositoryCore/Microsoft/ARPHelper.h.html">src/AppInstallerRepositoryCore/Microsoft/ARPHelper.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/ARPHelper.h.html">src/AppInstallerRepositoryCore/Microsoft/ARPHelper.h</a></b>
+<a href="#h16-0" id="h16-0" class="h">@@ -5,9 +5,11 @@
+</a> #include &lt;AppInstallerArchitecture.h&gt;
+ #include &lt;winget/Registry.h&gt;
+ #include &lt;winget/ManifestInstaller.h&gt;
+<a href="#h16-0-3" id="h16-0-3" class="i">+#include &lt;wil/registry.h&gt;
+</a> #include &lt;wil/resource.h&gt;
+ 
+ #include &lt;string&gt;
+<a href="#h16-0-7" id="h16-0-7" class="i">+#include &lt;vector&gt;
+</a> 
+ namespace AppInstaller::Repository::Microsoft
+ {
+<a href="#h16-1" id="h16-1" class="h">@@ -86,5 +88,8 @@ namespace AppInstaller::Repository::Microsoft
+</a>         // This entry point is primarily to allow unit tests to operate of arbitrary keys;
+         // product code should use PopulateIndexFromARP.
+         void PopulateIndexFromKey(SQLiteIndex&amp; index, const Registry::Key&amp; key, std::string_view scope, std::string_view architecture, const std::map&lt;std::string, std::string&gt;&amp; upgradeCodes = {}) const;
+<a href="#h16-1-3" id="h16-1-3" class="i">+
+</a><a href="#h16-1-4" id="h16-1-4" class="i">+        // Creates registry watchers for the given scope
+</a><a href="#h16-1-5" id="h16-1-5" class="i">+        std::vector&lt;wil::unique_registry_watcher&gt; CreateRegistryWatchers(Manifest::ScopeEnum scope, std::function&lt;void(Manifest::ScopeEnum, Utility::Architecture, wil::RegistryChangeKind)&gt; callback);
+</a>     };
+ }
+<b>diff --git a/<a id="h17" href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></b>
+<a href="#h17-0" id="h17-0" class="h">@@ -17,13 +17,54 @@ namespace AppInstaller::Repository::Microsoft
+</a> {
+     namespace
+     {
+<a href="#h17-0-3" id="h17-0-3" class="i">+        std::optional&lt;std::string&gt; GetCachedMSIXName(const Utility::NormalizedString&amp; id, const Utility::Version&amp; version, SQLiteIndex&amp; cacheData)
+</a><a href="#h17-0-4" id="h17-0-4" class="i">+        {
+</a><a href="#h17-0-5" id="h17-0-5" class="i">+            SearchRequest searchRequest;
+</a><a href="#h17-0-6" id="h17-0-6" class="i">+            searchRequest.Inclusions.emplace_back(PackageMatchField::Id, MatchType::Exact, id);
+</a><a href="#h17-0-7" id="h17-0-7" class="i">+
+</a><a href="#h17-0-8" id="h17-0-8" class="i">+            SQLiteIndex::SearchResult searchResult = cacheData.Search(searchRequest);
+</a><a href="#h17-0-9" id="h17-0-9" class="i">+
+</a><a href="#h17-0-10" id="h17-0-10" class="i">+            if (searchResult.Matches.empty())
+</a><a href="#h17-0-11" id="h17-0-11" class="i">+            {
+</a><a href="#h17-0-12" id="h17-0-12" class="i">+                return std::nullopt;
+</a><a href="#h17-0-13" id="h17-0-13" class="i">+            }
+</a><a href="#h17-0-14" id="h17-0-14" class="i">+
+</a><a href="#h17-0-15" id="h17-0-15" class="i">+            if (searchResult.Matches.size() != 1)
+</a><a href="#h17-0-16" id="h17-0-16" class="i">+            {
+</a><a href="#h17-0-17" id="h17-0-17" class="i">+                // This is very unexpected, but just log it and carry on
+</a><a href="#h17-0-18" id="h17-0-18" class="i">+                AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Found multiple (&quot; &lt;&lt; searchResult.Matches.size() &lt;&lt; &quot;) cache entries for: &quot; &lt;&lt; id);
+</a><a href="#h17-0-19" id="h17-0-19" class="i">+                return std::nullopt;
+</a><a href="#h17-0-20" id="h17-0-20" class="i">+            }
+</a><a href="#h17-0-21" id="h17-0-21" class="i">+
+</a><a href="#h17-0-22" id="h17-0-22" class="i">+            auto versionKeys = cacheData.GetVersionKeysById(searchResult.Matches[0].first);
+</a><a href="#h17-0-23" id="h17-0-23" class="i">+            const SQLiteIndex::VersionKey* versionKey = nullptr;
+</a><a href="#h17-0-24" id="h17-0-24" class="i">+
+</a><a href="#h17-0-25" id="h17-0-25" class="i">+            for (const auto&amp; key : versionKeys)
+</a><a href="#h17-0-26" id="h17-0-26" class="i">+            {
+</a><a href="#h17-0-27" id="h17-0-27" class="i">+                if (key.VersionAndChannel.GetVersion() == version)
+</a><a href="#h17-0-28" id="h17-0-28" class="i">+                {
+</a><a href="#h17-0-29" id="h17-0-29" class="i">+                    versionKey = &amp;key;
+</a><a href="#h17-0-30" id="h17-0-30" class="i">+                    break;
+</a><a href="#h17-0-31" id="h17-0-31" class="i">+                }
+</a><a href="#h17-0-32" id="h17-0-32" class="i">+            }
+</a><a href="#h17-0-33" id="h17-0-33" class="i">+
+</a><a href="#h17-0-34" id="h17-0-34" class="i">+            if (!versionKey)
+</a><a href="#h17-0-35" id="h17-0-35" class="i">+            {
+</a><a href="#h17-0-36" id="h17-0-36" class="i">+                return std::nullopt;
+</a><a href="#h17-0-37" id="h17-0-37" class="i">+            }
+</a><a href="#h17-0-38" id="h17-0-38" class="i">+
+</a><a href="#h17-0-39" id="h17-0-39" class="i">+            return cacheData.GetPropertyByManifestId(versionKey-&gt;ManifestId, PackageVersionProperty::Name);
+</a><a href="#h17-0-40" id="h17-0-40" class="i">+        }
+</a><a href="#h17-0-41" id="h17-0-41" class="i">+
+</a>         // Populates the index with the entries from MSIX.
+<a href="#h17-0-43" id="h17-0-43" class="d">-        void PopulateIndexFromMSIX(SQLiteIndex&amp; index, Manifest::ScopeEnum scope)
+</a><a href="#h17-0-44" id="h17-0-44" class="i">+        void PopulateIndexFromMSIX(SQLiteIndex&amp; index, Manifest::ScopeEnum scope, SQLiteIndex* cacheData = nullptr)
+</a>         {
+             using namespace winrt::Windows::ApplicationModel;
+             using namespace winrt::Windows::Management::Deployment;
+             using namespace winrt::Windows::Foundation::Collections;
+ 
+<a href="#h17-0-50" id="h17-0-50" class="i">+            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Examining MSIX entries for &quot; &lt;&lt; ScopeToString(scope));
+</a><a href="#h17-0-51" id="h17-0-51" class="i">+
+</a>             IIterable&lt;Package&gt; packages;
+             PackageManager packageManager;
+             if (scope == Manifest::ScopeEnum::Machine)
+<a href="#h17-1" id="h17-1" class="h">@@ -63,10 +104,31 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+                 manifest.Id = familyName;
+ 
+<a href="#h17-1-3" id="h17-1-3" class="i">+                // Get version
+</a><a href="#h17-1-4" id="h17-1-4" class="i">+                std::ostringstream strstr;
+</a><a href="#h17-1-5" id="h17-1-5" class="i">+                auto packageVersion = packageId.Version();
+</a><a href="#h17-1-6" id="h17-1-6" class="i">+                strstr &lt;&lt; packageVersion.Major &lt;&lt; &#39;.&#39; &lt;&lt; packageVersion.Minor &lt;&lt; &#39;.&#39; &lt;&lt; packageVersion.Build &lt;&lt; &#39;.&#39; &lt;&lt; packageVersion.Revision;
+</a><a href="#h17-1-7" id="h17-1-7" class="i">+
+</a><a href="#h17-1-8" id="h17-1-8" class="i">+                manifest.Version = strstr.str();
+</a><a href="#h17-1-9" id="h17-1-9" class="i">+
+</a><a href="#h17-1-10" id="h17-1-10" class="i">+                // Determine package name
+</a>                 bool isPackageNameSet = false;
+<a href="#h17-1-12" id="h17-1-12" class="i">+
+</a><a href="#h17-1-13" id="h17-1-13" class="i">+                // Look for the name in the cache data first
+</a><a href="#h17-1-14" id="h17-1-14" class="i">+                if (cacheData)
+</a><a href="#h17-1-15" id="h17-1-15" class="i">+                {
+</a><a href="#h17-1-16" id="h17-1-16" class="i">+                    std::optional&lt;std::string&gt; cachedName = GetCachedMSIXName(manifest.Id, manifest.Version, *cacheData);
+</a><a href="#h17-1-17" id="h17-1-17" class="i">+
+</a><a href="#h17-1-18" id="h17-1-18" class="i">+                    if (cachedName)
+</a><a href="#h17-1-19" id="h17-1-19" class="i">+                    {
+</a><a href="#h17-1-20" id="h17-1-20" class="i">+                        manifest.DefaultLocalization.Add&lt;Manifest::Localization::PackageName&gt;(cachedName.value());
+</a><a href="#h17-1-21" id="h17-1-21" class="i">+                        isPackageNameSet = true;
+</a><a href="#h17-1-22" id="h17-1-22" class="i">+                    }
+</a><a href="#h17-1-23" id="h17-1-23" class="i">+                }
+</a><a href="#h17-1-24" id="h17-1-24" class="i">+
+</a>                 // Attempt to get the DisplayName. Since this will retrieve the localized value, it has a chance to fail.
+                 // Rather than completely skip this package in that case, we will simply fall back to using the package name below.
+<a href="#h17-1-27" id="h17-1-27" class="d">-                if (!Runtime::IsRunningAsSystem())
+</a><a href="#h17-1-28" id="h17-1-28" class="i">+                if (!isPackageNameSet &amp;&amp; !Runtime::IsRunningAsSystem())
+</a>                 {
+                     try
+                     {
+<a href="#h17-2" id="h17-2" class="h">@@ -79,12 +141,12 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     }
+                     catch (const winrt::hresult_error&amp; hre)
+                     {
+<a href="#h17-2-3" id="h17-2-3" class="d">-                        AICLI_LOG(Repo, Info, &lt;&lt; &quot;winrt::hresult_error[0x&quot; &lt;&lt; Logging::SetHRFormat &lt;&lt; hre.code() &lt;&lt; &quot;: &quot; &lt;&lt;
+</a><a href="#h17-2-4" id="h17-2-4" class="i">+                        AICLI_LOG(Repo, Warning, &lt;&lt; &quot;winrt::hresult_error[0x&quot; &lt;&lt; Logging::SetHRFormat &lt;&lt; hre.code() &lt;&lt; &quot;: &quot; &lt;&lt;
+</a>                             Utility::ConvertToUTF8(hre.message()) &lt;&lt; &quot;] exception thrown when getting DisplayName for &quot; &lt;&lt; familyName);
+                     }
+                     catch (...)
+                     {
+<a href="#h17-2-9" id="h17-2-9" class="d">-                        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Unknown exception thrown when getting DisplayName for &quot; &lt;&lt; familyName);
+</a><a href="#h17-2-10" id="h17-2-10" class="i">+                        AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Unknown exception thrown when getting DisplayName for &quot; &lt;&lt; familyName);
+</a>                     }
+                 }
+ 
+<a href="#h17-3" id="h17-3" class="h">@@ -93,12 +155,6 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     manifest.DefaultLocalization.Add&lt;Manifest::Localization::PackageName&gt;(Utility::ConvertToUTF8(packageId.Name()));
+                 }
+ 
+<a href="#h17-3-3" id="h17-3-3" class="d">-                std::ostringstream strstr;
+</a><a href="#h17-3-4" id="h17-3-4" class="d">-                auto packageVersion = packageId.Version();
+</a><a href="#h17-3-5" id="h17-3-5" class="d">-                strstr &lt;&lt; packageVersion.Major &lt;&lt; &#39;.&#39; &lt;&lt; packageVersion.Minor &lt;&lt; &#39;.&#39; &lt;&lt; packageVersion.Build &lt;&lt; &#39;.&#39; &lt;&lt; packageVersion.Revision;
+</a><a href="#h17-3-6" id="h17-3-6" class="d">-
+</a><a href="#h17-3-7" id="h17-3-7" class="d">-                manifest.Version = strstr.str();
+</a><a href="#h17-3-8" id="h17-3-8" class="d">-                
+</a>                 manifest.Installers[0].PackageFamilyName = familyName;
+ 
+                 // Use the full name as a unique key for the path
+<a href="#h17-4" id="h17-4" class="h">@@ -109,11 +165,126 @@ namespace AppInstaller::Repository::Microsoft
+</a>             }
+         }
+ 
+<a href="#h17-4-3" id="h17-4-3" class="i">+        SQLiteIndex CreateAndPopulateIndex(PredefinedInstalledSourceFactory::Filter filter)
+</a><a href="#h17-4-4" id="h17-4-4" class="i">+        {
+</a><a href="#h17-4-5" id="h17-4-5" class="i">+            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Creating PredefinedInstalledSource with filter [&quot; &lt;&lt; PredefinedInstalledSourceFactory::FilterToString(filter) &lt;&lt; &#39;]&#39;);
+</a><a href="#h17-4-6" id="h17-4-6" class="i">+
+</a><a href="#h17-4-7" id="h17-4-7" class="i">+            // Create an in memory index
+</a><a href="#h17-4-8" id="h17-4-8" class="i">+            SQLiteIndex index = SQLiteIndex::CreateNew(SQLITE_MEMORY_DB_CONNECTION_TARGET, SQLite::Version::Latest());
+</a><a href="#h17-4-9" id="h17-4-9" class="i">+
+</a><a href="#h17-4-10" id="h17-4-10" class="i">+            // Put installed packages into the index
+</a><a href="#h17-4-11" id="h17-4-11" class="i">+            if (filter == PredefinedInstalledSourceFactory::Filter::None || filter == PredefinedInstalledSourceFactory::Filter::ARP ||
+</a><a href="#h17-4-12" id="h17-4-12" class="i">+                filter == PredefinedInstalledSourceFactory::Filter::User || filter == PredefinedInstalledSourceFactory::Filter::Machine)
+</a><a href="#h17-4-13" id="h17-4-13" class="i">+            {
+</a><a href="#h17-4-14" id="h17-4-14" class="i">+                ARPHelper arpHelper;
+</a><a href="#h17-4-15" id="h17-4-15" class="i">+                if (filter != PredefinedInstalledSourceFactory::Filter::User)
+</a><a href="#h17-4-16" id="h17-4-16" class="i">+                {
+</a><a href="#h17-4-17" id="h17-4-17" class="i">+                    arpHelper.PopulateIndexFromARP(index, Manifest::ScopeEnum::Machine);
+</a><a href="#h17-4-18" id="h17-4-18" class="i">+                }
+</a><a href="#h17-4-19" id="h17-4-19" class="i">+                if (filter != PredefinedInstalledSourceFactory::Filter::Machine)
+</a><a href="#h17-4-20" id="h17-4-20" class="i">+                {
+</a><a href="#h17-4-21" id="h17-4-21" class="i">+                    arpHelper.PopulateIndexFromARP(index, Manifest::ScopeEnum::User);
+</a><a href="#h17-4-22" id="h17-4-22" class="i">+                }
+</a><a href="#h17-4-23" id="h17-4-23" class="i">+            }
+</a><a href="#h17-4-24" id="h17-4-24" class="i">+
+</a><a href="#h17-4-25" id="h17-4-25" class="i">+            if (filter == PredefinedInstalledSourceFactory::Filter::None ||
+</a><a href="#h17-4-26" id="h17-4-26" class="i">+                filter == PredefinedInstalledSourceFactory::Filter::MSIX ||
+</a><a href="#h17-4-27" id="h17-4-27" class="i">+                filter == PredefinedInstalledSourceFactory::Filter::User)
+</a><a href="#h17-4-28" id="h17-4-28" class="i">+            {
+</a><a href="#h17-4-29" id="h17-4-29" class="i">+                PopulateIndexFromMSIX(index, Manifest::ScopeEnum::User);
+</a><a href="#h17-4-30" id="h17-4-30" class="i">+            }
+</a><a href="#h17-4-31" id="h17-4-31" class="i">+            else if (filter == PredefinedInstalledSourceFactory::Filter::Machine)
+</a><a href="#h17-4-32" id="h17-4-32" class="i">+            {
+</a><a href="#h17-4-33" id="h17-4-33" class="i">+                PopulateIndexFromMSIX(index, Manifest::ScopeEnum::Machine);
+</a><a href="#h17-4-34" id="h17-4-34" class="i">+            }
+</a><a href="#h17-4-35" id="h17-4-35" class="i">+
+</a><a href="#h17-4-36" id="h17-4-36" class="i">+            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot; ... finished creating PredefinedInstalledSource&quot;);
+</a><a href="#h17-4-37" id="h17-4-37" class="i">+
+</a><a href="#h17-4-38" id="h17-4-38" class="i">+            return index;
+</a><a href="#h17-4-39" id="h17-4-39" class="i">+        }
+</a><a href="#h17-4-40" id="h17-4-40" class="i">+
+</a><a href="#h17-4-41" id="h17-4-41" class="i">+        struct CachedInstalledIndex
+</a><a href="#h17-4-42" id="h17-4-42" class="i">+        {
+</a><a href="#h17-4-43" id="h17-4-43" class="i">+            CachedInstalledIndex()
+</a><a href="#h17-4-44" id="h17-4-44" class="i">+            {
+</a><a href="#h17-4-45" id="h17-4-45" class="i">+                ARPHelper arpHelper;
+</a><a href="#h17-4-46" id="h17-4-46" class="i">+                m_registryWatchers = arpHelper.CreateRegistryWatchers(Manifest::ScopeEnum::Unknown,
+</a><a href="#h17-4-47" id="h17-4-47" class="i">+                    [this](Manifest::ScopeEnum, Utility::Architecture, wil::RegistryChangeKind) { ForceNextUpdate(); });
+</a><a href="#h17-4-48" id="h17-4-48" class="i">+
+</a><a href="#h17-4-49" id="h17-4-49" class="i">+                m_catalog = winrt::Windows::ApplicationModel::PackageCatalog::OpenForCurrentUser();
+</a><a href="#h17-4-50" id="h17-4-50" class="i">+                m_eventRevoker = m_catalog.PackageStatusChanged(winrt::auto_revoke, [this](auto...) { ForceNextUpdate(); });
+</a><a href="#h17-4-51" id="h17-4-51" class="i">+            }
+</a><a href="#h17-4-52" id="h17-4-52" class="i">+
+</a><a href="#h17-4-53" id="h17-4-53" class="i">+            void UpdateIndexIfNeeded()
+</a><a href="#h17-4-54" id="h17-4-54" class="i">+            {
+</a><a href="#h17-4-55" id="h17-4-55" class="i">+                auto sharedLock = m_lock.lock_shared();
+</a><a href="#h17-4-56" id="h17-4-56" class="i">+                if (CheckForUpdate())
+</a><a href="#h17-4-57" id="h17-4-57" class="i">+                {
+</a><a href="#h17-4-58" id="h17-4-58" class="i">+                    // Upgrade to exclusive
+</a><a href="#h17-4-59" id="h17-4-59" class="i">+                    sharedLock.reset();
+</a><a href="#h17-4-60" id="h17-4-60" class="i">+                    auto exclusiveLock = m_lock.lock_exclusive();
+</a><a href="#h17-4-61" id="h17-4-61" class="i">+
+</a><a href="#h17-4-62" id="h17-4-62" class="i">+                    if (CheckForUpdate())
+</a><a href="#h17-4-63" id="h17-4-63" class="i">+                    {
+</a><a href="#h17-4-64" id="h17-4-64" class="i">+                        // TODO: To support servicing, the initial implementation of update will simply leverage
+</a><a href="#h17-4-65" id="h17-4-65" class="i">+                        //       some data from the existing index to speed up the MSIX populate function.
+</a><a href="#h17-4-66" id="h17-4-66" class="i">+                        //       In a larger update, we may want to make it possible to actually update the cache directly.
+</a><a href="#h17-4-67" id="h17-4-67" class="i">+                        //       We may even persist the cache to disk to speed things up further.
+</a><a href="#h17-4-68" id="h17-4-68" class="i">+
+</a><a href="#h17-4-69" id="h17-4-69" class="i">+                        // Set the update indicator to false before we start reading so that an external change can
+</a><a href="#h17-4-70" id="h17-4-70" class="i">+                        // reindicate a need to update in the middle. But in the event that we error here, set it back to true
+</a><a href="#h17-4-71" id="h17-4-71" class="i">+                        // to prevent an error from blocking further attempts.
+</a><a href="#h17-4-72" id="h17-4-72" class="i">+                        m_forceNextUpdate = false;
+</a><a href="#h17-4-73" id="h17-4-73" class="i">+                        auto scopeExit = wil::scope_exit([&amp;]() { m_forceNextUpdate = true; });
+</a><a href="#h17-4-74" id="h17-4-74" class="i">+
+</a><a href="#h17-4-75" id="h17-4-75" class="i">+                        // Populate from ARP using standard mechanism.
+</a><a href="#h17-4-76" id="h17-4-76" class="i">+                        SQLiteIndex update = CreateAndPopulateIndex(PredefinedInstalledSourceFactory::Filter::ARP);
+</a><a href="#h17-4-77" id="h17-4-77" class="i">+
+</a><a href="#h17-4-78" id="h17-4-78" class="i">+                        // Populate from MSIX, using localization data from the existing index if applicable.
+</a><a href="#h17-4-79" id="h17-4-79" class="i">+                        PopulateIndexFromMSIX(update, Manifest::ScopeEnum::User, m_index.get());
+</a><a href="#h17-4-80" id="h17-4-80" class="i">+
+</a><a href="#h17-4-81" id="h17-4-81" class="i">+                        m_index = std::make_unique&lt;SQLiteIndex&gt;(std::move(update));
+</a><a href="#h17-4-82" id="h17-4-82" class="i">+                        scopeExit.release();
+</a><a href="#h17-4-83" id="h17-4-83" class="i">+                    }
+</a><a href="#h17-4-84" id="h17-4-84" class="i">+                }
+</a><a href="#h17-4-85" id="h17-4-85" class="i">+            }
+</a><a href="#h17-4-86" id="h17-4-86" class="i">+
+</a><a href="#h17-4-87" id="h17-4-87" class="i">+            SQLiteIndex GetCopy()
+</a><a href="#h17-4-88" id="h17-4-88" class="i">+            {
+</a><a href="#h17-4-89" id="h17-4-89" class="i">+                auto lock = m_lock.lock_shared();
+</a><a href="#h17-4-90" id="h17-4-90" class="i">+                THROW_HR_IF(E_POINTER, !m_index);
+</a><a href="#h17-4-91" id="h17-4-91" class="i">+                return SQLiteIndex::CopyFrom(SQLITE_MEMORY_DB_CONNECTION_TARGET, *m_index);
+</a><a href="#h17-4-92" id="h17-4-92" class="i">+            }
+</a><a href="#h17-4-93" id="h17-4-93" class="i">+
+</a><a href="#h17-4-94" id="h17-4-94" class="i">+            void ForceNextUpdate()
+</a><a href="#h17-4-95" id="h17-4-95" class="i">+            {
+</a><a href="#h17-4-96" id="h17-4-96" class="i">+                m_forceNextUpdate = true;
+</a><a href="#h17-4-97" id="h17-4-97" class="i">+            }
+</a><a href="#h17-4-98" id="h17-4-98" class="i">+
+</a><a href="#h17-4-99" id="h17-4-99" class="i">+        private:
+</a><a href="#h17-4-100" id="h17-4-100" class="i">+            bool CheckForUpdate()
+</a><a href="#h17-4-101" id="h17-4-101" class="i">+            {
+</a><a href="#h17-4-102" id="h17-4-102" class="i">+                return (!m_index || m_forceNextUpdate.load());
+</a><a href="#h17-4-103" id="h17-4-103" class="i">+            }
+</a><a href="#h17-4-104" id="h17-4-104" class="i">+
+</a><a href="#h17-4-105" id="h17-4-105" class="i">+            wil::srwlock m_lock;
+</a><a href="#h17-4-106" id="h17-4-106" class="i">+            std::atomic_bool m_forceNextUpdate{ false };
+</a><a href="#h17-4-107" id="h17-4-107" class="i">+            std::unique_ptr&lt;SQLiteIndex&gt; m_index;
+</a><a href="#h17-4-108" id="h17-4-108" class="i">+            std::vector&lt;wil::unique_registry_watcher&gt; m_registryWatchers;
+</a><a href="#h17-4-109" id="h17-4-109" class="i">+            winrt::Windows::ApplicationModel::PackageCatalog m_catalog = nullptr;
+</a><a href="#h17-4-110" id="h17-4-110" class="i">+            decltype(winrt::Windows::ApplicationModel::PackageCatalog{ nullptr }.PackageStatusChanged(winrt::auto_revoke, nullptr)) m_eventRevoker;
+</a><a href="#h17-4-111" id="h17-4-111" class="i">+        };
+</a><a href="#h17-4-112" id="h17-4-112" class="i">+
+</a>         struct PredefinedInstalledSourceReference : public ISourceReference
+         {
+             PredefinedInstalledSourceReference(const SourceDetails&amp; details) : m_details(details)
+             {
+                 m_details.Identifier = &quot;*PredefinedInstalledSource&quot;;
+<a href="#h17-4-118" id="h17-4-118" class="i">+
+</a><a href="#h17-4-119" id="h17-4-119" class="i">+                if (PredefinedInstalledSourceFactory::StringToFilter(m_details.Arg) == PredefinedInstalledSourceFactory::Filter::NoneWithForcedCacheUpdate)
+</a><a href="#h17-4-120" id="h17-4-120" class="i">+                {
+</a><a href="#h17-4-121" id="h17-4-121" class="i">+                    GetCachedInstalledIndex().ForceNextUpdate();
+</a><a href="#h17-4-122" id="h17-4-122" class="i">+                }
+</a>             }
+ 
+             std::string GetIdentifier() override { return m_details.Identifier; }
+<a href="#h17-5" id="h17-5" class="h">@@ -127,41 +298,27 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+                 // Determine the filter
+                 PredefinedInstalledSourceFactory::Filter filter = PredefinedInstalledSourceFactory::StringToFilter(m_details.Arg);
+<a href="#h17-5-3" id="h17-5-3" class="d">-                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Creating PredefinedInstalledSource with filter [&quot; &lt;&lt; PredefinedInstalledSourceFactory::FilterToString(filter) &lt;&lt; &#39;]&#39;);
+</a><a href="#h17-5-4" id="h17-5-4" class="d">-
+</a><a href="#h17-5-5" id="h17-5-5" class="d">-                // Create an in memory index
+</a><a href="#h17-5-6" id="h17-5-6" class="d">-                SQLiteIndex index = SQLiteIndex::CreateNew(SQLITE_MEMORY_DB_CONNECTION_TARGET, SQLite::Version::Latest());
+</a> 
+<a href="#h17-5-8" id="h17-5-8" class="d">-                // Put installed packages into the index
+</a><a href="#h17-5-9" id="h17-5-9" class="d">-                if (filter == PredefinedInstalledSourceFactory::Filter::None || filter == PredefinedInstalledSourceFactory::Filter::ARP ||
+</a><a href="#h17-5-10" id="h17-5-10" class="d">-                    filter == PredefinedInstalledSourceFactory::Filter::User || filter == PredefinedInstalledSourceFactory::Filter::Machine)
+</a><a href="#h17-5-11" id="h17-5-11" class="i">+                // Only cache for the unfiltered install data
+</a><a href="#h17-5-12" id="h17-5-12" class="i">+                if (filter == PredefinedInstalledSourceFactory::Filter::None || filter == PredefinedInstalledSourceFactory::Filter::NoneWithForcedCacheUpdate)
+</a>                 {
+<a href="#h17-5-14" id="h17-5-14" class="d">-                    ARPHelper arpHelper;
+</a><a href="#h17-5-15" id="h17-5-15" class="d">-                    if (filter != PredefinedInstalledSourceFactory::Filter::User)
+</a><a href="#h17-5-16" id="h17-5-16" class="d">-                    {
+</a><a href="#h17-5-17" id="h17-5-17" class="d">-                        arpHelper.PopulateIndexFromARP(index, Manifest::ScopeEnum::Machine);
+</a><a href="#h17-5-18" id="h17-5-18" class="d">-                    }
+</a><a href="#h17-5-19" id="h17-5-19" class="d">-                    if (filter != PredefinedInstalledSourceFactory::Filter::Machine)
+</a><a href="#h17-5-20" id="h17-5-20" class="d">-                    {
+</a><a href="#h17-5-21" id="h17-5-21" class="d">-                        arpHelper.PopulateIndexFromARP(index, Manifest::ScopeEnum::User);
+</a><a href="#h17-5-22" id="h17-5-22" class="d">-                    }
+</a><a href="#h17-5-23" id="h17-5-23" class="d">-                }
+</a><a href="#h17-5-24" id="h17-5-24" class="d">-
+</a><a href="#h17-5-25" id="h17-5-25" class="d">-                if (filter == PredefinedInstalledSourceFactory::Filter::None ||
+</a><a href="#h17-5-26" id="h17-5-26" class="d">-                    filter == PredefinedInstalledSourceFactory::Filter::MSIX ||
+</a><a href="#h17-5-27" id="h17-5-27" class="d">-                    filter == PredefinedInstalledSourceFactory::Filter::User)
+</a><a href="#h17-5-28" id="h17-5-28" class="d">-                {
+</a><a href="#h17-5-29" id="h17-5-29" class="d">-                    PopulateIndexFromMSIX(index, Manifest::ScopeEnum::User);
+</a><a href="#h17-5-30" id="h17-5-30" class="i">+                    CachedInstalledIndex&amp; cachedIndex = GetCachedInstalledIndex();
+</a><a href="#h17-5-31" id="h17-5-31" class="i">+                    cachedIndex.UpdateIndexIfNeeded();
+</a><a href="#h17-5-32" id="h17-5-32" class="i">+                    return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, cachedIndex.GetCopy(), true);
+</a>                 }
+<a href="#h17-5-34" id="h17-5-34" class="d">-                else if (filter == PredefinedInstalledSourceFactory::Filter::Machine)
+</a><a href="#h17-5-35" id="h17-5-35" class="i">+                else
+</a>                 {
+<a href="#h17-5-37" id="h17-5-37" class="d">-                    PopulateIndexFromMSIX(index, Manifest::ScopeEnum::Machine);
+</a><a href="#h17-5-38" id="h17-5-38" class="i">+                    return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, CreateAndPopulateIndex(filter), true);
+</a>                 }
+<a href="#h17-5-40" id="h17-5-40" class="d">-
+</a><a href="#h17-5-41" id="h17-5-41" class="d">-                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), true);
+</a>             }
+ 
+         private:
+<a href="#h17-5-45" id="h17-5-45" class="i">+            CachedInstalledIndex&amp; GetCachedInstalledIndex()
+</a><a href="#h17-5-46" id="h17-5-46" class="i">+            {
+</a><a href="#h17-5-47" id="h17-5-47" class="i">+                static CachedInstalledIndex s_installedIndex;
+</a><a href="#h17-5-48" id="h17-5-48" class="i">+                return s_installedIndex;
+</a><a href="#h17-5-49" id="h17-5-49" class="i">+            }
+</a><a href="#h17-5-50" id="h17-5-50" class="i">+
+</a>             SourceDetails m_details;
+         };
+ 
+<a href="#h17-6" id="h17-6" class="h">@@ -214,6 +371,8 @@ namespace AppInstaller::Repository::Microsoft
+</a>             return &quot;User&quot;sv;
+         case AppInstaller::Repository::Microsoft::PredefinedInstalledSourceFactory::Filter::Machine:
+             return &quot;Machine&quot;sv;
+<a href="#h17-6-3" id="h17-6-3" class="i">+        case AppInstaller::Repository::Microsoft::PredefinedInstalledSourceFactory::Filter::NoneWithForcedCacheUpdate:
+</a><a href="#h17-6-4" id="h17-6-4" class="i">+            return &quot;NoneWithForcedCacheUpdate&quot;sv;
+</a>         default:
+             return &quot;Unknown&quot;sv;
+         }
+<a href="#h17-7" id="h17-7" class="h">@@ -237,6 +396,10 @@ namespace AppInstaller::Repository::Microsoft
+</a>         {
+             return Filter::Machine;
+         }
+<a href="#h17-7-3" id="h17-7-3" class="i">+        else if (filter == FilterToString(Filter::NoneWithForcedCacheUpdate))
+</a><a href="#h17-7-4" id="h17-7-4" class="i">+        {
+</a><a href="#h17-7-5" id="h17-7-5" class="i">+            return Filter::NoneWithForcedCacheUpdate;
+</a><a href="#h17-7-6" id="h17-7-6" class="i">+        }
+</a>         else
+         {
+             return Filter::None;
+<b>diff --git a/<a id="h18" href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.h.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.h.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.h</a></b>
+<a href="#h18-0" id="h18-0" class="h">@@ -34,6 +34,8 @@ namespace AppInstaller::Repository::Microsoft
+</a>             User,
+             // Contains machine ARP and machine MSIX
+             Machine,
+<a href="#h18-0-3" id="h18-0-3" class="i">+            // Same as None but creating the source reference causes the next Open to always update the cache
+</a><a href="#h18-0-4" id="h18-0-4" class="i">+            NoneWithForcedCacheUpdate,
+</a>         };
+ 
+         // Converts a filter to its string.
+<b>diff --git a/<a id="h19" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a></b>
+<a href="#h19-0" id="h19-0" class="h">@@ -36,6 +36,16 @@ namespace AppInstaller::Repository::Microsoft
+</a>         return result;
+     }
+ 
+<a href="#h19-0-3" id="h19-0-3" class="i">+    SQLiteIndex SQLiteIndex::Open(const std::string&amp; filePath, OpenDisposition disposition, Utility::ManagedFile&amp;&amp; indexFile)
+</a><a href="#h19-0-4" id="h19-0-4" class="i">+    {
+</a><a href="#h19-0-5" id="h19-0-5" class="i">+        return { filePath, disposition, std::move(indexFile) };
+</a><a href="#h19-0-6" id="h19-0-6" class="i">+    }
+</a><a href="#h19-0-7" id="h19-0-7" class="i">+
+</a><a href="#h19-0-8" id="h19-0-8" class="i">+    SQLiteIndex SQLiteIndex::CopyFrom(const std::string&amp; filePath, SQLiteIndex&amp; source)
+</a><a href="#h19-0-9" id="h19-0-9" class="i">+    {
+</a><a href="#h19-0-10" id="h19-0-10" class="i">+        return { filePath, source };
+</a><a href="#h19-0-11" id="h19-0-11" class="i">+    }
+</a><a href="#h19-0-12" id="h19-0-12" class="i">+
+</a>     std::unique_ptr&lt;Schema::ISQLiteIndex&gt; SQLiteIndex::CreateISQLiteIndex(const SQLite::Version&amp; version)
+     {
+         using namespace Schema;
+<a href="#h19-1" id="h19-1" class="h">@@ -78,6 +88,13 @@ namespace AppInstaller::Repository::Microsoft
+</a>         THROW_HR_IF(APPINSTALLER_CLI_ERROR_CANNOT_WRITE_TO_UPLEVEL_INDEX, disposition == SQLiteStorageBase::OpenDisposition::ReadWrite &amp;&amp; m_version != m_interface-&gt;GetVersion());
+     }
+ 
+<a href="#h19-1-3" id="h19-1-3" class="i">+    SQLiteIndex::SQLiteIndex(const std::string&amp; target, SQLiteIndex&amp; source) :
+</a><a href="#h19-1-4" id="h19-1-4" class="i">+        SQLiteStorageBase(target, source)
+</a><a href="#h19-1-5" id="h19-1-5" class="i">+    {
+</a><a href="#h19-1-6" id="h19-1-6" class="i">+        m_dbconn.EnableICU();
+</a><a href="#h19-1-7" id="h19-1-7" class="i">+        m_interface = CreateISQLiteIndex(m_version);
+</a><a href="#h19-1-8" id="h19-1-8" class="i">+    }
+</a><a href="#h19-1-9" id="h19-1-9" class="i">+
+</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+     void SQLiteIndex::ForceVersion(const SQLite::Version&amp; version)
+     {
+<a href="#h19-2" id="h19-2" class="h">@@ -249,7 +266,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>         return m_interface-&gt;GetManifestIdByManifest(m_dbconn, manifest);
+     }
+ 
+<a href="#h19-2-3" id="h19-2-3" class="d">-    std::vector&lt;Utility::VersionAndChannel&gt; SQLiteIndex::GetVersionKeysById(IdType id) const
+</a><a href="#h19-2-4" id="h19-2-4" class="i">+    std::vector&lt;SQLiteIndex::VersionKey&gt; SQLiteIndex::GetVersionKeysById(IdType id) const
+</a>     {
+         std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+         return m_interface-&gt;GetVersionKeysById(m_dbconn, id);
+<b>diff --git a/<a id="h20" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></b>
+<a href="#h20-0" id="h20-0" class="h">@@ -37,6 +37,9 @@ namespace AppInstaller::Repository::Microsoft
+</a>         // Options for creating a new index.
+         using CreateOptions = Schema::ISQLiteIndex::CreateOptions;
+ 
+<a href="#h20-0-3" id="h20-0-3" class="i">+        // The type of version keys.
+</a><a href="#h20-0-4" id="h20-0-4" class="i">+        using VersionKey = Schema::ISQLiteIndex::VersionKey;
+</a><a href="#h20-0-5" id="h20-0-5" class="i">+
+</a>         SQLiteIndex(const SQLiteIndex&amp;) = delete;
+         SQLiteIndex&amp; operator=(const SQLiteIndex&amp;) = delete;
+ 
+<a href="#h20-1" id="h20-1" class="h">@@ -47,10 +50,10 @@ namespace AppInstaller::Repository::Microsoft
+</a>         static SQLiteIndex CreateNew(const std::string&amp; filePath, SQLite::Version version = SQLite::Version::Latest(), CreateOptions options = CreateOptions::None);
+ 
+         // Opens an existing SQLiteIndex database.
+<a href="#h20-1-3" id="h20-1-3" class="d">-        static SQLiteIndex Open(const std::string&amp; filePath, OpenDisposition disposition, Utility::ManagedFile&amp;&amp; indexFile = {})
+</a><a href="#h20-1-4" id="h20-1-4" class="d">-        {
+</a><a href="#h20-1-5" id="h20-1-5" class="d">-            return { filePath, disposition, std::move(indexFile) };
+</a><a href="#h20-1-6" id="h20-1-6" class="d">-        }
+</a><a href="#h20-1-7" id="h20-1-7" class="i">+        static SQLiteIndex Open(const std::string&amp; filePath, OpenDisposition disposition, Utility::ManagedFile&amp;&amp; indexFile = {});
+</a><a href="#h20-1-8" id="h20-1-8" class="i">+
+</a><a href="#h20-1-9" id="h20-1-9" class="i">+        // Creates a copy of the given index.
+</a><a href="#h20-1-10" id="h20-1-10" class="i">+        static SQLiteIndex CopyFrom(const std::string&amp; filePath, SQLiteIndex&amp; source);
+</a> 
+ #ifndef AICLI_DISABLE_TEST_HOOKS
+         // Changes the version of the interface being used to operate on the database.
+<a href="#h20-2" id="h20-2" class="h">@@ -124,7 +127,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>         std::optional&lt;IdType&gt; GetManifestIdByManifest(const Manifest::Manifest&amp; manifest) const;
+ 
+         // Gets all versions and channels for the given id.
+<a href="#h20-2-3" id="h20-2-3" class="d">-        std::vector&lt;Utility::VersionAndChannel&gt; GetVersionKeysById(IdType id) const;
+</a><a href="#h20-2-4" id="h20-2-4" class="i">+        std::vector&lt;VersionKey&gt; GetVersionKeysById(IdType id) const;
+</a> 
+         // Gets the string for the given metadata and manifest id, if present.
+         MetadataResult GetMetadataByManifestId(SQLite::rowid_t manifestId) const;
+<a href="#h20-3" id="h20-3" class="h">@@ -139,6 +142,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>         // Get all the dependencies for a specific manifest.
+         std::set&lt;std::pair&lt;SQLite::rowid_t, Utility::NormalizedString&gt;&gt; GetDependenciesByManifestRowId(SQLite::rowid_t manifestRowId) const;
+         std::vector&lt;std::pair&lt;SQLite::rowid_t, Utility::NormalizedString&gt;&gt; GetDependentsById(AppInstaller::Manifest::string_t packageId) const;
+<a href="#h20-3-3" id="h20-3-3" class="i">+
+</a>     private:
+         // Constructor used to create a new index.
+         SQLiteIndex(const std::string&amp; target, const SQLite::Version&amp; version);
+<a href="#h20-4" id="h20-4" class="h">@@ -146,6 +150,9 @@ namespace AppInstaller::Repository::Microsoft
+</a>         // Constructor used to open an existing index.
+         SQLiteIndex(const std::string&amp; target, SQLiteStorageBase::OpenDisposition disposition, Utility::ManagedFile&amp;&amp; indexFile);
+ 
+<a href="#h20-4-3" id="h20-4-3" class="i">+        // Constructor used to copy the given index.
+</a><a href="#h20-4-4" id="h20-4-4" class="i">+        SQLiteIndex(const std::string&amp; target, SQLiteIndex&amp; source);
+</a><a href="#h20-4-5" id="h20-4-5" class="i">+
+</a>         // Internal functions to normalize on the relativePath being present.
+         IdType AddManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath);
+         bool UpdateManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath);
+<b>diff --git a/<a id="h21" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp</a></b>
+<a href="#h21-0" id="h21-0" class="h">@@ -288,14 +288,34 @@ namespace AppInstaller::Repository::Microsoft
+</a>             std::vector&lt;PackageVersionKey&gt; GetAvailableVersionKeys(PinBehavior) const override
+             {
+                 std::shared_ptr&lt;SQLiteIndexSource&gt; source = GetReferenceSource();
+<a href="#h21-0-3" id="h21-0-3" class="d">-                std::vector&lt;Utility::VersionAndChannel&gt; versions = source-&gt;GetIndex().GetVersionKeysById(m_idId);
+</a> 
+<a href="#h21-0-5" id="h21-0-5" class="d">-                std::vector&lt;PackageVersionKey&gt; result;
+</a><a href="#h21-0-6" id="h21-0-6" class="d">-                for (const auto&amp; vac : versions)
+</a>                 {
+<a href="#h21-0-8" id="h21-0-8" class="d">-                    result.emplace_back(source-&gt;GetIdentifier(), vac.GetVersion().ToString(), vac.GetChannel().ToString());
+</a><a href="#h21-0-9" id="h21-0-9" class="i">+                    auto sharedLock = m_availableVersionKeysLock.lock_shared();
+</a><a href="#h21-0-10" id="h21-0-10" class="i">+
+</a><a href="#h21-0-11" id="h21-0-11" class="i">+                    if (!m_availableVersionKeys.empty())
+</a><a href="#h21-0-12" id="h21-0-12" class="i">+                    {
+</a><a href="#h21-0-13" id="h21-0-13" class="i">+                        return m_availableVersionKeys;
+</a><a href="#h21-0-14" id="h21-0-14" class="i">+                    }
+</a>                 }
+<a href="#h21-0-16" id="h21-0-16" class="d">-                return result;
+</a><a href="#h21-0-17" id="h21-0-17" class="i">+
+</a><a href="#h21-0-18" id="h21-0-18" class="i">+                auto exclusiveLock = m_availableVersionKeysLock.lock_exclusive();
+</a><a href="#h21-0-19" id="h21-0-19" class="i">+
+</a><a href="#h21-0-20" id="h21-0-20" class="i">+                if (!m_availableVersionKeys.empty())
+</a><a href="#h21-0-21" id="h21-0-21" class="i">+                {
+</a><a href="#h21-0-22" id="h21-0-22" class="i">+                    return m_availableVersionKeys;
+</a><a href="#h21-0-23" id="h21-0-23" class="i">+                }
+</a><a href="#h21-0-24" id="h21-0-24" class="i">+
+</a><a href="#h21-0-25" id="h21-0-25" class="i">+                std::vector&lt;SQLiteIndex::VersionKey&gt; versions = source-&gt;GetIndex().GetVersionKeysById(m_idId);
+</a><a href="#h21-0-26" id="h21-0-26" class="i">+
+</a><a href="#h21-0-27" id="h21-0-27" class="i">+                for (const auto&amp; vk : versions)
+</a><a href="#h21-0-28" id="h21-0-28" class="i">+                {
+</a><a href="#h21-0-29" id="h21-0-29" class="i">+                    std::string version = vk.VersionAndChannel.GetVersion().ToString();
+</a><a href="#h21-0-30" id="h21-0-30" class="i">+                    std::string channel = vk.VersionAndChannel.GetChannel().ToString();
+</a><a href="#h21-0-31" id="h21-0-31" class="i">+                    m_availableVersionKeys.emplace_back(source-&gt;GetIdentifier(), version, channel);
+</a><a href="#h21-0-32" id="h21-0-32" class="i">+                    m_availableVersionKeysMap.emplace(MapKey{ std::move(version), std::move(channel) }, vk.ManifestId);
+</a><a href="#h21-0-33" id="h21-0-33" class="i">+                }
+</a><a href="#h21-0-34" id="h21-0-34" class="i">+
+</a><a href="#h21-0-35" id="h21-0-35" class="i">+                return m_availableVersionKeys;
+</a>             }
+ 
+             std::shared_ptr&lt;IPackageVersion&gt; GetLatestAvailableVersion(PinBehavior) const override
+<a href="#h21-1" id="h21-1" class="h">@@ -313,7 +333,23 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     return {};
+                 }
+ 
+<a href="#h21-1-3" id="h21-1-3" class="d">-                std::optional&lt;SQLiteIndex::IdType&gt; manifestId = source-&gt;GetIndex().GetManifestIdByKey(m_idId, versionKey.Version, versionKey.Channel);
+</a><a href="#h21-1-4" id="h21-1-4" class="i">+                std::optional&lt;SQLiteIndex::IdType&gt; manifestId;
+</a><a href="#h21-1-5" id="h21-1-5" class="i">+
+</a><a href="#h21-1-6" id="h21-1-6" class="i">+                {
+</a><a href="#h21-1-7" id="h21-1-7" class="i">+                    MapKey requested{ versionKey.Version, versionKey.Channel };
+</a><a href="#h21-1-8" id="h21-1-8" class="i">+                    auto sharedLock = m_availableVersionKeysLock.lock_shared();
+</a><a href="#h21-1-9" id="h21-1-9" class="i">+
+</a><a href="#h21-1-10" id="h21-1-10" class="i">+                    auto itr = m_availableVersionKeysMap.find(requested);
+</a><a href="#h21-1-11" id="h21-1-11" class="i">+                    if (itr != m_availableVersionKeysMap.end())
+</a><a href="#h21-1-12" id="h21-1-12" class="i">+                    {
+</a><a href="#h21-1-13" id="h21-1-13" class="i">+                        manifestId = itr-&gt;second;
+</a><a href="#h21-1-14" id="h21-1-14" class="i">+                    }
+</a><a href="#h21-1-15" id="h21-1-15" class="i">+                }
+</a><a href="#h21-1-16" id="h21-1-16" class="i">+
+</a><a href="#h21-1-17" id="h21-1-17" class="i">+                if (!manifestId)
+</a><a href="#h21-1-18" id="h21-1-18" class="i">+                {
+</a><a href="#h21-1-19" id="h21-1-19" class="i">+                    manifestId = source-&gt;GetIndex().GetManifestIdByKey(m_idId, versionKey.Version, versionKey.Channel);
+</a><a href="#h21-1-20" id="h21-1-20" class="i">+                }
+</a> 
+                 if (manifestId)
+                 {
+<a href="#h21-2" id="h21-2" class="h">@@ -349,6 +385,35 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+                 return nullptr;
+             }
+<a href="#h21-2-3" id="h21-2-3" class="i">+
+</a><a href="#h21-2-4" id="h21-2-4" class="i">+        private:
+</a><a href="#h21-2-5" id="h21-2-5" class="i">+            // Contains the information needed to map a version key to it&#39;s rows.
+</a><a href="#h21-2-6" id="h21-2-6" class="i">+            struct MapKey
+</a><a href="#h21-2-7" id="h21-2-7" class="i">+            {
+</a><a href="#h21-2-8" id="h21-2-8" class="i">+                Utility::NormalizedString Version;
+</a><a href="#h21-2-9" id="h21-2-9" class="i">+                Utility::NormalizedString Channel;
+</a><a href="#h21-2-10" id="h21-2-10" class="i">+
+</a><a href="#h21-2-11" id="h21-2-11" class="i">+                bool operator&lt;(const MapKey&amp; other) const
+</a><a href="#h21-2-12" id="h21-2-12" class="i">+                {
+</a><a href="#h21-2-13" id="h21-2-13" class="i">+                    if (Version &lt; other.Version)
+</a><a href="#h21-2-14" id="h21-2-14" class="i">+                    {
+</a><a href="#h21-2-15" id="h21-2-15" class="i">+                        return true;
+</a><a href="#h21-2-16" id="h21-2-16" class="i">+                    }
+</a><a href="#h21-2-17" id="h21-2-17" class="i">+                    else if (Version == other.Version)
+</a><a href="#h21-2-18" id="h21-2-18" class="i">+                    {
+</a><a href="#h21-2-19" id="h21-2-19" class="i">+                        return Channel &lt; other.Channel;
+</a><a href="#h21-2-20" id="h21-2-20" class="i">+                    }
+</a><a href="#h21-2-21" id="h21-2-21" class="i">+                    else
+</a><a href="#h21-2-22" id="h21-2-22" class="i">+                    {
+</a><a href="#h21-2-23" id="h21-2-23" class="i">+                        return false;
+</a><a href="#h21-2-24" id="h21-2-24" class="i">+                    }
+</a><a href="#h21-2-25" id="h21-2-25" class="i">+                }
+</a><a href="#h21-2-26" id="h21-2-26" class="i">+            };
+</a><a href="#h21-2-27" id="h21-2-27" class="i">+
+</a><a href="#h21-2-28" id="h21-2-28" class="i">+            // To avoid removing const from the interface
+</a><a href="#h21-2-29" id="h21-2-29" class="i">+            mutable wil::srwlock m_availableVersionKeysLock;
+</a><a href="#h21-2-30" id="h21-2-30" class="i">+            mutable std::vector&lt;PackageVersionKey&gt; m_availableVersionKeys;
+</a><a href="#h21-2-31" id="h21-2-31" class="i">+            mutable std::map&lt;MapKey, SQLiteIndex::IdType&gt; m_availableVersionKeysMap;
+</a>         };
+ 
+         // The IPackage impl for SQLiteIndexSource of Installed packages.
+<b>diff --git a/<a id="h22" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.h</a></b>
+<a href="#h22-0" id="h22-0" class="h">@@ -28,7 +28,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         std::vector&lt;std::string&gt; GetMultiPropertyByManifestId(const SQLite::Connection&amp; connection, SQLite::rowid_t manifestId, PackageVersionMultiProperty property) const override;
+         std::optional&lt;SQLite::rowid_t&gt; GetManifestIdByKey(const SQLite::Connection&amp; connection, SQLite::rowid_t id, std::string_view version, std::string_view channel) const override;
+         std::optional&lt;SQLite::rowid_t&gt; GetManifestIdByManifest(const SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest) const override;
+<a href="#h22-0-3" id="h22-0-3" class="d">-        std::vector&lt;Utility::VersionAndChannel&gt; GetVersionKeysById(const SQLite::Connection&amp; connection, SQLite::rowid_t id) const override;
+</a><a href="#h22-0-4" id="h22-0-4" class="i">+        std::vector&lt;VersionKey&gt; GetVersionKeysById(const SQLite::Connection&amp; connection, SQLite::rowid_t id) const override;
+</a> 
+         // Version 1.1
+         MetadataResult GetMetadataByManifestId(const SQLite::Connection&amp; connection, SQLite::rowid_t manifestId) const override;
+<b>diff --git a/<a id="h23" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface_1_0.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface_1_0.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface_1_0.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface_1_0.cpp</a></b>
+<a href="#h23-0" id="h23-0" class="h">@@ -63,53 +63,60 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             std::optional&lt;SQLite::rowid_t&gt; channelIdOpt = ChannelTable::SelectIdByValue(connection, channel, true);
+             if (!channelIdOpt &amp;&amp; !channel.empty())
+             {
+<a href="#h23-0-3" id="h23-0-3" class="d">-                // If a non-empty channel was given but none was found, we will just not filter on channel.
+</a>                 AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find a Channel { &quot; &lt;&lt; channel &lt;&lt; &quot; }&quot;);
+                 return {};
+             }
+ 
+             std::optional&lt;SQLite::rowid_t&gt; versionIdOpt;
+<a href="#h23-0-9" id="h23-0-9" class="i">+            std::vector&lt;std::pair&lt;SQLite::rowid_t, std::string&gt;&gt; versionStrings;
+</a> 
+<a href="#h23-0-11" id="h23-0-11" class="d">-            if (version.empty())
+</a><a href="#h23-0-12" id="h23-0-12" class="i">+            if (channelIdOpt)
+</a>             {
+<a href="#h23-0-14" id="h23-0-14" class="d">-                std::vector&lt;std::string&gt; versionStrings;
+</a><a href="#h23-0-15" id="h23-0-15" class="d">-                
+</a><a href="#h23-0-16" id="h23-0-16" class="d">-                if (channelIdOpt)
+</a><a href="#h23-0-17" id="h23-0-17" class="d">-                {
+</a><a href="#h23-0-18" id="h23-0-18" class="d">-                    versionStrings = ManifestTable::GetAllValuesByIds&lt;VersionTable, IdTable, ChannelTable&gt;(connection, { id, channelIdOpt.value() });
+</a><a href="#h23-0-19" id="h23-0-19" class="d">-                }
+</a><a href="#h23-0-20" id="h23-0-20" class="d">-                else
+</a><a href="#h23-0-21" id="h23-0-21" class="d">-                {
+</a><a href="#h23-0-22" id="h23-0-22" class="d">-                    versionStrings = ManifestTable::GetAllValuesByIds&lt;VersionTable, IdTable&gt;(connection, { id });
+</a><a href="#h23-0-23" id="h23-0-23" class="d">-                }
+</a><a href="#h23-0-24" id="h23-0-24" class="i">+                versionStrings = ManifestTable::GetAllValuesByIds&lt;VersionTable, IdTable, ChannelTable&gt;(connection, { id, channelIdOpt.value() });
+</a><a href="#h23-0-25" id="h23-0-25" class="i">+            }
+</a><a href="#h23-0-26" id="h23-0-26" class="i">+            else
+</a><a href="#h23-0-27" id="h23-0-27" class="i">+            {
+</a><a href="#h23-0-28" id="h23-0-28" class="i">+                versionStrings = ManifestTable::GetAllValuesByIds&lt;VersionTable, IdTable&gt;(connection, { id });
+</a><a href="#h23-0-29" id="h23-0-29" class="i">+            }
+</a> 
+<a href="#h23-0-31" id="h23-0-31" class="d">-                if (versionStrings.empty())
+</a><a href="#h23-0-32" id="h23-0-32" class="d">-                {
+</a><a href="#h23-0-33" id="h23-0-33" class="d">-                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find any Versions { &quot; &lt;&lt; id &lt;&lt; &quot;, &quot; &lt;&lt; channel &lt;&lt; &quot; }&quot;);
+</a><a href="#h23-0-34" id="h23-0-34" class="d">-                    return {};
+</a><a href="#h23-0-35" id="h23-0-35" class="d">-                }
+</a><a href="#h23-0-36" id="h23-0-36" class="i">+            if (versionStrings.empty())
+</a><a href="#h23-0-37" id="h23-0-37" class="i">+            {
+</a><a href="#h23-0-38" id="h23-0-38" class="i">+                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find any Versions { &quot; &lt;&lt; id &lt;&lt; &quot;, &quot; &lt;&lt; channel &lt;&lt; &quot; }&quot;);
+</a><a href="#h23-0-39" id="h23-0-39" class="i">+                return {};
+</a><a href="#h23-0-40" id="h23-0-40" class="i">+            }
+</a> 
+<a href="#h23-0-42" id="h23-0-42" class="d">-                // Convert the strings to Versions and sort them
+</a><a href="#h23-0-43" id="h23-0-43" class="d">-                std::vector&lt;Utility::Version&gt; versions;
+</a><a href="#h23-0-44" id="h23-0-44" class="d">-                for (std::string&amp; v : versionStrings)
+</a><a href="#h23-0-45" id="h23-0-45" class="d">-                {
+</a><a href="#h23-0-46" id="h23-0-46" class="d">-                    versions.emplace_back(std::move(v));
+</a><a href="#h23-0-47" id="h23-0-47" class="d">-                }
+</a><a href="#h23-0-48" id="h23-0-48" class="i">+            // Convert the strings to Versions and sort them
+</a><a href="#h23-0-49" id="h23-0-49" class="i">+            struct VersionAndRow
+</a><a href="#h23-0-50" id="h23-0-50" class="i">+            {
+</a><a href="#h23-0-51" id="h23-0-51" class="i">+                SQLite::rowid_t Row = 0;
+</a><a href="#h23-0-52" id="h23-0-52" class="i">+                Utility::Version Version;
+</a> 
+<a href="#h23-0-54" id="h23-0-54" class="d">-                std::sort(versions.begin(), versions.end());
+</a><a href="#h23-0-55" id="h23-0-55" class="i">+                bool operator&lt;(const VersionAndRow&amp; other) const { return Version &lt; other.Version; }
+</a><a href="#h23-0-56" id="h23-0-56" class="i">+            };
+</a><a href="#h23-0-57" id="h23-0-57" class="i">+
+</a><a href="#h23-0-58" id="h23-0-58" class="i">+            std::vector&lt;VersionAndRow&gt; versions;
+</a><a href="#h23-0-59" id="h23-0-59" class="i">+            for (auto&amp; v : versionStrings)
+</a><a href="#h23-0-60" id="h23-0-60" class="i">+            {
+</a><a href="#h23-0-61" id="h23-0-61" class="i">+                versions.emplace_back(VersionAndRow{ v.first, std::move(v.second) });
+</a><a href="#h23-0-62" id="h23-0-62" class="i">+            }
+</a> 
+<a href="#h23-0-64" id="h23-0-64" class="d">-                // Get the last version in the list (the highest version) and its rowid
+</a><a href="#h23-0-65" id="h23-0-65" class="d">-                const std::string&amp; latestVersion = versions.back().ToString();
+</a><a href="#h23-0-66" id="h23-0-66" class="d">-                versionIdOpt = VersionTable::SelectIdByValue(connection, latestVersion);
+</a><a href="#h23-0-67" id="h23-0-67" class="i">+            std::sort(versions.begin(), versions.end());
+</a> 
+<a href="#h23-0-69" id="h23-0-69" class="d">-                if (!versionIdOpt)
+</a><a href="#h23-0-70" id="h23-0-70" class="d">-                {
+</a><a href="#h23-0-71" id="h23-0-71" class="d">-                    AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Did not find a Version row for the latest version { &quot; &lt;&lt; latestVersion &lt;&lt; &quot; }&quot;);
+</a><a href="#h23-0-72" id="h23-0-72" class="d">-                }
+</a><a href="#h23-0-73" id="h23-0-73" class="i">+            if (version.empty())
+</a><a href="#h23-0-74" id="h23-0-74" class="i">+            {
+</a><a href="#h23-0-75" id="h23-0-75" class="i">+                // Get the last version in the list (the highest version)
+</a><a href="#h23-0-76" id="h23-0-76" class="i">+                versionIdOpt = versions.back().Row;
+</a>             }
+             else
+             {
+<a href="#h23-0-80" id="h23-0-80" class="d">-                versionIdOpt = VersionTable::SelectIdByValue(connection, version, true);
+</a><a href="#h23-0-81" id="h23-0-81" class="i">+                VersionAndRow requested;
+</a><a href="#h23-0-82" id="h23-0-82" class="i">+                requested.Version = Utility::Version{ std::string(version) };
+</a><a href="#h23-0-83" id="h23-0-83" class="i">+
+</a><a href="#h23-0-84" id="h23-0-84" class="i">+                auto itr = std::lower_bound(versions.begin(), versions.end(), requested);
+</a><a href="#h23-0-85" id="h23-0-85" class="i">+                if (itr != versions.end() &amp;&amp; itr-&gt;Version == requested.Version)
+</a><a href="#h23-0-86" id="h23-0-86" class="i">+                {
+</a><a href="#h23-0-87" id="h23-0-87" class="i">+                    versionIdOpt = itr-&gt;Row;
+</a><a href="#h23-0-88" id="h23-0-88" class="i">+                }
+</a>             }
+ 
+             if (!versionIdOpt)
+<a href="#h23-1" id="h23-1" class="h">@@ -510,12 +517,6 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a> 
+     std::optional&lt;std::string&gt; Interface::GetPropertyByManifestId(const SQLite::Connection&amp; connection, SQLite::rowid_t manifestId, PackageVersionProperty property) const
+     {
+<a href="#h23-1-3" id="h23-1-3" class="d">-        if (!ManifestTable::ExistsById(connection, manifestId))
+</a><a href="#h23-1-4" id="h23-1-4" class="d">-        {
+</a><a href="#h23-1-5" id="h23-1-5" class="d">-            AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find manifest by id: &quot; &lt;&lt; manifestId);
+</a><a href="#h23-1-6" id="h23-1-6" class="d">-            return {};
+</a><a href="#h23-1-7" id="h23-1-7" class="d">-        }
+</a><a href="#h23-1-8" id="h23-1-8" class="d">-
+</a>         return GetPropertyByManifestIdInternal(connection, manifestId, property);
+     }
+ 
+<a href="#h23-2" id="h23-2" class="h">@@ -544,15 +545,15 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         return {};
+     }
+ 
+<a href="#h23-2-3" id="h23-2-3" class="d">-    std::vector&lt;Utility::VersionAndChannel&gt; Interface::GetVersionKeysById(const SQLite::Connection&amp; connection, SQLite::rowid_t id) const
+</a><a href="#h23-2-4" id="h23-2-4" class="i">+    std::vector&lt;ISQLiteIndex::VersionKey&gt; Interface::GetVersionKeysById(const SQLite::Connection&amp; connection, SQLite::rowid_t id) const
+</a>     {
+         auto versionsAndChannels = ManifestTable::GetAllValuesById&lt;IdTable, VersionTable, ChannelTable&gt;(connection, id);
+ 
+<a href="#h23-2-8" id="h23-2-8" class="d">-        std::vector&lt;Utility::VersionAndChannel&gt; result;
+</a><a href="#h23-2-9" id="h23-2-9" class="i">+        std::vector&lt;ISQLiteIndex::VersionKey&gt; result;
+</a>         result.reserve(versionsAndChannels.size());
+         for (auto&amp;&amp; vac : versionsAndChannels)
+         {
+<a href="#h23-2-13" id="h23-2-13" class="d">-            result.emplace_back(Utility::Version{ std::move(std::get&lt;0&gt;(vac)) }, Utility::Channel{ std::move(std::get&lt;1&gt;(vac)) });
+</a><a href="#h23-2-14" id="h23-2-14" class="i">+            result.emplace_back(ISQLiteIndex::VersionKey{ Utility::VersionAndChannel{ Utility::Version{ std::move(std::get&lt;1&gt;(vac)) }, Utility::Channel{ std::move(std::get&lt;2&gt;(vac)) } }, std::get&lt;0&gt;(vac) });
+</a>         }
+ 
+         std::sort(result.begin(), result.end());
+<a href="#h23-3" id="h23-3" class="h">@@ -627,13 +628,13 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         switch (property)
+         {
+         case AppInstaller::Repository::PackageVersionProperty::Id:
+<a href="#h23-3-3" id="h23-3-3" class="d">-            return std::get&lt;0&gt;(ManifestTable::GetValuesById&lt;IdTable&gt;(connection, manifestId));
+</a><a href="#h23-3-4" id="h23-3-4" class="i">+            return ManifestTable::GetValueById&lt;IdTable&gt;(connection, manifestId);
+</a>         case AppInstaller::Repository::PackageVersionProperty::Name:
+<a href="#h23-3-6" id="h23-3-6" class="d">-            return std::get&lt;0&gt;(ManifestTable::GetValuesById&lt;NameTable&gt;(connection, manifestId));
+</a><a href="#h23-3-7" id="h23-3-7" class="i">+            return ManifestTable::GetValueById&lt;NameTable&gt;(connection, manifestId);
+</a>         case AppInstaller::Repository::PackageVersionProperty::Version:
+<a href="#h23-3-9" id="h23-3-9" class="d">-            return std::get&lt;0&gt;(ManifestTable::GetValuesById&lt;VersionTable&gt;(connection, manifestId));
+</a><a href="#h23-3-10" id="h23-3-10" class="i">+            return ManifestTable::GetValueById&lt;VersionTable&gt;(connection, manifestId);
+</a>         case AppInstaller::Repository::PackageVersionProperty::Channel:
+<a href="#h23-3-12" id="h23-3-12" class="d">-            return std::get&lt;0&gt;(ManifestTable::GetValuesById&lt;ChannelTable&gt;(connection, manifestId));
+</a><a href="#h23-3-13" id="h23-3-13" class="i">+            return ManifestTable::GetValueById&lt;ChannelTable&gt;(connection, manifestId);
+</a>         case AppInstaller::Repository::PackageVersionProperty::RelativePath:
+             return PathPartTable::GetPathById(connection, std::get&lt;0&gt;(ManifestTable::GetIdsById&lt;PathPartTable&gt;(connection, manifestId)));
+         default:
+<b>diff --git a/<a id="h24" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp</a></b>
+<a href="#h24-0" id="h24-0" class="h">@@ -63,14 +63,18 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         SQLite::Statement ManifestTableGetIdsById_Statement(
+             const SQLite::Connection&amp; connection,
+             SQLite::rowid_t id,
+<a href="#h24-0-3" id="h24-0-3" class="d">-            std::initializer_list&lt;std::string_view&gt; values)
+</a><a href="#h24-0-4" id="h24-0-4" class="i">+            std::initializer_list&lt;std::string_view&gt; values,
+</a><a href="#h24-0-5" id="h24-0-5" class="i">+            bool stepAndVerify)
+</a>         {
+             SQLite::Builder::StatementBuilder builder;
+             builder.Select(values).From(s_ManifestTable_Table_Name).Where(SQLite::RowIDName).Equals(id);
+ 
+             SQLite::Statement result = builder.Prepare(connection);
+ 
+<a href="#h24-0-12" id="h24-0-12" class="d">-            THROW_HR_IF(E_NOT_SET, !result.Step());
+</a><a href="#h24-0-13" id="h24-0-13" class="i">+            if (stepAndVerify)
+</a><a href="#h24-0-14" id="h24-0-14" class="i">+            {
+</a><a href="#h24-0-15" id="h24-0-15" class="i">+                THROW_HR_IF(E_NOT_SET, !result.Step());
+</a><a href="#h24-0-16" id="h24-0-16" class="i">+            }
+</a> 
+             return result;
+         }
+<a href="#h24-1" id="h24-1" class="h">@@ -84,7 +88,8 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             const SQLite::Connection&amp; connection,
+             SQLite::rowid_t id,
+             std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; columns,
+<a href="#h24-1-3" id="h24-1-3" class="d">-            std::initializer_list&lt;std::string_view&gt; manifestColumnNames)
+</a><a href="#h24-1-4" id="h24-1-4" class="i">+            std::initializer_list&lt;std::string_view&gt; manifestColumnNames,
+</a><a href="#h24-1-5" id="h24-1-5" class="i">+            bool stepAndVerify)
+</a>         {
+             THROW_HR_IF(E_UNEXPECTED, manifestColumnNames.size() != columns.size());
+ 
+<a href="#h24-2" id="h24-2" class="h">@@ -108,7 +113,10 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a> 
+             SQLite::Statement result = builder.Prepare(connection);
+ 
+<a href="#h24-2-3" id="h24-2-3" class="d">-            THROW_HR_IF(E_NOT_SET, !result.Step());
+</a><a href="#h24-2-4" id="h24-2-4" class="i">+            if (stepAndVerify)
+</a><a href="#h24-2-5" id="h24-2-5" class="i">+            {
+</a><a href="#h24-2-6" id="h24-2-6" class="i">+                THROW_HR_IF(E_NOT_SET, !result.Step());
+</a><a href="#h24-2-7" id="h24-2-7" class="i">+            }
+</a> 
+             return result;
+         }
+<a href="#h24-3" id="h24-3" class="h">@@ -116,6 +124,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         SQLite::Statement ManifestTableGetAllValuesByIds_Statement(
+             const SQLite::Connection&amp; connection,
+             std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; valueColumns,
+<a href="#h24-3-3" id="h24-3-3" class="i">+            std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; joinColumns,
+</a>             std::initializer_list&lt;std::string_view&gt; idColumns,
+             std::initializer_list&lt;SQLite::rowid_t&gt; ids)
+         {
+<a href="#h24-4" id="h24-4" class="h">@@ -126,9 +135,9 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             SQLite::Builder::StatementBuilder builder;
+             builder.Select(valueColumns).From(s_ManifestTable_Table_Name);
+ 
+<a href="#h24-4-3" id="h24-4-3" class="d">-            for (const auto&amp; valueColumn : valueColumns)
+</a><a href="#h24-4-4" id="h24-4-4" class="i">+            for (const auto&amp; joinColumn : joinColumns)
+</a>             {
+<a href="#h24-4-6" id="h24-4-6" class="d">-                builder.Join(valueColumn.Table).On(QCol{ s_ManifestTable_Table_Name, valueColumn.Column }, QCol{ valueColumn.Table, SQLite::RowIDName });
+</a><a href="#h24-4-7" id="h24-4-7" class="i">+                builder.Join(joinColumn.Table).On(QCol{ s_ManifestTable_Table_Name, joinColumn.Column }, QCol{ joinColumn.Table, SQLite::RowIDName });
+</a>             }
+ 
+             bool isFirst = true;
+<a href="#h24-5" id="h24-5" class="h">@@ -157,18 +166,19 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             return select;
+         }
+ 
+<a href="#h24-5-3" id="h24-5-3" class="d">-        std::vector&lt;std::string&gt; ManifestTableGetAllValuesByIds(
+</a><a href="#h24-5-4" id="h24-5-4" class="i">+        std::vector&lt;std::pair&lt;SQLite::rowid_t, std::string&gt;&gt; ManifestTableGetAllValuesByIds(
+</a>             const SQLite::Connection&amp; connection,
+             std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; valueColumns,
+<a href="#h24-5-7" id="h24-5-7" class="i">+            std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; joinColumns,
+</a>             std::initializer_list&lt;std::string_view&gt; idColumns,
+             std::initializer_list&lt;SQLite::rowid_t&gt; ids)
+         {
+<a href="#h24-5-11" id="h24-5-11" class="d">-            auto select = ManifestTableGetAllValuesByIds_Statement(connection, valueColumns, idColumns, ids);
+</a><a href="#h24-5-12" id="h24-5-12" class="i">+            auto select = ManifestTableGetAllValuesByIds_Statement(connection, valueColumns, joinColumns, idColumns, ids);
+</a> 
+<a href="#h24-5-14" id="h24-5-14" class="d">-            std::vector&lt;std::string&gt; result;
+</a><a href="#h24-5-15" id="h24-5-15" class="i">+            std::vector&lt;std::pair&lt;SQLite::rowid_t, std::string&gt;&gt; result;
+</a>             while (select.Step())
+             {
+<a href="#h24-5-18" id="h24-5-18" class="d">-                result.emplace_back(select.GetColumn&lt;std::string&gt;(0));
+</a><a href="#h24-5-19" id="h24-5-19" class="i">+                result.emplace_back(select.GetColumn&lt;SQLite::rowid_t&gt;(0), select.GetColumn&lt;std::string&gt;(1));
+</a>             }
+             return result;
+         }
+<b>diff --git a/<a id="h25" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h</a></b>
+<a href="#h25-0" id="h25-0" class="h">@@ -7,6 +7,7 @@
+</a> #include &lt;initializer_list&gt;
+ #include &lt;optional&gt;
+ #include &lt;string_view&gt;
+<a href="#h25-0-3" id="h25-0-3" class="i">+#include &lt;utility&gt;
+</a> #include &lt;vector&gt;
+ 
+ 
+<a href="#h25-1" id="h25-1" class="h">@@ -37,26 +38,30 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         SQLite::Statement ManifestTableGetIdsById_Statement(
+             const SQLite::Connection&amp; connection,
+             SQLite::rowid_t id,
+<a href="#h25-1-3" id="h25-1-3" class="d">-            std::initializer_list&lt;std::string_view&gt; values);
+</a><a href="#h25-1-4" id="h25-1-4" class="i">+            std::initializer_list&lt;std::string_view&gt; values,
+</a><a href="#h25-1-5" id="h25-1-5" class="i">+            bool stepAndVerify = true);
+</a> 
+         // Gets the requested values for the manifest with the given rowid.
+         SQLite::Statement ManifestTableGetValuesById_Statement(
+             const SQLite::Connection&amp; connection,
+             SQLite::rowid_t id,
+             std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; columns,
+<a href="#h25-1-12" id="h25-1-12" class="d">-            std::initializer_list&lt;std::string_view&gt; manifestColumnNames);
+</a><a href="#h25-1-13" id="h25-1-13" class="i">+            std::initializer_list&lt;std::string_view&gt; manifestColumnNames,
+</a><a href="#h25-1-14" id="h25-1-14" class="i">+            bool stepAndVerify = true);
+</a> 
+         // Gets all values for rows that match the given ids.
+         SQLite::Statement ManifestTableGetAllValuesByIds_Statement(
+             const SQLite::Connection&amp; connection,
+             std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; valueColumns,
+<a href="#h25-1-20" id="h25-1-20" class="i">+            std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; joinColumns,
+</a>             std::initializer_list&lt;std::string_view&gt; idColumns,
+             std::initializer_list&lt;SQLite::rowid_t&gt; ids);
+ 
+         // Gets all values for rows that match the given ids.
+<a href="#h25-1-25" id="h25-1-25" class="d">-        std::vector&lt;std::string&gt; ManifestTableGetAllValuesByIds(
+</a><a href="#h25-1-26" id="h25-1-26" class="i">+        std::vector&lt;std::pair&lt;SQLite::rowid_t, std::string&gt;&gt; ManifestTableGetAllValuesByIds(
+</a>             const SQLite::Connection&amp; connection,
+             std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; valueColumns,
+<a href="#h25-1-29" id="h25-1-29" class="i">+            std::initializer_list&lt;SQLite::Builder::QualifiedColumn&gt; joinColumns,
+</a>             std::initializer_list&lt;std::string_view&gt; idColumns,
+             std::initializer_list&lt;SQLite::rowid_t&gt; ids);
+ 
+<a href="#h25-2" id="h25-2" class="h">@@ -137,6 +142,15 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             return details::ManifestTableGetIdsById_Statement(connection, id, { details::GetManifestTableColumnName&lt;Tables&gt;()...}).GetRow&lt;typename Tables::id_t...&gt;();
+         }
+ 
+<a href="#h25-2-3" id="h25-2-3" class="i">+        // Gets the id requested for the manifest with the given rowid, if it exists.
+</a><a href="#h25-2-4" id="h25-2-4" class="i">+        template &lt;typename Table&gt;
+</a><a href="#h25-2-5" id="h25-2-5" class="i">+        static std::optional&lt;typename Table::id_t&gt; GetIdById(const SQLite::Connection&amp; connection, SQLite::rowid_t id)
+</a><a href="#h25-2-6" id="h25-2-6" class="i">+        {
+</a><a href="#h25-2-7" id="h25-2-7" class="i">+            auto statement = details::ManifestTableGetIdsById_Statement(connection, id, { details::GetManifestTableColumnName&lt;Table&gt;() }, false);
+</a><a href="#h25-2-8" id="h25-2-8" class="i">+            if (statement.Step()) { return statement.GetColumn&lt;typename Table::id_t&gt;(0); }
+</a><a href="#h25-2-9" id="h25-2-9" class="i">+            else { return std::nullopt; }
+</a><a href="#h25-2-10" id="h25-2-10" class="i">+        }
+</a><a href="#h25-2-11" id="h25-2-11" class="i">+
+</a>         // Gets the values requested for the manifest with the given rowid.
+         template &lt;typename... Tables&gt;
+         static auto GetValuesById(const SQLite::Connection&amp; connection, SQLite::rowid_t id)
+<a href="#h25-3" id="h25-3" class="h">@@ -144,22 +158,37 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             return details::ManifestTableGetValuesById_Statement(connection, id, { SQLite::Builder::QualifiedColumn{ Tables::TableName(), Tables::ValueName() }... }, { details::GetManifestTableColumnName&lt;Tables&gt;()... }).GetRow&lt;typename Tables::value_t...&gt;();
+         }
+ 
+<a href="#h25-3-3" id="h25-3-3" class="d">-        // Gets the values for rows that match the given ids.
+</a><a href="#h25-3-4" id="h25-3-4" class="i">+        // Gets the value requested for the manifest with the given rowid, if it exists.
+</a><a href="#h25-3-5" id="h25-3-5" class="i">+        template &lt;typename Table&gt;
+</a><a href="#h25-3-6" id="h25-3-6" class="i">+        static std::optional&lt;typename Table::value_t&gt; GetValueById(const SQLite::Connection&amp; connection, SQLite::rowid_t id)
+</a><a href="#h25-3-7" id="h25-3-7" class="i">+        {
+</a><a href="#h25-3-8" id="h25-3-8" class="i">+            auto statement = details::ManifestTableGetValuesById_Statement(connection, id, { SQLite::Builder::QualifiedColumn{ Table::TableName(), Table::ValueName() } }, { details::GetManifestTableColumnName&lt;Table&gt;() }, false);
+</a><a href="#h25-3-9" id="h25-3-9" class="i">+            if (statement.Step()) { return statement.GetColumn&lt;typename Table::value_t&gt;(0); }
+</a><a href="#h25-3-10" id="h25-3-10" class="i">+            else { return std::nullopt; }
+</a><a href="#h25-3-11" id="h25-3-11" class="i">+        }
+</a><a href="#h25-3-12" id="h25-3-12" class="i">+
+</a><a href="#h25-3-13" id="h25-3-13" class="i">+        // Gets the row ids and values for rows that match the given ids.
+</a>         template &lt;typename ValueTable, typename... IdTables&gt;
+<a href="#h25-3-15" id="h25-3-15" class="d">-        static std::vector&lt;typename ValueTable::value_t&gt; GetAllValuesByIds(const SQLite::Connection&amp; connection, std::initializer_list&lt;SQLite::rowid_t&gt; ids)
+</a><a href="#h25-3-16" id="h25-3-16" class="i">+        static std::vector&lt;std::pair&lt;SQLite::rowid_t, typename ValueTable::value_t&gt;&gt; GetAllValuesByIds(const SQLite::Connection&amp; connection, std::initializer_list&lt;SQLite::rowid_t&gt; ids)
+</a>         {
+<a href="#h25-3-18" id="h25-3-18" class="d">-            return details::ManifestTableGetAllValuesByIds(connection, { SQLite::Builder::QualifiedColumn{ ValueTable::TableName(), ValueTable::ValueName() } }, { IdTables::ValueName()... }, ids);
+</a><a href="#h25-3-19" id="h25-3-19" class="i">+            return details::ManifestTableGetAllValuesByIds(connection,
+</a><a href="#h25-3-20" id="h25-3-20" class="i">+                { SQLite::Builder::QualifiedColumn{ ValueTable::TableName(), SQLite::RowIDName }, SQLite::Builder::QualifiedColumn{ ValueTable::TableName(), ValueTable::ValueName() } },
+</a><a href="#h25-3-21" id="h25-3-21" class="i">+                { SQLite::Builder::QualifiedColumn{ ValueTable::TableName(), ValueTable::ValueName() } },
+</a><a href="#h25-3-22" id="h25-3-22" class="i">+                { IdTables::ValueName()... }, ids);
+</a>         }
+ 
+         // Gets all values for rows that match the given id.
+         template &lt;typename IdTable, typename... ValueTables&gt;
+<a href="#h25-3-27" id="h25-3-27" class="d">-        static std::vector&lt;std::tuple&lt;typename ValueTables::value_t...&gt;&gt; GetAllValuesById(const SQLite::Connection&amp; connection, SQLite::rowid_t id)
+</a><a href="#h25-3-28" id="h25-3-28" class="i">+        static std::vector&lt;std::tuple&lt;SQLite::rowid_t, typename ValueTables::value_t...&gt;&gt; GetAllValuesById(const SQLite::Connection&amp; connection, SQLite::rowid_t id)
+</a>         {
+<a href="#h25-3-30" id="h25-3-30" class="d">-            auto stmt = details::ManifestTableGetAllValuesByIds_Statement(connection, { SQLite::Builder::QualifiedColumn{ ValueTables::TableName(), ValueTables::ValueName() }... }, { IdTable::ValueName() }, { id });
+</a><a href="#h25-3-31" id="h25-3-31" class="d">-            std::vector&lt;std::tuple&lt;typename ValueTables::value_t...&gt;&gt; result;
+</a><a href="#h25-3-32" id="h25-3-32" class="i">+            auto stmt = details::ManifestTableGetAllValuesByIds_Statement(connection,
+</a><a href="#h25-3-33" id="h25-3-33" class="i">+                { SQLite::Builder::QualifiedColumn{ TableName(), SQLite::RowIDName }, SQLite::Builder::QualifiedColumn{ ValueTables::TableName(), ValueTables::ValueName() }... },
+</a><a href="#h25-3-34" id="h25-3-34" class="i">+                { SQLite::Builder::QualifiedColumn{ ValueTables::TableName(), ValueTables::ValueName() }... },
+</a><a href="#h25-3-35" id="h25-3-35" class="i">+                { IdTable::ValueName() }, { id });
+</a><a href="#h25-3-36" id="h25-3-36" class="i">+            std::vector&lt;std::tuple&lt;SQLite::rowid_t, typename ValueTables::value_t...&gt;&gt; result;
+</a>             while (stmt.Step())
+             {
+<a href="#h25-3-39" id="h25-3-39" class="d">-                result.emplace_back(stmt.GetRow&lt;typename ValueTables::value_t...&gt;());
+</a><a href="#h25-3-40" id="h25-3-40" class="i">+                result.emplace_back(stmt.GetRow&lt;SQLite::rowid_t, typename ValueTables::value_t...&gt;());
+</a>             }
+             return result;
+         }
+<b>diff --git a/<a id="h26" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_3/Interface_1_3.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_3/Interface_1_3.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_3/Interface_1_3.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_3/Interface_1_3.cpp</a></b>
+<a href="#h26-0" id="h26-0" class="h">@@ -80,8 +80,8 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_3
+</a>         {
+         case AppInstaller::Repository::PackageVersionProperty::ManifestSHA256Hash:
+         {
+<a href="#h26-0-3" id="h26-0-3" class="d">-            SQLite::blob_t hash = std::get&lt;0&gt;(V1_0::ManifestTable::GetIdsById&lt;HashVirtualTable&gt;(connection, manifestId));
+</a><a href="#h26-0-4" id="h26-0-4" class="d">-            return hash.empty() ? std::optional&lt;std::string&gt;{} : Utility::SHA256::ConvertToString(hash);
+</a><a href="#h26-0-5" id="h26-0-5" class="i">+            std::optional&lt;SQLite::blob_t&gt; hash = V1_0::ManifestTable::GetIdById&lt;HashVirtualTable&gt;(connection, manifestId);
+</a><a href="#h26-0-6" id="h26-0-6" class="i">+            return (!hash || hash-&gt;empty()) ? std::optional&lt;std::string&gt;{} : Utility::SHA256::ConvertToString(hash.value());
+</a>         }
+         default:
+             return V1_2::Interface::GetPropertyByManifestIdInternal(connection, manifestId, property);
+<b>diff --git a/<a id="h27" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_4/Interface_1_4.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_4/Interface_1_4.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_4/Interface_1_4.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_4/Interface_1_4.cpp</a></b>
+<a href="#h27-0" id="h27-0" class="h">@@ -150,7 +150,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_4
+</a>                 {
+                     auto versionKeys = GetVersionKeysById(connection, dependency.first);
+                     THROW_HR_IF(E_UNEXPECTED, versionKeys.empty());
+<a href="#h27-0-3" id="h27-0-3" class="d">-                    checkedVersions.emplace(dependency.first, versionKeys[0].GetVersion());
+</a><a href="#h27-0-4" id="h27-0-4" class="i">+                    checkedVersions.emplace(dependency.first, versionKeys[0].VersionAndChannel.GetVersion());
+</a>                 }
+ 
+                 // If the latest version is less than min version required, fail the validation.
+<b>diff --git a/<a id="h28" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp</a></b>
+<a href="#h28-0" id="h28-0" class="h">@@ -173,9 +173,9 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+</a>         switch (property)
+         {
+         case AppInstaller::Repository::PackageVersionProperty::ArpMinVersion:
+<a href="#h28-0-3" id="h28-0-3" class="d">-            return std::get&lt;0&gt;(V1_0::ManifestTable::GetValuesById&lt;ArpMinVersionVirtualTable&gt;(connection, manifestId));
+</a><a href="#h28-0-4" id="h28-0-4" class="i">+            return V1_0::ManifestTable::GetValueById&lt;ArpMinVersionVirtualTable&gt;(connection, manifestId);
+</a>         case AppInstaller::Repository::PackageVersionProperty::ArpMaxVersion:
+<a href="#h28-0-6" id="h28-0-6" class="d">-            return std::get&lt;0&gt;(V1_0::ManifestTable::GetValuesById&lt;ArpMaxVersionVirtualTable&gt;(connection, manifestId));
+</a><a href="#h28-0-7" id="h28-0-7" class="i">+            return V1_0::ManifestTable::GetValueById&lt;ArpMaxVersionVirtualTable&gt;(connection, manifestId);
+</a>         default:
+             return V1_4::Interface::GetPropertyByManifestIdInternal(connection, manifestId, property);
+         }
+<a href="#h28-1" id="h28-1" class="h">@@ -197,19 +197,15 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+</a>                 auto versionKeys = GetVersionKeysById(connection, match.first);
+                 for (auto const&amp; versionKey : versionKeys)
+                 {
+<a href="#h28-1-3" id="h28-1-3" class="d">-                    auto manifestRowId = GetManifestIdByKey(connection, match.first, versionKey.GetVersion().ToString(), versionKey.GetChannel().ToString());
+</a><a href="#h28-1-4" id="h28-1-4" class="d">-                    if (manifestRowId)
+</a><a href="#h28-1-5" id="h28-1-5" class="d">-                    {
+</a><a href="#h28-1-6" id="h28-1-6" class="d">-                        auto arpMinVersion = GetPropertyByManifestId(connection, manifestRowId.value(), PackageVersionProperty::ArpMinVersion).value_or(&quot;&quot;);
+</a><a href="#h28-1-7" id="h28-1-7" class="d">-                        auto arpMaxVersion = GetPropertyByManifestId(connection, manifestRowId.value(), PackageVersionProperty::ArpMaxVersion).value_or(&quot;&quot;);
+</a><a href="#h28-1-8" id="h28-1-8" class="i">+                    auto arpMinVersion = GetPropertyByManifestId(connection, versionKey.ManifestId, PackageVersionProperty::ArpMinVersion).value_or(&quot;&quot;);
+</a><a href="#h28-1-9" id="h28-1-9" class="i">+                    auto arpMaxVersion = GetPropertyByManifestId(connection, versionKey.ManifestId, PackageVersionProperty::ArpMaxVersion).value_or(&quot;&quot;);
+</a> 
+<a href="#h28-1-11" id="h28-1-11" class="d">-                        // Either both empty or both not empty
+</a><a href="#h28-1-12" id="h28-1-12" class="d">-                        THROW_HR_IF(E_UNEXPECTED, arpMinVersion.empty() != arpMaxVersion.empty());
+</a><a href="#h28-1-13" id="h28-1-13" class="i">+                    // Either both empty or both not empty
+</a><a href="#h28-1-14" id="h28-1-14" class="i">+                    THROW_HR_IF(E_UNEXPECTED, arpMinVersion.empty() != arpMaxVersion.empty());
+</a> 
+<a href="#h28-1-16" id="h28-1-16" class="d">-                        if (!arpMinVersion.empty() &amp;&amp; !arpMaxVersion.empty())
+</a><a href="#h28-1-17" id="h28-1-17" class="d">-                        {
+</a><a href="#h28-1-18" id="h28-1-18" class="d">-                            ranges.emplace_back(Utility::VersionRange{ Utility::Version{ std::move(arpMinVersion) }, Utility::Version{ std::move(arpMaxVersion) } });
+</a><a href="#h28-1-19" id="h28-1-19" class="d">-                        }
+</a><a href="#h28-1-20" id="h28-1-20" class="i">+                    if (!arpMinVersion.empty() &amp;&amp; !arpMaxVersion.empty())
+</a><a href="#h28-1-21" id="h28-1-21" class="i">+                    {
+</a><a href="#h28-1-22" id="h28-1-22" class="i">+                        ranges.emplace_back(Utility::VersionRange{ Utility::Version{ std::move(arpMinVersion) }, Utility::Version{ std::move(arpMaxVersion) } });
+</a>                     }
+                 }
+ 
+<b>diff --git a/<a id="h29" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h</a></b>
+<a href="#h29-0" id="h29-0" class="h">@@ -46,6 +46,15 @@ namespace AppInstaller::Repository::Microsoft::Schema
+</a>             DisableDependenciesSupport = 0x2,
+         };
+ 
+<a href="#h29-0-3" id="h29-0-3" class="i">+        // Contains both the object representation of the version key and the rows.
+</a><a href="#h29-0-4" id="h29-0-4" class="i">+        struct VersionKey
+</a><a href="#h29-0-5" id="h29-0-5" class="i">+        {
+</a><a href="#h29-0-6" id="h29-0-6" class="i">+            Utility::VersionAndChannel VersionAndChannel;
+</a><a href="#h29-0-7" id="h29-0-7" class="i">+            SQLite::rowid_t ManifestId;
+</a><a href="#h29-0-8" id="h29-0-8" class="i">+
+</a><a href="#h29-0-9" id="h29-0-9" class="i">+            bool operator&lt;(const VersionKey&amp; other) const { return VersionAndChannel &lt; other.VersionAndChannel; }
+</a><a href="#h29-0-10" id="h29-0-10" class="i">+        };
+</a><a href="#h29-0-11" id="h29-0-11" class="i">+
+</a>         // Creates all of the version dependent tables within the database.
+         virtual void CreateTables(SQLite::Connection&amp; connection, CreateOptions options) = 0;
+ 
+<a href="#h29-1" id="h29-1" class="h">@@ -89,7 +98,7 @@ namespace AppInstaller::Repository::Microsoft::Schema
+</a>         virtual std::optional&lt;SQLite::rowid_t&gt; GetManifestIdByManifest(const SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest) const = 0;
+ 
+         // Gets all versions and channels for the given id.
+<a href="#h29-1-3" id="h29-1-3" class="d">-        virtual std::vector&lt;Utility::VersionAndChannel&gt; GetVersionKeysById(const SQLite::Connection&amp; connection, SQLite::rowid_t id) const = 0;
+</a><a href="#h29-1-4" id="h29-1-4" class="i">+        virtual std::vector&lt;VersionKey&gt; GetVersionKeysById(const SQLite::Connection&amp; connection, SQLite::rowid_t id) const = 0;
+</a> 
+         // Version 1.1
+ 
+<b>diff --git a/<a id="h30" href="../file/src/AppInstallerRepositoryCore/PackageDependenciesValidation.cpp.html">src/AppInstallerRepositoryCore/PackageDependenciesValidation.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/PackageDependenciesValidation.cpp.html">src/AppInstallerRepositoryCore/PackageDependenciesValidation.cpp</a></b>
+<a href="#h30-0" id="h30-0" class="h">@@ -33,7 +33,7 @@ namespace AppInstaller::Repository
+</a>             return depList;
+         }
+ 
+<a href="#h30-0-3" id="h30-0-3" class="d">-        std::optional&lt;std::pair&lt;SQLite::rowid_t, Utility::Version&gt;&gt; GetPackageLatestVersion(
+</a><a href="#h30-0-4" id="h30-0-4" class="i">+        std::optional&lt;SQLiteIndex::VersionKey&gt; GetPackageLatestVersion(
+</a>             SQLiteIndex* index, Manifest::string_t packageId, std::set&lt;Utility::Version&gt; exclusions = {})
+         {
+             SearchRequest request;
+<a href="#h30-1" id="h30-1" class="h">@@ -54,31 +54,28 @@ namespace AppInstaller::Repository
+</a>                 return {};
+             }
+ 
+<a href="#h30-1-3" id="h30-1-3" class="d">-            Utility::VersionAndChannel maxVersion(Utility::Version::CreateUnknown(), Utility::Channel(&quot;&quot;));
+</a><a href="#h30-1-4" id="h30-1-4" class="i">+            SQLiteIndex::VersionKey maxVersion{ Utility::VersionAndChannel{ Utility::Version::CreateUnknown(), Utility::Channel(&quot;&quot;) } };
+</a> 
+             for (auto&amp; v : vac)
+             {
+<a href="#h30-1-8" id="h30-1-8" class="d">-                auto currentVersion = v.GetVersion();
+</a><a href="#h30-1-9" id="h30-1-9" class="i">+                auto currentVersion = v.VersionAndChannel.GetVersion();
+</a>                 if (exclusions.find(currentVersion) != exclusions.end())
+                 {
+                     continue;
+                 }
+ 
+<a href="#h30-1-15" id="h30-1-15" class="d">-                if (currentVersion &gt; maxVersion.GetVersion())
+</a><a href="#h30-1-16" id="h30-1-16" class="i">+                if (currentVersion &gt; maxVersion.VersionAndChannel.GetVersion())
+</a>                 {
+                     maxVersion = v;
+                 }
+             }
+ 
+<a href="#h30-1-22" id="h30-1-22" class="d">-            if (maxVersion.GetVersion().IsUnknown())
+</a><a href="#h30-1-23" id="h30-1-23" class="i">+            if (maxVersion.VersionAndChannel.GetVersion().IsUnknown())
+</a>             {
+                 return {};
+             }
+ 
+<a href="#h30-1-28" id="h30-1-28" class="d">-            auto manifestRowId = index-&gt;GetManifestIdByKey(
+</a><a href="#h30-1-29" id="h30-1-29" class="d">-                packageRowId, maxVersion.GetVersion().ToString(), maxVersion.GetChannel().ToString());
+</a><a href="#h30-1-30" id="h30-1-30" class="d">-
+</a><a href="#h30-1-31" id="h30-1-31" class="d">-            return std::make_pair(manifestRowId.value(), maxVersion.GetVersion());
+</a><a href="#h30-1-32" id="h30-1-32" class="i">+            return maxVersion;
+</a>         }
+     
+         void ThrowOnManifestValidationFailed(
+<a href="#h30-2" id="h30-2" class="h">@@ -130,14 +127,14 @@ namespace AppInstaller::Repository
+</a>                     return depList;
+                 }
+ 
+<a href="#h30-2-3" id="h30-2-3" class="d">-                if (node.MinVersion &gt; packageLatest.value().second)
+</a><a href="#h30-2-4" id="h30-2-4" class="i">+                if (node.MinVersion &gt; packageLatest-&gt;VersionAndChannel.GetVersion())
+</a>                 {
+                     dependenciesError.emplace_back(ManifestError::NoSuitableMinVersionDependency, &quot;PackageIdentifier&quot;, node.Id());
+                     foundErrors = true;
+                     return depList;
+                 }
+ 
+<a href="#h30-2-11" id="h30-2-11" class="d">-                auto packageLatestDependencies = index-&gt;GetDependenciesByManifestRowId(packageLatest.value().first);
+</a><a href="#h30-2-12" id="h30-2-12" class="i">+                auto packageLatestDependencies = index-&gt;GetDependenciesByManifestRowId(packageLatest-&gt;ManifestId);
+</a>                 std::for_each(
+                     packageLatestDependencies.begin(),
+                     packageLatestDependencies.end(),
+<a href="#h30-3" id="h30-3" class="h">@@ -201,13 +198,13 @@ namespace AppInstaller::Repository
+</a>             THROW_HR(APPINSTALLER_CLI_ERROR_MISSING_PACKAGE);
+         }
+ 
+<a href="#h30-3-3" id="h30-3-3" class="d">-        if (Utility::Version(manifest.Version) &lt; packageLatest.value().second)
+</a><a href="#h30-3-4" id="h30-3-4" class="i">+        if (Utility::Version(manifest.Version) &lt; packageLatest-&gt;VersionAndChannel.GetVersion())
+</a>         {
+             // all good, since it&#39;s min version the criteria is still satisfied.
+             return true;
+         }
+ 
+<a href="#h30-3-10" id="h30-3-10" class="d">-        auto nextLatestAfterDelete = GetPackageLatestVersion(index, manifest.Id, { packageLatest.value().second });
+</a><a href="#h30-3-11" id="h30-3-11" class="i">+        auto nextLatestAfterDelete = GetPackageLatestVersion(index, manifest.Id, { packageLatest-&gt;VersionAndChannel.GetVersion() });
+</a> 
+         if (!nextLatestAfterDelete.has_value())
+         {
+<a href="#h30-4" id="h30-4" class="h">@@ -224,7 +221,7 @@ namespace AppInstaller::Repository
+</a>             std::back_inserter(breakingManifests),
+             [&amp;](std::pair&lt;DependentManifestInfo, Utility::Version&gt; current)
+             {
+<a href="#h30-4-3" id="h30-4-3" class="d">-                return current.second &gt; nextLatestAfterDelete.value().second;
+</a><a href="#h30-4-4" id="h30-4-4" class="i">+                return current.second &gt; nextLatestAfterDelete-&gt;VersionAndChannel.GetVersion();
+</a>             }
+         );
+ 
+<b>diff --git a/<a id="h31" href="../file/src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp.html">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp.html">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a></b>
+<a href="#h31-0" id="h31-0" class="h">@@ -273,12 +273,7 @@ namespace AppInstaller::Repository
+</a> 
+             for (const auto&amp; version : versions)
+             {
+<a href="#h31-0-3" id="h31-0-3" class="d">-                auto manifestId = index.GetManifestIdByKey(match.first, version.GetVersion().ToString(), version.GetChannel().ToString());
+</a><a href="#h31-0-4" id="h31-0-4" class="d">-
+</a><a href="#h31-0-5" id="h31-0-5" class="d">-                if (manifestId)
+</a><a href="#h31-0-6" id="h31-0-6" class="d">-                {
+</a><a href="#h31-0-7" id="h31-0-7" class="d">-                    index.RemoveManifestById(manifestId.value());
+</a><a href="#h31-0-8" id="h31-0-8" class="d">-                }
+</a><a href="#h31-0-9" id="h31-0-9" class="i">+                index.RemoveManifestById(version.ManifestId);
+</a>             }
+         }
+     }
+<b>diff --git a/<a id="h32" href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a></b>
+<a href="#h32-0" id="h32-0" class="h">@@ -68,6 +68,9 @@ namespace AppInstaller::Repository
+</a>         ARP,
+         MSIX,
+         Installing,
+<a href="#h32-0-3" id="h32-0-3" class="i">+        // Same as `Installed`, but creating the source reference for this is sufficient to cause the cache to be updated
+</a><a href="#h32-0-4" id="h32-0-4" class="i">+        // on next Open of any `Installed` or `InstalledForceCacheUpdate`.
+</a><a href="#h32-0-5" id="h32-0-5" class="i">+        InstalledForceCacheUpdate,
+</a>     };
+ 
+     // A well known source.
+<b>diff --git a/<a id="h33" href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></b>
+<a href="#h33-0" id="h33-0" class="h">@@ -162,6 +162,10 @@ namespace AppInstaller::Repository
+</a>                 details.Type = Microsoft::PredefinedInstalledSourceFactory::Type();
+                 details.Arg = Microsoft::PredefinedInstalledSourceFactory::FilterToString(Microsoft::PredefinedInstalledSourceFactory::Filter::None);
+                 return details;
+<a href="#h33-0-3" id="h33-0-3" class="i">+            case PredefinedSource::InstalledForceCacheUpdate:
+</a><a href="#h33-0-4" id="h33-0-4" class="i">+                details.Type = Microsoft::PredefinedInstalledSourceFactory::Type();
+</a><a href="#h33-0-5" id="h33-0-5" class="i">+                details.Arg = Microsoft::PredefinedInstalledSourceFactory::FilterToString(Microsoft::PredefinedInstalledSourceFactory::Filter::NoneWithForcedCacheUpdate);
+</a><a href="#h33-0-6" id="h33-0-6" class="i">+                return details;
+</a>             case PredefinedSource::InstalledUser:
+                 details.Type = Microsoft::PredefinedInstalledSourceFactory::Type();
+                 details.Arg = Microsoft::PredefinedInstalledSourceFactory::FilterToString(Microsoft::PredefinedInstalledSourceFactory::Filter::User);
+<b>diff --git a/<a id="h34" href="../file/src/AppInstallerRepositoryCore/pch.h.html">src/AppInstallerRepositoryCore/pch.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/pch.h.html">src/AppInstallerRepositoryCore/pch.h</a></b>
+<a href="#h34-0" id="h34-0" class="h">@@ -14,6 +14,7 @@
+</a> #pragma warning( push )
+ #pragma warning ( disable : 6001 6340 6387 6388 26495 28196 )
+ #include &lt;wil/filesystem.h&gt;
+<a href="#h34-0-3" id="h34-0-3" class="i">+#include &lt;wil/registry.h&gt;
+</a> #include &lt;wil/resource.h&gt;
+ #include &lt;wil/result.h&gt;
+ #include &lt;wil/result_macros.h&gt;
+<b>diff --git a/<a id="h35" href="../file/src/AppInstallerSharedLib/Public/AppInstallerVersions.h.html">src/AppInstallerSharedLib/Public/AppInstallerVersions.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/AppInstallerVersions.h.html">src/AppInstallerSharedLib/Public/AppInstallerVersions.h</a></b>
+<a href="#h35-0" id="h35-0" class="h">@@ -93,6 +93,9 @@ namespace AppInstaller::Utility
+</a> 
+             uint64_t Integer = 0;
+             std::string Other;
+<a href="#h35-0-3" id="h35-0-3" class="i">+
+</a><a href="#h35-0-4" id="h35-0-4" class="i">+        private:
+</a><a href="#h35-0-5" id="h35-0-5" class="i">+            std::string m_foldedOther;
+</a>         };
+ 
+         // Gets the part breakdown for a given version.
+<b>diff --git a/<a id="h36" href="../file/src/AppInstallerSharedLib/Public/winget/Registry.h.html">src/AppInstallerSharedLib/Public/winget/Registry.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/Registry.h.html">src/AppInstallerSharedLib/Public/winget/Registry.h</a></b>
+<a href="#h36-0" id="h36-0" class="h">@@ -282,6 +282,7 @@ namespace AppInstaller::Registry
+</a>         ValueList Values() const;
+ 
+         operator bool() const { return m_key.operator bool(); }
+<a href="#h36-0-3" id="h36-0-3" class="i">+        operator HKEY() const { return m_key.get(); }
+</a> 
+         // Open a Key; will return an empty Key if the subkey does not exist.
+         static Key OpenIfExists(HKEY key, std::string_view subKey = {}, DWORD options = 0, REGSAM access = KEY_READ);
+<b>diff --git a/<a id="h37" href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteMetadataTable.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteMetadataTable.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteMetadataTable.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteMetadataTable.h</a></b>
+<a href="#h37-0" id="h37-0" class="h">@@ -10,6 +10,7 @@ namespace AppInstaller::SQLite
+</a> {
+     using namespace std::string_view_literals;
+ 
+<a href="#h37-0-3" id="h37-0-3" class="i">+    static constexpr std::string_view s_MetadataValueName_DatabaseIdentifier = &quot;databaseIdentifier&quot;sv;
+</a>     static constexpr std::string_view s_MetadataValueName_MajorVersion = &quot;majorVersion&quot;sv;
+     static constexpr std::string_view s_MetadataValueName_MinorVersion = &quot;minorVersion&quot;sv;
+     static constexpr std::string_view s_MetadataValueName_LastWriteTime = &quot;lastwritetime&quot;sv;
+<b>diff --git a/<a id="h38" href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteStorageBase.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteStorageBase.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteStorageBase.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteStorageBase.h</a></b>
+<a href="#h38-0" id="h38-0" class="h">@@ -25,6 +25,9 @@ namespace AppInstaller::SQLite
+</a>         // Gets the last write time for the database.
+         std::chrono::system_clock::time_point GetLastWriteTime();
+ 
+<a href="#h38-0-3" id="h38-0-3" class="i">+        // Gets the identifier written to the database when it was created.
+</a><a href="#h38-0-4" id="h38-0-4" class="i">+        std::string GetDatabaseIdentifier();
+</a><a href="#h38-0-5" id="h38-0-5" class="i">+
+</a>         // Gets the schema version of the database.
+         Version GetVersion() const { return m_version; }
+ 
+<a href="#h38-1" id="h38-1" class="h">@@ -33,6 +36,8 @@ namespace AppInstaller::SQLite
+</a> 
+         SQLiteStorageBase(const std::string&amp; filePath, SQLiteStorageBase::OpenDisposition disposition, Utility::ManagedFile&amp;&amp; indexFile);
+ 
+<a href="#h38-1-3" id="h38-1-3" class="i">+        SQLiteStorageBase(const std::string&amp; target, SQLiteStorageBase&amp; source);
+</a><a href="#h38-1-4" id="h38-1-4" class="i">+
+</a>         // Sets the last write time metadata value in the database.
+         void SetLastWriteTime();
+ 
+<b>diff --git a/<a id="h39" href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h</a></b>
+<a href="#h39-0" id="h39-0" class="h">@@ -317,6 +317,28 @@ namespace AppInstaller::SQLite
+</a>         Statement m_release;
+     };
+ 
+<a href="#h39-0-3" id="h39-0-3" class="i">+    // A SQLite backup operation.
+</a><a href="#h39-0-4" id="h39-0-4" class="i">+    struct Backup
+</a><a href="#h39-0-5" id="h39-0-5" class="i">+    {
+</a><a href="#h39-0-6" id="h39-0-6" class="i">+        // Creates a backup.
+</a><a href="#h39-0-7" id="h39-0-7" class="i">+        static Backup Create(Connection&amp; destination, const std::string&amp; destinationName, Connection&amp; source, const std::string&amp; sourceName);
+</a><a href="#h39-0-8" id="h39-0-8" class="i">+
+</a><a href="#h39-0-9" id="h39-0-9" class="i">+        Backup(const Backup&amp;) = delete;
+</a><a href="#h39-0-10" id="h39-0-10" class="i">+        Backup&amp; operator=(const Backup&amp;) = delete;
+</a><a href="#h39-0-11" id="h39-0-11" class="i">+
+</a><a href="#h39-0-12" id="h39-0-12" class="i">+        Backup(Backup&amp;&amp;) = default;
+</a><a href="#h39-0-13" id="h39-0-13" class="i">+        Backup&amp; operator=(Backup&amp;&amp;) = default;
+</a><a href="#h39-0-14" id="h39-0-14" class="i">+
+</a><a href="#h39-0-15" id="h39-0-15" class="i">+        // Performs some or all of the backup.
+</a><a href="#h39-0-16" id="h39-0-16" class="i">+        // Returns true if the backup is completed, false if not.
+</a><a href="#h39-0-17" id="h39-0-17" class="i">+        bool Step(int pages = -1);
+</a><a href="#h39-0-18" id="h39-0-18" class="i">+
+</a><a href="#h39-0-19" id="h39-0-19" class="i">+    private:
+</a><a href="#h39-0-20" id="h39-0-20" class="i">+        Backup(Connection&amp; destination, const std::string&amp; destinationName, Connection&amp; source, const std::string&amp; sourceName);
+</a><a href="#h39-0-21" id="h39-0-21" class="i">+
+</a><a href="#h39-0-22" id="h39-0-22" class="i">+        wil::unique_any&lt;sqlite3_backup*, decltype(sqlite3_backup_finish), sqlite3_backup_finish&gt; m_backup;
+</a><a href="#h39-0-23" id="h39-0-23" class="i">+    };
+</a><a href="#h39-0-24" id="h39-0-24" class="i">+
+</a>     // The escape character used in the EscapeStringForLike function.
+     extern std::string_view EscapeCharForLike;
+ 
+<b>diff --git a/<a id="h40" href="../file/src/AppInstallerSharedLib/SQLiteStorageBase.cpp.html">src/AppInstallerSharedLib/SQLiteStorageBase.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/SQLiteStorageBase.cpp.html">src/AppInstallerSharedLib/SQLiteStorageBase.cpp</a></b>
+<a href="#h40-0" id="h40-0" class="h">@@ -40,6 +40,11 @@ namespace AppInstaller::SQLite
+</a>         return Utility::ConvertUnixEpochToSystemClock(lastWriteTime);
+     }
+ 
+<a href="#h40-0-3" id="h40-0-3" class="i">+    std::string SQLiteStorageBase::GetDatabaseIdentifier()
+</a><a href="#h40-0-4" id="h40-0-4" class="i">+    {
+</a><a href="#h40-0-5" id="h40-0-5" class="i">+        return MetadataTable::TryGetNamedValue&lt;std::string&gt;(m_dbconn, s_MetadataValueName_DatabaseIdentifier).value_or(std::string{});
+</a><a href="#h40-0-6" id="h40-0-6" class="i">+    }
+</a><a href="#h40-0-7" id="h40-0-7" class="i">+
+</a>     SQLiteStorageBase::SQLiteStorageBase(const std::string&amp; filePath, OpenDisposition disposition, Utility::ManagedFile&amp;&amp; file) :
+         m_indexFile(std::move(file))
+     {
+<a href="#h40-1" id="h40-1" class="h">@@ -111,5 +116,21 @@ namespace AppInstaller::SQLite
+</a>     {
+         m_version = version;
+         MetadataTable::Create(m_dbconn);
+<a href="#h40-1-3" id="h40-1-3" class="i">+
+</a><a href="#h40-1-4" id="h40-1-4" class="i">+        // Write a new identifier for this database
+</a><a href="#h40-1-5" id="h40-1-5" class="i">+        GUID databaseIdentifier;
+</a><a href="#h40-1-6" id="h40-1-6" class="i">+        THROW_IF_FAILED(CoCreateGuid(&amp;databaseIdentifier));
+</a><a href="#h40-1-7" id="h40-1-7" class="i">+        std::ostringstream stream;
+</a><a href="#h40-1-8" id="h40-1-8" class="i">+        stream &lt;&lt; databaseIdentifier;
+</a><a href="#h40-1-9" id="h40-1-9" class="i">+        MetadataTable::SetNamedValue(m_dbconn, s_MetadataValueName_DatabaseIdentifier, stream.str());
+</a><a href="#h40-1-10" id="h40-1-10" class="i">+    }
+</a><a href="#h40-1-11" id="h40-1-11" class="i">+    
+</a><a href="#h40-1-12" id="h40-1-12" class="i">+    SQLiteStorageBase::SQLiteStorageBase(const std::string&amp; target, SQLiteStorageBase&amp; source) :
+</a><a href="#h40-1-13" id="h40-1-13" class="i">+        m_dbconn(SQLite::Connection::Create(target, SQLite::Connection::OpenDisposition::Create)),
+</a><a href="#h40-1-14" id="h40-1-14" class="i">+        m_version(source.m_version)
+</a><a href="#h40-1-15" id="h40-1-15" class="i">+    {
+</a><a href="#h40-1-16" id="h40-1-16" class="i">+        std::string mainDatabase = &quot;main&quot;;
+</a><a href="#h40-1-17" id="h40-1-17" class="i">+        Backup backup = Backup::Create(m_dbconn, mainDatabase, source.m_dbconn, mainDatabase);
+</a><a href="#h40-1-18" id="h40-1-18" class="i">+        backup.Step();
+</a>     }
+<a href="#h40-1-20" id="h40-1-20" class="d">-}</a><a href="#h40-1-21" id="h40-1-21" class="d">-
+\ No newline at end of file
+</a><a href="#h40-1-22" id="h40-1-22" class="i">+}
+</a><b>diff --git a/<a id="h41" href="../file/src/AppInstallerSharedLib/SQLiteWrapper.cpp.html">src/AppInstallerSharedLib/SQLiteWrapper.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/SQLiteWrapper.cpp.html">src/AppInstallerSharedLib/SQLiteWrapper.cpp</a></b>
+<a href="#h41-0" id="h41-0" class="h">@@ -18,14 +18,14 @@ using namespace std::string_view_literals;
+</a> 
+ #define THROW_SQLITE(_error_,_connection_) \
+     do { \
+<a href="#h41-0-3" id="h41-0-3" class="d">-        int _ts_sqliteReturnValue = _error_; \
+</a><a href="#h41-0-4" id="h41-0-4" class="d">-        sqlite3* _ts_sqliteConnection = _connection_; \
+</a><a href="#h41-0-5" id="h41-0-5" class="i">+        int _ts_sqliteReturnValue = (_error_); \
+</a><a href="#h41-0-6" id="h41-0-6" class="i">+        sqlite3* _ts_sqliteConnection = (_connection_); \
+</a>         THROW_EXCEPTION_MSG(SQLiteException(_ts_sqliteReturnValue), _ts_sqliteConnection ? sqlite3_errmsg(_ts_sqliteConnection) : sqlite3_errstr(_ts_sqliteReturnValue)); \
+     } while (0,0)
+ 
+ #define THROW_IF_SQLITE_FAILED(_statement_,_connection_) \
+     do { \
+<a href="#h41-0-12" id="h41-0-12" class="d">-        int _tisf_sqliteReturnValue = _statement_; \
+</a><a href="#h41-0-13" id="h41-0-13" class="i">+        int _tisf_sqliteReturnValue = (_statement_); \
+</a>         if (_tisf_sqliteReturnValue != SQLITE_OK) \
+         { \
+             THROW_SQLITE(_tisf_sqliteReturnValue,_connection_); \
+<a href="#h41-1" id="h41-1" class="h">@@ -350,6 +350,46 @@ namespace AppInstaller::SQLite
+</a>         }
+     }
+ 
+<a href="#h41-1-3" id="h41-1-3" class="i">+    Backup::Backup(Connection&amp; destination, const std::string&amp; destinationName, Connection&amp; source, const std::string&amp; sourceName)
+</a><a href="#h41-1-4" id="h41-1-4" class="i">+    {
+</a><a href="#h41-1-5" id="h41-1-5" class="i">+        m_backup.reset(sqlite3_backup_init(destination, destinationName.c_str(), source, sourceName.c_str()));
+</a><a href="#h41-1-6" id="h41-1-6" class="i">+
+</a><a href="#h41-1-7" id="h41-1-7" class="i">+        if (!m_backup)
+</a><a href="#h41-1-8" id="h41-1-8" class="i">+        {
+</a><a href="#h41-1-9" id="h41-1-9" class="i">+            THROW_SQLITE(sqlite3_errcode(destination), destination);
+</a><a href="#h41-1-10" id="h41-1-10" class="i">+        }
+</a><a href="#h41-1-11" id="h41-1-11" class="i">+    }
+</a><a href="#h41-1-12" id="h41-1-12" class="i">+
+</a><a href="#h41-1-13" id="h41-1-13" class="i">+    Backup Backup::Create(Connection&amp; destination, const std::string&amp; destinationName, Connection&amp; source, const std::string&amp; sourceName)
+</a><a href="#h41-1-14" id="h41-1-14" class="i">+    {
+</a><a href="#h41-1-15" id="h41-1-15" class="i">+        return { destination, destinationName, source, sourceName };
+</a><a href="#h41-1-16" id="h41-1-16" class="i">+    }
+</a><a href="#h41-1-17" id="h41-1-17" class="i">+
+</a><a href="#h41-1-18" id="h41-1-18" class="i">+    bool Backup::Step(int pages)
+</a><a href="#h41-1-19" id="h41-1-19" class="i">+    {
+</a><a href="#h41-1-20" id="h41-1-20" class="i">+        int stepResult = sqlite3_backup_step(m_backup.get(), pages);
+</a><a href="#h41-1-21" id="h41-1-21" class="i">+
+</a><a href="#h41-1-22" id="h41-1-22" class="i">+        if (stepResult == SQLITE_OK)
+</a><a href="#h41-1-23" id="h41-1-23" class="i">+        {
+</a><a href="#h41-1-24" id="h41-1-24" class="i">+            // A negative number of pages should finish the operation
+</a><a href="#h41-1-25" id="h41-1-25" class="i">+            if (pages &lt; 0)
+</a><a href="#h41-1-26" id="h41-1-26" class="i">+            {
+</a><a href="#h41-1-27" id="h41-1-27" class="i">+                THROW_HR(E_UNEXPECTED);
+</a><a href="#h41-1-28" id="h41-1-28" class="i">+            }
+</a><a href="#h41-1-29" id="h41-1-29" class="i">+
+</a><a href="#h41-1-30" id="h41-1-30" class="i">+            // Success but not done
+</a><a href="#h41-1-31" id="h41-1-31" class="i">+            return false;
+</a><a href="#h41-1-32" id="h41-1-32" class="i">+        }
+</a><a href="#h41-1-33" id="h41-1-33" class="i">+        else if (stepResult == SQLITE_DONE)
+</a><a href="#h41-1-34" id="h41-1-34" class="i">+        {
+</a><a href="#h41-1-35" id="h41-1-35" class="i">+            return true;
+</a><a href="#h41-1-36" id="h41-1-36" class="i">+        }
+</a><a href="#h41-1-37" id="h41-1-37" class="i">+        else
+</a><a href="#h41-1-38" id="h41-1-38" class="i">+        {
+</a><a href="#h41-1-39" id="h41-1-39" class="i">+            THROW_SQLITE(stepResult, nullptr);
+</a><a href="#h41-1-40" id="h41-1-40" class="i">+        }
+</a><a href="#h41-1-41" id="h41-1-41" class="i">+    }
+</a><a href="#h41-1-42" id="h41-1-42" class="i">+
+</a>     std::string_view EscapeCharForLike = &quot;&#39;&quot;sv;
+ 
+     std::string EscapeStringForLike(std::string_view value)
+<b>diff --git a/<a id="h42" href="../file/src/AppInstallerSharedLib/Versions.cpp.html">src/AppInstallerSharedLib/Versions.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/Versions.cpp.html">src/AppInstallerSharedLib/Versions.cpp</a></b>
+<a href="#h42-0" id="h42-0" class="h">@@ -295,10 +295,15 @@ namespace AppInstaller::Utility
+</a>         {
+             Other = end;
+         }
+<a href="#h42-0-3" id="h42-0-3" class="i">+
+</a><a href="#h42-0-4" id="h42-0-4" class="i">+        m_foldedOther = Utility::FoldCase(static_cast&lt;std::string_view&gt;(Other));
+</a>     }
+ 
+     Version::Part::Part(uint64_t integer, std::string other) :
+<a href="#h42-0-8" id="h42-0-8" class="d">-        Integer(integer), Other(std::move(other)) {}
+</a><a href="#h42-0-9" id="h42-0-9" class="i">+        Integer(integer), Other(std::move(other))
+</a><a href="#h42-0-10" id="h42-0-10" class="i">+    {
+</a><a href="#h42-0-11" id="h42-0-11" class="i">+        m_foldedOther = Utility::FoldCase(static_cast&lt;std::string_view&gt;(Other));
+</a><a href="#h42-0-12" id="h42-0-12" class="i">+    }
+</a> 
+     bool Version::Part::operator&lt;(const Part&amp; other) const
+     {
+<a href="#h42-1" id="h42-1" class="h">@@ -320,8 +325,9 @@ namespace AppInstaller::Utility
+</a>             // If the other Other is empty and this is not, this is less.
+             return true;
+         }
+<a href="#h42-1-3" id="h42-1-3" class="d">-        else if (Other &lt; other.Other)
+</a><a href="#h42-1-4" id="h42-1-4" class="i">+        else if (m_foldedOther &lt; other.m_foldedOther)
+</a>         {
+<a href="#h42-1-6" id="h42-1-6" class="i">+            // Compare the folded versions
+</a>             return true;
+         }
+ 
+<a href="#h42-2" id="h42-2" class="h">@@ -331,7 +337,7 @@ namespace AppInstaller::Utility
+</a> 
+     bool Version::Part::operator==(const Part&amp; other) const
+     {
+<a href="#h42-2-3" id="h42-2-3" class="d">-        return Integer == other.Integer &amp;&amp; Other == other.Other;
+</a><a href="#h42-2-4" id="h42-2-4" class="i">+        return Integer == other.Integer &amp;&amp; m_foldedOther == other.m_foldedOther;
+</a>     }
+ 
+     bool Version::Part::operator!=(const Part&amp; other) const
+</pre>
+</div>
+</body>
+</html>

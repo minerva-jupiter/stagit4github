@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Merge pull request #18 from Sunny-JP/v4-sunny-dev - ba-cafe - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="ba-cafe.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="ba-cafe.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>ba-cafe</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/b96f687633fb314a9fcc2e9f56426808689e9832.html">b96f687633fb314a9fcc2e9f56426808689e9832</a>
+<b>parent</b> <a href="../commit/b07af1eb2bb373268c70db85050cb1f57bea3519.html">b07af1eb2bb373268c70db85050cb1f57bea3519</a>
+<b>Author:</b> Sunny &lt;<a href="mailto:122193933+Sunny-JP@users.noreply.github.com">122193933+Sunny-JP@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Sat, 24 Jan 2026 21:42:23 +0900
+
+Merge pull request #18 from Sunny-JP/v4-sunny-dev
+
+debug api
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/app/api/tap/route.ts</a></td><td> | </td><td class="num">76</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/components/Settings.tsx</a></td><td> | </td><td class="num">33</td><td><span class="i">+++++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+</table></pre><pre>2 files changed, 85 insertions(+), 24 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/app/api/tap/route.ts.html">src/app/api/tap/route.ts</a> b/<a href="../file/src/app/api/tap/route.ts.html">src/app/api/tap/route.ts</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -12,17 +12,31 @@ export async function POST(request: Request) {
+</a>   try {
+     const { tapTime, onesignalId, ticket1Time, ticket2Time } = await request.json();
+     const authHeader = request.headers.get(&#39;Authorization&#39;);
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a>     if (!authHeader) return NextResponse.json({ error: &#39;No token&#39; }, { status: 401 });
+<a href="#h0-0-5" id="h0-0-5" class="i">+
+</a>     const supabase = createClient(
+       process.env.NEXT_PUBLIC_SUPABASE_URL!,
+       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+       { global: { headers: { Authorization: authHeader } } }
+     );
+<a href="#h0-0-11" id="h0-0-11" class="i">+
+</a>     const { data: { user }, error: authError } = await supabase.auth.getUser();
+     if (authError || !user) return NextResponse.json({ error: &#39;Unauthorized&#39; }, { status: 401 });
+<a href="#h0-0-14" id="h0-0-14" class="d">-    await cleanupDevices(user.id);
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+    console.log(`[Debug] Start process for user: ${user.id}`);
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+    // 通知ボタンまたはタップ時に ID があればクリーンアップを実行
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+    // 現在のデバイスID (onesignalId) を渡して保護する
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+    if (onesignalId) {
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+      console.log(`[Cleanup] Triggered by ID: ${onesignalId}`);
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+      await cleanupDevices(user.id, onesignalId);
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+    }
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+    // DB更新処理
+</a>     const { data: profile } = await supabase.from(&#39;profiles&#39;).select(&#39;tap_history&#39;).eq(&#39;id&#39;, user.id).single();
+     const newHistory = tapTime ? [...(profile?.tap_history || []), tapTime] : (profile?.tap_history || []);
+<a href="#h0-0-28" id="h0-0-28" class="i">+
+</a>     const { error: upsertError } = await supabase.from(&#39;profiles&#39;).upsert({
+       id: user.id,
+       updated_at: new Date().toISOString(),
+<a href="#h0-1" id="h0-1" class="h">@@ -31,42 +45,75 @@ export async function POST(request: Request) {
+</a>       ticket1_time: ticket1Time ? new Date(ticket1Time).toISOString() : (ticket1Time === null ? null : undefined),
+       ticket2_time: ticket2Time ? new Date(ticket2Time).toISOString() : (ticket2Time === null ? null : undefined),
+     });
+<a href="#h0-1-3" id="h0-1-3" class="i">+
+</a>     if (upsertError) throw new Error(upsertError.message);
+<a href="#h0-1-5" id="h0-1-5" class="i">+
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+    // 通知スケジュール
+</a>     if (tapTime &amp;&amp; shouldScheduleNotification(new Date(tapTime))) {
+       await scheduleNotification(user.id, tapTime);
+     }
+<a href="#h0-1-10" id="h0-1-10" class="i">+
+</a>     return NextResponse.json({ success: true, history: newHistory });
+<a href="#h0-1-12" id="h0-1-12" class="i">+
+</a>   } catch (error: any) {
+<a href="#h0-1-14" id="h0-1-14" class="d">-    console.error(&quot;Critical API Error:&quot;, error);
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+    console.error(&quot;[Error] Critical API Error:&quot;, error);
+</a>     return NextResponse.json({ error: error.message }, { status: 500 });
+   }
+ }
+ 
+<a href="#h0-1-20" id="h0-1-20" class="d">-async function cleanupDevices(userId: string) {
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+async function cleanupDevices(userId: string, currentId: string) {
+</a><a href="#h0-1-22" id="h0-1-22" class="i">+  console.log(`[Cleanup] Fetching subscriptions for ${userId}...`);
+</a>   try {
+     const res = await fetch(`https://onesignal.com/api/v1/apps/${APP_ID}/users/by/external_id/${userId}`, {
+<a href="#h0-1-25" id="h0-1-25" class="d">-      headers: { &quot;Authorization&quot;: `Basic ${API_KEY}` }
+</a><a href="#h0-1-26" id="h0-1-26" class="i">+      headers: { 
+</a><a href="#h0-1-27" id="h0-1-27" class="i">+        &quot;Authorization&quot;: `Basic ${API_KEY}`,
+</a><a href="#h0-1-28" id="h0-1-28" class="i">+        &quot;Content-Type&quot;: &quot;application/json&quot;
+</a><a href="#h0-1-29" id="h0-1-29" class="i">+      }
+</a>     });
+<a href="#h0-1-31" id="h0-1-31" class="d">-    if (!res.ok) return;
+</a><a href="#h0-1-32" id="h0-1-32" class="i">+    
+</a><a href="#h0-1-33" id="h0-1-33" class="i">+    if (!res.ok) {
+</a><a href="#h0-1-34" id="h0-1-34" class="i">+      console.error(`[Cleanup] Fetch failed: ${res.status}`);
+</a><a href="#h0-1-35" id="h0-1-35" class="i">+      return;
+</a><a href="#h0-1-36" id="h0-1-36" class="i">+    }
+</a><a href="#h0-1-37" id="h0-1-37" class="i">+
+</a>     const data = await res.json();
+<a href="#h0-1-39" id="h0-1-39" class="d">-    const pushSubs = (data.subscriptions || [])
+</a><a href="#h0-1-40" id="h0-1-40" class="d">-      .filter((s: any) =&gt; s.type === &quot;Push&quot;)
+</a><a href="#h0-1-41" id="h0-1-41" class="d">-      .sort((a: any, b: any) =&gt; {
+</a><a href="#h0-1-42" id="h0-1-42" class="d">-        const timeA = new Date(a.last_active || a.created_at || 0).getTime();
+</a><a href="#h0-1-43" id="h0-1-43" class="d">-        const timeB = new Date(b.last_active || b.created_at || 0).getTime();
+</a><a href="#h0-1-44" id="h0-1-44" class="d">-        return timeB - timeA;
+</a><a href="#h0-1-45" id="h0-1-45" class="d">-      });
+</a><a href="#h0-1-46" id="h0-1-46" class="i">+    const subscriptions = data.subscriptions || (data.identity &amp;&amp; data.identity.subscriptions) || [];
+</a><a href="#h0-1-47" id="h0-1-47" class="i">+    
+</a><a href="#h0-1-48" id="h0-1-48" class="i">+    // Push通知端末を全て抽出
+</a><a href="#h0-1-49" id="h0-1-49" class="i">+    const pushSubs = subscriptions.filter((s: any) =&gt; {
+</a><a href="#h0-1-50" id="h0-1-50" class="i">+      const typeStr = String(s.type);
+</a><a href="#h0-1-51" id="h0-1-51" class="i">+      return typeStr.includes(&quot;Push&quot;) || typeStr === &quot;1&quot;;
+</a><a href="#h0-1-52" id="h0-1-52" class="i">+    });
+</a><a href="#h0-1-53" id="h0-1-53" class="i">+
+</a><a href="#h0-1-54" id="h0-1-54" class="i">+    // 今操作しているデバイスをリストから除外して保護
+</a><a href="#h0-1-55" id="h0-1-55" class="i">+    const otherDevices = pushSubs.filter((s: any) =&gt; s.id !== currentId);
+</a><a href="#h0-1-56" id="h0-1-56" class="i">+    
+</a><a href="#h0-1-57" id="h0-1-57" class="i">+    console.log(`[Cleanup] Keeping Current: ${currentId}. Others count: ${otherDevices.length}`);
+</a><a href="#h0-1-58" id="h0-1-58" class="i">+
+</a><a href="#h0-1-59" id="h0-1-59" class="i">+    // 他のデバイスをアクティブ順（または作成順）にソート
+</a><a href="#h0-1-60" id="h0-1-60" class="i">+    otherDevices.sort((a: any, b: any) =&gt; {
+</a><a href="#h0-1-61" id="h0-1-61" class="i">+      const timeA = Number(a.last_active || a.created_at || 0);
+</a><a href="#h0-1-62" id="h0-1-62" class="i">+      const timeB = Number(b.last_active || b.created_at || 0);
+</a><a href="#h0-1-63" id="h0-1-63" class="i">+      return timeB - timeA;
+</a><a href="#h0-1-64" id="h0-1-64" class="i">+    });
+</a><a href="#h0-1-65" id="h0-1-65" class="i">+
+</a><a href="#h0-1-66" id="h0-1-66" class="i">+    // 全体で3台以上（自分 + 他2台以上）ある場合、他の中で最新の1台以外を削除
+</a>     if (pushSubs.length &gt; 2) {
+<a href="#h0-1-68" id="h0-1-68" class="d">-      const targets = pushSubs.slice(2);
+</a><a href="#h0-1-69" id="h0-1-69" class="i">+      const targets = otherDevices.slice(1);
+</a><a href="#h0-1-70" id="h0-1-70" class="i">+      console.log(`[Cleanup] Target for deletion: ${targets.length} old devices.`);
+</a><a href="#h0-1-71" id="h0-1-71" class="i">+
+</a>       for (const sub of targets) {
+<a href="#h0-1-73" id="h0-1-73" class="i">+        console.log(`[Cleanup] Deleting sub_id: ${sub.id}`);
+</a>         await fetch(`https://onesignal.com/api/v1/apps/${APP_ID}/subscriptions/${sub.id}`, {
+           method: &quot;DELETE&quot;,
+           headers: { &quot;Authorization&quot;: `Basic ${API_KEY}` }
+         });
+       }
+<a href="#h0-1-79" id="h0-1-79" class="i">+    } else {
+</a><a href="#h0-1-80" id="h0-1-80" class="i">+      console.log(`[Cleanup] Within limit (Total: ${pushSubs.length})`);
+</a>     }
+   } catch (e) {
+<a href="#h0-1-83" id="h0-1-83" class="d">-    console.error(&quot;Cleanup failed:&quot;, e);
+</a><a href="#h0-1-84" id="h0-1-84" class="i">+    console.error(&quot;[Cleanup] Error:&quot;, e);
+</a>   }
+ }
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -74,6 +121,7 @@ async function scheduleNotification(userId: string, tapTime: string) {
+</a>   const sendAfter = new Date(tapTime);
+   sendAfter.setHours(sendAfter.getHours() + 3);
+   const msg = messages[Math.floor(Math.random() * messages.length)] || { title: &quot;Cafe Timer&quot;, body: &quot;カフェ業務の時間です&quot; };
+<a href="#h0-2-3" id="h0-2-3" class="i">+
+</a>   await fetch(&quot;https://onesignal.com/api/v1/notifications&quot;, {
+     method: &quot;POST&quot;,
+     headers: {
+<b>diff --git a/<a id="h1" href="../file/src/components/Settings.tsx.html">src/components/Settings.tsx</a> b/<a href="../file/src/components/Settings.tsx.html">src/components/Settings.tsx</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -71,16 +71,29 @@ const handleNotificationClick = async () =&gt; {
+</a>                 return;
+             }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-            const isOptedIn = OneSignal.User.PushSubscription.optedIn;
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-            if (isOptedIn) {
+</a><a href="#h1-0-6" id="h1-0-6" class="d">-                await OneSignal.User.PushSubscription.optOut();
+</a><a href="#h1-0-7" id="h1-0-7" class="d">-                alert(&quot;通知をOFFにしました。&quot;);
+</a><a href="#h1-0-8" id="h1-0-8" class="d">-            } else {
+</a><a href="#h1-0-9" id="h1-0-9" class="d">-                await OneSignal.Notifications.requestPermission();
+</a><a href="#h1-0-10" id="h1-0-10" class="d">-                await OneSignal.User.PushSubscription.optIn();
+</a><a href="#h1-0-11" id="h1-0-11" class="d">-                alert(&quot;通知をONにしました！&quot;);
+</a><a href="#h1-0-12" id="h1-0-12" class="d">-            }
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+        const isOptedIn = OneSignal.User.PushSubscription.optedIn;
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+        const currentSubscriptionId = OneSignal.User.PushSubscription.id; // 現在のデバイスID取得
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+        if (isOptedIn) {
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+            await OneSignal.User.PushSubscription.optOut();
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+            alert(&quot;通知をOFFにしました。&quot;);
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+        } else {
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+            await OneSignal.Notifications.requestPermission();
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+            await OneSignal.User.PushSubscription.optIn();
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+            alert(&quot;通知をONにしました！&quot;);
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+        }
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+        // 通知ボタンを押したタイミングで API を叩き、整理を実行させる
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+        await fetch(&#39;/api/tap&#39;, { // 実際のパスに合わせてください
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+            method: &#39;POST&#39;,
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+            headers: { 
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+                &#39;Content-Type&#39;: &#39;application/json&#39;,
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+                &#39;Authorization&#39;: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+            },
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+            body: JSON.stringify({ 
+</a><a href="#h1-0-33" id="h1-0-33" class="i">+                onesignalId: currentSubscriptionId // これをトリガーにする
+</a><a href="#h1-0-34" id="h1-0-34" class="i">+            })
+</a><a href="#h1-0-35" id="h1-0-35" class="i">+        });
+</a> 
+         } catch (e: any) {
+             console.error(&quot;Notification Setup Error:&quot;, e);
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix REST tests that deadlock, logto file target, and test timeout in script (#1529) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/9454ff9d6f0bbbda4709cafc911275f617800e4a.html">9454ff9d6f0bbbda4709cafc911275f617800e4a</a>
+<b>parent</b> <a href="../commit/1113fff87e2ce41d1943918c45c291ed0f07c545.html">1113fff87e2ce41d1943918c45c291ed0f07c545</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 29 Sep 2021 20:05:57 -0700
+
+Fix REST tests that deadlock, logto file target, and test timeout in script (#1529)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/CustomHeader.cpp</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/Run-TestsInPackage.ps1</a></td><td> | </td><td class="num">38</td><td><span class="i">++++++++++++++++++++++++</span><span class="d">--------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLITests/TestRestRequestHandler.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">+++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLITests/main.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+</table></pre><pre>4 files changed, 31 insertions(+), 16 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/CustomHeader.cpp.html">src/AppInstallerCLITests/CustomHeader.cpp</a> b/<a href="../file/src/AppInstallerCLITests/CustomHeader.cpp.html">src/AppInstallerCLITests/CustomHeader.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -50,6 +50,7 @@ namespace
+</a>                 if (!headers.has(customHeader.first) ||
+                     (utility::conversions::to_utf8string(customHeader.second).compare(utility::conversions::to_utf8string(headers[customHeader.first]))) != 0)
+                 {
+<a href="#h0-0-3" id="h0-0-3" class="i">+                    response.set_body(utf16string{ L&quot;Bad Request&quot; });
+</a>                     response.set_status_code(web::http::status_codes::BadRequest);
+                     return pplx::task_from_result(response);
+                 }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/Run-TestsInPackage.ps1.html">src/AppInstallerCLITests/Run-TestsInPackage.ps1</a> b/<a href="../file/src/AppInstallerCLITests/Run-TestsInPackage.ps1.html">src/AppInstallerCLITests/Run-TestsInPackage.ps1</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -46,8 +46,9 @@ function Wait-ForFileClose([string]$Path)
+</a> {
+     $Local:FileInfo = [System.IO.FileInfo]::new($Path)
+     $Local:SleepCount = 0
+<a href="#h1-0-3" id="h1-0-3" class="i">+    $Local:SleepCountMax = 600
+</a> 
+<a href="#h1-0-5" id="h1-0-5" class="d">-    while ($Local:SleepCount -lt 300)
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    while ($Local:SleepCount -lt $Local:SleepCountMax)
+</a>     {
+         try
+         {
+<a href="#h1-1" id="h1-1" class="h">@@ -61,6 +62,11 @@ function Wait-ForFileClose([string]$Path)
+</a>             $Local:SleepCount = $Local:SleepCount + 1
+         }
+     }
+<a href="#h1-1-3" id="h1-1-3" class="i">+
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+    if ($Local:SleepCount -ge $Local:SleepCountMax)
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+    {
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+        throw &quot;Timed out waiting for file close: $Path&quot;
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+    }
+</a> }
+ 
+ if ([String]::IsNullOrEmpty($BuildRoot))
+<a href="#h1-2" id="h1-2" class="h">@@ -133,19 +139,24 @@ Invoke-CommandInDesktopPackage -PackageFamilyName WinGetDevCLI_8wekyb3d8bbwe -Ap
+</a> 
+ if ($ScriptWait)
+ {
+<a href="#h1-2-3" id="h1-2-3" class="d">-    Write-Host &quot;Waiting for output files to be closed...&quot;
+</a><a href="#h1-2-4" id="h1-2-4" class="d">-    Start-Sleep 5
+</a><a href="#h1-2-5" id="h1-2-5" class="d">-    if (![String]::IsNullOrEmpty($LogTarget))
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+    try
+</a>     {
+<a href="#h1-2-8" id="h1-2-8" class="d">-        Wait-ForFileClose $LogTarget
+</a><a href="#h1-2-9" id="h1-2-9" class="d">-    }
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+        Write-Host &quot;Waiting for output files to be closed...&quot;
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+        Start-Sleep 5
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+        if (![String]::IsNullOrEmpty($LogTarget))
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+        {
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+            Wait-ForFileClose $LogTarget
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+        }
+</a> 
+<a href="#h1-2-17" id="h1-2-17" class="d">-    if (![String]::IsNullOrEmpty($TestResultsTarget))
+</a><a href="#h1-2-18" id="h1-2-18" class="i">+        if (![String]::IsNullOrEmpty($TestResultsTarget))
+</a><a href="#h1-2-19" id="h1-2-19" class="i">+        {
+</a><a href="#h1-2-20" id="h1-2-20" class="i">+            Wait-ForFileClose $TestResultsTarget
+</a><a href="#h1-2-21" id="h1-2-21" class="i">+        }
+</a><a href="#h1-2-22" id="h1-2-22" class="i">+        Write-Host &quot;Done&quot;
+</a><a href="#h1-2-23" id="h1-2-23" class="i">+    }
+</a><a href="#h1-2-24" id="h1-2-24" class="i">+    finally
+</a>     {
+<a href="#h1-2-26" id="h1-2-26" class="d">-        Wait-ForFileClose $TestResultsTarget
+</a><a href="#h1-2-27" id="h1-2-27" class="i">+        Write-Host &quot;Remove registered package&quot;
+</a><a href="#h1-2-28" id="h1-2-28" class="i">+        Get-AppxPackage WinGetDevCLI | Remove-AppxPackage
+</a>     }
+<a href="#h1-2-30" id="h1-2-30" class="d">-    Write-Host &quot;Done&quot;
+</a><a href="#h1-2-31" id="h1-2-31" class="d">-
+</a><a href="#h1-2-32" id="h1-2-32" class="d">-    Write-Host &quot;Remove registered package&quot;
+</a><a href="#h1-2-33" id="h1-2-33" class="d">-    Get-AppxPackage WinGetDevCLI | Remove-AppxPackage
+</a><a href="#h1-2-34" id="h1-2-34" class="d">-}</a><a href="#h1-2-35" id="h1-2-35" class="d">-
+\ No newline at end of file
+</a><a href="#h1-2-36" id="h1-2-36" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/TestRestRequestHandler.cpp.html">src/AppInstallerCLITests/TestRestRequestHandler.cpp</a> b/<a href="../file/src/AppInstallerCLITests/TestRestRequestHandler.cpp.html">src/AppInstallerCLITests/TestRestRequestHandler.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -13,7 +13,11 @@ std::shared_ptr&lt;TestRestRequestHandler&gt; GetTestRestRequestHandler(
+</a>         pplx::task&lt;web::http::http_response&gt;
+         {
+             web::http::http_response response;
+<a href="#h2-0-3" id="h2-0-3" class="d">-            if (!sampleResponseString.empty())
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+            if (sampleResponseString.empty())
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+            {
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+                response.set_body(utf16string{});
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+            }
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+            else
+</a>             {
+                 response.set_body(web::json::value::parse(sampleResponseString));
+             }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/main.cpp.html">src/AppInstallerCLITests/main.cpp</a> b/<a href="../file/src/AppInstallerCLITests/main.cpp.html">src/AppInstallerCLITests/main.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -73,7 +73,7 @@ int main(int argc, char** argv)
+</a>         else if (&quot;-logto&quot;s == argv[i])
+         {
+             ++i;
+<a href="#h3-0-3" id="h3-0-3" class="d">-            Logging::AddFileLogger(std::string_view{ argv[i] });
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+            Logging::AddFileLogger(std::filesystem::path{ argv[i] });
+</a>         }
+         else if (&quot;-tdd&quot;s == argv[i])
+         {
+</pre>
+</div>
+</body>
+</html>

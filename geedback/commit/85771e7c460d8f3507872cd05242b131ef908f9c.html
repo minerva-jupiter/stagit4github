@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(dsp): implement multi-oscillator engine and Kaoss Pad - geedback - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="geedback.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="geedback.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>geedback</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/85771e7c460d8f3507872cd05242b131ef908f9c.html">85771e7c460d8f3507872cd05242b131ef908f9c</a>
+<b>parent</b> <a href="../commit/54e3b09628623abebe5dcd243822c44ec37b3995.html">54e3b09628623abebe5dcd243822c44ec37b3995</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Mon,  4 May 2026 13:49:10 +0900
+
+feat(dsp): implement multi-oscillator engine and Kaoss Pad
+
+- Add 3-oscillator architecture with FM modulation and selectable waveforms
+- Implement global Biquad LPF with Kaoss Pad UI touch controls
+- Add stateful `GeedbackProcessor` with parameter smoothing and Nyquist safety clamping
+- Update frontend to support real-time interaction and oscillator configuration
+- Include project documentation in README.md
+
+<b>Diffstat:</b>
+<table><tr><td class="A">A</td><td><a href="#h0">README.md</a></td><td> | </td><td class="num">73</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">bun.lock</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">geedback-dsp/pkg/geedback_dsp.d.ts</a></td><td> | </td><td class="num">21</td><td><span class="i">+++++++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">geedback-dsp/pkg/geedback_dsp.js</a></td><td> | </td><td class="num">40</td><td><span class="i">++++++++++++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">geedback-dsp/pkg/geedback_dsp_bg.wasm</a></td><td> | </td><td class="num">0</td><td><span class="i"></span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">geedback-dsp/pkg/geedback_dsp_bg.wasm.d.ts</a></td><td> | </td><td class="num">5</td><td><span class="i">+++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">geedback-dsp/src/lib.rs</a></td><td> | </td><td class="num">263</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/main.ts</a></td><td> | </td><td class="num">324</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/style.css</a></td><td> | </td><td class="num">20</td><td><span class="i">++++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>9 files changed, 602 insertions(+), 145 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/README.md.html">README.md</a> b/<a href="../file/README.md.html">README.md</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -0,0 +1,73 @@
+</a><a href="#h0-0-0" id="h0-0-0" class="i">+# Geedback
+</a><a href="#h0-0-1" id="h0-0-1" class="i">+
+</a><a href="#h0-0-2" id="h0-0-2" class="i">+A real-time sensor-driven WASM DSP synthesizer.
+</a><a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+## Design Philosophy &amp; Direction
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+### 1. WASM-Centric DSP
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+All core signal processing is implemented in Rust/WASM for high performance and portability. The project follows a stateful processor pattern, designed for future integration with frameworks like **NIH-plug**.
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+### 2. Physical State Modeling
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+Sensor data is interpreted as physical forces:
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+- **Orientation (Tilt)**: Static position in 3D space.
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+- **Linear Acceleration (Force)**: Dynamic impact and rapid movement.
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+### 3. Seamless 2D Trigonometric Mapping
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+To ensure unique parameter states and perfectly smooth 360-degree rotation:
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+- **$\sin(\theta/2) \to$ Pitch**: Spread over a 360-degree period to prevent half-turn repetition.
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+- **$\cos(\theta/2) \to$ Waveform Morphing**: Ensures every angle has a unique &quot;Timbre,&quot; even when pitches match.
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+### 4. Organic Parameter Smoothing
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+Internal Low-Pass Filters (LPF) with a high coefficient (**0.9995**) eliminate &quot;zipper noise&quot; from 60Hz sensor updates, creating a creamy, instrument-like feel with physical inertia.
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+---
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+## Detailed Specifications
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+### 1. Synthesis Engine
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+- **3-Oscillator Architecture**: Each oscillator has independent phase and selectable waveforms.
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+- **Available Waveforms**: Sine, Triangle, Triangle-Sawtooth, Sawtooth, Reverse Sawtooth, Square, Wide Pulse, Narrow Pulse.
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+- **FM Modulation**: Each carrier oscillator is frequency-modulated by a dedicated modulator, driven by dynamic physical forces.
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+### 2. Motion Mapping (Orientation &amp; Acceleration)
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+| Input Axis | Target Oscillator | Static Control ($\sin/\cos$) | Dynamic Control (Linear Accel) |
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+| :--- | :--- | :--- | :--- |
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+| **Gamma (Y)** | Oscillator 1 | Pitch &amp; Waveform Morph | FM Modulation Depth |
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+| **Alpha (Z)** | Oscillator 2 | Pitch &amp; Waveform Morph | FM Modulation Depth |
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+| **Beta (X)**  | Oscillator 3 | Pitch &amp; Waveform Morph | FM Modulation Depth |
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+- **Waveform Morphing Examples**:
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+  - Pulse Waves: Modulates Pulse Width (2% to 50%).
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+  - Triangle-Sawtooth: Modulates the blend ratio.
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+  - Sine: Adds subtle saturation/harmonics.
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+### 3. Kaoss Pad (Global Filter)
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+- **UI**: A red crosshair square canvas with scroll-safe touch handling.
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+- **Algorithm**: High-quality Global Biquad Low-Pass Filter (LPF).
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+- **Control Mapping**:
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+  - **X-axis**: Cutoff Frequency (**100Hz to 18kHz**, exponential scale).
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+  - **Y-axis**: Resonance / Q (**0.707 to 15.0**).
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+- **Stability**: Includes a safety clamp at **0.45 * Sample Rate** to prevent NaN/mathematical explosion at high cutoff frequencies.
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+### 4. Technical Integration
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+- **Web Audio API**: Real-time streaming via `ScriptProcessorNode`.
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+- **Permission Handling**: Integrated iOS `DeviceMotionEvent.requestPermission` flow.
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+- **Build System**: Automated `wasm-pack workflow targeting standard browser environments.
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+---
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+## 🤖 Message for Future Coding Agents
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+### Technical Handoff Notes
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+When continuing development on Geedback, please adhere to the following architectural constraints:
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+1.  **Stateful Processor**: Keep `GeedbackProcessor` stateful. It is designed to mimic the `process()` loop of standard audio plugins. Avoid adding global static state; encapsulate everything within the struct to facilitate future **NIH-plug** porting.
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+2.  **The &quot;Zipper Noise&quot; Battle**: Sensor updates from browsers are slow (~60Hz). Always use the internal LPF (**`0.9995` coefficient**) for any parameter driven by sensors. Never map raw sensor values directly to audio parameters.
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+3.  **Trigonometric Periodicity**: Use `theta / 2.0` before calculating `sin/cos` for orientation. This is a deliberate choice to spread a full oscillator cycle across a **360-degree** physical turn, preventing the pitch from repeating every half-turn.
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+4.  **Filter Stability**: The Biquad implementation is sensitive to the Nyquist frequency. **Always clamp** the cutoff frequency to below `0.45 * sample_rate`. If you implement other filter types (High-Pass, Band-Pass), apply similar safety guards to prevent NaN explosions.
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+5.  **2D Mapping Integrity**: Maintain the `sin` (Pitch) and `cos` (Timbre) coupling. This is the primary solution to &quot;data collapse&quot; where multiple orientations would otherwise yield the same sound.
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+### Future Roadmap Ideas
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+- Implement an ADSR envelope triggered by sharp Linear Acceleration spikes.
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+- Add a &quot;Delay&quot; or &quot;Reverb&quot; module, potentially controlled by the Z-axis (Alpha) or Magnetometer (if available).
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+- Port the current `GeedbackProcessor` logic into a Rust-native audio plugin using NIH-plug.
+</a><b>diff --git a/<a id="h1" href="../file/bun.lock.html">bun.lock</a> b/<a href="../file/bun.lock.html">bun.lock</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,5 +1,6 @@
+</a> {
+   &quot;lockfileVersion&quot;: 1,
+<a href="#h1-0-2" id="h1-0-2" class="i">+  &quot;configVersion&quot;: 0,
+</a>   &quot;workspaces&quot;: {
+     &quot;&quot;: {
+       &quot;name&quot;: &quot;geedback&quot;,
+<b>diff --git a/<a id="h2" href="../file/geedback-dsp/pkg/geedback_dsp.d.ts.html">geedback-dsp/pkg/geedback_dsp.d.ts</a> b/<a href="../file/geedback-dsp/pkg/geedback_dsp.d.ts.html">geedback-dsp/pkg/geedback_dsp.d.ts</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -7,10 +7,22 @@ export class GeedbackProcessor {
+</a>     get_latest_output(): number;
+     constructor();
+     process(): number;
+<a href="#h2-0-3" id="h2-0-3" class="d">-    set_accel(x: number, y: number, z: number): void;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-    set_gyro(a: number, b: number, g: number): void;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    set_linear_accel(x: number, y: number, z: number): void;
+</a>     set_orient(a: number, b: number, g: number): void;
+     set_sample_rate(sample_rate: number): void;
+<a href="#h2-0-8" id="h2-0-8" class="i">+    set_touch(x: number, y: number): void;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+    set_waveform(index: number, wave: Waveform): void;
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+}
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+export enum Waveform {
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+    Sine = 0,
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+    Triangle = 1,
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+    TriangleSawtooth = 2,
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+    Sawtooth = 3,
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+    ReverseSawtooth = 4,
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+    Square = 5,
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+    WidePulse = 6,
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+    NarrowPulse = 7,
+</a> }
+ 
+ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+<a href="#h2-1" id="h2-1" class="h">@@ -21,10 +33,11 @@ export interface InitOutput {
+</a>     readonly geedbackprocessor_get_latest_output: (a: number) =&gt; number;
+     readonly geedbackprocessor_new: () =&gt; number;
+     readonly geedbackprocessor_process: (a: number) =&gt; number;
+<a href="#h2-1-3" id="h2-1-3" class="d">-    readonly geedbackprocessor_set_accel: (a: number, b: number, c: number, d: number) =&gt; void;
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-    readonly geedbackprocessor_set_gyro: (a: number, b: number, c: number, d: number) =&gt; void;
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+    readonly geedbackprocessor_set_linear_accel: (a: number, b: number, c: number, d: number) =&gt; void;
+</a>     readonly geedbackprocessor_set_orient: (a: number, b: number, c: number, d: number) =&gt; void;
+     readonly geedbackprocessor_set_sample_rate: (a: number, b: number) =&gt; void;
+<a href="#h2-1-8" id="h2-1-8" class="i">+    readonly geedbackprocessor_set_touch: (a: number, b: number, c: number) =&gt; void;
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+    readonly geedbackprocessor_set_waveform: (a: number, b: number, c: number) =&gt; void;
+</a>     readonly __wbindgen_externrefs: WebAssembly.Table;
+     readonly __wbindgen_start: () =&gt; void;
+ }
+<b>diff --git a/<a id="h3" href="../file/geedback-dsp/pkg/geedback_dsp.js.html">geedback-dsp/pkg/geedback_dsp.js</a> b/<a href="../file/geedback-dsp/pkg/geedback_dsp.js.html">geedback-dsp/pkg/geedback_dsp.js</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -36,16 +36,8 @@ export class GeedbackProcessor {
+</a>      * @param {number} y
+      * @param {number} z
+      */
+<a href="#h3-0-3" id="h3-0-3" class="d">-    set_accel(x, y, z) {
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-        wasm.geedbackprocessor_set_accel(this.__wbg_ptr, x, y, z);
+</a><a href="#h3-0-5" id="h3-0-5" class="d">-    }
+</a><a href="#h3-0-6" id="h3-0-6" class="d">-    /**
+</a><a href="#h3-0-7" id="h3-0-7" class="d">-     * @param {number} a
+</a><a href="#h3-0-8" id="h3-0-8" class="d">-     * @param {number} b
+</a><a href="#h3-0-9" id="h3-0-9" class="d">-     * @param {number} g
+</a><a href="#h3-0-10" id="h3-0-10" class="d">-     */
+</a><a href="#h3-0-11" id="h3-0-11" class="d">-    set_gyro(a, b, g) {
+</a><a href="#h3-0-12" id="h3-0-12" class="d">-        wasm.geedbackprocessor_set_gyro(this.__wbg_ptr, a, b, g);
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+    set_linear_accel(x, y, z) {
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+        wasm.geedbackprocessor_set_linear_accel(this.__wbg_ptr, x, y, z);
+</a>     }
+     /**
+      * @param {number} a
+<a href="#h3-1" id="h3-1" class="h">@@ -61,8 +53,36 @@ export class GeedbackProcessor {
+</a>     set_sample_rate(sample_rate) {
+         wasm.geedbackprocessor_set_sample_rate(this.__wbg_ptr, sample_rate);
+     }
+<a href="#h3-1-3" id="h3-1-3" class="i">+    /**
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+     * @param {number} x
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+     * @param {number} y
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+     */
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+    set_touch(x, y) {
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+        wasm.geedbackprocessor_set_touch(this.__wbg_ptr, x, y);
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+    }
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+    /**
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+     * @param {number} index
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+     * @param {Waveform} wave
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+     */
+</a><a href="#h3-1-14" id="h3-1-14" class="i">+    set_waveform(index, wave) {
+</a><a href="#h3-1-15" id="h3-1-15" class="i">+        wasm.geedbackprocessor_set_waveform(this.__wbg_ptr, index, wave);
+</a><a href="#h3-1-16" id="h3-1-16" class="i">+    }
+</a> }
+ if (Symbol.dispose) GeedbackProcessor.prototype[Symbol.dispose] = GeedbackProcessor.prototype.free;
+<a href="#h3-1-19" id="h3-1-19" class="i">+
+</a><a href="#h3-1-20" id="h3-1-20" class="i">+/**
+</a><a href="#h3-1-21" id="h3-1-21" class="i">+ * @enum {0 | 1 | 2 | 3 | 4 | 5 | 6 | 7}
+</a><a href="#h3-1-22" id="h3-1-22" class="i">+ */
+</a><a href="#h3-1-23" id="h3-1-23" class="i">+export const Waveform = Object.freeze({
+</a><a href="#h3-1-24" id="h3-1-24" class="i">+    Sine: 0, &quot;0&quot;: &quot;Sine&quot;,
+</a><a href="#h3-1-25" id="h3-1-25" class="i">+    Triangle: 1, &quot;1&quot;: &quot;Triangle&quot;,
+</a><a href="#h3-1-26" id="h3-1-26" class="i">+    TriangleSawtooth: 2, &quot;2&quot;: &quot;TriangleSawtooth&quot;,
+</a><a href="#h3-1-27" id="h3-1-27" class="i">+    Sawtooth: 3, &quot;3&quot;: &quot;Sawtooth&quot;,
+</a><a href="#h3-1-28" id="h3-1-28" class="i">+    ReverseSawtooth: 4, &quot;4&quot;: &quot;ReverseSawtooth&quot;,
+</a><a href="#h3-1-29" id="h3-1-29" class="i">+    Square: 5, &quot;5&quot;: &quot;Square&quot;,
+</a><a href="#h3-1-30" id="h3-1-30" class="i">+    WidePulse: 6, &quot;6&quot;: &quot;WidePulse&quot;,
+</a><a href="#h3-1-31" id="h3-1-31" class="i">+    NarrowPulse: 7, &quot;7&quot;: &quot;NarrowPulse&quot;,
+</a><a href="#h3-1-32" id="h3-1-32" class="i">+});
+</a> function __wbg_get_imports() {
+     const import0 = {
+         __proto__: null,
+<b>diff --git a/<a id="h4" href="../file/geedback-dsp/pkg/geedback_dsp_bg.wasm.html">geedback-dsp/pkg/geedback_dsp_bg.wasm</a> b/<a href="../file/geedback-dsp/pkg/geedback_dsp_bg.wasm.html">geedback-dsp/pkg/geedback_dsp_bg.wasm</a></b>
+Binary files differ.
+<b>diff --git a/<a id="h5" href="../file/geedback-dsp/pkg/geedback_dsp_bg.wasm.d.ts.html">geedback-dsp/pkg/geedback_dsp_bg.wasm.d.ts</a> b/<a href="../file/geedback-dsp/pkg/geedback_dsp_bg.wasm.d.ts.html">geedback-dsp/pkg/geedback_dsp_bg.wasm.d.ts</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -5,9 +5,10 @@ export const __wbg_geedbackprocessor_free: (a: number, b: number) =&gt; void;
+</a> export const geedbackprocessor_get_latest_output: (a: number) =&gt; number;
+ export const geedbackprocessor_new: () =&gt; number;
+ export const geedbackprocessor_process: (a: number) =&gt; number;
+<a href="#h5-0-3" id="h5-0-3" class="d">-export const geedbackprocessor_set_accel: (a: number, b: number, c: number, d: number) =&gt; void;
+</a><a href="#h5-0-4" id="h5-0-4" class="d">-export const geedbackprocessor_set_gyro: (a: number, b: number, c: number, d: number) =&gt; void;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+export const geedbackprocessor_set_linear_accel: (a: number, b: number, c: number, d: number) =&gt; void;
+</a> export const geedbackprocessor_set_orient: (a: number, b: number, c: number, d: number) =&gt; void;
+ export const geedbackprocessor_set_sample_rate: (a: number, b: number) =&gt; void;
+<a href="#h5-0-8" id="h5-0-8" class="i">+export const geedbackprocessor_set_touch: (a: number, b: number, c: number) =&gt; void;
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+export const geedbackprocessor_set_waveform: (a: number, b: number, c: number) =&gt; void;
+</a> export const __wbindgen_externrefs: WebAssembly.Table;
+ export const __wbindgen_start: () =&gt; void;
+<b>diff --git a/<a id="h6" href="../file/geedback-dsp/src/lib.rs.html">geedback-dsp/src/lib.rs</a> b/<a href="../file/geedback-dsp/src/lib.rs.html">geedback-dsp/src/lib.rs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -1,24 +1,58 @@
+</a> use wasm_bindgen::prelude::*;
+ 
+ #[wasm_bindgen]
+<a href="#h6-0-3" id="h6-0-3" class="i">+#[derive(PartialEq, Clone, Copy)]
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+pub enum Waveform {
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+    Sine,
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+    Triangle,
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+    TriangleSawtooth,
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+    Sawtooth,
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+    ReverseSawtooth,
+</a><a href="#h6-0-10" id="h6-0-10" class="i">+    Square,
+</a><a href="#h6-0-11" id="h6-0-11" class="i">+    WidePulse,
+</a><a href="#h6-0-12" id="h6-0-12" class="i">+    NarrowPulse,
+</a><a href="#h6-0-13" id="h6-0-13" class="i">+}
+</a><a href="#h6-0-14" id="h6-0-14" class="i">+
+</a><a href="#h6-0-15" id="h6-0-15" class="i">+#[wasm_bindgen]
+</a> pub struct GeedbackProcessor {
+<a href="#h6-0-17" id="h6-0-17" class="d">-    accel_x: f64,
+</a><a href="#h6-0-18" id="h6-0-18" class="d">-    accel_y: f64,
+</a><a href="#h6-0-19" id="h6-0-19" class="d">-    accel_z: f64,
+</a><a href="#h6-0-20" id="h6-0-20" class="d">-    gyro_a: f64,
+</a><a href="#h6-0-21" id="h6-0-21" class="d">-    gyro_b: f64,
+</a><a href="#h6-0-22" id="h6-0-22" class="d">-    gyro_g: f64,
+</a><a href="#h6-0-23" id="h6-0-23" class="d">-    orient_a: f64,
+</a><a href="#h6-0-24" id="h6-0-24" class="d">-    orient_b: f64,
+</a><a href="#h6-0-25" id="h6-0-25" class="d">-    orient_g: f64,
+</a><a href="#h6-0-26" id="h6-0-26" class="d">-
+</a><a href="#h6-0-27" id="h6-0-27" class="d">-    // DSP state: 3 independent phases for oscillators
+</a><a href="#h6-0-28" id="h6-0-28" class="d">-    phase_x: f64,
+</a><a href="#h6-0-29" id="h6-0-29" class="d">-    phase_y: f64,
+</a><a href="#h6-0-30" id="h6-0-30" class="d">-    phase_z: f64,
+</a><a href="#h6-0-31" id="h6-0-31" class="i">+    // Primary inputs
+</a><a href="#h6-0-32" id="h6-0-32" class="i">+    orient_a: f64, // Z (Alpha)
+</a><a href="#h6-0-33" id="h6-0-33" class="i">+    orient_b: f64, // X (Beta)
+</a><a href="#h6-0-34" id="h6-0-34" class="i">+    orient_g: f64, // Y (Gamma)
+</a><a href="#h6-0-35" id="h6-0-35" class="i">+    linear_accel_x: f64,
+</a><a href="#h6-0-36" id="h6-0-36" class="i">+    linear_accel_y: f64,
+</a><a href="#h6-0-37" id="h6-0-37" class="i">+    linear_accel_z: f64,
+</a><a href="#h6-0-38" id="h6-0-38" class="i">+
+</a><a href="#h6-0-39" id="h6-0-39" class="i">+    // Touch inputs (Kaoss Pad)
+</a><a href="#h6-0-40" id="h6-0-40" class="i">+    touch_x: f64,
+</a><a href="#h6-0-41" id="h6-0-41" class="i">+    touch_y: f64,
+</a><a href="#h6-0-42" id="h6-0-42" class="i">+
+</a><a href="#h6-0-43" id="h6-0-43" class="i">+    // Smoothed parameters for all 3 axes (sin/cos pairs)
+</a><a href="#h6-0-44" id="h6-0-44" class="i">+    s_a_sin: f64,
+</a><a href="#h6-0-45" id="h6-0-45" class="i">+    s_a_cos: f64,
+</a><a href="#h6-0-46" id="h6-0-46" class="i">+    s_b_sin: f64,
+</a><a href="#h6-0-47" id="h6-0-47" class="i">+    s_b_cos: f64,
+</a><a href="#h6-0-48" id="h6-0-48" class="i">+    s_g_sin: f64,
+</a><a href="#h6-0-49" id="h6-0-49" class="i">+    s_g_cos: f64,
+</a><a href="#h6-0-50" id="h6-0-50" class="i">+
+</a><a href="#h6-0-51" id="h6-0-51" class="i">+    // Smoothed linear acceleration per axis
+</a><a href="#h6-0-52" id="h6-0-52" class="i">+    s_la_x: f64,
+</a><a href="#h6-0-53" id="h6-0-53" class="i">+    s_la_y: f64,
+</a><a href="#h6-0-54" id="h6-0-54" class="i">+    s_la_z: f64,
+</a><a href="#h6-0-55" id="h6-0-55" class="i">+
+</a><a href="#h6-0-56" id="h6-0-56" class="i">+    // Oscillator States
+</a><a href="#h6-0-57" id="h6-0-57" class="i">+    phases: [f64; 3],
+</a><a href="#h6-0-58" id="h6-0-58" class="i">+    phases_mod: [f64; 3], // Dedicated modulator phases
+</a><a href="#h6-0-59" id="h6-0-59" class="i">+    waveforms: [Waveform; 3],
+</a><a href="#h6-0-60" id="h6-0-60" class="i">+    mixes: [f64; 3],
+</a> 
+     sample_rate: f64,
+     latest_output: f64,
+<a href="#h6-0-64" id="h6-0-64" class="i">+
+</a><a href="#h6-0-65" id="h6-0-65" class="i">+    // Filter state
+</a><a href="#h6-0-66" id="h6-0-66" class="i">+    s_filter_cutoff: f64,
+</a><a href="#h6-0-67" id="h6-0-67" class="i">+    s_filter_res: f64,
+</a><a href="#h6-0-68" id="h6-0-68" class="i">+    filter_mem: [f64; 4], // x1, x2, y1, y2
+</a> }
+ 
+ #[wasm_bindgen]
+<a href="#h6-1" id="h6-1" class="h">@@ -26,68 +60,181 @@ impl GeedbackProcessor {
+</a>     #[wasm_bindgen(constructor)]
+     pub fn new() -&gt; Self {
+         Self {
+<a href="#h6-1-3" id="h6-1-3" class="d">-            accel_x: 0.0,
+</a><a href="#h6-1-4" id="h6-1-4" class="d">-            accel_y: 0.0,
+</a><a href="#h6-1-5" id="h6-1-5" class="d">-            accel_z: 0.0,
+</a><a href="#h6-1-6" id="h6-1-6" class="d">-            gyro_a: 0.0,
+</a><a href="#h6-1-7" id="h6-1-7" class="d">-            gyro_b: 0.0,
+</a><a href="#h6-1-8" id="h6-1-8" class="d">-            gyro_g: 0.0,
+</a>             orient_a: 0.0,
+             orient_b: 0.0,
+             orient_g: 0.0,
+<a href="#h6-1-12" id="h6-1-12" class="d">-            phase_x: 0.0,
+</a><a href="#h6-1-13" id="h6-1-13" class="d">-            phase_y: 0.0,
+</a><a href="#h6-1-14" id="h6-1-14" class="d">-            phase_z: 0.0,
+</a><a href="#h6-1-15" id="h6-1-15" class="i">+            linear_accel_x: 0.0,
+</a><a href="#h6-1-16" id="h6-1-16" class="i">+            linear_accel_y: 0.0,
+</a><a href="#h6-1-17" id="h6-1-17" class="i">+            linear_accel_z: 0.0,
+</a><a href="#h6-1-18" id="h6-1-18" class="i">+            touch_x: 0.5,
+</a><a href="#h6-1-19" id="h6-1-19" class="i">+            touch_y: 0.5,
+</a><a href="#h6-1-20" id="h6-1-20" class="i">+            s_a_sin: 0.0,
+</a><a href="#h6-1-21" id="h6-1-21" class="i">+            s_a_cos: 1.0,
+</a><a href="#h6-1-22" id="h6-1-22" class="i">+            s_b_sin: 0.0,
+</a><a href="#h6-1-23" id="h6-1-23" class="i">+            s_b_cos: 1.0,
+</a><a href="#h6-1-24" id="h6-1-24" class="i">+            s_g_sin: 0.0,
+</a><a href="#h6-1-25" id="h6-1-25" class="i">+            s_g_cos: 1.0,
+</a><a href="#h6-1-26" id="h6-1-26" class="i">+            s_la_x: 0.0,
+</a><a href="#h6-1-27" id="h6-1-27" class="i">+            s_la_y: 0.0,
+</a><a href="#h6-1-28" id="h6-1-28" class="i">+            s_la_z: 0.0,
+</a><a href="#h6-1-29" id="h6-1-29" class="i">+            s_filter_cutoff: 0.5,
+</a><a href="#h6-1-30" id="h6-1-30" class="i">+            s_filter_res: 0.1,
+</a><a href="#h6-1-31" id="h6-1-31" class="i">+            filter_mem: [0.0; 4],
+</a><a href="#h6-1-32" id="h6-1-32" class="i">+            phases: [0.0; 3],
+</a><a href="#h6-1-33" id="h6-1-33" class="i">+            phases_mod: [0.0; 3],
+</a><a href="#h6-1-34" id="h6-1-34" class="i">+            waveforms: [Waveform::Sine, Waveform::Sine, Waveform::Sine],
+</a><a href="#h6-1-35" id="h6-1-35" class="i">+            mixes: [0.6, 0.6, 0.6],
+</a>             sample_rate: 44100.0,
+             latest_output: 0.0,
+         }
+     }
+ 
+<a href="#h6-1-41" id="h6-1-41" class="d">-    pub fn get_latest_output(&amp;self) -&gt; f64 {
+</a><a href="#h6-1-42" id="h6-1-42" class="d">-        self.latest_output
+</a><a href="#h6-1-43" id="h6-1-43" class="i">+    pub fn set_waveform(&amp;mut self, index: usize, wave: Waveform) {
+</a><a href="#h6-1-44" id="h6-1-44" class="i">+        if index &lt; 3 {
+</a><a href="#h6-1-45" id="h6-1-45" class="i">+            self.waveforms[index] = wave;
+</a><a href="#h6-1-46" id="h6-1-46" class="i">+        }
+</a>     }
+ 
+<a href="#h6-1-49" id="h6-1-49" class="d">-    pub fn set_sample_rate(&amp;mut self, sample_rate: f64) {
+</a><a href="#h6-1-50" id="h6-1-50" class="d">-        self.sample_rate = sample_rate;
+</a><a href="#h6-1-51" id="h6-1-51" class="i">+    pub fn set_orient(&amp;mut self, a: f64, b: f64, g: f64) {
+</a><a href="#h6-1-52" id="h6-1-52" class="i">+        self.orient_a = a;
+</a><a href="#h6-1-53" id="h6-1-53" class="i">+        self.orient_b = b;
+</a><a href="#h6-1-54" id="h6-1-54" class="i">+        self.orient_g = g;
+</a>     }
+ 
+<a href="#h6-1-57" id="h6-1-57" class="d">-    pub fn set_accel(&amp;mut self, x: f64, y: f64, z: f64) {
+</a><a href="#h6-1-58" id="h6-1-58" class="d">-        self.accel_x = x;
+</a><a href="#h6-1-59" id="h6-1-59" class="d">-        self.accel_y = y;
+</a><a href="#h6-1-60" id="h6-1-60" class="d">-        self.accel_z = z;
+</a><a href="#h6-1-61" id="h6-1-61" class="i">+    pub fn set_linear_accel(&amp;mut self, x: f64, y: f64, z: f64) {
+</a><a href="#h6-1-62" id="h6-1-62" class="i">+        self.linear_accel_x = x;
+</a><a href="#h6-1-63" id="h6-1-63" class="i">+        self.linear_accel_y = y;
+</a><a href="#h6-1-64" id="h6-1-64" class="i">+        self.linear_accel_z = z;
+</a>     }
+ 
+<a href="#h6-1-67" id="h6-1-67" class="d">-    pub fn set_gyro(&amp;mut self, a: f64, b: f64, g: f64) {
+</a><a href="#h6-1-68" id="h6-1-68" class="d">-        self.gyro_a = a;
+</a><a href="#h6-1-69" id="h6-1-69" class="d">-        self.gyro_b = b;
+</a><a href="#h6-1-70" id="h6-1-70" class="d">-        self.gyro_g = g;
+</a><a href="#h6-1-71" id="h6-1-71" class="i">+    pub fn set_touch(&amp;mut self, x: f64, y: f64) {
+</a><a href="#h6-1-72" id="h6-1-72" class="i">+        self.touch_x = x.clamp(0.0, 1.0);
+</a><a href="#h6-1-73" id="h6-1-73" class="i">+        self.touch_y = y.clamp(0.0, 1.0);
+</a>     }
+ 
+<a href="#h6-1-76" id="h6-1-76" class="d">-    pub fn set_orient(&amp;mut self, a: f64, b: f64, g: f64) {
+</a><a href="#h6-1-77" id="h6-1-77" class="d">-        self.orient_a = a;
+</a><a href="#h6-1-78" id="h6-1-78" class="d">-        self.orient_b = b;
+</a><a href="#h6-1-79" id="h6-1-79" class="d">-        self.orient_g = g;
+</a><a href="#h6-1-80" id="h6-1-80" class="i">+    pub fn set_sample_rate(&amp;mut self, sample_rate: f64) {
+</a><a href="#h6-1-81" id="h6-1-81" class="i">+        self.sample_rate = sample_rate;
+</a><a href="#h6-1-82" id="h6-1-82" class="i">+    }
+</a><a href="#h6-1-83" id="h6-1-83" class="i">+
+</a><a href="#h6-1-84" id="h6-1-84" class="i">+    fn calculate_wave(&amp;self, phase: f64, wave: Waveform, morph: f64) -&gt; f64 {
+</a><a href="#h6-1-85" id="h6-1-85" class="i">+        let m = (morph + 1.0) * 0.5;
+</a><a href="#h6-1-86" id="h6-1-86" class="i">+        let p = phase.fract();
+</a><a href="#h6-1-87" id="h6-1-87" class="i">+
+</a><a href="#h6-1-88" id="h6-1-88" class="i">+        match wave {
+</a><a href="#h6-1-89" id="h6-1-89" class="i">+            Waveform::Sine =&gt; {
+</a><a href="#h6-1-90" id="h6-1-90" class="i">+                let raw = (p * 2.0 * std::f64::consts::PI).sin();
+</a><a href="#h6-1-91" id="h6-1-91" class="i">+                if m &gt; 0.5 {
+</a><a href="#h6-1-92" id="h6-1-92" class="i">+                    let drive = 1.0 + (m - 0.5) * 2.0;
+</a><a href="#h6-1-93" id="h6-1-93" class="i">+                    (raw * drive).tanh()
+</a><a href="#h6-1-94" id="h6-1-94" class="i">+                } else {
+</a><a href="#h6-1-95" id="h6-1-95" class="i">+                    raw
+</a><a href="#h6-1-96" id="h6-1-96" class="i">+                }
+</a><a href="#h6-1-97" id="h6-1-97" class="i">+            }
+</a><a href="#h6-1-98" id="h6-1-98" class="i">+            Waveform::Triangle =&gt; 1.0 - 2.0 * (p + 0.75).fract().abs(),
+</a><a href="#h6-1-99" id="h6-1-99" class="i">+            Waveform::TriangleSawtooth =&gt; {
+</a><a href="#h6-1-100" id="h6-1-100" class="i">+                let tri = 1.0 - 2.0 * (p + 0.75).fract().abs();
+</a><a href="#h6-1-101" id="h6-1-101" class="i">+                let saw = 2.0 * p - 1.0;
+</a><a href="#h6-1-102" id="h6-1-102" class="i">+                tri * (1.0 - m) + saw * m
+</a><a href="#h6-1-103" id="h6-1-103" class="i">+            }
+</a><a href="#h6-1-104" id="h6-1-104" class="i">+            Waveform::Sawtooth =&gt; 2.0 * p - 1.0,
+</a><a href="#h6-1-105" id="h6-1-105" class="i">+            Waveform::ReverseSawtooth =&gt; 1.0 - p * 2.0,
+</a><a href="#h6-1-106" id="h6-1-106" class="i">+            Waveform::Square | Waveform::WidePulse | Waveform::NarrowPulse =&gt; {
+</a><a href="#h6-1-107" id="h6-1-107" class="i">+                let width = 0.02 + m * 0.48;
+</a><a href="#h6-1-108" id="h6-1-108" class="i">+                if p &lt; width { 1.0 } else { -1.0 }
+</a><a href="#h6-1-109" id="h6-1-109" class="i">+            }
+</a><a href="#h6-1-110" id="h6-1-110" class="i">+        }
+</a>     }
+ 
+     pub fn process(&amp;mut self) -&gt; f64 {
+<a href="#h6-1-114" id="h6-1-114" class="d">-        // Map acceleration to audible frequencies (e.g., 220Hz to 880Hz)
+</a><a href="#h6-1-115" id="h6-1-115" class="d">-        let freq_x = 220.0 + self.accel_x.abs() * 20.0;
+</a><a href="#h6-1-116" id="h6-1-116" class="d">-        let freq_y = 330.0 + self.accel_y.abs() * 20.0;
+</a><a href="#h6-1-117" id="h6-1-117" class="d">-        let freq_z = 440.0 + self.accel_z.abs() * 20.0;
+</a><a href="#h6-1-118" id="h6-1-118" class="d">-
+</a><a href="#h6-1-119" id="h6-1-119" class="d">-        // Update phases
+</a><a href="#h6-1-120" id="h6-1-120" class="d">-        self.phase_x = (self.phase_x + freq_x / self.sample_rate) % 1.0;
+</a><a href="#h6-1-121" id="h6-1-121" class="d">-        self.phase_y = (self.phase_y + freq_y / self.sample_rate) % 1.0;
+</a><a href="#h6-1-122" id="h6-1-122" class="d">-        self.phase_z = (self.phase_z + freq_z / self.sample_rate) % 1.0;
+</a><a href="#h6-1-123" id="h6-1-123" class="d">-
+</a><a href="#h6-1-124" id="h6-1-124" class="d">-        // Calculate sine waves
+</a><a href="#h6-1-125" id="h6-1-125" class="d">-        let out_x = (self.phase_x * 2.0 * std::f64::consts::PI).sin();
+</a><a href="#h6-1-126" id="h6-1-126" class="d">-        let out_y = (self.phase_y * 2.0 * std::f64::consts::PI).sin();
+</a><a href="#h6-1-127" id="h6-1-127" class="d">-        let out_z = (self.phase_z * 2.0 * std::f64::consts::PI).sin();
+</a><a href="#h6-1-128" id="h6-1-128" class="d">-
+</a><a href="#h6-1-129" id="h6-1-129" class="d">-        // Mix output (sum of 3 oscillators)
+</a><a href="#h6-1-130" id="h6-1-130" class="d">-        let out = (out_x + out_y + out_z) / 3.0;
+</a><a href="#h6-1-131" id="h6-1-131" class="d">-        self.latest_output = out;
+</a><a href="#h6-1-132" id="h6-1-132" class="d">-        out
+</a><a href="#h6-1-133" id="h6-1-133" class="i">+        let rad_a = (self.orient_a / 2.0).to_radians();
+</a><a href="#h6-1-134" id="h6-1-134" class="i">+        let rad_b = (self.orient_b / 2.0).to_radians();
+</a><a href="#h6-1-135" id="h6-1-135" class="i">+        let rad_g = (self.orient_g / 2.0).to_radians();
+</a><a href="#h6-1-136" id="h6-1-136" class="i">+
+</a><a href="#h6-1-137" id="h6-1-137" class="i">+        let lpf_val = 0.9995;
+</a><a href="#h6-1-138" id="h6-1-138" class="i">+        let gain_val = 0.0005;
+</a><a href="#h6-1-139" id="h6-1-139" class="i">+
+</a><a href="#h6-1-140" id="h6-1-140" class="i">+        // Smooth Orientation
+</a><a href="#h6-1-141" id="h6-1-141" class="i">+        self.s_a_sin = self.s_a_sin * lpf_val + rad_a.sin() * gain_val;
+</a><a href="#h6-1-142" id="h6-1-142" class="i">+        self.s_a_cos = self.s_a_cos * lpf_val + rad_a.cos() * gain_val;
+</a><a href="#h6-1-143" id="h6-1-143" class="i">+        self.s_b_sin = self.s_b_sin * lpf_val + rad_b.sin() * gain_val;
+</a><a href="#h6-1-144" id="h6-1-144" class="i">+        self.s_b_cos = self.s_b_cos * lpf_val + rad_b.cos() * gain_val;
+</a><a href="#h6-1-145" id="h6-1-145" class="i">+        self.s_g_sin = self.s_g_sin * lpf_val + rad_g.sin() * gain_val;
+</a><a href="#h6-1-146" id="h6-1-146" class="i">+        self.s_g_cos = self.s_g_cos * lpf_val + rad_g.cos() * gain_val;
+</a><a href="#h6-1-147" id="h6-1-147" class="i">+
+</a><a href="#h6-1-148" id="h6-1-148" class="i">+        // Smooth Linear Accel
+</a><a href="#h6-1-149" id="h6-1-149" class="i">+        let la_lpf = 0.995;
+</a><a href="#h6-1-150" id="h6-1-150" class="i">+        let la_gain = 0.005;
+</a><a href="#h6-1-151" id="h6-1-151" class="i">+        self.s_la_x = self.s_la_x * la_lpf + self.linear_accel_x * la_gain;
+</a><a href="#h6-1-152" id="h6-1-152" class="i">+        self.s_la_y = self.s_la_y * la_lpf + self.linear_accel_y * la_gain;
+</a><a href="#h6-1-153" id="h6-1-153" class="i">+        self.s_la_z = self.s_la_z * la_lpf + self.linear_accel_z * la_gain;
+</a><a href="#h6-1-154" id="h6-1-154" class="i">+
+</a><a href="#h6-1-155" id="h6-1-155" class="i">+        self.s_filter_cutoff = self.s_filter_cutoff * 0.99 + self.touch_x * 0.01;
+</a><a href="#h6-1-156" id="h6-1-156" class="i">+        self.s_filter_res = self.s_filter_res * 0.99 + (1.0 - self.touch_y) * 0.01;
+</a><a href="#h6-1-157" id="h6-1-157" class="i">+
+</a><a href="#h6-1-158" id="h6-1-158" class="i">+        let freqs = [
+</a><a href="#h6-1-159" id="h6-1-159" class="i">+            110.0 * 2.0_f64.powf(self.s_g_sin * 2.5), // Osc 1: Y
+</a><a href="#h6-1-160" id="h6-1-160" class="i">+            164.8 * 2.0_f64.powf(self.s_a_sin * 4.0), // Osc 2: Z
+</a><a href="#h6-1-161" id="h6-1-161" class="i">+            220.0 * 2.0_f64.powf(self.s_b_sin * 2.5), // Osc 3: X
+</a><a href="#h6-1-162" id="h6-1-162" class="i">+        ];
+</a><a href="#h6-1-163" id="h6-1-163" class="i">+
+</a><a href="#h6-1-164" id="h6-1-164" class="i">+        let morphs = [self.s_g_cos, self.s_a_cos, self.s_b_cos];
+</a><a href="#h6-1-165" id="h6-1-165" class="i">+
+</a><a href="#h6-1-166" id="h6-1-166" class="i">+        let fm_depths = [
+</a><a href="#h6-1-167" id="h6-1-167" class="i">+            self.s_la_y.abs() * 5.0, // Osc 1: Y
+</a><a href="#h6-1-168" id="h6-1-168" class="i">+            self.s_la_z.abs() * 5.0, // Osc 2: Z
+</a><a href="#h6-1-169" id="h6-1-169" class="i">+            self.s_la_x.abs() * 5.0, // Osc 3: X
+</a><a href="#h6-1-170" id="h6-1-170" class="i">+        ];
+</a><a href="#h6-1-171" id="h6-1-171" class="i">+
+</a><a href="#h6-1-172" id="h6-1-172" class="i">+        let mut mixed_output = 0.0;
+</a><a href="#h6-1-173" id="h6-1-173" class="i">+
+</a><a href="#h6-1-174" id="h6-1-174" class="i">+        for i in 0..3 {
+</a><a href="#h6-1-175" id="h6-1-175" class="i">+            self.phases_mod[i] = (self.phases_mod[i] + (freqs[i] * 1.5) / self.sample_rate) % 1.0;
+</a><a href="#h6-1-176" id="h6-1-176" class="i">+            let modulation =
+</a><a href="#h6-1-177" id="h6-1-177" class="i">+                (self.phases_mod[i] * 2.0 * std::f64::consts::PI).sin() * (fm_depths[i] * 2.0);
+</a><a href="#h6-1-178" id="h6-1-178" class="i">+            let osc_out =
+</a><a href="#h6-1-179" id="h6-1-179" class="i">+                self.calculate_wave(self.phases[i] + modulation, self.waveforms[i], morphs[i]);
+</a><a href="#h6-1-180" id="h6-1-180" class="i">+            mixed_output += osc_out * self.mixes[i];
+</a><a href="#h6-1-181" id="h6-1-181" class="i">+            self.phases[i] = (self.phases[i] + freqs[i] / self.sample_rate) % 1.0;
+</a><a href="#h6-1-182" id="h6-1-182" class="i">+        }
+</a><a href="#h6-1-183" id="h6-1-183" class="i">+
+</a><a href="#h6-1-184" id="h6-1-184" class="i">+        let mut cutoff_hz = 200.0 * 180.0_f64.powf(self.s_filter_cutoff);
+</a><a href="#h6-1-185" id="h6-1-185" class="i">+
+</a><a href="#h6-1-186" id="h6-1-186" class="i">+        // Safety: Clamp cutoff to slightly below Nyquist to prevent NaN
+</a><a href="#h6-1-187" id="h6-1-187" class="i">+        let max_cutoff = self.sample_rate * 0.45;
+</a><a href="#h6-1-188" id="h6-1-188" class="i">+        if cutoff_hz &gt; max_cutoff {
+</a><a href="#h6-1-189" id="h6-1-189" class="i">+            cutoff_hz = max_cutoff;
+</a><a href="#h6-1-190" id="h6-1-190" class="i">+        }
+</a><a href="#h6-1-191" id="h6-1-191" class="i">+
+</a><a href="#h6-1-192" id="h6-1-192" class="i">+        let q = 0.707 + self.s_filter_res * 14.3;
+</a><a href="#h6-1-193" id="h6-1-193" class="i">+
+</a><a href="#h6-1-194" id="h6-1-194" class="i">+        let omega = 2.0 * std::f64::consts::PI * cutoff_hz / self.sample_rate;
+</a><a href="#h6-1-195" id="h6-1-195" class="i">+        let alpha = omega.sin() / (2.0 * q);
+</a><a href="#h6-1-196" id="h6-1-196" class="i">+        let cos_w = omega.cos();
+</a><a href="#h6-1-197" id="h6-1-197" class="i">+
+</a><a href="#h6-1-198" id="h6-1-198" class="i">+        let b0 = (1.0 - cos_w) / 2.0;
+</a><a href="#h6-1-199" id="h6-1-199" class="i">+        let b1 = 1.0 - cos_w;
+</a><a href="#h6-1-200" id="h6-1-200" class="i">+        let b2 = (1.0 - cos_w) / 2.0;
+</a><a href="#h6-1-201" id="h6-1-201" class="i">+        let a0 = 1.0 + alpha;
+</a><a href="#h6-1-202" id="h6-1-202" class="i">+        let a1 = -2.0 * cos_w;
+</a><a href="#h6-1-203" id="h6-1-203" class="i">+        let a2 = 1.0 - alpha;
+</a><a href="#h6-1-204" id="h6-1-204" class="i">+
+</a><a href="#h6-1-205" id="h6-1-205" class="i">+        let filtered = (b0 / a0) * mixed_output
+</a><a href="#h6-1-206" id="h6-1-206" class="i">+            + (b1 / a0) * self.filter_mem[0]
+</a><a href="#h6-1-207" id="h6-1-207" class="i">+            + (b2 / a0) * self.filter_mem[1]
+</a><a href="#h6-1-208" id="h6-1-208" class="i">+            - (a1 / a0) * self.filter_mem[2]
+</a><a href="#h6-1-209" id="h6-1-209" class="i">+            - (a2 / a0) * self.filter_mem[3];
+</a><a href="#h6-1-210" id="h6-1-210" class="i">+
+</a><a href="#h6-1-211" id="h6-1-211" class="i">+        self.filter_mem[1] = self.filter_mem[0];
+</a><a href="#h6-1-212" id="h6-1-212" class="i">+        self.filter_mem[0] = mixed_output;
+</a><a href="#h6-1-213" id="h6-1-213" class="i">+        self.filter_mem[3] = self.filter_mem[2];
+</a><a href="#h6-1-214" id="h6-1-214" class="i">+        self.filter_mem[2] = filtered;
+</a><a href="#h6-1-215" id="h6-1-215" class="i">+
+</a><a href="#h6-1-216" id="h6-1-216" class="i">+        self.latest_output = filtered;
+</a><a href="#h6-1-217" id="h6-1-217" class="i">+        let master_gain = 0.6;
+</a><a href="#h6-1-218" id="h6-1-218" class="i">+        (filtered * master_gain).tanh()
+</a><a href="#h6-1-219" id="h6-1-219" class="i">+    }
+</a><a href="#h6-1-220" id="h6-1-220" class="i">+
+</a><a href="#h6-1-221" id="h6-1-221" class="i">+    pub fn get_latest_output(&amp;self) -&gt; f64 {
+</a><a href="#h6-1-222" id="h6-1-222" class="i">+        self.latest_output
+</a>     }
+ }
+<b>diff --git a/<a id="h7" href="../file/src/main.ts.html">src/main.ts</a> b/<a href="../file/src/main.ts.html">src/main.ts</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -1,26 +1,54 @@
+</a> import &quot;./style.css&quot;;
+<a href="#h7-0-1" id="h7-0-1" class="d">-import init, { GeedbackProcessor } from &quot;../geedback-dsp/pkg/geedback_dsp.js&quot;;
+</a><a href="#h7-0-2" id="h7-0-2" class="i">+import init, {
+</a><a href="#h7-0-3" id="h7-0-3" class="i">+  GeedbackProcessor,
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+  Waveform,
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+} from &quot;../geedback-dsp/pkg/geedback_dsp.js&quot;;
+</a> 
+ const app = document.querySelector&lt;HTMLDivElement&gt;(&quot;#app&quot;)!;
+ 
+ app.innerHTML = `
+   &lt;div&gt;
+<a href="#h7-0-11" id="h7-0-11" class="d">-    &lt;h1&gt;Sensor WASM Synth&lt;/h1&gt;
+</a><a href="#h7-0-12" id="h7-0-12" class="i">+    &lt;h1&gt;Multi-Osc WASM Synth&lt;/h1&gt;
+</a>     &lt;button id=&quot;start-btn&quot;&gt;Start Audio &amp; Sensors&lt;/button&gt;
+<a href="#h7-0-14" id="h7-0-14" class="d">-    &lt;div style=&quot;margin-top: 20px; padding: 10px; border: 2px solid #646cff; border-radius: 8px;&quot;&gt;
+</a><a href="#h7-0-15" id="h7-0-15" class="d">-      &lt;strong&gt;WASM Output (DSP Value):&lt;/strong&gt; &lt;span id=&quot;wasm-output&quot; style=&quot;font-family: monospace; font-size: 1.2em;&quot;&gt;-&lt;/span&gt;
+</a><a href="#h7-0-16" id="h7-0-16" class="i">+
+</a><a href="#h7-0-17" id="h7-0-17" class="i">+    &lt;canvas id=&quot;kaoss-pad&quot;&gt;&lt;/canvas&gt;
+</a><a href="#h7-0-18" id="h7-0-18" class="i">+
+</a><a href="#h7-0-19" id="h7-0-19" class="i">+    &lt;div style=&quot;margin-top: 20px; padding: 15px; border: 2px solid #ff4444; border-radius: 8px; background: #1a1a1a;&quot;&gt;
+</a><a href="#h7-0-20" id="h7-0-20" class="i">+      &lt;div style=&quot;display: flex; justify-content: space-between; margin-bottom: 10px;&quot;&gt;
+</a><a href="#h7-0-21" id="h7-0-21" class="i">+        &lt;strong&gt;DSP Output:&lt;/strong&gt; &lt;span id=&quot;wasm-output&quot; style=&quot;font-family: monospace;&quot;&gt;-&lt;/span&gt;
+</a><a href="#h7-0-22" id="h7-0-22" class="i">+      &lt;/div&gt;
+</a><a href="#h7-0-23" id="h7-0-23" class="i">+      &lt;div style=&quot;font-size: 0.8em; color: #888; margin-bottom: 10px;&quot;&gt;
+</a><a href="#h7-0-24" id="h7-0-24" class="i">+        Cutoff (X): &lt;span id=&quot;touch-x&quot;&gt;-&lt;/span&gt; | Resonance (Y): &lt;span id=&quot;touch-y&quot;&gt;-&lt;/span&gt;
+</a><a href="#h7-0-25" id="h7-0-25" class="i">+      &lt;/div&gt;
+</a><a href="#h7-0-26" id="h7-0-26" class="i">+
+</a><a href="#h7-0-27" id="h7-0-27" class="i">+      &lt;div class=&quot;osc-controls&quot;&gt;
+</a><a href="#h7-0-28" id="h7-0-28" class="i">+        ${[0, 1, 2]
+</a><a href="#h7-0-29" id="h7-0-29" class="i">+          .map(
+</a><a href="#h7-0-30" id="h7-0-30" class="i">+            (i) =&gt; `
+</a><a href="#h7-0-31" id="h7-0-31" class="i">+          &lt;div style=&quot;margin-bottom: 8px;&quot;&gt;
+</a><a href="#h7-0-32" id="h7-0-32" class="i">+            &lt;label&gt;Osc ${i + 1} Wave:&lt;/label&gt;
+</a><a href="#h7-0-33" id="h7-0-33" class="i">+            &lt;select id=&quot;osc-${i}-wave&quot; class=&quot;wave-select&quot;&gt;
+</a><a href="#h7-0-34" id="h7-0-34" class="i">+              &lt;option value=&quot;Sine&quot;&gt;Sine&lt;/option&gt;
+</a><a href="#h7-0-35" id="h7-0-35" class="i">+              &lt;option value=&quot;Triangle&quot;&gt;Triangle&lt;/option&gt;
+</a><a href="#h7-0-36" id="h7-0-36" class="i">+              &lt;option value=&quot;TriangleSawtooth&quot;&gt;Tri-Saw&lt;/option&gt;
+</a><a href="#h7-0-37" id="h7-0-37" class="i">+              &lt;option value=&quot;Sawtooth&quot;&gt;Sawtooth&lt;/option&gt;
+</a><a href="#h7-0-38" id="h7-0-38" class="i">+              &lt;option value=&quot;ReverseSawtooth&quot;&gt;Rev-Saw&lt;/option&gt;
+</a><a href="#h7-0-39" id="h7-0-39" class="i">+              &lt;option value=&quot;Square&quot;&gt;Square&lt;/option&gt;
+</a><a href="#h7-0-40" id="h7-0-40" class="i">+              &lt;option value=&quot;WidePulse&quot;&gt;Wide Pulse&lt;/option&gt;
+</a><a href="#h7-0-41" id="h7-0-41" class="i">+              &lt;option value=&quot;NarrowPulse&quot;&gt;Narrow Pulse&lt;/option&gt;
+</a><a href="#h7-0-42" id="h7-0-42" class="i">+            &lt;/select&gt;
+</a><a href="#h7-0-43" id="h7-0-43" class="i">+          &lt;/div&gt;
+</a><a href="#h7-0-44" id="h7-0-44" class="i">+        `,
+</a><a href="#h7-0-45" id="h7-0-45" class="i">+          )
+</a><a href="#h7-0-46" id="h7-0-46" class="i">+          .join(&quot;&quot;)}
+</a><a href="#h7-0-47" id="h7-0-47" class="i">+      &lt;/div&gt;
+</a>     &lt;/div&gt;
+<a href="#h7-0-49" id="h7-0-49" class="d">-    &lt;table border=&quot;1&quot; style=&quot;margin-top: 20px; width: 100%; border-collapse: collapse;&quot;&gt;
+</a><a href="#h7-0-50" id="h7-0-50" class="d">-      &lt;thead&gt;
+</a><a href="#h7-0-51" id="h7-0-51" class="d">-        &lt;tr&gt;&lt;th&gt;Category&lt;/th&gt;&lt;th&gt;Property&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;
+</a><a href="#h7-0-52" id="h7-0-52" class="d">-      &lt;/thead&gt;
+</a><a href="#h7-0-53" id="h7-0-53" class="d">-      &lt;tbody id=&quot;sensor-body&quot;&gt;
+</a><a href="#h7-0-54" id="h7-0-54" class="d">-        &lt;tr&gt;&lt;td rowspan=&quot;3&quot;&gt;Acceleration&lt;/td&gt;&lt;td&gt;X&lt;/td&gt;&lt;td id=&quot;acc-x&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-55" id="h7-0-55" class="d">-        &lt;tr&gt;&lt;td&gt;Y&lt;/td&gt;&lt;td id=&quot;acc-y&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-56" id="h7-0-56" class="d">-        &lt;tr&gt;&lt;td&gt;Z&lt;/td&gt;&lt;td id=&quot;acc-z&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-57" id="h7-0-57" class="d">-        &lt;tr&gt;&lt;td rowspan=&quot;3&quot;&gt;Orientation&lt;/td&gt;&lt;td&gt;Alpha&lt;/td&gt;&lt;td id=&quot;ori-a&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-58" id="h7-0-58" class="d">-        &lt;tr&gt;&lt;td&gt;Beta&lt;/td&gt;&lt;td id=&quot;ori-b&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-59" id="h7-0-59" class="d">-        &lt;tr&gt;&lt;td&gt;Gamma&lt;/td&gt;&lt;td id=&quot;ori-g&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-60" id="h7-0-60" class="i">+
+</a><a href="#h7-0-61" id="h7-0-61" class="i">+    &lt;table border=&quot;1&quot; style=&quot;margin-top: 20px; width: 100%; border-collapse: collapse; font-size: 0.8em; opacity: 0.7;&quot;&gt;
+</a><a href="#h7-0-62" id="h7-0-62" class="i">+      &lt;tbody id=&quot;sensor-table&quot;&gt;
+</a><a href="#h7-0-63" id="h7-0-63" class="i">+        &lt;tr id=&quot;row-accel&quot;&gt;&lt;td&gt;Accel&lt;/td&gt;&lt;td class=&quot;x&quot;&gt;-&lt;/td&gt;&lt;td class=&quot;y&quot;&gt;-&lt;/td&gt;&lt;td class=&quot;z&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-64" id="h7-0-64" class="i">+        &lt;tr id=&quot;row-linear&quot;&gt;&lt;td&gt;Linear&lt;/td&gt;&lt;td class=&quot;x&quot;&gt;-&lt;/td&gt;&lt;td class=&quot;y&quot;&gt;-&lt;/td&gt;&lt;td class=&quot;z&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a><a href="#h7-0-65" id="h7-0-65" class="i">+        &lt;tr id=&quot;row-orient&quot;&gt;&lt;td&gt;Orient&lt;/td&gt;&lt;td class=&quot;x&quot;&gt;-&lt;/td&gt;&lt;td class=&quot;y&quot;&gt;-&lt;/td&gt;&lt;td class=&quot;z&quot;&gt;-&lt;/td&gt;&lt;/tr&gt;
+</a>       &lt;/tbody&gt;
+     &lt;/table&gt;
+   &lt;/div&gt;
+<a href="#h7-1" id="h7-1" class="h">@@ -28,82 +56,236 @@ app.innerHTML = `
+</a> 
+ const startBtn = document.querySelector&lt;HTMLButtonElement&gt;(&quot;#start-btn&quot;)!;
+ const wasmOutput = document.querySelector&lt;HTMLSpanElement&gt;(&quot;#wasm-output&quot;)!;
+<a href="#h7-1-3" id="h7-1-3" class="i">+const canvas = document.querySelector&lt;HTMLCanvasElement&gt;(&quot;#kaoss-pad&quot;)!;
+</a><a href="#h7-1-4" id="h7-1-4" class="i">+const touchXEl = document.querySelector&lt;HTMLSpanElement&gt;(&quot;#touch-x&quot;)!;
+</a><a href="#h7-1-5" id="h7-1-5" class="i">+const touchYEl = document.querySelector&lt;HTMLSpanElement&gt;(&quot;#touch-y&quot;)!;
+</a> 
+ let processor: GeedbackProcessor | null = null;
+ let audioCtx: AudioContext | null = null;
+<a href="#h7-1-9" id="h7-1-9" class="i">+let isActive = false;
+</a><a href="#h7-1-10" id="h7-1-10" class="i">+let wasmInitialized = false;
+</a> 
+<a href="#h7-1-12" id="h7-1-12" class="d">-const updateValue = (id: string, value: number | null | undefined) =&gt; {
+</a><a href="#h7-1-13" id="h7-1-13" class="d">-  const el = document.getElementById(id);
+</a><a href="#h7-1-14" id="h7-1-14" class="d">-  if (el) el.textContent = value?.toFixed(2) ?? &quot;-&quot;;
+</a><a href="#h7-1-15" id="h7-1-15" class="i">+const updateRow = (
+</a><a href="#h7-1-16" id="h7-1-16" class="i">+  id: string,
+</a><a href="#h7-1-17" id="h7-1-17" class="i">+  x: number | null,
+</a><a href="#h7-1-18" id="h7-1-18" class="i">+  y?: number | null,
+</a><a href="#h7-1-19" id="h7-1-19" class="i">+  z?: number | null,
+</a><a href="#h7-1-20" id="h7-1-20" class="i">+) =&gt; {
+</a><a href="#h7-1-21" id="h7-1-21" class="i">+  const row = document.getElementById(id);
+</a><a href="#h7-1-22" id="h7-1-22" class="i">+  if (!row) return;
+</a><a href="#h7-1-23" id="h7-1-23" class="i">+  if (x !== null)
+</a><a href="#h7-1-24" id="h7-1-24" class="i">+    (row.querySelector(&quot;.x&quot;) as HTMLElement).textContent = x.toFixed(2);
+</a><a href="#h7-1-25" id="h7-1-25" class="i">+  if (y !== undefined &amp;&amp; y !== null)
+</a><a href="#h7-1-26" id="h7-1-26" class="i">+    (row.querySelector(&quot;.y&quot;) as HTMLElement).textContent = y.toFixed(2);
+</a><a href="#h7-1-27" id="h7-1-27" class="i">+  if (z !== undefined &amp;&amp; z !== null)
+</a><a href="#h7-1-28" id="h7-1-28" class="i">+    (row.querySelector(&quot;.z&quot;) as HTMLElement).textContent = z.toFixed(2);
+</a> };
+ 
+<a href="#h7-1-31" id="h7-1-31" class="d">-const startAudio = async () =&gt; {
+</a><a href="#h7-1-32" id="h7-1-32" class="d">-  // 1. Initialize WASM
+</a><a href="#h7-1-33" id="h7-1-33" class="d">-  try {
+</a><a href="#h7-1-34" id="h7-1-34" class="d">-    await init();
+</a><a href="#h7-1-35" id="h7-1-35" class="d">-    processor = new GeedbackProcessor();
+</a><a href="#h7-1-36" id="h7-1-36" class="d">-  } catch (e) {
+</a><a href="#h7-1-37" id="h7-1-37" class="d">-    console.error(e);
+</a><a href="#h7-1-38" id="h7-1-38" class="d">-    alert(&quot;WASM init failed&quot;);
+</a><a href="#h7-1-39" id="h7-1-39" class="d">-    return;
+</a><a href="#h7-1-40" id="h7-1-40" class="d">-  }
+</a><a href="#h7-1-41" id="h7-1-41" class="i">+const setupWaveformControls = () =&gt; {
+</a><a href="#h7-1-42" id="h7-1-42" class="i">+  [0, 1, 2].forEach((i) =&gt; {
+</a><a href="#h7-1-43" id="h7-1-43" class="i">+    const select = document.getElementById(
+</a><a href="#h7-1-44" id="h7-1-44" class="i">+      `osc-${i}-wave`,
+</a><a href="#h7-1-45" id="h7-1-45" class="i">+    ) as HTMLSelectElement;
+</a><a href="#h7-1-46" id="h7-1-46" class="i">+    select.addEventListener(&quot;change&quot;, (e) =&gt; {
+</a><a href="#h7-1-47" id="h7-1-47" class="i">+      if (processor) {
+</a><a href="#h7-1-48" id="h7-1-48" class="i">+        const val = (e.target as HTMLSelectElement).value;
+</a><a href="#h7-1-49" id="h7-1-49" class="i">+        processor.set_waveform(i, (Waveform as any)[val]);
+</a><a href="#h7-1-50" id="h7-1-50" class="i">+      }
+</a><a href="#h7-1-51" id="h7-1-51" class="i">+    });
+</a><a href="#h7-1-52" id="h7-1-52" class="i">+    if (i === 0) select.value = &quot;Sine&quot;;
+</a><a href="#h7-1-53" id="h7-1-53" class="i">+    if (i === 1) select.value = &quot;Sine&quot;;
+</a><a href="#h7-1-54" id="h7-1-54" class="i">+    if (i === 2) select.value = &quot;Sine&quot;;
+</a><a href="#h7-1-55" id="h7-1-55" class="i">+  });
+</a><a href="#h7-1-56" id="h7-1-56" class="i">+};
+</a> 
+<a href="#h7-1-58" id="h7-1-58" class="d">-  // 2. Request Permissions (iOS)
+</a><a href="#h7-1-59" id="h7-1-59" class="d">-  if (typeof (DeviceMotionEvent as any).requestPermission === &quot;function&quot;) {
+</a><a href="#h7-1-60" id="h7-1-60" class="d">-    const res = await (DeviceMotionEvent as any).requestPermission();
+</a><a href="#h7-1-61" id="h7-1-61" class="d">-    if (res !== &quot;granted&quot;) return alert(&quot;Permission denied&quot;);
+</a><a href="#h7-1-62" id="h7-1-62" class="i">+const drawPad = (x: number, y: number) =&gt; {
+</a><a href="#h7-1-63" id="h7-1-63" class="i">+  const ctx = canvas.getContext(&quot;2d&quot;)!;
+</a><a href="#h7-1-64" id="h7-1-64" class="i">+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+</a><a href="#h7-1-65" id="h7-1-65" class="i">+
+</a><a href="#h7-1-66" id="h7-1-66" class="i">+  // Grid
+</a><a href="#h7-1-67" id="h7-1-67" class="i">+  ctx.strokeStyle = &quot;#222&quot;;
+</a><a href="#h7-1-68" id="h7-1-68" class="i">+  ctx.lineWidth = 1;
+</a><a href="#h7-1-69" id="h7-1-69" class="i">+  for (let i = 1; i &lt; 4; i++) {
+</a><a href="#h7-1-70" id="h7-1-70" class="i">+    ctx.beginPath();
+</a><a href="#h7-1-71" id="h7-1-71" class="i">+    ctx.moveTo((i * canvas.width) / 4, 0);
+</a><a href="#h7-1-72" id="h7-1-72" class="i">+    ctx.lineTo((i * canvas.width) / 4, canvas.height);
+</a><a href="#h7-1-73" id="h7-1-73" class="i">+    ctx.stroke();
+</a><a href="#h7-1-74" id="h7-1-74" class="i">+    ctx.beginPath();
+</a><a href="#h7-1-75" id="h7-1-75" class="i">+    ctx.moveTo(0, (i * canvas.height) / 4);
+</a><a href="#h7-1-76" id="h7-1-76" class="i">+    ctx.lineTo(canvas.width, (i * canvas.height) / 4);
+</a><a href="#h7-1-77" id="h7-1-77" class="i">+    ctx.stroke();
+</a>   }
+ 
+<a href="#h7-1-80" id="h7-1-80" class="d">-  // 3. Setup Web Audio
+</a><a href="#h7-1-81" id="h7-1-81" class="d">-  audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+</a><a href="#h7-1-82" id="h7-1-82" class="d">-  processor.set_sample_rate(audioCtx.sampleRate);
+</a><a href="#h7-1-83" id="h7-1-83" class="i">+  // Touch point - RED
+</a><a href="#h7-1-84" id="h7-1-84" class="i">+  ctx.fillStyle = &quot;#ff4444&quot;;
+</a><a href="#h7-1-85" id="h7-1-85" class="i">+  ctx.beginPath();
+</a><a href="#h7-1-86" id="h7-1-86" class="i">+  ctx.arc(x * canvas.width, y * canvas.height, 10, 0, Math.PI * 2);
+</a><a href="#h7-1-87" id="h7-1-87" class="i">+  ctx.fill();
+</a><a href="#h7-1-88" id="h7-1-88" class="i">+
+</a><a href="#h7-1-89" id="h7-1-89" class="i">+  // Crosshair - RED
+</a><a href="#h7-1-90" id="h7-1-90" class="i">+  ctx.strokeStyle = &quot;#ff4444&quot;;
+</a><a href="#h7-1-91" id="h7-1-91" class="i">+  ctx.lineWidth = 2;
+</a><a href="#h7-1-92" id="h7-1-92" class="i">+  ctx.beginPath();
+</a><a href="#h7-1-93" id="h7-1-93" class="i">+  ctx.moveTo(x * canvas.width, 0);
+</a><a href="#h7-1-94" id="h7-1-94" class="i">+  ctx.lineTo(x * canvas.width, canvas.height);
+</a><a href="#h7-1-95" id="h7-1-95" class="i">+  ctx.stroke();
+</a><a href="#h7-1-96" id="h7-1-96" class="i">+  ctx.beginPath();
+</a><a href="#h7-1-97" id="h7-1-97" class="i">+  ctx.moveTo(0, y * canvas.height);
+</a><a href="#h7-1-98" id="h7-1-98" class="i">+  ctx.lineTo(canvas.width, y * canvas.height);
+</a><a href="#h7-1-99" id="h7-1-99" class="i">+  ctx.stroke();
+</a><a href="#h7-1-100" id="h7-1-100" class="i">+};
+</a><a href="#h7-1-101" id="h7-1-101" class="i">+
+</a><a href="#h7-1-102" id="h7-1-102" class="i">+const setupKaossPad = () =&gt; {
+</a><a href="#h7-1-103" id="h7-1-103" class="i">+  let isTouching = false;
+</a> 
+<a href="#h7-1-105" id="h7-1-105" class="d">-  // Using ScriptProcessor for simplicity in this test
+</a><a href="#h7-1-106" id="h7-1-106" class="d">-  const bufferSize = 4096;
+</a><a href="#h7-1-107" id="h7-1-107" class="d">-  const scriptNode = audioCtx.createScriptProcessor(bufferSize, 0, 1);
+</a><a href="#h7-1-108" id="h7-1-108" class="i">+  const updateTouch = (e: MouseEvent | TouchEvent) =&gt; {
+</a><a href="#h7-1-109" id="h7-1-109" class="i">+    if (!isActive) return;
+</a><a href="#h7-1-110" id="h7-1-110" class="i">+    const rect = canvas.getBoundingClientRect();
+</a><a href="#h7-1-111" id="h7-1-111" class="i">+    let clientX, clientY;
+</a><a href="#h7-1-112" id="h7-1-112" class="i">+
+</a><a href="#h7-1-113" id="h7-1-113" class="i">+    if (&quot;touches&quot; in e) {
+</a><a href="#h7-1-114" id="h7-1-114" class="i">+      clientX = e.touches[0].clientX;
+</a><a href="#h7-1-115" id="h7-1-115" class="i">+      clientY = e.touches[0].clientY;
+</a><a href="#h7-1-116" id="h7-1-116" class="i">+    } else {
+</a><a href="#h7-1-117" id="h7-1-117" class="i">+      clientX = e.clientX;
+</a><a href="#h7-1-118" id="h7-1-118" class="i">+      clientY = e.clientY;
+</a><a href="#h7-1-119" id="h7-1-119" class="i">+    }
+</a><a href="#h7-1-120" id="h7-1-120" class="i">+
+</a><a href="#h7-1-121" id="h7-1-121" class="i">+    const x = (clientX - rect.left) / rect.width;
+</a><a href="#h7-1-122" id="h7-1-122" class="i">+    const y = (clientY - rect.top) / rect.height;
+</a><a href="#h7-1-123" id="h7-1-123" class="i">+    const clampedX = Math.max(0, Math.min(1, x));
+</a><a href="#h7-1-124" id="h7-1-124" class="i">+    const clampedY = Math.max(0, Math.min(1, y));
+</a> 
+<a href="#h7-1-126" id="h7-1-126" class="d">-  scriptNode.onaudioprocess = (audioEvent) =&gt; {
+</a><a href="#h7-1-127" id="h7-1-127" class="d">-    const outputBuffer = audioEvent.outputBuffer.getChannelData(0);
+</a>     if (processor) {
+<a href="#h7-1-129" id="h7-1-129" class="d">-      for (let i = 0; i &lt; bufferSize; i++) {
+</a><a href="#h7-1-130" id="h7-1-130" class="d">-        outputBuffer[i] = processor.process() * 0.2; // Volume control
+</a><a href="#h7-1-131" id="h7-1-131" class="d">-      }
+</a><a href="#h7-1-132" id="h7-1-132" class="i">+      processor.set_touch(clampedX, clampedY);
+</a>     }
+<a href="#h7-1-134" id="h7-1-134" class="i">+
+</a><a href="#h7-1-135" id="h7-1-135" class="i">+    touchXEl.textContent = clampedX.toFixed(2);
+</a><a href="#h7-1-136" id="h7-1-136" class="i">+    touchYEl.textContent = clampedY.toFixed(2);
+</a><a href="#h7-1-137" id="h7-1-137" class="i">+
+</a><a href="#h7-1-138" id="h7-1-138" class="i">+    drawPad(clampedX, clampedY);
+</a>   };
+ 
+<a href="#h7-1-141" id="h7-1-141" class="d">-  scriptNode.connect(audioCtx.destination);
+</a><a href="#h7-1-142" id="h7-1-142" class="d">-  if (audioCtx.state === &quot;suspended&quot;) await audioCtx.resume();
+</a><a href="#h7-1-143" id="h7-1-143" class="i">+  canvas.width = canvas.offsetWidth;
+</a><a href="#h7-1-144" id="h7-1-144" class="i">+  canvas.height = canvas.offsetHeight;
+</a><a href="#h7-1-145" id="h7-1-145" class="i">+  drawPad(0.5, 0.5);
+</a> 
+<a href="#h7-1-147" id="h7-1-147" class="d">-  startBtn.disabled = true;
+</a><a href="#h7-1-148" id="h7-1-148" class="d">-  startBtn.textContent = &quot;Audio Active&quot;;
+</a><a href="#h7-1-149" id="h7-1-149" class="d">-
+</a><a href="#h7-1-150" id="h7-1-150" class="d">-  // 4. Sensor Listeners
+</a><a href="#h7-1-151" id="h7-1-151" class="d">-  window.addEventListener(&quot;devicemotion&quot;, (e) =&gt; {
+</a><a href="#h7-1-152" id="h7-1-152" class="d">-    const acc = e.accelerationIncludingGravity;
+</a><a href="#h7-1-153" id="h7-1-153" class="d">-    if (acc &amp;&amp; processor) {
+</a><a href="#h7-1-154" id="h7-1-154" class="d">-      updateValue(&quot;acc-x&quot;, acc.x);
+</a><a href="#h7-1-155" id="h7-1-155" class="d">-      updateValue(&quot;acc-y&quot;, acc.y);
+</a><a href="#h7-1-156" id="h7-1-156" class="d">-      updateValue(&quot;acc-z&quot;, acc.z);
+</a><a href="#h7-1-157" id="h7-1-157" class="d">-      processor.set_accel(acc.x || 0, acc.y || 0, acc.z || 0);
+</a><a href="#h7-1-158" id="h7-1-158" class="d">-    }
+</a><a href="#h7-1-159" id="h7-1-159" class="i">+  canvas.addEventListener(&quot;mousedown&quot;, (e) =&gt; {
+</a><a href="#h7-1-160" id="h7-1-160" class="i">+    isTouching = true;
+</a><a href="#h7-1-161" id="h7-1-161" class="i">+    updateTouch(e);
+</a><a href="#h7-1-162" id="h7-1-162" class="i">+  });
+</a><a href="#h7-1-163" id="h7-1-163" class="i">+  window.addEventListener(&quot;mousemove&quot;, (e) =&gt; {
+</a><a href="#h7-1-164" id="h7-1-164" class="i">+    if (isTouching) updateTouch(e);
+</a><a href="#h7-1-165" id="h7-1-165" class="i">+  });
+</a><a href="#h7-1-166" id="h7-1-166" class="i">+  window.addEventListener(&quot;mouseup&quot;, () =&gt; {
+</a><a href="#h7-1-167" id="h7-1-167" class="i">+    isTouching = false;
+</a>   });
+ 
+<a href="#h7-1-170" id="h7-1-170" class="d">-  window.addEventListener(&quot;deviceorientation&quot;, (e) =&gt; {
+</a><a href="#h7-1-171" id="h7-1-171" class="d">-    if (processor) {
+</a><a href="#h7-1-172" id="h7-1-172" class="d">-      updateValue(&quot;ori-a&quot;, e.alpha);
+</a><a href="#h7-1-173" id="h7-1-173" class="d">-      updateValue(&quot;ori-b&quot;, e.beta);
+</a><a href="#h7-1-174" id="h7-1-174" class="d">-      updateValue(&quot;ori-g&quot;, e.gamma);
+</a><a href="#h7-1-175" id="h7-1-175" class="d">-      processor.set_orient(e.alpha || 0, e.beta || 0, e.gamma || 0);
+</a><a href="#h7-1-176" id="h7-1-176" class="d">-    }
+</a><a href="#h7-1-177" id="h7-1-177" class="i">+  canvas.addEventListener(
+</a><a href="#h7-1-178" id="h7-1-178" class="i">+    &quot;touchstart&quot;,
+</a><a href="#h7-1-179" id="h7-1-179" class="i">+    (e) =&gt; {
+</a><a href="#h7-1-180" id="h7-1-180" class="i">+      if (e.target === canvas) {
+</a><a href="#h7-1-181" id="h7-1-181" class="i">+        isTouching = true;
+</a><a href="#h7-1-182" id="h7-1-182" class="i">+        updateTouch(e);
+</a><a href="#h7-1-183" id="h7-1-183" class="i">+        e.preventDefault();
+</a><a href="#h7-1-184" id="h7-1-184" class="i">+      }
+</a><a href="#h7-1-185" id="h7-1-185" class="i">+    },
+</a><a href="#h7-1-186" id="h7-1-186" class="i">+    { passive: false },
+</a><a href="#h7-1-187" id="h7-1-187" class="i">+  );
+</a><a href="#h7-1-188" id="h7-1-188" class="i">+
+</a><a href="#h7-1-189" id="h7-1-189" class="i">+  window.addEventListener(
+</a><a href="#h7-1-190" id="h7-1-190" class="i">+    &quot;touchmove&quot;,
+</a><a href="#h7-1-191" id="h7-1-191" class="i">+    (e) =&gt; {
+</a><a href="#h7-1-192" id="h7-1-192" class="i">+      if (isTouching) {
+</a><a href="#h7-1-193" id="h7-1-193" class="i">+        updateTouch(e);
+</a><a href="#h7-1-194" id="h7-1-194" class="i">+        e.preventDefault();
+</a><a href="#h7-1-195" id="h7-1-195" class="i">+      }
+</a><a href="#h7-1-196" id="h7-1-196" class="i">+    },
+</a><a href="#h7-1-197" id="h7-1-197" class="i">+    { passive: false },
+</a><a href="#h7-1-198" id="h7-1-198" class="i">+  );
+</a><a href="#h7-1-199" id="h7-1-199" class="i">+  window.addEventListener(&quot;touchend&quot;, () =&gt; {
+</a><a href="#h7-1-200" id="h7-1-200" class="i">+    isTouching = false;
+</a>   });
+<a href="#h7-1-202" id="h7-1-202" class="i">+};
+</a> 
+<a href="#h7-1-204" id="h7-1-204" class="d">-  // UI Update Loop
+</a><a href="#h7-1-205" id="h7-1-205" class="d">-  const updateUI = () =&gt; {
+</a><a href="#h7-1-206" id="h7-1-206" class="d">-    if (processor) {
+</a><a href="#h7-1-207" id="h7-1-207" class="d">-      wasmOutput.textContent = processor.get_latest_output().toFixed(6);
+</a><a href="#h7-1-208" id="h7-1-208" class="i">+const startSynth = async () =&gt; {
+</a><a href="#h7-1-209" id="h7-1-209" class="i">+  if (!wasmInitialized) {
+</a><a href="#h7-1-210" id="h7-1-210" class="i">+    try {
+</a><a href="#h7-1-211" id="h7-1-211" class="i">+      await init();
+</a><a href="#h7-1-212" id="h7-1-212" class="i">+      wasmInitialized = true;
+</a><a href="#h7-1-213" id="h7-1-213" class="i">+      processor = new GeedbackProcessor();
+</a><a href="#h7-1-214" id="h7-1-214" class="i">+      setupWaveformControls();
+</a><a href="#h7-1-215" id="h7-1-215" class="i">+      setupKaossPad();
+</a><a href="#h7-1-216" id="h7-1-216" class="i">+    } catch (e) {
+</a><a href="#h7-1-217" id="h7-1-217" class="i">+      alert(&quot;WASM failed&quot;);
+</a><a href="#h7-1-218" id="h7-1-218" class="i">+      return;
+</a><a href="#h7-1-219" id="h7-1-219" class="i">+    }
+</a><a href="#h7-1-220" id="h7-1-220" class="i">+  }
+</a><a href="#h7-1-221" id="h7-1-221" class="i">+
+</a><a href="#h7-1-222" id="h7-1-222" class="i">+  audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+</a><a href="#h7-1-223" id="h7-1-223" class="i">+  if (processor) processor.set_sample_rate(audioCtx.sampleRate);
+</a><a href="#h7-1-224" id="h7-1-224" class="i">+
+</a><a href="#h7-1-225" id="h7-1-225" class="i">+  const scriptNode = audioCtx.createScriptProcessor(4096, 0, 1);
+</a><a href="#h7-1-226" id="h7-1-226" class="i">+  scriptNode.onaudioprocess = (e) =&gt; {
+</a><a href="#h7-1-227" id="h7-1-227" class="i">+    const out = e.outputBuffer.getChannelData(0);
+</a><a href="#h7-1-228" id="h7-1-228" class="i">+    if (processor &amp;&amp; isActive) {
+</a><a href="#h7-1-229" id="h7-1-229" class="i">+      for (let i = 0; i &lt; out.length; i++) out[i] = processor.process();
+</a><a href="#h7-1-230" id="h7-1-230" class="i">+    } else {
+</a><a href="#h7-1-231" id="h7-1-231" class="i">+      for (let i = 0; i &lt; out.length; i++) out[i] = 0;
+</a>     }
+<a href="#h7-1-233" id="h7-1-233" class="d">-    requestAnimationFrame(updateUI);
+</a>   };
+<a href="#h7-1-235" id="h7-1-235" class="d">-  updateUI();
+</a><a href="#h7-1-236" id="h7-1-236" class="i">+  scriptNode.connect(audioCtx.destination);
+</a><a href="#h7-1-237" id="h7-1-237" class="i">+  if (audioCtx.state === &quot;suspended&quot;) await audioCtx.resume();
+</a><a href="#h7-1-238" id="h7-1-238" class="i">+
+</a><a href="#h7-1-239" id="h7-1-239" class="i">+  // Sensor Permissions (iOS)
+</a><a href="#h7-1-240" id="h7-1-240" class="i">+  if (typeof (DeviceMotionEvent as any).requestPermission === &quot;function&quot;) {
+</a><a href="#h7-1-241" id="h7-1-241" class="i">+    await (DeviceMotionEvent as any).requestPermission();
+</a><a href="#h7-1-242" id="h7-1-242" class="i">+  }
+</a><a href="#h7-1-243" id="h7-1-243" class="i">+
+</a><a href="#h7-1-244" id="h7-1-244" class="i">+  isActive = true;
+</a><a href="#h7-1-245" id="h7-1-245" class="i">+  startBtn.textContent = &quot;Stop Audio &amp; Sensors&quot;;
+</a><a href="#h7-1-246" id="h7-1-246" class="i">+  startBtn.classList.add(&quot;active&quot;);
+</a><a href="#h7-1-247" id="h7-1-247" class="i">+};
+</a><a href="#h7-1-248" id="h7-1-248" class="i">+
+</a><a href="#h7-1-249" id="h7-1-249" class="i">+const stopSynth = async () =&gt; {
+</a><a href="#h7-1-250" id="h7-1-250" class="i">+  isActive = false;
+</a><a href="#h7-1-251" id="h7-1-251" class="i">+  if (audioCtx) {
+</a><a href="#h7-1-252" id="h7-1-252" class="i">+    await audioCtx.close();
+</a><a href="#h7-1-253" id="h7-1-253" class="i">+    audioCtx = null;
+</a><a href="#h7-1-254" id="h7-1-254" class="i">+  }
+</a><a href="#h7-1-255" id="h7-1-255" class="i">+  startBtn.textContent = &quot;Start Audio &amp; Sensors&quot;;
+</a><a href="#h7-1-256" id="h7-1-256" class="i">+  startBtn.classList.remove(&quot;active&quot;);
+</a><a href="#h7-1-257" id="h7-1-257" class="i">+};
+</a><a href="#h7-1-258" id="h7-1-258" class="i">+
+</a><a href="#h7-1-259" id="h7-1-259" class="i">+startBtn.addEventListener(&quot;click&quot;, () =&gt; {
+</a><a href="#h7-1-260" id="h7-1-260" class="i">+  if (!isActive) {
+</a><a href="#h7-1-261" id="h7-1-261" class="i">+    startSynth();
+</a><a href="#h7-1-262" id="h7-1-262" class="i">+  } else {
+</a><a href="#h7-1-263" id="h7-1-263" class="i">+    stopSynth();
+</a><a href="#h7-1-264" id="h7-1-264" class="i">+  }
+</a><a href="#h7-1-265" id="h7-1-265" class="i">+});
+</a><a href="#h7-1-266" id="h7-1-266" class="i">+
+</a><a href="#h7-1-267" id="h7-1-267" class="i">+// Setup global event listeners once
+</a><a href="#h7-1-268" id="h7-1-268" class="i">+window.addEventListener(&quot;devicemotion&quot;, (e) =&gt; {
+</a><a href="#h7-1-269" id="h7-1-269" class="i">+  if (!isActive || !processor) return;
+</a><a href="#h7-1-270" id="h7-1-270" class="i">+  const la = e.acceleration;
+</a><a href="#h7-1-271" id="h7-1-271" class="i">+  if (la) {
+</a><a href="#h7-1-272" id="h7-1-272" class="i">+    processor.set_linear_accel(la.x || 0, la.y || 0, la.z || 0);
+</a><a href="#h7-1-273" id="h7-1-273" class="i">+    updateRow(&quot;row-linear&quot;, la.x, la.y, la.z);
+</a><a href="#h7-1-274" id="h7-1-274" class="i">+  }
+</a><a href="#h7-1-275" id="h7-1-275" class="i">+  const a = e.accelerationIncludingGravity;
+</a><a href="#h7-1-276" id="h7-1-276" class="i">+  if (a) updateRow(&quot;row-accel&quot;, a.x, a.y, a.z);
+</a><a href="#h7-1-277" id="h7-1-277" class="i">+});
+</a><a href="#h7-1-278" id="h7-1-278" class="i">+
+</a><a href="#h7-1-279" id="h7-1-279" class="i">+window.addEventListener(&quot;deviceorientation&quot;, (e) =&gt; {
+</a><a href="#h7-1-280" id="h7-1-280" class="i">+  if (!isActive || !processor) return;
+</a><a href="#h7-1-281" id="h7-1-281" class="i">+  processor.set_orient(e.alpha || 0, e.beta || 0, e.gamma || 0);
+</a><a href="#h7-1-282" id="h7-1-282" class="i">+  updateRow(&quot;row-orient&quot;, e.alpha, e.beta, e.gamma);
+</a><a href="#h7-1-283" id="h7-1-283" class="i">+});
+</a><a href="#h7-1-284" id="h7-1-284" class="i">+
+</a><a href="#h7-1-285" id="h7-1-285" class="i">+const uiLoop = () =&gt; {
+</a><a href="#h7-1-286" id="h7-1-286" class="i">+  if (processor &amp;&amp; isActive)
+</a><a href="#h7-1-287" id="h7-1-287" class="i">+    wasmOutput.textContent = processor.get_latest_output().toFixed(6);
+</a><a href="#h7-1-288" id="h7-1-288" class="i">+  requestAnimationFrame(uiLoop);
+</a> };
+<a href="#h7-1-290" id="h7-1-290" class="d">-startBtn.addEventListener(&quot;click&quot;, startAudio);
+</a><a href="#h7-1-291" id="h7-1-291" class="i">+uiLoop();
+</a><b>diff --git a/<a id="h8" href="../file/src/style.css.html">src/style.css</a> b/<a href="../file/src/style.css.html">src/style.css</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -58,6 +58,26 @@ button:hover {
+</a>     border-color: #646cff;
+ }
+ 
+<a href="#h8-0-3" id="h8-0-3" class="i">+button.active {
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+    background-color: #ff4444;
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+    color: white;
+</a><a href="#h8-0-6" id="h8-0-6" class="i">+    border-color: #ff4444;
+</a><a href="#h8-0-7" id="h8-0-7" class="i">+}
+</a><a href="#h8-0-8" id="h8-0-8" class="i">+
+</a><a href="#h8-0-9" id="h8-0-9" class="i">+button.active:hover {
+</a><a href="#h8-0-10" id="h8-0-10" class="i">+    background-color: #cc0000;
+</a><a href="#h8-0-11" id="h8-0-11" class="i">+}
+</a><a href="#h8-0-12" id="h8-0-12" class="i">+
+</a><a href="#h8-0-13" id="h8-0-13" class="i">+#kaoss-pad {
+</a><a href="#h8-0-14" id="h8-0-14" class="i">+    width: 100%;
+</a><a href="#h8-0-15" id="h8-0-15" class="i">+    aspect-ratio: 1 / 1;
+</a><a href="#h8-0-16" id="h8-0-16" class="i">+    background: #000;
+</a><a href="#h8-0-17" id="h8-0-17" class="i">+    border: 2px solid #333;
+</a><a href="#h8-0-18" id="h8-0-18" class="i">+    border-radius: 8px;
+</a><a href="#h8-0-19" id="h8-0-19" class="i">+    margin-top: 20px;
+</a><a href="#h8-0-20" id="h8-0-20" class="i">+    touch-action: none; /* Only disable scroll on the pad itself */
+</a><a href="#h8-0-21" id="h8-0-21" class="i">+    cursor: crosshair;
+</a><a href="#h8-0-22" id="h8-0-22" class="i">+}
+</a> @media (prefers-color-scheme: light) {
+     :root {
+         color: #213547;
+</pre>
+</div>
+</body>
+</html>

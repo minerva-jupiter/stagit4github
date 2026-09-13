@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Implement parallel downloads for COM scenarios (#1588) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/39034e1e0bff692c40e964c1f1d5b177edef693b.html">39034e1e0bff692c40e964c1f1d5b177edef693b</a>
+<b>parent</b> <a href="../commit/7d178a61e732e820bb562269ce0b59c982dcf905.html">7d178a61e732e820bb562269ce0b59c982dcf905</a>
+<b>Author:</b> Chacón &lt;<a href="mailto:lechacon@users.noreply.github.com">lechacon@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue, 16 Nov 2021 18:57:58 -0800
+
+Implement parallel downloads for COM scenarios (#1588)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/allow.txt</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Commands/COMInstallCommand.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/ContextOrchestrator.cpp</a></td><td> | </td><td class="num">255</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/ContextOrchestrator.h</a></td><td> | </td><td class="num">81</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+</table></pre><pre>7 files changed, 281 insertions(+), 79 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a> b/<a href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -532,7 +532,7 @@ Testrun
+</a> testsettingname
+ TEXTFORMAT
+ TEXTINCLUDE
+<a href="#h0-0-3" id="h0-0-3" class="d">-there&#39;re
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+Threadpool
+</a> Timeline
+ todo
+ tokenizer
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Commands/COMInstallCommand.h.html">src/AppInstallerCLICore/Commands/COMInstallCommand.h</a> b/<a href="../file/src/AppInstallerCLICore/Commands/COMInstallCommand.h.html">src/AppInstallerCLICore/Commands/COMInstallCommand.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -8,7 +8,8 @@ namespace AppInstaller::CLI
+</a>     // IMPORTANT: To use this command, the caller should have already retrieved the package manifest (GetManifest()) and added it to the Context Data
+     struct COMDownloadCommand final : public Command
+     {
+<a href="#h1-0-3" id="h1-0-3" class="d">-        COMDownloadCommand(std::string_view parent) : Command(&quot;download&quot;, parent) {}
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        constexpr static std::string_view CommandName = &quot;download&quot;sv;
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        COMDownloadCommand(std::string_view parent) : Command(CommandName, parent) {}
+</a> 
+     protected:
+         void ExecuteInternal(Execution::Context&amp; context) const override;
+<a href="#h1-1" id="h1-1" class="h">@@ -17,7 +18,8 @@ namespace AppInstaller::CLI
+</a>     // IMPORTANT: To use this command, the caller should have already retrieved the package manifest (GetManifest()) and added it to the Context Data
+     struct COMInstallCommand final : public Command
+     {
+<a href="#h1-1-3" id="h1-1-3" class="d">-        COMInstallCommand(std::string_view parent) : Command(&quot;install&quot;, parent) {}
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        constexpr static std::string_view CommandName = &quot;install&quot;sv;
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+        COMInstallCommand(std::string_view parent) : Command(CommandName, parent) {}
+</a> 
+     protected:
+         void ExecuteInternal(Execution::Context&amp; context) const override;
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/ContextOrchestrator.cpp.html">src/AppInstallerCLICore/ContextOrchestrator.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ContextOrchestrator.cpp.html">src/AppInstallerCLICore/ContextOrchestrator.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -10,6 +10,21 @@
+</a> 
+ namespace AppInstaller::CLI::Execution
+ {
+<a href="#h2-0-3" id="h2-0-3" class="i">+    namespace
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    {
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+        // Callback function used by worker threads in the queue.
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        // context must be a pointer to a queue item.
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+        void CALLBACK OrchestratorQueueWorkCallback(PTP_CALLBACK_INSTANCE, PVOID context, PTP_WORK)
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+        {
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+            auto queueItem = reinterpret_cast&lt;OrchestratorQueueItem*&gt;(context);
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+            auto queue = queueItem-&gt;GetCurrentQueue();
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+            if (queue)
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+            {
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+                queue-&gt;RunItem(queueItem-&gt;GetId());
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+            }
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+        }
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+    }
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+
+</a>     ContextOrchestrator&amp; ContextOrchestrator::Instance()
+     {
+         static ContextOrchestrator s_instance;
+<a href="#h2-1" id="h2-1" class="h">@@ -21,90 +36,195 @@ namespace AppInstaller::CLI::Execution
+</a>         ProgressCallback progress;
+         m_installingWriteableSource = Repository::Source(Repository::PredefinedSource::Installing);
+         m_installingWriteableSource.Open(progress);
+<a href="#h2-1-3" id="h2-1-3" class="i">+
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        // Decide how many threads to use for each command.
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+        // We always allow only one install at a time.
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+        // For download, if we can find the number of supported concurrent threads,
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+        // use that as the maximum (up to 3); otherwise use a single thread.
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+        const auto supportedConcurrentThreads = std::thread::hardware_concurrency();
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+        const UINT32 maxDownloadThreads = 3;
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+        const UINT32 installThreads = 1;
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+        const UINT32 downloadThreads = std::min(supportedConcurrentThreads ? supportedConcurrentThreads - 1 : 1, maxDownloadThreads);
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+        AddCommandQueue(COMDownloadCommand::CommandName, downloadThreads);
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+        AddCommandQueue(COMInstallCommand::CommandName, installThreads);
+</a>     }
+ 
+<a href="#h2-1-17" id="h2-1-17" class="d">-    _Requires_lock_held_(m_queueLock) 
+</a><a href="#h2-1-18" id="h2-1-18" class="d">-    std::deque&lt;std::shared_ptr&lt;OrchestratorQueueItem&gt;&gt;::iterator ContextOrchestrator::FindIteratorById(const OrchestratorQueueItemId&amp; comparisonQueueItemId)
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+    void ContextOrchestrator::AddCommandQueue(std::string_view commandName, UINT32 allowedThreads)
+</a>     {
+<a href="#h2-1-21" id="h2-1-21" class="d">-        return std::find_if(m_queueItems.begin(), m_queueItems.end(), [&amp;comparisonQueueItemId](const std::shared_ptr&lt;OrchestratorQueueItem&gt;&amp; item) {return (item-&gt;GetId().IsSame(comparisonQueueItemId)); });
+</a><a href="#h2-1-22" id="h2-1-22" class="d">-
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+        m_commandQueues.emplace(commandName, std::make_unique&lt;OrchestratorQueue&gt;(commandName, allowedThreads));
+</a>     }
+<a href="#h2-1-25" id="h2-1-25" class="i">+
+</a>     _Requires_lock_held_(m_queueLock)
+     std::shared_ptr&lt;OrchestratorQueueItem&gt; ContextOrchestrator::FindById(const OrchestratorQueueItemId&amp; comparisonQueueItemId)
+     {
+<a href="#h2-1-29" id="h2-1-29" class="d">-        auto itr = FindIteratorById(comparisonQueueItemId);
+</a><a href="#h2-1-30" id="h2-1-30" class="d">-        if (itr != m_queueItems.end())
+</a><a href="#h2-1-31" id="h2-1-31" class="i">+        for (const auto&amp; queue : m_commandQueues)
+</a>         {
+<a href="#h2-1-33" id="h2-1-33" class="d">-            return *itr;
+</a><a href="#h2-1-34" id="h2-1-34" class="i">+            auto item = queue.second-&gt;FindById(comparisonQueueItemId);
+</a><a href="#h2-1-35" id="h2-1-35" class="i">+            if (item)
+</a><a href="#h2-1-36" id="h2-1-36" class="i">+            {
+</a><a href="#h2-1-37" id="h2-1-37" class="i">+                return item;
+</a><a href="#h2-1-38" id="h2-1-38" class="i">+            }
+</a>         }
+<a href="#h2-1-40" id="h2-1-40" class="i">+
+</a>         return {};
+     }
+<a href="#h2-1-43" id="h2-1-43" class="d">-    
+</a><a href="#h2-1-44" id="h2-1-44" class="d">-    void ContextOrchestrator::EnqueueItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item)
+</a><a href="#h2-1-45" id="h2-1-45" class="i">+
+</a><a href="#h2-1-46" id="h2-1-46" class="i">+    void ContextOrchestrator::EnqueueAndRunItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item)
+</a>     {
+<a href="#h2-1-48" id="h2-1-48" class="d">-        {
+</a><a href="#h2-1-49" id="h2-1-49" class="d">-            std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-50" id="h2-1-50" class="i">+        std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a> 
+<a href="#h2-1-52" id="h2-1-52" class="i">+        if (item-&gt;IsOnFirstCommand())
+</a><a href="#h2-1-53" id="h2-1-53" class="i">+        {
+</a>             THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_INSTALL_ALREADY_RUNNING), FindById(item-&gt;GetId()));
+<a href="#h2-1-55" id="h2-1-55" class="d">-            m_queueItems.push_back(item);
+</a>         }
+ 
+<a href="#h2-1-58" id="h2-1-58" class="d">-        // Add the package to the Installing source so that it can be queried using the Source interface.
+</a><a href="#h2-1-59" id="h2-1-59" class="d">-        const auto&amp; manifest = item-&gt;GetContext().Get&lt;Execution::Data::Manifest&gt;();
+</a><a href="#h2-1-60" id="h2-1-60" class="d">-        m_installingWriteableSource.AddPackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+</a><a href="#h2-1-61" id="h2-1-61" class="i">+        m_commandQueues.at(std::string(item-&gt;GetNextCommand().Name()))-&gt;EnqueueAndRunItem(item);
+</a><a href="#h2-1-62" id="h2-1-62" class="i">+    }
+</a> 
+<a href="#h2-1-64" id="h2-1-64" class="i">+    void ContextOrchestrator::RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state)
+</a><a href="#h2-1-65" id="h2-1-65" class="i">+    {
+</a><a href="#h2-1-66" id="h2-1-66" class="i">+        std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-67" id="h2-1-67" class="i">+        for (const auto&amp; queue : m_commandQueues)
+</a>         {
+<a href="#h2-1-69" id="h2-1-69" class="d">-            std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-70" id="h2-1-70" class="d">-            item-&gt;SetState(OrchestratorQueueItemState::Queued);
+</a><a href="#h2-1-71" id="h2-1-71" class="i">+            if (queue.second-&gt;RemoveItemInState(item, state, true))
+</a><a href="#h2-1-72" id="h2-1-72" class="i">+            {
+</a><a href="#h2-1-73" id="h2-1-73" class="i">+                return;
+</a><a href="#h2-1-74" id="h2-1-74" class="i">+            }
+</a>         }
+     }
+ 
+<a href="#h2-1-78" id="h2-1-78" class="d">-    void ContextOrchestrator::RequeueItem(OrchestratorQueueItem&amp; item)
+</a><a href="#h2-1-79" id="h2-1-79" class="i">+    void ContextOrchestrator::CancelQueueItem(const OrchestratorQueueItem&amp; item)
+</a>     {
+<a href="#h2-1-81" id="h2-1-81" class="d">-        std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-82" id="h2-1-82" class="i">+        // Always cancel the item, even if it isn&#39;t running yet, to get the terminationHR set correctly.
+</a><a href="#h2-1-83" id="h2-1-83" class="i">+        item.GetContext().Cancel(false, true);
+</a> 
+<a href="#h2-1-85" id="h2-1-85" class="d">-        item.SetState(OrchestratorQueueItemState::Queued);
+</a><a href="#h2-1-86" id="h2-1-86" class="i">+        RemoveItemInState(item, OrchestratorQueueItemState::Queued);
+</a>     }
+ 
+<a href="#h2-1-89" id="h2-1-89" class="d">-    void ContextOrchestrator::EnqueueAndRunItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item)
+</a><a href="#h2-1-90" id="h2-1-90" class="i">+    std::shared_ptr&lt;OrchestratorQueueItem&gt; ContextOrchestrator::GetQueueItem(const OrchestratorQueueItemId&amp; queueItemId)
+</a>     {
+<a href="#h2-1-92" id="h2-1-92" class="d">-        EnqueueItem(item);
+</a><a href="#h2-1-93" id="h2-1-93" class="i">+        std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+</a> 
+<a href="#h2-1-95" id="h2-1-95" class="d">-        std::thread runnerThread(&amp;ContextOrchestrator::RunItems, this);
+</a><a href="#h2-1-96" id="h2-1-96" class="d">-        runnerThread.detach();
+</a><a href="#h2-1-97" id="h2-1-97" class="i">+        return FindById(queueItemId);
+</a>     }
+ 
+<a href="#h2-1-100" id="h2-1-100" class="d">-    std::shared_ptr&lt;OrchestratorQueueItem&gt; ContextOrchestrator::GetNextItem()
+</a><a href="#h2-1-101" id="h2-1-101" class="i">+    void ContextOrchestrator::AddItemManifestToInstallingSource(const OrchestratorQueueItem&amp; queueItem)
+</a>     {
+<a href="#h2-1-103" id="h2-1-103" class="d">-        std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-104" id="h2-1-104" class="i">+        const auto&amp; manifest = queueItem.GetContext().Get&lt;Execution::Data::Manifest&gt;();
+</a><a href="#h2-1-105" id="h2-1-105" class="i">+        m_installingWriteableSource.AddPackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+</a><a href="#h2-1-106" id="h2-1-106" class="i">+    }
+</a><a href="#h2-1-107" id="h2-1-107" class="i">+
+</a><a href="#h2-1-108" id="h2-1-108" class="i">+    void ContextOrchestrator::RemoveItemManifestFromInstallingSource(const OrchestratorQueueItem&amp; queueItem)
+</a><a href="#h2-1-109" id="h2-1-109" class="i">+    {
+</a><a href="#h2-1-110" id="h2-1-110" class="i">+        const auto&amp; manifest = queueItem.GetContext().Get&lt;Execution::Data::Manifest&gt;();
+</a><a href="#h2-1-111" id="h2-1-111" class="i">+        m_installingWriteableSource.RemovePackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+</a><a href="#h2-1-112" id="h2-1-112" class="i">+    }
+</a> 
+<a href="#h2-1-114" id="h2-1-114" class="d">-        if (m_queueItems.empty())
+</a><a href="#h2-1-115" id="h2-1-115" class="i">+    _Requires_lock_held_(m_queueLock)
+</a><a href="#h2-1-116" id="h2-1-116" class="i">+    std::deque&lt;std::shared_ptr&lt;OrchestratorQueueItem&gt;&gt;::iterator OrchestratorQueue::FindIteratorById(const OrchestratorQueueItemId&amp; comparisonQueueItemId)
+</a><a href="#h2-1-117" id="h2-1-117" class="i">+    {
+</a><a href="#h2-1-118" id="h2-1-118" class="i">+        return std::find_if(m_queueItems.begin(), m_queueItems.end(), [&amp;comparisonQueueItemId](const std::shared_ptr&lt;OrchestratorQueueItem&gt;&amp; item) {return (item-&gt;GetId().IsSame(comparisonQueueItemId)); });
+</a><a href="#h2-1-119" id="h2-1-119" class="i">+    }
+</a><a href="#h2-1-120" id="h2-1-120" class="i">+
+</a><a href="#h2-1-121" id="h2-1-121" class="i">+    _Requires_lock_held_(m_queueLock)
+</a><a href="#h2-1-122" id="h2-1-122" class="i">+    std::shared_ptr&lt;OrchestratorQueueItem&gt; OrchestratorQueue::FindById(const OrchestratorQueueItemId&amp; comparisonQueueItemId)
+</a><a href="#h2-1-123" id="h2-1-123" class="i">+    {
+</a><a href="#h2-1-124" id="h2-1-124" class="i">+        auto itr = FindIteratorById(comparisonQueueItemId);
+</a><a href="#h2-1-125" id="h2-1-125" class="i">+        if (itr != m_queueItems.end())
+</a>         {
+<a href="#h2-1-127" id="h2-1-127" class="d">-            return {};
+</a><a href="#h2-1-128" id="h2-1-128" class="i">+            return *itr;
+</a>         }
+ 
+<a href="#h2-1-131" id="h2-1-131" class="d">-        std::shared_ptr&lt;OrchestratorQueueItem&gt; item = m_queueItems.front();
+</a><a href="#h2-1-132" id="h2-1-132" class="i">+        return {};
+</a><a href="#h2-1-133" id="h2-1-133" class="i">+    }
+</a><a href="#h2-1-134" id="h2-1-134" class="i">+
+</a><a href="#h2-1-135" id="h2-1-135" class="i">+    void OrchestratorQueue::EnqueueItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item)
+</a><a href="#h2-1-136" id="h2-1-136" class="i">+    {
+</a><a href="#h2-1-137" id="h2-1-137" class="i">+        {
+</a><a href="#h2-1-138" id="h2-1-138" class="i">+            std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-139" id="h2-1-139" class="i">+            m_queueItems.push_back(item);
+</a><a href="#h2-1-140" id="h2-1-140" class="i">+        }
+</a> 
+<a href="#h2-1-142" id="h2-1-142" class="d">-        // Check if item can be dequeued.
+</a><a href="#h2-1-143" id="h2-1-143" class="d">-        // Since only one item can be installed at a time currently the logic is very simple,
+</a><a href="#h2-1-144" id="h2-1-144" class="d">-        // and can just check if the first item is ready to run. This logic will need to become
+</a><a href="#h2-1-145" id="h2-1-145" class="d">-        // more complicated if multiple operation types (e.g. Download &amp; Install) are added that can
+</a><a href="#h2-1-146" id="h2-1-146" class="d">-        // run simultaneously.
+</a><a href="#h2-1-147" id="h2-1-147" class="d">-        if (item-&gt;GetState() != OrchestratorQueueItemState::Queued)
+</a><a href="#h2-1-148" id="h2-1-148" class="i">+        // Add the package to the Installing source so that it can be queried using the Source interface.
+</a><a href="#h2-1-149" id="h2-1-149" class="i">+        // Only do this the first time the item is queued.
+</a><a href="#h2-1-150" id="h2-1-150" class="i">+        if (item-&gt;IsOnFirstCommand())
+</a>         {
+<a href="#h2-1-152" id="h2-1-152" class="d">-            return {};
+</a><a href="#h2-1-153" id="h2-1-153" class="i">+            ContextOrchestrator::Instance().AddItemManifestToInstallingSource(*item);
+</a>         }
+ 
+<a href="#h2-1-156" id="h2-1-156" class="d">-        // Running state must be set inside the queueLock so that multiple threads don&#39;t try to run the same item.
+</a><a href="#h2-1-157" id="h2-1-157" class="d">-        item-&gt;SetState(OrchestratorQueueItemState::Running);
+</a><a href="#h2-1-158" id="h2-1-158" class="d">-        return item;
+</a><a href="#h2-1-159" id="h2-1-159" class="i">+        {
+</a><a href="#h2-1-160" id="h2-1-160" class="i">+            std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-161" id="h2-1-161" class="i">+            item-&gt;SetState(OrchestratorQueueItemState::Queued);
+</a><a href="#h2-1-162" id="h2-1-162" class="i">+        }
+</a><a href="#h2-1-163" id="h2-1-163" class="i">+    }
+</a><a href="#h2-1-164" id="h2-1-164" class="i">+
+</a><a href="#h2-1-165" id="h2-1-165" class="i">+    OrchestratorQueue::OrchestratorQueue(std::string_view commandName, UINT32 allowedThreads) :
+</a><a href="#h2-1-166" id="h2-1-166" class="i">+        m_commandName(commandName), m_allowedThreads(allowedThreads)
+</a><a href="#h2-1-167" id="h2-1-167" class="i">+    {
+</a><a href="#h2-1-168" id="h2-1-168" class="i">+        m_threadPool.reset(CreateThreadpool(nullptr));
+</a><a href="#h2-1-169" id="h2-1-169" class="i">+        THROW_LAST_ERROR_IF_NULL(m_threadPool);
+</a><a href="#h2-1-170" id="h2-1-170" class="i">+        m_threadPoolCleanupGroup.reset(CreateThreadpoolCleanupGroup());
+</a><a href="#h2-1-171" id="h2-1-171" class="i">+        THROW_LAST_ERROR_IF_NULL(m_threadPoolCleanupGroup);
+</a><a href="#h2-1-172" id="h2-1-172" class="i">+        InitializeThreadpoolEnvironment(&amp;m_threadPoolCallbackEnviron);
+</a><a href="#h2-1-173" id="h2-1-173" class="i">+        SetThreadpoolCallbackPool(&amp;m_threadPoolCallbackEnviron, m_threadPool.get());
+</a><a href="#h2-1-174" id="h2-1-174" class="i">+        SetThreadpoolCallbackCleanupGroup(&amp;m_threadPoolCallbackEnviron, m_threadPoolCleanupGroup.get(), nullptr);
+</a><a href="#h2-1-175" id="h2-1-175" class="i">+
+</a><a href="#h2-1-176" id="h2-1-176" class="i">+        THROW_LAST_ERROR_IF(!SetThreadpoolThreadMinimum(m_threadPool.get(), 1));
+</a><a href="#h2-1-177" id="h2-1-177" class="i">+        SetThreadpoolThreadMaximum(m_threadPool.get(), m_allowedThreads);
+</a><a href="#h2-1-178" id="h2-1-178" class="i">+    }
+</a><a href="#h2-1-179" id="h2-1-179" class="i">+
+</a><a href="#h2-1-180" id="h2-1-180" class="i">+    OrchestratorQueue::~OrchestratorQueue()
+</a><a href="#h2-1-181" id="h2-1-181" class="i">+    {
+</a><a href="#h2-1-182" id="h2-1-182" class="i">+        CloseThreadpoolCleanupGroupMembers(m_threadPoolCleanupGroup.get(), false, nullptr);
+</a><a href="#h2-1-183" id="h2-1-183" class="i">+    }
+</a><a href="#h2-1-184" id="h2-1-184" class="i">+
+</a><a href="#h2-1-185" id="h2-1-185" class="i">+    void OrchestratorQueue::EnqueueAndRunItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item)
+</a><a href="#h2-1-186" id="h2-1-186" class="i">+    {
+</a><a href="#h2-1-187" id="h2-1-187" class="i">+        EnqueueItem(item);
+</a><a href="#h2-1-188" id="h2-1-188" class="i">+
+</a><a href="#h2-1-189" id="h2-1-189" class="i">+        item-&gt;SetCurrentQueue(this);
+</a><a href="#h2-1-190" id="h2-1-190" class="i">+        auto work = CreateThreadpoolWork(OrchestratorQueueWorkCallback, item.get(), &amp;m_threadPoolCallbackEnviron);
+</a><a href="#h2-1-191" id="h2-1-191" class="i">+        SubmitThreadpoolWork(work);
+</a>     }
+ 
+<a href="#h2-1-194" id="h2-1-194" class="d">-    void ContextOrchestrator::RunItems()
+</a><a href="#h2-1-195" id="h2-1-195" class="i">+    void OrchestratorQueue::RunItem(const OrchestratorQueueItemId&amp; itemId)
+</a>     {
+<a href="#h2-1-197" id="h2-1-197" class="d">-        std::shared_ptr&lt;OrchestratorQueueItem&gt; item = GetNextItem();
+</a><a href="#h2-1-198" id="h2-1-198" class="d">-        while(item != nullptr)
+</a><a href="#h2-1-199" id="h2-1-199" class="i">+        try
+</a>         {
+<a href="#h2-1-201" id="h2-1-201" class="i">+            std::shared_ptr&lt;OrchestratorQueueItem&gt; item;
+</a><a href="#h2-1-202" id="h2-1-202" class="i">+            bool isCancelled = false;
+</a><a href="#h2-1-203" id="h2-1-203" class="i">+
+</a><a href="#h2-1-204" id="h2-1-204" class="i">+            // Try to find the item in the queue.
+</a><a href="#h2-1-205" id="h2-1-205" class="i">+            {
+</a><a href="#h2-1-206" id="h2-1-206" class="i">+                std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h2-1-207" id="h2-1-207" class="i">+                item = FindById(itemId);
+</a><a href="#h2-1-208" id="h2-1-208" class="i">+
+</a><a href="#h2-1-209" id="h2-1-209" class="i">+                if (!item)
+</a><a href="#h2-1-210" id="h2-1-210" class="i">+                {
+</a><a href="#h2-1-211" id="h2-1-211" class="i">+                    // Item should be in the queue; this shouldn&#39;t happen.
+</a><a href="#h2-1-212" id="h2-1-212" class="i">+                    return;
+</a><a href="#h2-1-213" id="h2-1-213" class="i">+                }
+</a><a href="#h2-1-214" id="h2-1-214" class="i">+
+</a><a href="#h2-1-215" id="h2-1-215" class="i">+                // Only run if the item is queued and not cancelled.
+</a><a href="#h2-1-216" id="h2-1-216" class="i">+                if (item-&gt;GetState() == OrchestratorQueueItemState::Queued)
+</a><a href="#h2-1-217" id="h2-1-217" class="i">+                {
+</a><a href="#h2-1-218" id="h2-1-218" class="i">+                    // Mark it as running so that it cannot be cancelled by other threads.
+</a><a href="#h2-1-219" id="h2-1-219" class="i">+                    item-&gt;SetState(OrchestratorQueueItemState::Running);
+</a><a href="#h2-1-220" id="h2-1-220" class="i">+                }
+</a><a href="#h2-1-221" id="h2-1-221" class="i">+                else if (item-&gt;GetState() == OrchestratorQueueItemState::Cancelled)
+</a><a href="#h2-1-222" id="h2-1-222" class="i">+                {
+</a><a href="#h2-1-223" id="h2-1-223" class="i">+                    isCancelled = true;
+</a><a href="#h2-1-224" id="h2-1-224" class="i">+                }
+</a><a href="#h2-1-225" id="h2-1-225" class="i">+            }
+</a><a href="#h2-1-226" id="h2-1-226" class="i">+
+</a><a href="#h2-1-227" id="h2-1-227" class="i">+            if (isCancelled)
+</a><a href="#h2-1-228" id="h2-1-228" class="i">+            {
+</a><a href="#h2-1-229" id="h2-1-229" class="i">+                // Do this separate from above block as the Remove function needs to manage the lock.
+</a><a href="#h2-1-230" id="h2-1-230" class="i">+                RemoveItemInState(*item, OrchestratorQueueItemState::Cancelled, true);
+</a><a href="#h2-1-231" id="h2-1-231" class="i">+            }
+</a><a href="#h2-1-232" id="h2-1-232" class="i">+
+</a><a href="#h2-1-233" id="h2-1-233" class="i">+            // Get the item&#39;s command and execute it.
+</a>             HRESULT terminationHR = S_OK;
+             try
+             {
+<a href="#h2-2" id="h2-2" class="h">@@ -133,21 +253,24 @@ namespace AppInstaller::CLI::Execution
+</a> 
+             if (FAILED(terminationHR) || item-&gt;IsComplete())
+             {
+<a href="#h2-2-3" id="h2-2-3" class="d">-                RemoveItemInState(*item, OrchestratorQueueItemState::Running);
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+                RemoveItemInState(*item, OrchestratorQueueItemState::Running, true);
+</a>             }
+             else
+             {
+<a href="#h2-2-8" id="h2-2-8" class="d">-                RequeueItem(*item);
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+                // Remove item from this queue and add it to the queue for the next command.
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+                RemoveItemInState(*item, OrchestratorQueueItemState::Running, false);
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+                ContextOrchestrator::Instance().EnqueueAndRunItem(item);
+</a>             }
+<a href="#h2-2-13" id="h2-2-13" class="d">-
+</a><a href="#h2-2-14" id="h2-2-14" class="d">-            item = GetNextItem();
+</a><a href="#h2-2-15" id="h2-2-15" class="i">+        }
+</a><a href="#h2-2-16" id="h2-2-16" class="i">+        catch (...)
+</a><a href="#h2-2-17" id="h2-2-17" class="i">+        {
+</a>         }
+     }
+ 
+<a href="#h2-2-21" id="h2-2-21" class="d">-    void ContextOrchestrator::RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state)
+</a><a href="#h2-2-22" id="h2-2-22" class="i">+    bool OrchestratorQueue::RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state, bool isGlobalRemove)
+</a>     {
+         // OrchestratorQueueItemState::Running items should only be removed by the thread that ran the item.
+<a href="#h2-2-25" id="h2-2-25" class="d">-        // Queued items can be removed by any thread. 
+</a><a href="#h2-2-26" id="h2-2-26" class="i">+        // Queued items can be removed by any thread.
+</a>         // NotQueued items should not be removed since, if found in the queue, they are in the process of being queued by another thread.
+         bool foundItem = false;
+ 
+<a href="#h2-3" id="h2-3" class="h">@@ -159,32 +282,29 @@ namespace AppInstaller::CLI::Execution
+</a>             if (itr != m_queueItems.end() &amp;&amp; (*itr)-&gt;GetState() == state)
+             {
+                 foundItem = true;
+<a href="#h2-3-3" id="h2-3-3" class="d">-                m_queueItems.erase(itr);
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+                // The item must only be removed from the queue by the thread that runs
+</a><a href="#h2-3-6" id="h2-3-6" class="i">+                // it, because the callback uses it. If any other thread tries to remove
+</a><a href="#h2-3-7" id="h2-3-7" class="i">+                // it, we simply mark it as cancelled.
+</a><a href="#h2-3-8" id="h2-3-8" class="i">+                if (state == OrchestratorQueueItemState::Running || state == OrchestratorQueueItemState::Cancelled)
+</a><a href="#h2-3-9" id="h2-3-9" class="i">+                {
+</a><a href="#h2-3-10" id="h2-3-10" class="i">+                    (*itr)-&gt;SetCurrentQueue(nullptr);
+</a><a href="#h2-3-11" id="h2-3-11" class="i">+                    m_queueItems.erase(itr);
+</a><a href="#h2-3-12" id="h2-3-12" class="i">+                }
+</a><a href="#h2-3-13" id="h2-3-13" class="i">+                else if (state == OrchestratorQueueItemState::Queued)
+</a><a href="#h2-3-14" id="h2-3-14" class="i">+                {
+</a><a href="#h2-3-15" id="h2-3-15" class="i">+                    (*itr)-&gt;SetState(OrchestratorQueueItemState::Cancelled);
+</a><a href="#h2-3-16" id="h2-3-16" class="i">+                }
+</a>             }
+         }
+ 
+<a href="#h2-3-20" id="h2-3-20" class="d">-        if (foundItem)
+</a><a href="#h2-3-21" id="h2-3-21" class="i">+        if (foundItem &amp;&amp; isGlobalRemove)
+</a>         {
+<a href="#h2-3-23" id="h2-3-23" class="d">-            const auto&amp; manifest = item.GetContext().Get&lt;Execution::Data::Manifest&gt;();
+</a><a href="#h2-3-24" id="h2-3-24" class="d">-            m_installingWriteableSource.RemovePackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+</a><a href="#h2-3-25" id="h2-3-25" class="d">-
+</a><a href="#h2-3-26" id="h2-3-26" class="i">+            ContextOrchestrator::Instance().RemoveItemManifestFromInstallingSource(item);
+</a>             item.GetCompletedEvent().SetEvent();
+         }
+<a href="#h2-3-29" id="h2-3-29" class="d">-    }
+</a> 
+<a href="#h2-3-31" id="h2-3-31" class="d">-    void ContextOrchestrator::CancelQueueItem(const OrchestratorQueueItem&amp; item)
+</a><a href="#h2-3-32" id="h2-3-32" class="d">-    {
+</a><a href="#h2-3-33" id="h2-3-33" class="d">-        // Always cancel the item, even if it isn&#39;t running yet, to get the terminationHR set correctly.
+</a><a href="#h2-3-34" id="h2-3-34" class="d">-        item.GetContext().Cancel(false, true);
+</a><a href="#h2-3-35" id="h2-3-35" class="d">-
+</a><a href="#h2-3-36" id="h2-3-36" class="d">-        RemoveItemInState(item, OrchestratorQueueItemState::Queued);
+</a><a href="#h2-3-37" id="h2-3-37" class="d">-    }
+</a><a href="#h2-3-38" id="h2-3-38" class="d">-
+</a><a href="#h2-3-39" id="h2-3-39" class="d">-    std::shared_ptr&lt;OrchestratorQueueItem&gt; ContextOrchestrator::GetQueueItem(const OrchestratorQueueItemId&amp; queueItemId)
+</a><a href="#h2-3-40" id="h2-3-40" class="d">-    {
+</a><a href="#h2-3-41" id="h2-3-41" class="d">-        std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+</a><a href="#h2-3-42" id="h2-3-42" class="d">-
+</a><a href="#h2-3-43" id="h2-3-43" class="d">-        return FindById(queueItemId);
+</a><a href="#h2-3-44" id="h2-3-44" class="i">+        return foundItem;
+</a>     }
+ 
+     bool OrchestratorQueueItemId::IsSame(const OrchestratorQueueItemId&amp; comparedId) const
+<a href="#h2-4" id="h2-4" class="h">@@ -200,5 +320,4 @@ namespace AppInstaller::CLI::Execution
+</a>         item-&gt;AddCommand(std::make_unique&lt;::AppInstaller::CLI::COMInstallCommand&gt;(RootCommand::CommandName));
+         return item;
+     }
+<a href="#h2-4-3" id="h2-4-3" class="d">-
+</a> }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/ContextOrchestrator.h.html">src/AppInstallerCLICore/ContextOrchestrator.h</a> b/<a href="../file/src/AppInstallerCLICore/ContextOrchestrator.h.html">src/AppInstallerCLICore/ContextOrchestrator.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -16,9 +16,14 @@ namespace AppInstaller::CLI::Execution
+</a> {
+     enum class OrchestratorQueueItemState
+     {
+<a href="#h3-0-3" id="h3-0-3" class="i">+        // Created but not yet queued
+</a>         NotQueued,
+<a href="#h3-0-5" id="h3-0-5" class="i">+        // Queued and waiting to be run
+</a>         Queued,
+<a href="#h3-0-7" id="h3-0-7" class="d">-        Running
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+        // Running in the thread pool
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+        Running,
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+        // Cancelled before it was run; will be deleted when we try to run it
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+        Cancelled
+</a>     };
+ 
+     struct OrchestratorQueueItemId
+<a href="#h3-1" id="h3-1" class="h">@@ -33,29 +38,43 @@ namespace AppInstaller::CLI::Execution
+</a>         std::wstring m_sourceId;
+     };
+ 
+<a href="#h3-1-3" id="h3-1-3" class="i">+    struct OrchestratorQueue;
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+
+</a>     struct OrchestratorQueueItem
+     {
+         OrchestratorQueueItem(OrchestratorQueueItemId id, std::unique_ptr&lt;COMContext&gt; context) : m_id(std::move(id)), m_context(std::move(context)) {}
+ 
+         OrchestratorQueueItemState GetState() const { return m_state; }
+         void SetState(OrchestratorQueueItemState state) { m_state = state; }
+<a href="#h3-1-11" id="h3-1-11" class="i">+
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+        OrchestratorQueue* GetCurrentQueue() const { return m_currentQueue; }
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+        void SetCurrentQueue(OrchestratorQueue* currentQueue) { m_currentQueue = currentQueue; }
+</a><a href="#h3-1-14" id="h3-1-14" class="i">+
+</a>         COMContext&amp; GetContext() const { return *m_context; }
+         const wil::unique_event&amp; GetCompletedEvent() const { return m_completedEvent; }
+         const OrchestratorQueueItemId&amp; GetId() const { return m_id; }
+<a href="#h3-1-18" id="h3-1-18" class="i">+
+</a>         void AddCommand(std::unique_ptr&lt;Command&gt; command) { m_commands.push_back(std::move(command)); }
+<a href="#h3-1-20" id="h3-1-20" class="i">+        const Command&amp; GetNextCommand() const { return *m_commands.front(); }
+</a>         std::unique_ptr&lt;Command&gt; PopNextCommand()
+         {
+<a href="#h3-1-23" id="h3-1-23" class="i">+            m_isOnFirstCommand = false;
+</a>             std::unique_ptr&lt;Command&gt; command = std::move(m_commands.front());
+             m_commands.pop_front();
+             return command;
+         }
+<a href="#h3-1-28" id="h3-1-28" class="i">+
+</a><a href="#h3-1-29" id="h3-1-29" class="i">+        bool IsOnFirstCommand() const { return m_isOnFirstCommand; }
+</a>         bool IsComplete() const { return m_commands.empty(); }
+<a href="#h3-1-31" id="h3-1-31" class="i">+
+</a>     private:
+         OrchestratorQueueItemState m_state = OrchestratorQueueItemState::NotQueued;
+         std::unique_ptr&lt;COMContext&gt; m_context;
+         wil::unique_event m_completedEvent{ wil::EventOptions::ManualReset };
+         OrchestratorQueueItemId m_id;
+         std::deque&lt;std::unique_ptr&lt;Command&gt;&gt; m_commands;
+<a href="#h3-1-38" id="h3-1-38" class="i">+        bool m_isOnFirstCommand = true;
+</a><a href="#h3-1-39" id="h3-1-39" class="i">+        OrchestratorQueue* m_currentQueue = nullptr;
+</a>     };
+ 
+     struct OrchestratorQueueItemFactory
+<a href="#h3-2" id="h3-2" class="h">@@ -73,20 +92,68 @@ namespace AppInstaller::CLI::Execution
+</a> 
+         std::shared_ptr&lt;OrchestratorQueueItem&gt; GetQueueItem(const OrchestratorQueueItemId&amp; queueItemId);
+ 
+<a href="#h3-2-3" id="h3-2-3" class="i">+        void AddItemManifestToInstallingSource(const OrchestratorQueueItem&amp; queueItem);
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+        void RemoveItemManifestFromInstallingSource(const OrchestratorQueueItem&amp; queueItem);
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+
+</a>     private:
+         std::mutex m_queueLock;
+<a href="#h3-2-8" id="h3-2-8" class="d">-        void RunItems();
+</a><a href="#h3-2-9" id="h3-2-9" class="d">-        std::shared_ptr&lt;OrchestratorQueueItem&gt; GetNextItem();
+</a><a href="#h3-2-10" id="h3-2-10" class="d">-        void EnqueueItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item);
+</a><a href="#h3-2-11" id="h3-2-11" class="d">-        void RequeueItem(OrchestratorQueueItem&amp; item);
+</a><a href="#h3-2-12" id="h3-2-12" class="i">+        void AddCommandQueue(std::string_view commandName, UINT32 allowedThreads);
+</a>         void RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state);
+ 
+         _Requires_lock_held_(m_queueLock)
+<a href="#h3-2-16" id="h3-2-16" class="d">-        std::deque&lt;std::shared_ptr&lt;OrchestratorQueueItem&gt;&gt;::iterator FindIteratorById(const OrchestratorQueueItemId&amp; queueItemId);
+</a><a href="#h3-2-17" id="h3-2-17" class="d">-        _Requires_lock_held_(m_queueLock)
+</a>         std::shared_ptr&lt;OrchestratorQueueItem&gt; FindById(const OrchestratorQueueItemId&amp; queueItemId);
+ 
+         Repository::Source m_installingWriteableSource;
+<a href="#h3-2-21" id="h3-2-21" class="i">+        std::map&lt;std::string, std::unique_ptr&lt;OrchestratorQueue&gt;&gt; m_commandQueues;
+</a><a href="#h3-2-22" id="h3-2-22" class="i">+    };
+</a><a href="#h3-2-23" id="h3-2-23" class="i">+
+</a><a href="#h3-2-24" id="h3-2-24" class="i">+    // One of the queues used by the orchestrator.
+</a><a href="#h3-2-25" id="h3-2-25" class="i">+    // All items in the queue execute the same command.
+</a><a href="#h3-2-26" id="h3-2-26" class="i">+    // The queue allows multiple items to run at the same time, up to a limit.
+</a><a href="#h3-2-27" id="h3-2-27" class="i">+    struct OrchestratorQueue
+</a><a href="#h3-2-28" id="h3-2-28" class="i">+    {
+</a><a href="#h3-2-29" id="h3-2-29" class="i">+        OrchestratorQueue(std::string_view commandName, UINT32 allowedThreads);
+</a><a href="#h3-2-30" id="h3-2-30" class="i">+        ~OrchestratorQueue();
+</a><a href="#h3-2-31" id="h3-2-31" class="i">+
+</a><a href="#h3-2-32" id="h3-2-32" class="i">+        // Name of the command this queue can execute
+</a><a href="#h3-2-33" id="h3-2-33" class="i">+        std::string_view CommandName() const { return m_commandName; }
+</a><a href="#h3-2-34" id="h3-2-34" class="i">+
+</a><a href="#h3-2-35" id="h3-2-35" class="i">+        // Enqueues an item to be run when there are threads available.
+</a><a href="#h3-2-36" id="h3-2-36" class="i">+        void EnqueueAndRunItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item);
+</a><a href="#h3-2-37" id="h3-2-37" class="i">+
+</a><a href="#h3-2-38" id="h3-2-38" class="i">+        // Removes an item by id, provided that it is in the given state.
+</a><a href="#h3-2-39" id="h3-2-39" class="i">+        // Returns true if an item was removed.
+</a><a href="#h3-2-40" id="h3-2-40" class="i">+        // The item can be removed globally from the orchestrator, or from just this queue.
+</a><a href="#h3-2-41" id="h3-2-41" class="i">+        bool RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state, bool isGlobalRemove);
+</a><a href="#h3-2-42" id="h3-2-42" class="i">+
+</a><a href="#h3-2-43" id="h3-2-43" class="i">+        // Finds an item by id, if it is in the queue.
+</a><a href="#h3-2-44" id="h3-2-44" class="i">+        _Requires_lock_held_(m_queueLock)
+</a><a href="#h3-2-45" id="h3-2-45" class="i">+        std::shared_ptr&lt;OrchestratorQueueItem&gt; FindById(const OrchestratorQueueItemId&amp; queueItemId);
+</a><a href="#h3-2-46" id="h3-2-46" class="i">+
+</a><a href="#h3-2-47" id="h3-2-47" class="i">+        // Runs a single item from the queue.
+</a><a href="#h3-2-48" id="h3-2-48" class="i">+        void RunItem(const OrchestratorQueueItemId&amp; itemId);
+</a><a href="#h3-2-49" id="h3-2-49" class="i">+
+</a><a href="#h3-2-50" id="h3-2-50" class="i">+    private:
+</a><a href="#h3-2-51" id="h3-2-51" class="i">+        // Enqueues an item.
+</a><a href="#h3-2-52" id="h3-2-52" class="i">+        void EnqueueItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item);
+</a><a href="#h3-2-53" id="h3-2-53" class="i">+
+</a><a href="#h3-2-54" id="h3-2-54" class="i">+        _Requires_lock_held_(m_queueLock)
+</a><a href="#h3-2-55" id="h3-2-55" class="i">+        std::deque&lt;std::shared_ptr&lt;OrchestratorQueueItem&gt;&gt;::iterator FindIteratorById(const OrchestratorQueueItemId&amp; comparisonQueueItemId);
+</a><a href="#h3-2-56" id="h3-2-56" class="i">+
+</a><a href="#h3-2-57" id="h3-2-57" class="i">+        std::string_view m_commandName;
+</a><a href="#h3-2-58" id="h3-2-58" class="i">+
+</a><a href="#h3-2-59" id="h3-2-59" class="i">+        // Number of threads allowed to run items in this queue.
+</a><a href="#h3-2-60" id="h3-2-60" class="i">+        const UINT32 m_allowedThreads;
+</a><a href="#h3-2-61" id="h3-2-61" class="i">+
+</a><a href="#h3-2-62" id="h3-2-62" class="i">+        // Thread pool for this queue, and associated objects.
+</a><a href="#h3-2-63" id="h3-2-63" class="i">+        // All work items will be added to the callback environment, and the cleanup group
+</a><a href="#h3-2-64" id="h3-2-64" class="i">+        // will manage their closing.
+</a><a href="#h3-2-65" id="h3-2-65" class="i">+        // See https://docs.microsoft.com/windows/win32/procthread/using-the-thread-pool-functions
+</a><a href="#h3-2-66" id="h3-2-66" class="i">+        TP_CALLBACK_ENVIRON m_threadPoolCallbackEnviron;
+</a><a href="#h3-2-67" id="h3-2-67" class="i">+        wil::unique_any&lt;PTP_POOL, decltype(CloseThreadpool), CloseThreadpool&gt; m_threadPool;
+</a><a href="#h3-2-68" id="h3-2-68" class="i">+        wil::unique_any&lt;PTP_CLEANUP_GROUP, decltype(CloseThreadpoolCleanupGroup), CloseThreadpoolCleanupGroup&gt; m_threadPoolCleanupGroup;
+</a><a href="#h3-2-69" id="h3-2-69" class="i">+
+</a><a href="#h3-2-70" id="h3-2-70" class="i">+        std::mutex m_queueLock;
+</a>         std::deque&lt;std::shared_ptr&lt;OrchestratorQueueItem&gt;&gt; m_queueItems;
+     };
+ }
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.cpp.html">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.cpp.html">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -1039,7 +1039,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         // If we cannot find a package using PackageFamilyName or ProductId, try manifest Id and Name pair
+         SearchRequest searchRequest;
+         searchRequest.Inclusions.emplace_back(PackageMatchFilter(PackageMatchField::Id, MatchType::CaseInsensitive, manifest.Id));
+<a href="#h4-0-3" id="h4-0-3" class="d">-        // In case there&#39;re same Ids from different sources, filter the result using package name
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        // In case there are same Ids from different sources, filter the result using package name
+</a>         searchRequest.Filters.emplace_back(PackageMatchFilter(PackageMatchField::Name, MatchType::CaseInsensitive, manifest.DefaultLocalization.Get&lt;Manifest::Localization::PackageName&gt;()));
+ 
+         context.Add&lt;Execution::Data::SearchResult&gt;(source.Search(searchRequest));
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -151,6 +151,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     SQLiteIndex::IdType SQLiteIndex::AddManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath)
+     {
+<a href="#h5-0-3" id="h5-0-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Adding manifest for [&quot; &lt;&lt; manifest.Id &lt;&lt; &quot;, &quot; &lt;&lt; manifest.Version &lt;&lt; &quot;] at relative path [&quot; &lt;&lt; relativePath.value_or(&quot;&quot;) &lt;&lt; &quot;]&quot;);
+ 
+         SQLite::Savepoint savepoint = SQLite::Savepoint::Create(m_dbconn, &quot;sqliteindex_addmanifest&quot;);
+<a href="#h5-1" id="h5-1" class="h">@@ -184,6 +185,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     bool SQLiteIndex::UpdateManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath)
+     {
+<a href="#h5-1-3" id="h5-1-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Updating manifest for [&quot; &lt;&lt; manifest.Id &lt;&lt; &quot;, &quot; &lt;&lt; manifest.Version &lt;&lt; &quot;] at relative path [&quot; &lt;&lt; relativePath.value_or(&quot;&quot;) &lt;&lt; &quot;]&quot;);
+ 
+         SQLite::Savepoint savepoint = SQLite::Savepoint::Create(m_dbconn, &quot;sqliteindex_updatemanifest&quot;);
+<a href="#h5-2" id="h5-2" class="h">@@ -216,6 +218,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     void SQLiteIndex::RemoveManifest(const Manifest::Manifest&amp; manifest)
+     {
+<a href="#h5-2-3" id="h5-2-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         SQLite::Savepoint savepoint = SQLite::Savepoint::Create(m_dbconn, &quot;sqliteindex_removemanifest&quot;);
+ 
+         m_interface-&gt;RemoveManifest(m_dbconn, manifest);
+<a href="#h5-3" id="h5-3" class="h">@@ -238,6 +241,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     void SQLiteIndex::PrepareForPackaging()
+     {
+<a href="#h5-3-3" id="h5-3-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         AICLI_LOG(Repo, Info, &lt;&lt; &quot;Preparing index for packaging&quot;);
+ 
+         m_interface-&gt;PrepareForPackaging(m_dbconn);
+<a href="#h5-4" id="h5-4" class="h">@@ -245,6 +249,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     bool SQLiteIndex::CheckConsistency(bool log) const
+     {
+<a href="#h5-4-3" id="h5-4-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         AICLI_LOG(Repo, Info, &lt;&lt; &quot;Checking index consistency...&quot;);
+ 
+         bool result = m_interface-&gt;CheckConsistency(m_dbconn, log);
+<a href="#h5-5" id="h5-5" class="h">@@ -256,6 +261,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     Schema::ISQLiteIndex::SearchResult SQLiteIndex::Search(const SearchRequest&amp; request) const
+     {
+<a href="#h5-5-3" id="h5-5-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Performing search: &quot; &lt;&lt; request.ToString());
+ 
+         return m_interface-&gt;Search(m_dbconn, request);
+<a href="#h5-6" id="h5-6" class="h">@@ -263,16 +269,19 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     std::optional&lt;std::string&gt; SQLiteIndex::GetPropertyByManifestId(IdType manifestId, PackageVersionProperty property) const
+     {
+<a href="#h5-6-3" id="h5-6-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         return m_interface-&gt;GetPropertyByManifestId(m_dbconn, manifestId, property);
+     }
+ 
+     std::vector&lt;std::string&gt; SQLiteIndex::GetMultiPropertyByManifestId(IdType manifestId, PackageVersionMultiProperty property) const
+     {
+<a href="#h5-6-9" id="h5-6-9" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         return m_interface-&gt;GetMultiPropertyByManifestId(m_dbconn, manifestId, property);
+     }
+ 
+     std::optional&lt;SQLiteIndex::IdType&gt; SQLiteIndex::GetManifestIdByKey(IdType id, std::string_view version, std::string_view channel) const
+     {
+<a href="#h5-6-15" id="h5-6-15" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         return m_interface-&gt;GetManifestIdByKey(m_dbconn, id, version, channel);
+     }
+ 
+<a href="#h5-7" id="h5-7" class="h">@@ -283,21 +292,25 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+     std::vector&lt;Utility::VersionAndChannel&gt; SQLiteIndex::GetVersionKeysById(IdType id) const
+     {
+<a href="#h5-7-3" id="h5-7-3" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         return m_interface-&gt;GetVersionKeysById(m_dbconn, id);
+     }
+ 
+     SQLiteIndex::MetadataResult SQLiteIndex::GetMetadataByManifestId(SQLite::rowid_t manifestId) const
+     {
+<a href="#h5-7-9" id="h5-7-9" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         return m_interface-&gt;GetMetadataByManifestId(m_dbconn, manifestId);
+     }
+ 
+     void SQLiteIndex::SetMetadataByManifestId(IdType manifestId, PackageVersionMetadata metadata, std::string_view value)
+     {
+<a href="#h5-7-15" id="h5-7-15" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         m_interface-&gt;SetMetadataByManifestId(m_dbconn, manifestId, metadata, value);
+     }
+ 
+     Utility::NormalizedName SQLiteIndex::NormalizeName(std::string_view name, std::string_view publisher) const
+     {
+<a href="#h5-7-21" id="h5-7-21" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a>         return m_interface-&gt;NormalizeName(name, publisher);
+     }
+ 
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -163,5 +163,6 @@ namespace AppInstaller::Repository::Microsoft
+</a>         SQLite::Connection m_dbconn;
+         Schema::Version m_version;
+         std::unique_ptr&lt;Schema::ISQLiteIndex&gt; m_interface;
+<a href="#h6-0-3" id="h6-0-3" class="i">+        std::unique_ptr&lt;std::mutex&gt; m_interfaceLock = std::make_unique&lt;std::mutex&gt;();
+</a>     };
+ }
+</pre>
+</div>
+</body>
+</html>

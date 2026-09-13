@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat: implement physical oscillation model and MIDI CC control - aerothesis - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>aerothesis</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/0600c269b7ffc9fcf4198d62a049e135bd6ee2f2.html">0600c269b7ffc9fcf4198d62a049e135bd6ee2f2</a>
+<b>parent</b> <a href="../commit/dcffd3b14c4cb6bdc3b9207a3233c47aa3e42d49.html">dcffd3b14c4cb6bdc3b9207a3233c47aa3e42d49</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Sat, 13 Jun 2026 18:06:43 +0900
+
+feat: implement physical oscillation model and MIDI CC control
+
+- Added parameters for base mass, stiffness, damping, pressure, and feedback.
+- Updated Aerothesis struct to store oscillation state and MIDI CC mappings.
+- Enabled Basic MIDI input and implemented event processing for breath and bite CC values.
+- Updated documentation with the physical oscillation formula.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">README.md</a></td><td> | </td><td class="num">11</td><td><span class="i">+++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/lib.rs</a></td><td> | </td><td class="num">135</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+</table></pre><pre>2 files changed, 142 insertions(+), 4 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/README.md.html">README.md</a> b/<a href="../file/README.md.html">README.md</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -84,6 +84,13 @@ $$v[n] = \frac{2}{T}(x[n] - x[n-1]) - v[n-1]$$
+</a> 
+ &lt;/details&gt;
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-##### Formula for Ocillation
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+##### Formula for Oscillation
+</a> 
+<a href="#h0-0-6" id="h0-0-6" class="d">-From above,
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+From above, formula for oscillation is
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+$$x[n] = \frac{1}{\frac{4m[n]}{T^2} + \frac{2r[n]}{T} + k[n]} \left[ \left( \frac{4m[n]}{T^2} + \frac{2r[n]}{T} \right) x[n-1] + 2m[n]v[n-1] + F[n] + \frac{m[n]}{m[n-1]} \left( F[n-1] - r[n-1]v[n-1] - k[n-1]x[n-1] \right) \right]$$
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+$$v[n] = \frac{2}{T}(x[n] - x[n-1]) - v[n-1]$$
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+Define bite strength $V_{\text{bite}}[n] \in [0.0, 1.0]$,and define breath strength $V_{\text{breath}}[n] \in [0.0, 1.0]$ mass $m[n]$ and others as follows:
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+$$m[n] = m_{\text{base}} \cdot \big( 1.0 - \gamma \cdot V_{\text{bite}}[n] \big)$$
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+$$r[n] = r_{\text{base}} \cdot \big( 1.0 + \beta \cdot V_{\text{bite}}[n] \big) + \delta \cdot V_{\text{breath}}[n]$$
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+$$k[n] = k_{\text{base}} \cdot \big( 1.0 + \alpha \cdot V_{\text{bite}}[n] \big)$$
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+$$F[n] = G_{\text{breath}} \cdot V_{\text{breath}}[n] - G_{\text{feedback}} \cdot P_{\text{downstream}}[n]$$$$
+</a><b>diff --git a/<a id="h1" href="../file/src/lib.rs.html">src/lib.rs</a> b/<a href="../file/src/lib.rs.html">src/lib.rs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -7,6 +7,18 @@ use std::sync::Arc;
+</a> 
+ struct Aerothesis {
+     params: Arc&lt;AerothesisParams&gt;,
+<a href="#h1-0-3" id="h1-0-3" class="i">+
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    x_prev: f32,
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    v_prev: f32,
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    m_prev: f32,
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+    r_prev: f32,
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    k_prev: f32,
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    f_prev: f32,
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+    sample_rate: f32,
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+    v_breath: f32,
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+    v_bite: f32,
+</a> }
+ 
+ #[derive(Params)]
+<a href="#h1-1" id="h1-1" class="h">@@ -17,12 +29,46 @@ struct AerothesisParams {
+</a>     /// gain parameter is stored as linear gain while the values are displayed in decibels.
+     #[id = &quot;gain&quot;]
+     pub gain: FloatParam,
+<a href="#h1-1-3" id="h1-1-3" class="i">+    #[id = &quot;base_mass&quot;]
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+    pub base_mass: FloatParam,
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+    #[id = &quot;bite_mass_scale&quot;]
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+    pub bite_mass_scale: FloatParam,
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+    #[id = &quot;base_stiffness&quot;]
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+    pub base_stiffness: FloatParam,
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+    #[id = &quot;bite_stiffness_scale&quot;]
+</a><a href="#h1-1-10" id="h1-1-10" class="i">+    pub bite_stiffness_scale: FloatParam,
+</a><a href="#h1-1-11" id="h1-1-11" class="i">+    #[id = &quot;base_damping&quot;]
+</a><a href="#h1-1-12" id="h1-1-12" class="i">+    pub base_damping: FloatParam,
+</a><a href="#h1-1-13" id="h1-1-13" class="i">+    #[id = &quot;bite_damping_scale&quot;]
+</a><a href="#h1-1-14" id="h1-1-14" class="i">+    pub bite_damping_scale: FloatParam,
+</a><a href="#h1-1-15" id="h1-1-15" class="i">+    #[id = &quot;breath_damping&quot;]
+</a><a href="#h1-1-16" id="h1-1-16" class="i">+    pub breath_damping: FloatParam,
+</a><a href="#h1-1-17" id="h1-1-17" class="i">+    #[id = &quot;pressure_scale&quot;]
+</a><a href="#h1-1-18" id="h1-1-18" class="i">+    pub pressure_scale: FloatParam,
+</a><a href="#h1-1-19" id="h1-1-19" class="i">+    #[id = &quot;feedback_gain&quot;]
+</a><a href="#h1-1-20" id="h1-1-20" class="i">+    pub feedback_gain: FloatParam,
+</a><a href="#h1-1-21" id="h1-1-21" class="i">+
+</a><a href="#h1-1-22" id="h1-1-22" class="i">+    #[id = &quot;breath_cc&quot;]
+</a><a href="#h1-1-23" id="h1-1-23" class="i">+    pub breath_cc: IntParam,
+</a><a href="#h1-1-24" id="h1-1-24" class="i">+    #[id = &quot;bite_cc&quot;]
+</a><a href="#h1-1-25" id="h1-1-25" class="i">+    pub bite_cc: IntParam,
+</a> }
+ 
+ impl Default for Aerothesis {
+     fn default() -&gt; Self {
+         Self {
+             params: Arc::new(AerothesisParams::default()),
+<a href="#h1-1-32" id="h1-1-32" class="i">+            x_prev: 0.0,
+</a><a href="#h1-1-33" id="h1-1-33" class="i">+            v_prev: 0.0,
+</a><a href="#h1-1-34" id="h1-1-34" class="i">+
+</a><a href="#h1-1-35" id="h1-1-35" class="i">+            m_prev: 1.0,
+</a><a href="#h1-1-36" id="h1-1-36" class="i">+            r_prev: 1.0,
+</a><a href="#h1-1-37" id="h1-1-37" class="i">+            k_prev: 1.0,
+</a><a href="#h1-1-38" id="h1-1-38" class="i">+            f_prev: 0.0,
+</a><a href="#h1-1-39" id="h1-1-39" class="i">+            sample_rate: 44100.0,
+</a><a href="#h1-1-40" id="h1-1-40" class="i">+
+</a><a href="#h1-1-41" id="h1-1-41" class="i">+            v_breath: 0.0,
+</a><a href="#h1-1-42" id="h1-1-42" class="i">+            v_bite: 0.0,
+</a>         }
+     }
+ }
+<a href="#h1-2" id="h1-2" class="h">@@ -53,6 +99,78 @@ impl Default for AerothesisParams {
+</a>             // `.with_step_size(0.1)` function to get internal rounding.
+             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+<a href="#h1-2-3" id="h1-2-3" class="i">+
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+            base_mass: FloatParam::new(
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+                &quot;Base Mass&quot;,
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+                1.0,
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+                FloatRange::Skewed {
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+                    min: 0.01,
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+                    max: 10.0,
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+                    factor: 0.2,
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+                },
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+            )
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+            .with_unit(&quot; mg&quot;),
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+            bite_mass_scale: FloatParam::new(
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+                &quot;Bite Mass Reduction&quot;,
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+                0.5,
+</a><a href="#h1-2-17" id="h1-2-17" class="i">+                FloatRange::Linear { min: 0.0, max: 0.9 },
+</a><a href="#h1-2-18" id="h1-2-18" class="i">+            ),
+</a><a href="#h1-2-19" id="h1-2-19" class="i">+            base_stiffness: FloatParam::new(
+</a><a href="#h1-2-20" id="h1-2-20" class="i">+                &quot;Base Stiffness&quot;,
+</a><a href="#h1-2-21" id="h1-2-21" class="i">+                1000.0,
+</a><a href="#h1-2-22" id="h1-2-22" class="i">+                FloatRange::Skewed {
+</a><a href="#h1-2-23" id="h1-2-23" class="i">+                    min: 100.0,
+</a><a href="#h1-2-24" id="h1-2-24" class="i">+                    max: 100000.0,
+</a><a href="#h1-2-25" id="h1-2-25" class="i">+                    factor: 0.3,
+</a><a href="#h1-2-26" id="h1-2-26" class="i">+                },
+</a><a href="#h1-2-27" id="h1-2-27" class="i">+            )
+</a><a href="#h1-2-28" id="h1-2-28" class="i">+            .with_unit(&quot; N/m&quot;),
+</a><a href="#h1-2-29" id="h1-2-29" class="i">+            bite_stiffness_scale: FloatParam::new(
+</a><a href="#h1-2-30" id="h1-2-30" class="i">+                &quot;Bite Stiffness Incr.&quot;,
+</a><a href="#h1-2-31" id="h1-2-31" class="i">+                1.0,
+</a><a href="#h1-2-32" id="h1-2-32" class="i">+                FloatRange::Linear {
+</a><a href="#h1-2-33" id="h1-2-33" class="i">+                    min: 0.0,
+</a><a href="#h1-2-34" id="h1-2-34" class="i">+                    max: 10.0,
+</a><a href="#h1-2-35" id="h1-2-35" class="i">+                },
+</a><a href="#h1-2-36" id="h1-2-36" class="i">+            ),
+</a><a href="#h1-2-37" id="h1-2-37" class="i">+            base_damping: FloatParam::new(
+</a><a href="#h1-2-38" id="h1-2-38" class="i">+                &quot;Base Damping&quot;,
+</a><a href="#h1-2-39" id="h1-2-39" class="i">+                0.1,
+</a><a href="#h1-2-40" id="h1-2-40" class="i">+                FloatRange::Skewed {
+</a><a href="#h1-2-41" id="h1-2-41" class="i">+                    min: 0.001,
+</a><a href="#h1-2-42" id="h1-2-42" class="i">+                    max: 1.0,
+</a><a href="#h1-2-43" id="h1-2-43" class="i">+                    factor: 0.2,
+</a><a href="#h1-2-44" id="h1-2-44" class="i">+                },
+</a><a href="#h1-2-45" id="h1-2-45" class="i">+            ),
+</a><a href="#h1-2-46" id="h1-2-46" class="i">+            bite_damping_scale: FloatParam::new(
+</a><a href="#h1-2-47" id="h1-2-47" class="i">+                &quot;Bite Damping Incr.&quot;,
+</a><a href="#h1-2-48" id="h1-2-48" class="i">+                1.0,
+</a><a href="#h1-2-49" id="h1-2-49" class="i">+                FloatRange::Linear {
+</a><a href="#h1-2-50" id="h1-2-50" class="i">+                    min: 0.0,
+</a><a href="#h1-2-51" id="h1-2-51" class="i">+                    max: 10.0,
+</a><a href="#h1-2-52" id="h1-2-52" class="i">+                },
+</a><a href="#h1-2-53" id="h1-2-53" class="i">+            ),
+</a><a href="#h1-2-54" id="h1-2-54" class="i">+            breath_damping: FloatParam::new(
+</a><a href="#h1-2-55" id="h1-2-55" class="i">+                &quot;Breath Damping&quot;,
+</a><a href="#h1-2-56" id="h1-2-56" class="i">+                0.1,
+</a><a href="#h1-2-57" id="h1-2-57" class="i">+                FloatRange::Linear { min: 0.0, max: 1.0 },
+</a><a href="#h1-2-58" id="h1-2-58" class="i">+            ),
+</a><a href="#h1-2-59" id="h1-2-59" class="i">+            pressure_scale: FloatParam::new(
+</a><a href="#h1-2-60" id="h1-2-60" class="i">+                &quot;Pressure Gain&quot;,
+</a><a href="#h1-2-61" id="h1-2-61" class="i">+                10.0,
+</a><a href="#h1-2-62" id="h1-2-62" class="i">+                FloatRange::Linear {
+</a><a href="#h1-2-63" id="h1-2-63" class="i">+                    min: 0.0,
+</a><a href="#h1-2-64" id="h1-2-64" class="i">+                    max: 100.0,
+</a><a href="#h1-2-65" id="h1-2-65" class="i">+                },
+</a><a href="#h1-2-66" id="h1-2-66" class="i">+            ),
+</a><a href="#h1-2-67" id="h1-2-67" class="i">+            feedback_gain: FloatParam::new(
+</a><a href="#h1-2-68" id="h1-2-68" class="i">+                &quot;Feedback Gain&quot;,
+</a><a href="#h1-2-69" id="h1-2-69" class="i">+                0.1,
+</a><a href="#h1-2-70" id="h1-2-70" class="i">+                FloatRange::Linear { min: 0.0, max: 1.0 },
+</a><a href="#h1-2-71" id="h1-2-71" class="i">+            ),
+</a><a href="#h1-2-72" id="h1-2-72" class="i">+
+</a><a href="#h1-2-73" id="h1-2-73" class="i">+            breath_cc: IntParam::new(&quot;Breath CC&quot;, 2, IntRange::Linear { min: 0, max: 127 }),
+</a><a href="#h1-2-74" id="h1-2-74" class="i">+            bite_cc: IntParam::new(&quot;Bite CC&quot;, 11, IntRange::Linear { min: 0, max: 127 }),
+</a>         }
+     }
+ }
+<a href="#h1-3" id="h1-3" class="h">@@ -80,7 +198,7 @@ impl Plugin for Aerothesis {
+</a>         names: PortNames::const_default(),
+     }];
+ 
+<a href="#h1-3-3" id="h1-3-3" class="d">-    const MIDI_INPUT: MidiConfig = MidiConfig::None;
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+    const MIDI_INPUT: MidiConfig = MidiConfig::Basic;
+</a>     const MIDI_OUTPUT: MidiConfig = MidiConfig::None;
+ 
+     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
+<a href="#h1-4" id="h1-4" class="h">@@ -119,8 +237,21 @@ impl Plugin for Aerothesis {
+</a>         &amp;mut self,
+         buffer: &amp;mut Buffer,
+         _aux: &amp;mut AuxiliaryBuffers,
+<a href="#h1-4-3" id="h1-4-3" class="d">-        _context: &amp;mut impl ProcessContext&lt;Self&gt;,
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+        context: &amp;mut impl ProcessContext&lt;Self&gt;,
+</a>     ) -&gt; ProcessStatus {
+<a href="#h1-4-6" id="h1-4-6" class="i">+        while let Some(event) = context.next_event() {
+</a><a href="#h1-4-7" id="h1-4-7" class="i">+            match event {
+</a><a href="#h1-4-8" id="h1-4-8" class="i">+                NoteEvent::MidiCC { cc, value, .. } =&gt; {
+</a><a href="#h1-4-9" id="h1-4-9" class="i">+                    if cc == self.params.breath_cc.value() as u8 {
+</a><a href="#h1-4-10" id="h1-4-10" class="i">+                        self.v_breath = value;
+</a><a href="#h1-4-11" id="h1-4-11" class="i">+                    } else if cc == self.params.bite_cc.value() as u8 {
+</a><a href="#h1-4-12" id="h1-4-12" class="i">+                        self.v_bite = value;
+</a><a href="#h1-4-13" id="h1-4-13" class="i">+                    }
+</a><a href="#h1-4-14" id="h1-4-14" class="i">+                }
+</a><a href="#h1-4-15" id="h1-4-15" class="i">+                _ =&gt; (),
+</a><a href="#h1-4-16" id="h1-4-16" class="i">+            }
+</a><a href="#h1-4-17" id="h1-4-17" class="i">+        }
+</a><a href="#h1-4-18" id="h1-4-18" class="i">+
+</a>         for channel_samples in buffer.iter_samples() {
+             // Smoothing is optionally built into the parameters themselves
+             let gain = self.params.gain.smoothed.next();
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Attempt to use DSCv3 resources even if they were not found (#5443) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/11c0786284f4886115b3ecb6c82d09e0885e4e94.html">11c0786284f4886115b3ecb6c82d09e0885e4e94</a>
+<b>parent</b> <a href="../commit/e9f5f3bfc4037f34e0cf59f019de1a00028cd12b.html">e9f5f3bfc4037f34e0cf59f019de1a00028cd12b</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Fri,  9 May 2025 09:48:58 -0700
+
+Attempt to use DSCv3 resources even if they were not found (#5443)
+
+## Change
+Even if not found, attempt to use DSCv3 resources. This is largely to
+avoid PowerShell/DSC#786, which only seems to affect dsc.exe&#39;s ability
+to run processes when listing adapted resources.
+
+Also applies the `DiagnosticTraceEnabled` state to the elevated
+processor. This is set when the config logging area is enabled and set
+to verbose.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/ConfigurationSetProcessorFactoryRemoting.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Configuration.Processor/DSCv3/Helpers/ProcessorRunSettings.cs</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Configuration.Processor/DSCv3/Set/DSCv3ConfigurationSetProcessor.cs</a></td><td> | </td><td class="num">4</td><td><span class="i">+++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Configuration.Processor/DSCv3/Unit/DSCv3ConfigurationUnitProcessor.cs</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Configuration.UnitTests/Tests/DSCv3ProcessorTests.cs</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+</table></pre><pre>6 files changed, 15 insertions(+), 8 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -435,6 +435,9 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                                 strong_this-&gt;m_dynamicFactory-&gt;SendDiagnostics(information);
+                             }
+                         });
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+                    winrt::hstring propertyName = ConfigurationRemoting::ToHString(ConfigurationRemoting::PropertyName::DiagnosticTraceEnabled);
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+                    factory.as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;().Insert(propertyName, m_dynamicFactory-&gt;GetFactoryMapValue(propertyName));
+</a>                 }
+ 
+                 return m_setProcessors.emplace(integrityLevel, DynamicProcessorInfo{ factory, factory.CreateSetProcessor(m_configurationSet), std::move(factoryDiagnosticsEventRevoker) }).first;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/ConfigurationSetProcessorFactoryRemoting.cpp.html">src/AppInstallerCLICore/ConfigurationSetProcessorFactoryRemoting.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ConfigurationSetProcessorFactoryRemoting.cpp.html">src/AppInstallerCLICore/ConfigurationSetProcessorFactoryRemoting.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -300,12 +300,14 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a> 
+             bool Insert(winrt::hstring key, winrt::hstring value)
+             {
+<a href="#h1-0-3" id="h1-0-3" class="d">-                return m_remoteFactory.as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;().Insert(key, value);
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+                auto map = m_remoteFactory.try_as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;();
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+                return map ? map.Insert(key, value) : false;
+</a>             }
+ 
+             winrt::hstring Lookup(winrt::hstring key)
+             {
+<a href="#h1-0-10" id="h1-0-10" class="d">-                return m_remoteFactory.as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;().Lookup(key);
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+                auto map = m_remoteFactory.try_as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;();
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+                return map ? map.Lookup(key) : winrt::hstring{};
+</a>             }
+ 
+             HRESULT STDMETHODCALLTYPE SetLifetimeWatcher(IUnknown* watcher)
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Configuration.Processor/DSCv3/Helpers/ProcessorRunSettings.cs.html">src/Microsoft.Management.Configuration.Processor/DSCv3/Helpers/ProcessorRunSettings.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/DSCv3/Helpers/ProcessorRunSettings.cs.html">src/Microsoft.Management.Configuration.Processor/DSCv3/Helpers/ProcessorRunSettings.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -47,11 +47,11 @@ namespace Microsoft.Management.Configuration.Processor.DSCv3.Helpers
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;resourceDetails&quot;&gt;The resource details to be used.&lt;/param&gt;
+         /// &lt;returns&gt;A ProcessorRunSettings.&lt;/returns&gt;
+<a href="#h2-0-3" id="h2-0-3" class="d">-        public static ProcessorRunSettings CreateFromResourceDetails(ResourceDetails resourceDetails)
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        public static ProcessorRunSettings CreateFromResourceDetails(ResourceDetails? resourceDetails)
+</a>         {
+             return new ProcessorRunSettings
+             {
+<a href="#h2-0-8" id="h2-0-8" class="d">-                ResourceSearchPaths = Path.GetDirectoryName(resourceDetails.Path) ?? string.Empty,
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+                ResourceSearchPaths = Path.GetDirectoryName(resourceDetails?.Path) ?? string.Empty,
+</a>                 ResourceSearchPathsExclusive = false,
+             };
+         }
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Configuration.Processor/DSCv3/Set/DSCv3ConfigurationSetProcessor.cs.html">src/Microsoft.Management.Configuration.Processor/DSCv3/Set/DSCv3ConfigurationSetProcessor.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/DSCv3/Set/DSCv3ConfigurationSetProcessor.cs.html">src/Microsoft.Management.Configuration.Processor/DSCv3/Set/DSCv3ConfigurationSetProcessor.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -41,7 +41,9 @@ namespace Microsoft.Management.Configuration.Processor.DSCv3.Set
+</a>             if (resourceDetails == null)
+             {
+                 this.OnDiagnostics(DiagnosticLevel.Verbose, $&quot;Resource not found: {configurationUnitInternal.QualifiedName}&quot;);
+<a href="#h3-0-3" id="h3-0-3" class="d">-                throw new Exceptions.FindDscResourceNotFoundException(configurationUnitInternal.QualifiedName, null);
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+                // Don&#39;t throw when the resource is not found until https://github.com/PowerShell/DSC/issues/786 is resolved
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+                // throw new Exceptions.FindDscResourceNotFoundException(configurationUnitInternal.QualifiedName, null);
+</a>             }
+ 
+             return new DSCv3ConfigurationUnitProcessor(this.processorSettings, resourceDetails, configurationUnitInternal, this.IsLimitMode) { SetProcessorFactory = this.SetProcessorFactory };
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Configuration.Processor/DSCv3/Unit/DSCv3ConfigurationUnitProcessor.cs.html">src/Microsoft.Management.Configuration.Processor/DSCv3/Unit/DSCv3ConfigurationUnitProcessor.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/DSCv3/Unit/DSCv3ConfigurationUnitProcessor.cs.html">src/Microsoft.Management.Configuration.Processor/DSCv3/Unit/DSCv3ConfigurationUnitProcessor.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -21,7 +21,7 @@ namespace Microsoft.Management.Configuration.Processor.DSCv3.Unit
+</a>     internal sealed partial class DSCv3ConfigurationUnitProcessor : ConfigurationUnitProcessorBase, IConfigurationUnitProcessor, IGetAllSettingsConfigurationUnitProcessor, IGetAllUnitsConfigurationUnitProcessor, IDiagnosticsSink
+     {
+         private readonly ProcessorSettings processorSettings;
+<a href="#h4-0-3" id="h4-0-3" class="d">-        private readonly ResourceDetails resourceDetails;
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        private readonly ResourceDetails? resourceDetails;
+</a> 
+         /// &lt;summary&gt;
+         /// Initializes a new instance of the &lt;see cref=&quot;DSCv3ConfigurationUnitProcessor&quot;/&gt; class.
+<a href="#h4-1" id="h4-1" class="h">@@ -30,7 +30,7 @@ namespace Microsoft.Management.Configuration.Processor.DSCv3.Unit
+</a>         /// &lt;param name=&quot;resourceDetails&quot;&gt;The resource to use.&lt;/param&gt;
+         /// &lt;param name=&quot;unitInternal&quot;&gt;Internal unit.&lt;/param&gt;
+         /// &lt;param name=&quot;isLimitMode&quot;&gt;Whether it is under limit mode.&lt;/param&gt;
+<a href="#h4-1-3" id="h4-1-3" class="d">-        internal DSCv3ConfigurationUnitProcessor(ProcessorSettings processorSettings, ResourceDetails resourceDetails, ConfigurationUnitInternal unitInternal, bool isLimitMode = false)
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+        internal DSCv3ConfigurationUnitProcessor(ProcessorSettings processorSettings, ResourceDetails? resourceDetails, ConfigurationUnitInternal unitInternal, bool isLimitMode = false)
+</a>             : base(unitInternal, isLimitMode)
+         {
+             this.processorSettings = processorSettings;
+<b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/DSCv3ProcessorTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/DSCv3ProcessorTests.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/DSCv3ProcessorTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/DSCv3ProcessorTests.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -93,7 +93,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>         /// &lt;summary&gt;
+         /// Test for unit processor creation requiring resource to be found.
+         /// &lt;/summary&gt;
+<a href="#h5-0-3" id="h5-0-3" class="d">-        [Fact]
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+        [Fact(Skip = &quot;Disable this test while we have the bypass in place&quot;)]
+</a>         public void Set_ResourceNotFoundIsError()
+         {
+             var (factory, dsc) = CreateTestFactory();
+</pre>
+</div>
+</body>
+</html>

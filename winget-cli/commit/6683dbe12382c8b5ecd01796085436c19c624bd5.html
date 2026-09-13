@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Block msix provisioning api calls where known OS bugs exist (#2855) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/6683dbe12382c8b5ecd01796085436c19c624bd5.html">6683dbe12382c8b5ecd01796085436c19c624bd5</a>
+<b>parent</b> <a href="../commit/76332f851ec57d9fda0b7c690639c7be786f922a.html">76332f851ec57d9fda0b7c690639c7be786f922a</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue, 17 Jan 2023 11:01:25 -0800
+
+Block msix provisioning api calls where known OS bugs exist (#2855)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">14</td><td><span class="i">+++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp</a></td><td> | </td><td class="num">27</td><td><span class="i">++++++++++++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></td><td> | </td><td class="num">14</td><td><span class="i">+++++++++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>3 files changed, 50 insertions(+), 5 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -364,6 +364,18 @@ namespace AppInstaller::CLI::Workflow
+</a>             uri = context.Get&lt;Execution::Data::Installer&gt;()-&gt;Url;
+         }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+        bool isMachineScope = Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        // TODO: There was a bug in deployment api if provision api was called in packaged context.
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+        // Remove this check when the OS bug is fixed and back ported.
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+        if (isMachineScope &amp;&amp; Runtime::IsRunningInPackagedContext())
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        {
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+            context.Reporter.Error() &lt;&lt; Resource::String::InstallFlowReturnCodeSystemNotSupported &lt;&lt; std::endl;
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+            context.Add&lt;Execution::Data::OperationReturnCode&gt;(static_cast&lt;DWORD&gt;(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED));
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+            AICLI_LOG(CLI, Error, &lt;&lt; &quot;Device wide install for msix type is not supported in packaged context.&quot;);
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED);
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+        }
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+
+</a>         context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowStartingPackageInstall &lt;&lt; std::endl;
+ 
+         bool registrationDeferred = false;
+<a href="#h0-1" id="h0-1" class="h">@@ -372,7 +384,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         {
+             registrationDeferred = context.Reporter.ExecuteWithProgress([&amp;](IProgressCallback&amp; callback)
+                 {
+<a href="#h0-1-3" id="h0-1-3" class="d">-                    if (Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine)
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+                    if (isMachineScope)
+</a>                     {
+                         return Deployment::AddPackageMachineScope(uri, callback);
+                     }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -85,13 +85,23 @@ namespace AppInstaller::CLI::Workflow
+</a>             // Verifying/Acquiring product ownership
+             context.Reporter.Info() &lt;&lt; Resource::String::MSStoreInstallTryGetEntitlement &lt;&lt; std::endl;
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-            AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get user entitlement.&quot;);
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-            GetEntitlementResult result = installManager.GetFreeUserEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-            if (result.Status() == GetEntitlementStatus::NoStoreAccount)
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+            GetEntitlementResult result{ nullptr };
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+            if (Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine)
+</a>             {
+                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get device entitlement.&quot;);
+                 result = installManager.GetFreeDeviceEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+             }
+<a href="#h1-0-13" id="h1-0-13" class="i">+            else
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+            {
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get user entitlement.&quot;);
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+                result = installManager.GetFreeUserEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+                if (result.Status() == GetEntitlementStatus::NoStoreAccount)
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+                {
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+                    AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get device entitlement.&quot;);
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+                    result = installManager.GetFreeDeviceEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+                }
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+            }
+</a> 
+             if (result.Status() == GetEntitlementStatus::Succeeded)
+             {
+<a href="#h1-1" id="h1-1" class="h">@@ -143,6 +153,17 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+         if (Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine)
+         {
+<a href="#h1-1-3" id="h1-1-3" class="i">+            // TODO: There was a bug in InstallService where admin user is incorrectly identified as not admin,
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+            // causing false access denied on many OS versions.
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+            // Remove this check when the OS bug is fixed and back ported.
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+            if (!Runtime::IsRunningAsSystem())
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+            {
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+                context.Reporter.Error() &lt;&lt; Resource::String::InstallFlowReturnCodeSystemNotSupported &lt;&lt; std::endl;
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+                context.Add&lt;Execution::Data::OperationReturnCode&gt;(static_cast&lt;DWORD&gt;(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED));
+</a><a href="#h1-1-10" id="h1-1-10" class="i">+                AICLI_LOG(CLI, Error, &lt;&lt; &quot;Device wide install for msstore type is not supported under admin context.&quot;);
+</a><a href="#h1-1-11" id="h1-1-11" class="i">+                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED);
+</a><a href="#h1-1-12" id="h1-1-12" class="i">+            }
+</a><a href="#h1-1-13" id="h1-1-13" class="i">+
+</a>             installOptions.InstallForAllUsers(true);
+         }
+ 
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -188,6 +188,18 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+     void MsixUninstall(Execution::Context&amp; context)
+     {
+<a href="#h2-0-3" id="h2-0-3" class="i">+        bool isMachineScope = Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+        // TODO: There was a bug in deployment api if deprovision api was called in packaged context.
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        // Remove this check when the OS bug is fixed and back ported.
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+        if (isMachineScope &amp;&amp; Runtime::IsRunningInPackagedContext())
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+        {
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+            context.Reporter.Error() &lt;&lt; Resource::String::InstallFlowReturnCodeSystemNotSupported &lt;&lt; std::endl;
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+            context.Add&lt;Execution::Data::OperationReturnCode&gt;(static_cast&lt;DWORD&gt;(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED));
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+            AICLI_LOG(CLI, Error, &lt;&lt; &quot;Device wide uninstall for msix type is not supported in packaged context.&quot;);
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED);
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+        }
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+
+</a>         const auto&amp; packageFamilyNames = context.Get&lt;Execution::Data::PackageFamilyNames&gt;();
+         context.Reporter.Info() &lt;&lt; Resource::String::UninstallFlowStartingPackageUninstall &lt;&lt; std::endl;
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -203,7 +215,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Removing MSIX package: &quot; &lt;&lt; packageFullName.value());
+             try
+             {
+<a href="#h2-1-3" id="h2-1-3" class="d">-                if (Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine)
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+                if (isMachineScope)
+</a>                 {
+                     context.Reporter.ExecuteWithProgress(std::bind(Deployment::RemovePackageMachineScope, packageFamilyName, packageFullName.value(), std::placeholders::_1));
+                 }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Improve correlation for optimized search in rest source and improve general correlation by downloading manifests (#3252) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/f71241785b0463c8783cca1c7d24f3a871f81a5a.html">f71241785b0463c8783cca1c7d24f3a871f81a5a</a>
+<b>parent</b> <a href="../commit/56060c44be069bf65126d7c8b2f46795b850ca4e.html">56060c44be069bf65126d7c8b2f46795b850ca4e</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Thu, 18 May 2023 14:20:14 -0700
+
+Improve correlation for optimized search in rest source and improve general correlation by downloading manifests (#3252)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/CompositeSource.cpp</a></td><td> | </td><td class="num">35</td><td><span class="i">+++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/HttpClientHelper.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLITests/TestSource.cpp</a></td><td> | </td><td class="num">31</td><td><span class="i">++++++++</span><span class="d">-----------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCommonCore/Manifest/Manifest.cpp</a></td><td> | </td><td class="num">114</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCommonCore/Public/winget/Manifest.h</a></td><td> | </td><td class="num">20</td><td><span class="i">++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerRepositoryCore/CompositeSource.cpp</a></td><td> | </td><td class="num">46</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerRepositoryCore/Microsoft/Schema/1_1/Interface_1_1.cpp</a></td><td> | </td><td class="num">59</td><td><span class="i">++++</span><span class="d">-------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerRepositoryCore/Microsoft/Schema/1_2/Interface_1_2.cpp</a></td><td> | </td><td class="num">8</td><td><span class="i">+++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerRepositoryCore/Microsoft/Schema/1_6/Interface_1_6.cpp</a></td><td> | </td><td class="num">30</td><td><span class="i">++</span><span class="d">----------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerRepositoryCore/Rest/RestSource.cpp</a></td><td> | </td><td class="num">28</td><td><span class="i">++++++++</span><span class="d">--------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/AppInstallerRepositoryCore/Rest/Schema/1_0/RestInterface_1_0.cpp</a></td><td> | </td><td class="num">31</td><td><span class="i">+++++++++++</span><span class="d">--------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/AppInstallerRepositoryCore/Rest/Schema/IRestClient.h</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+</table></pre><pre>12 files changed, 254 insertions(+), 152 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/CompositeSource.cpp.html">src/AppInstallerCLITests/CompositeSource.cpp</a> b/<a href="../file/src/AppInstallerCLITests/CompositeSource.cpp.html">src/AppInstallerCLITests/CompositeSource.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1448,3 +1448,38 @@ TEST_CASE(&quot;CompositeSource_Pinning_MultipleInstalled&quot;, &quot;[CompositeSource][PinFlo
+</a>     RequireExpectedResultsWithPin(package1, expectedResult1);
+     RequireExpectedResultsWithPin(package2, expectedResult2);
+ }
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+TEST_CASE(&quot;CompositeSource_CorrelateToInstalledContainsManifestData&quot;, &quot;[CompositeSource]&quot;)
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+{
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+    CompositeTestSetup setup;
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+    setup.Installed-&gt;SearchFunction = [&amp;](const SearchRequest&amp; request)
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+    {
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+        if (request.Purpose == SearchPurpose::CorrelationToInstalled)
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+        {
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+            bool expectedSearchFound = false;
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            for (const auto&amp; inclusion : request.Inclusions)
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+            {
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                if (inclusion.Field == PackageMatchField::ProductCode &amp;&amp; inclusion.Value == &quot;hello&quot;)
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                {
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                    expectedSearchFound = true;
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                    break;
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+                }
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+            }
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+            REQUIRE(expectedSearchFound);
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+        }
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+        SearchResult result;
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+        return result;
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+    };
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+    setup.Available-&gt;SearchFunction = [&amp;](const SearchRequest&amp;)
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+    {
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+        SearchResult result;
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+        result.Matches.emplace_back(MakeAvailable(setup.Available).WithPC(&quot;hello&quot;), Criteria());
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+        return result;
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+    };
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+    SearchRequest request;
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+    request.Query = RequestMatch(MatchType::Exact, &quot;NotForEverything&quot;);
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+    SearchResult result = setup.Composite.Search(request);
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+}
+</a><b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/HttpClientHelper.cpp.html">src/AppInstallerCLITests/HttpClientHelper.cpp</a> b/<a href="../file/src/AppInstallerCLITests/HttpClientHelper.cpp.html">src/AppInstallerCLITests/HttpClientHelper.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -77,5 +77,5 @@ TEST_CASE(&quot;HttpClientHelper_PinningConfiguration&quot;, &quot;[RestSource]&quot;)
+</a>     HttpClientHelper helper;
+     helper.SetPinningConfiguration(config);
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-    REQUIRE_THROWS_HR(helper.HandleGet(L&quot;https://microsoft.com&quot;), APPINSTALLER_CLI_ERROR_PINNED_CERTIFICATE_MISMATCH);
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    REQUIRE_THROWS_HR(helper.HandleGet(L&quot;https://github.com&quot;), APPINSTALLER_CLI_ERROR_PINNED_CERTIFICATE_MISMATCH);
+</a> }
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/TestSource.cpp.html">src/AppInstallerCLITests/TestSource.cpp</a> b/<a href="../file/src/AppInstallerCLITests/TestSource.cpp.html">src/AppInstallerCLITests/TestSource.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -9,27 +9,6 @@ using namespace AppInstaller::Repository;
+</a> 
+ namespace TestCommon
+ {
+<a href="#h2-0-3" id="h2-0-3" class="d">-    namespace
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-    {
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-        template&lt;AppInstaller::Manifest::Localization Field&gt;
+</a><a href="#h2-0-6" id="h2-0-6" class="d">-        void BuildPackageVersionMultiPropertyWithFallback(std::vector&lt;Utility::LocIndString&gt;&amp; result, const Manifest::Manifest&amp; VersionManifest)
+</a><a href="#h2-0-7" id="h2-0-7" class="d">-        {
+</a><a href="#h2-0-8" id="h2-0-8" class="d">-            result.emplace_back(VersionManifest.DefaultLocalization.Get&lt;Field&gt;());
+</a><a href="#h2-0-9" id="h2-0-9" class="d">-            for (const auto&amp; loc : VersionManifest.Localizations)
+</a><a href="#h2-0-10" id="h2-0-10" class="d">-            {
+</a><a href="#h2-0-11" id="h2-0-11" class="d">-                auto f = loc.Get&lt;Field&gt;();
+</a><a href="#h2-0-12" id="h2-0-12" class="d">-                if (f.empty())
+</a><a href="#h2-0-13" id="h2-0-13" class="d">-                {
+</a><a href="#h2-0-14" id="h2-0-14" class="d">-                    result.emplace_back(loc.Get&lt;Field&gt;());
+</a><a href="#h2-0-15" id="h2-0-15" class="d">-                }
+</a><a href="#h2-0-16" id="h2-0-16" class="d">-                else
+</a><a href="#h2-0-17" id="h2-0-17" class="d">-                {
+</a><a href="#h2-0-18" id="h2-0-18" class="d">-                    result.emplace_back(std::move(f));
+</a><a href="#h2-0-19" id="h2-0-19" class="d">-                }
+</a><a href="#h2-0-20" id="h2-0-20" class="d">-            }
+</a><a href="#h2-0-21" id="h2-0-21" class="d">-        }
+</a><a href="#h2-0-22" id="h2-0-22" class="d">-    }
+</a><a href="#h2-0-23" id="h2-0-23" class="d">-
+</a>     TestPackageVersion::TestPackageVersion(const Manifest&amp; manifest, MetadataMap installationMetadata, std::weak_ptr&lt;const ISource&gt; source) :
+         VersionManifest(manifest), Metadata(std::move(installationMetadata)), Source(source) {}
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -81,10 +60,16 @@ namespace TestCommon
+</a>             }
+             break;
+         case PackageVersionMultiProperty::Name:
+<a href="#h2-1-3" id="h2-1-3" class="d">-            BuildPackageVersionMultiPropertyWithFallback&lt;AppInstaller::Manifest::Localization::PackageName&gt;(result, VersionManifest);
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+            for (auto name : VersionManifest.GetPackageNames())
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+            {
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+                result.emplace_back(std::move(name));
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+            }
+</a>             break;
+         case PackageVersionMultiProperty::Publisher:
+<a href="#h2-1-10" id="h2-1-10" class="d">-            BuildPackageVersionMultiPropertyWithFallback&lt;AppInstaller::Manifest::Localization::Publisher&gt;(result, VersionManifest);
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+            for (auto publisher : VersionManifest.GetPublishers())
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+            {
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+                result.emplace_back(std::move(publisher));
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+            }
+</a>             break;
+         case PackageVersionMultiProperty::Locale:
+             result.emplace_back(VersionManifest.DefaultLocalization.Locale);
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCommonCore/Manifest/Manifest.cpp.html">src/AppInstallerCommonCore/Manifest/Manifest.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Manifest/Manifest.cpp.html">src/AppInstallerCommonCore/Manifest/Manifest.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -7,6 +7,17 @@
+</a> 
+ namespace AppInstaller::Manifest
+ {
+<a href="#h3-0-3" id="h3-0-3" class="i">+    namespace
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    {
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        void AddFoldedStringToSetIfNotEmpty(std::set&lt;string_t&gt;&amp; set, const string_t&amp; value)
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        {
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+            if (!value.empty())
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+            {
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+                set.emplace(Utility::FoldCase(value));
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+            }
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+        }
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+    }
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+
+</a>     void Manifest::ApplyLocale(const std::string&amp; locale)
+     {
+         CurrentLocalization = DefaultLocalization;
+<a href="#h3-1" id="h3-1" class="h">@@ -126,4 +137,107 @@ namespace AppInstaller::Manifest
+</a> 
+         return arpVersionFound ? Utility::VersionRange{ minVersion, maxVersion } : Utility::VersionRange{};
+     }
+<a href="#h3-1-3" id="h3-1-3" class="i">+
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+    std::vector&lt;string_t&gt; Manifest::GetPackageFamilyNames() const
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+    {
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+        return GetSystemReferenceStrings(
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+            [](const ManifestInstaller&amp; i) -&gt; const Utility::NormalizedString&amp; { return i.PackageFamilyName; });
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+    }
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+    std::vector&lt;string_t&gt; Manifest::GetProductCodes() const
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+    {
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+        return GetSystemReferenceStrings(
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+            [](const ManifestInstaller&amp; i) -&gt; const Utility::NormalizedString&amp; { return i.ProductCode; },
+</a><a href="#h3-1-14" id="h3-1-14" class="i">+            [](const AppsAndFeaturesEntry&amp; e) -&gt; const Utility::NormalizedString&amp; { return e.ProductCode; });
+</a><a href="#h3-1-15" id="h3-1-15" class="i">+    }
+</a><a href="#h3-1-16" id="h3-1-16" class="i">+
+</a><a href="#h3-1-17" id="h3-1-17" class="i">+    std::vector&lt;string_t&gt; Manifest::GetUpgradeCodes() const
+</a><a href="#h3-1-18" id="h3-1-18" class="i">+    {
+</a><a href="#h3-1-19" id="h3-1-19" class="i">+        return GetSystemReferenceStrings(
+</a><a href="#h3-1-20" id="h3-1-20" class="i">+            {},
+</a><a href="#h3-1-21" id="h3-1-21" class="i">+            [](const AppsAndFeaturesEntry&amp; e) -&gt; const Utility::NormalizedString&amp; { return e.UpgradeCode; });
+</a><a href="#h3-1-22" id="h3-1-22" class="i">+    }
+</a><a href="#h3-1-23" id="h3-1-23" class="i">+
+</a><a href="#h3-1-24" id="h3-1-24" class="i">+    std::vector&lt;string_t&gt; Manifest::GetPackageNames() const
+</a><a href="#h3-1-25" id="h3-1-25" class="i">+    {
+</a><a href="#h3-1-26" id="h3-1-26" class="i">+        std::set&lt;string_t&gt; set;
+</a><a href="#h3-1-27" id="h3-1-27" class="i">+
+</a><a href="#h3-1-28" id="h3-1-28" class="i">+        AddFoldedStringToSetIfNotEmpty(set, DefaultLocalization.Get&lt;Localization::PackageName&gt;());
+</a><a href="#h3-1-29" id="h3-1-29" class="i">+        for (const auto&amp; loc : Localizations)
+</a><a href="#h3-1-30" id="h3-1-30" class="i">+        {
+</a><a href="#h3-1-31" id="h3-1-31" class="i">+            AddFoldedStringToSetIfNotEmpty(set, loc.Get&lt;Localization::PackageName&gt;());
+</a><a href="#h3-1-32" id="h3-1-32" class="i">+        }
+</a><a href="#h3-1-33" id="h3-1-33" class="i">+
+</a><a href="#h3-1-34" id="h3-1-34" class="i">+        // In addition to the names used for our display, add the display names from the ARP entries
+</a><a href="#h3-1-35" id="h3-1-35" class="i">+        for (const auto&amp; installer : Installers)
+</a><a href="#h3-1-36" id="h3-1-36" class="i">+        {
+</a><a href="#h3-1-37" id="h3-1-37" class="i">+            for (const auto&amp; appsAndFeaturesEntry : installer.AppsAndFeaturesEntries)
+</a><a href="#h3-1-38" id="h3-1-38" class="i">+            {
+</a><a href="#h3-1-39" id="h3-1-39" class="i">+                AddFoldedStringToSetIfNotEmpty(set, appsAndFeaturesEntry.DisplayName);
+</a><a href="#h3-1-40" id="h3-1-40" class="i">+            }
+</a><a href="#h3-1-41" id="h3-1-41" class="i">+        }
+</a><a href="#h3-1-42" id="h3-1-42" class="i">+
+</a><a href="#h3-1-43" id="h3-1-43" class="i">+        std::vector&lt;Utility::NormalizedString&gt; result(
+</a><a href="#h3-1-44" id="h3-1-44" class="i">+            std::make_move_iterator(set.begin()),
+</a><a href="#h3-1-45" id="h3-1-45" class="i">+            std::make_move_iterator(set.end()));
+</a><a href="#h3-1-46" id="h3-1-46" class="i">+
+</a><a href="#h3-1-47" id="h3-1-47" class="i">+        return result;
+</a><a href="#h3-1-48" id="h3-1-48" class="i">+    }
+</a><a href="#h3-1-49" id="h3-1-49" class="i">+
+</a><a href="#h3-1-50" id="h3-1-50" class="i">+    std::vector&lt;string_t&gt; Manifest::GetPublishers() const
+</a><a href="#h3-1-51" id="h3-1-51" class="i">+    {
+</a><a href="#h3-1-52" id="h3-1-52" class="i">+        std::set&lt;string_t&gt; set;
+</a><a href="#h3-1-53" id="h3-1-53" class="i">+
+</a><a href="#h3-1-54" id="h3-1-54" class="i">+        AddFoldedStringToSetIfNotEmpty(set, DefaultLocalization.Get&lt;Localization::Publisher&gt;());
+</a><a href="#h3-1-55" id="h3-1-55" class="i">+        for (const auto&amp; loc : Localizations)
+</a><a href="#h3-1-56" id="h3-1-56" class="i">+        {
+</a><a href="#h3-1-57" id="h3-1-57" class="i">+            AddFoldedStringToSetIfNotEmpty(set, loc.Get&lt;Localization::Publisher&gt;());
+</a><a href="#h3-1-58" id="h3-1-58" class="i">+        }
+</a><a href="#h3-1-59" id="h3-1-59" class="i">+
+</a><a href="#h3-1-60" id="h3-1-60" class="i">+        // In addition to the publishers used for our display, add the publisher from the ARP entries
+</a><a href="#h3-1-61" id="h3-1-61" class="i">+        for (const auto&amp; installer : Installers)
+</a><a href="#h3-1-62" id="h3-1-62" class="i">+        {
+</a><a href="#h3-1-63" id="h3-1-63" class="i">+            for (const auto&amp; appsAndFeaturesEntry : installer.AppsAndFeaturesEntries)
+</a><a href="#h3-1-64" id="h3-1-64" class="i">+            {
+</a><a href="#h3-1-65" id="h3-1-65" class="i">+                AddFoldedStringToSetIfNotEmpty(set, appsAndFeaturesEntry.Publisher);
+</a><a href="#h3-1-66" id="h3-1-66" class="i">+            }
+</a><a href="#h3-1-67" id="h3-1-67" class="i">+        }
+</a><a href="#h3-1-68" id="h3-1-68" class="i">+
+</a><a href="#h3-1-69" id="h3-1-69" class="i">+        std::vector&lt;Utility::NormalizedString&gt; result(
+</a><a href="#h3-1-70" id="h3-1-70" class="i">+            std::make_move_iterator(set.begin()),
+</a><a href="#h3-1-71" id="h3-1-71" class="i">+            std::make_move_iterator(set.end()));
+</a><a href="#h3-1-72" id="h3-1-72" class="i">+
+</a><a href="#h3-1-73" id="h3-1-73" class="i">+        return result;
+</a><a href="#h3-1-74" id="h3-1-74" class="i">+    }
+</a><a href="#h3-1-75" id="h3-1-75" class="i">+
+</a><a href="#h3-1-76" id="h3-1-76" class="i">+    std::vector&lt;string_t&gt; Manifest::GetSystemReferenceStrings(
+</a><a href="#h3-1-77" id="h3-1-77" class="i">+        std::function&lt;const string_t&amp; (const ManifestInstaller&amp;)&gt; extractStringFromInstaller,
+</a><a href="#h3-1-78" id="h3-1-78" class="i">+        std::function&lt;const string_t&amp; (const AppsAndFeaturesEntry&amp;)&gt; extractStringFromAppsAndFeaturesEntry) const
+</a><a href="#h3-1-79" id="h3-1-79" class="i">+    {
+</a><a href="#h3-1-80" id="h3-1-80" class="i">+        std::set&lt;string_t&gt; set;
+</a><a href="#h3-1-81" id="h3-1-81" class="i">+
+</a><a href="#h3-1-82" id="h3-1-82" class="i">+        for (const auto&amp; installer : Installers)
+</a><a href="#h3-1-83" id="h3-1-83" class="i">+        {
+</a><a href="#h3-1-84" id="h3-1-84" class="i">+            if (extractStringFromInstaller)
+</a><a href="#h3-1-85" id="h3-1-85" class="i">+            {
+</a><a href="#h3-1-86" id="h3-1-86" class="i">+                const auto&amp; installerString = extractStringFromInstaller(installer);
+</a><a href="#h3-1-87" id="h3-1-87" class="i">+                AddFoldedStringToSetIfNotEmpty(set, installerString);
+</a><a href="#h3-1-88" id="h3-1-88" class="i">+            }
+</a><a href="#h3-1-89" id="h3-1-89" class="i">+
+</a><a href="#h3-1-90" id="h3-1-90" class="i">+            if (extractStringFromAppsAndFeaturesEntry)
+</a><a href="#h3-1-91" id="h3-1-91" class="i">+            {
+</a><a href="#h3-1-92" id="h3-1-92" class="i">+                for (const auto&amp; entry : installer.AppsAndFeaturesEntries)
+</a><a href="#h3-1-93" id="h3-1-93" class="i">+                {
+</a><a href="#h3-1-94" id="h3-1-94" class="i">+                    const auto&amp; entryString = extractStringFromAppsAndFeaturesEntry(entry);
+</a><a href="#h3-1-95" id="h3-1-95" class="i">+                    AddFoldedStringToSetIfNotEmpty(set, entryString);
+</a><a href="#h3-1-96" id="h3-1-96" class="i">+                }
+</a><a href="#h3-1-97" id="h3-1-97" class="i">+            }
+</a><a href="#h3-1-98" id="h3-1-98" class="i">+        }
+</a><a href="#h3-1-99" id="h3-1-99" class="i">+
+</a><a href="#h3-1-100" id="h3-1-100" class="i">+        std::vector&lt;Utility::NormalizedString&gt; result(
+</a><a href="#h3-1-101" id="h3-1-101" class="i">+            std::make_move_iterator(set.begin()),
+</a><a href="#h3-1-102" id="h3-1-102" class="i">+            std::make_move_iterator(set.end()));
+</a><a href="#h3-1-103" id="h3-1-103" class="i">+
+</a><a href="#h3-1-104" id="h3-1-104" class="i">+        return result;
+</a><a href="#h3-1-105" id="h3-1-105" class="i">+    }
+</a> } 
+\ No newline at end of file
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCommonCore/Public/winget/Manifest.h.html">src/AppInstallerCommonCore/Public/winget/Manifest.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/Manifest.h.html">src/AppInstallerCommonCore/Public/winget/Manifest.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -49,7 +49,27 @@ namespace AppInstaller::Manifest
+</a>         // Gets ARP version range if declared, otherwise an empty range is returned
+         Utility::VersionRange GetArpVersionRange() const;
+ 
+<a href="#h4-0-3" id="h4-0-3" class="i">+        // Get package family names across installers, Case folded.
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        std::vector&lt;string_t&gt; GetPackageFamilyNames() const;
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+        // Get product codes across installers, Case folded.
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+        std::vector&lt;string_t&gt; GetProductCodes() const;
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+        // Get upgrade codes across installers, Case folded.
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+        std::vector&lt;string_t&gt; GetUpgradeCodes() const;
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+        // Get package names across localizations and installers, Case folded.
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+        std::vector&lt;string_t&gt; GetPackageNames() const;
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+        // Get publishers across localizations and installers, Case folded.
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+        std::vector&lt;string_t&gt; GetPublishers() const;
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+
+</a>         // If not empty, the SHA256 hash of the manifest stream itself.
+         Utility::SHA256::HashBuffer StreamSha256;
+<a href="#h4-0-20" id="h4-0-20" class="i">+
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+    private:
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+        std::vector&lt;string_t&gt; GetSystemReferenceStrings(
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+            std::function&lt;const string_t&amp; (const ManifestInstaller&amp;)&gt; extractStringFromInstaller = {},
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+            std::function&lt;const string_t&amp; (const AppsAndFeaturesEntry&amp;)&gt; extractStringFromAppsAndFeaturesEntry = {}) const;
+</a>     };
+ } 
+\ No newline at end of file
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerRepositoryCore/CompositeSource.cpp.html">src/AppInstallerRepositoryCore/CompositeSource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/CompositeSource.cpp.html">src/AppInstallerRepositoryCore/CompositeSource.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -872,10 +872,10 @@ namespace AppInstaller::Repository
+</a>             struct SystemReferenceString
+             {
+                 SystemReferenceString(PackageMatchField field, Utility::LocIndString string) :
+<a href="#h5-0-3" id="h5-0-3" class="d">-                    Field(field), String1(string) {}
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+                    Field(field), String1(Utility::FoldCase(string)) {}
+</a> 
+                 SystemReferenceString(PackageMatchField field, Utility::LocIndString string1, Utility::LocIndString string2) :
+<a href="#h5-0-7" id="h5-0-7" class="d">-                    Field(field), String1(string1), String2(string2) {}
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+                    Field(field), String1(Utility::FoldCase(string1)), String2(Utility::FoldCase(string2)) {}
+</a> 
+                 bool operator&lt;(const SystemReferenceString&amp; other) const
+                 {
+<a href="#h5-1" id="h5-1" class="h">@@ -953,7 +953,8 @@ namespace AppInstaller::Repository
+</a>             // Check for a package already in the result that should have been correlated already.
+             // If we find one, see if we should upgrade it&#39;s match criteria.
+             // If we don&#39;t, return package data for further use.
+<a href="#h5-1-3" id="h5-1-3" class="d">-            std::optional&lt;PackageData&gt; CheckForExistingResultFromAvailablePackageMatch(const ResultMatch&amp; availableMatch)
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+            //     downloadManifests: when creating system reference strings, also download manifests to get more data.
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+            std::optional&lt;PackageData&gt; CheckForExistingResultFromAvailablePackageMatch(const ResultMatch&amp; availableMatch, bool downloadManifests)
+</a>             {
+                 for (auto&amp; match : Matches)
+                 {
+<a href="#h5-2" id="h5-2" class="h">@@ -970,10 +971,19 @@ namespace AppInstaller::Repository
+</a>                 }
+ 
+                 PackageData result;
+<a href="#h5-2-3" id="h5-2-3" class="i">+                constexpr int c_downloadManifestsLimit = 3;
+</a><a href="#h5-2-4" id="h5-2-4" class="i">+                int manifestsDownloaded = 0;
+</a>                 for (auto const&amp; versionKey : availableMatch.Package-&gt;GetAvailableVersionKeys())
+                 {
+                     auto packageVersion = availableMatch.Package-&gt;GetAvailableVersion(versionKey);
+                     AddSystemReferenceStrings(packageVersion.get(), result);
+<a href="#h5-2-9" id="h5-2-9" class="i">+
+</a><a href="#h5-2-10" id="h5-2-10" class="i">+                    if (downloadManifests &amp;&amp; manifestsDownloaded &lt; c_downloadManifestsLimit)
+</a><a href="#h5-2-11" id="h5-2-11" class="i">+                    {
+</a><a href="#h5-2-12" id="h5-2-12" class="i">+                        auto manifest = packageVersion-&gt;GetManifest();
+</a><a href="#h5-2-13" id="h5-2-13" class="i">+                        AddSystemReferenceStringsFromManifest(manifest, result);
+</a><a href="#h5-2-14" id="h5-2-14" class="i">+                        manifestsDownloaded++;
+</a><a href="#h5-2-15" id="h5-2-15" class="i">+                    }
+</a>                 }
+                 return result;
+             }
+<a href="#h5-3" id="h5-3" class="h">@@ -1111,6 +1121,32 @@ namespace AppInstaller::Repository
+</a>                     data);
+             }
+ 
+<a href="#h5-3-3" id="h5-3-3" class="i">+            void AddSystemReferenceStringsFromManifest(const Manifest::Manifest&amp; manifest, PackageData&amp; data)
+</a><a href="#h5-3-4" id="h5-3-4" class="i">+            {
+</a><a href="#h5-3-5" id="h5-3-5" class="i">+                for (const auto&amp; pfn : manifest.GetPackageFamilyNames())
+</a><a href="#h5-3-6" id="h5-3-6" class="i">+                {
+</a><a href="#h5-3-7" id="h5-3-7" class="i">+                    data.AddIfNotPresent(SystemReferenceString{ PackageMatchField::PackageFamilyName, Utility::LocIndString{ pfn } });
+</a><a href="#h5-3-8" id="h5-3-8" class="i">+                }
+</a><a href="#h5-3-9" id="h5-3-9" class="i">+                for (const auto&amp; productCode : manifest.GetProductCodes())
+</a><a href="#h5-3-10" id="h5-3-10" class="i">+                {
+</a><a href="#h5-3-11" id="h5-3-11" class="i">+                    data.AddIfNotPresent(SystemReferenceString{ PackageMatchField::ProductCode, Utility::LocIndString{ productCode } });
+</a><a href="#h5-3-12" id="h5-3-12" class="i">+                }
+</a><a href="#h5-3-13" id="h5-3-13" class="i">+                for (const auto&amp; upgradeCode : manifest.GetUpgradeCodes())
+</a><a href="#h5-3-14" id="h5-3-14" class="i">+                {
+</a><a href="#h5-3-15" id="h5-3-15" class="i">+                    data.AddIfNotPresent(SystemReferenceString{ PackageMatchField::UpgradeCode, Utility::LocIndString{ upgradeCode } });
+</a><a href="#h5-3-16" id="h5-3-16" class="i">+                }
+</a><a href="#h5-3-17" id="h5-3-17" class="i">+                for (const auto&amp; name : manifest.GetPackageNames())
+</a><a href="#h5-3-18" id="h5-3-18" class="i">+                {
+</a><a href="#h5-3-19" id="h5-3-19" class="i">+                    for (const auto&amp; publisher : manifest.GetPublishers())
+</a><a href="#h5-3-20" id="h5-3-20" class="i">+                    {
+</a><a href="#h5-3-21" id="h5-3-21" class="i">+                        data.AddIfNotPresent(SystemReferenceString{
+</a><a href="#h5-3-22" id="h5-3-22" class="i">+                            PackageMatchField::NormalizedNameAndPublisher,
+</a><a href="#h5-3-23" id="h5-3-23" class="i">+                            Utility::LocIndString{ name },
+</a><a href="#h5-3-24" id="h5-3-24" class="i">+                            Utility::LocIndString{ publisher } });
+</a><a href="#h5-3-25" id="h5-3-25" class="i">+                    }
+</a><a href="#h5-3-26" id="h5-3-26" class="i">+                }
+</a><a href="#h5-3-27" id="h5-3-27" class="i">+            }
+</a><a href="#h5-3-28" id="h5-3-28" class="i">+
+</a>             void GetSystemReferenceStrings(
+                 IPackageVersion* installedVersion,
+                 PackageVersionMultiProperty prop,
+<a href="#h5-4" id="h5-4" class="h">@@ -1460,7 +1496,9 @@ namespace AppInstaller::Repository
+</a>             for (auto&amp;&amp; match : availableResult.Matches)
+             {
+                 // Check for a package already in the result that should have been correlated already.
+<a href="#h5-4-3" id="h5-4-3" class="d">-                auto packageData = result.CheckForExistingResultFromAvailablePackageMatch(match);
+</a><a href="#h5-4-4" id="h5-4-4" class="i">+                // In cases that PackageData will be created, also download manifests for system reference strings
+</a><a href="#h5-4-5" id="h5-4-5" class="i">+                // when search result is small (currently limiting to 1).
+</a><a href="#h5-4-6" id="h5-4-6" class="i">+                auto packageData = result.CheckForExistingResultFromAvailablePackageMatch(match, availableResult.Matches.size() == 1);
+</a> 
+                 // If found existing package in the result, continue
+                 if (!packageData)
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_1/Interface_1_1.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_1/Interface_1_1.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_1/Interface_1_1.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_1/Interface_1_1.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -25,57 +25,6 @@
+</a> 
+ namespace AppInstaller::Repository::Microsoft::Schema::V1_1
+ {
+<a href="#h6-0-3" id="h6-0-3" class="d">-    namespace
+</a><a href="#h6-0-4" id="h6-0-4" class="d">-    {
+</a><a href="#h6-0-5" id="h6-0-5" class="d">-        std::vector&lt;Utility::NormalizedString&gt; GetSystemReferenceStrings(
+</a><a href="#h6-0-6" id="h6-0-6" class="d">-            const Manifest::Manifest&amp; manifest,
+</a><a href="#h6-0-7" id="h6-0-7" class="d">-            std::function&lt;const Utility::NormalizedString&amp;(const Manifest::ManifestInstaller&amp;)&gt; extractStringFromInstaller,
+</a><a href="#h6-0-8" id="h6-0-8" class="d">-            std::function&lt;const Utility::NormalizedString&amp;(const Manifest::AppsAndFeaturesEntry&amp;)&gt; extractStringFromAppsAndFeaturesEntry = {})
+</a><a href="#h6-0-9" id="h6-0-9" class="d">-        {
+</a><a href="#h6-0-10" id="h6-0-10" class="d">-            std::set&lt;Utility::NormalizedString&gt; set;
+</a><a href="#h6-0-11" id="h6-0-11" class="d">-
+</a><a href="#h6-0-12" id="h6-0-12" class="d">-            for (const auto&amp; installer : manifest.Installers)
+</a><a href="#h6-0-13" id="h6-0-13" class="d">-            {
+</a><a href="#h6-0-14" id="h6-0-14" class="d">-                const auto&amp; installerString = extractStringFromInstaller(installer);
+</a><a href="#h6-0-15" id="h6-0-15" class="d">-                if (!installerString.empty())
+</a><a href="#h6-0-16" id="h6-0-16" class="d">-                {
+</a><a href="#h6-0-17" id="h6-0-17" class="d">-                    set.emplace(Utility::FoldCase(installerString));
+</a><a href="#h6-0-18" id="h6-0-18" class="d">-                }
+</a><a href="#h6-0-19" id="h6-0-19" class="d">-
+</a><a href="#h6-0-20" id="h6-0-20" class="d">-                if (extractStringFromAppsAndFeaturesEntry)
+</a><a href="#h6-0-21" id="h6-0-21" class="d">-                {
+</a><a href="#h6-0-22" id="h6-0-22" class="d">-                    for (const auto&amp; entry : installer.AppsAndFeaturesEntries)
+</a><a href="#h6-0-23" id="h6-0-23" class="d">-                    {
+</a><a href="#h6-0-24" id="h6-0-24" class="d">-                        const auto&amp; entryString = extractStringFromAppsAndFeaturesEntry(entry);
+</a><a href="#h6-0-25" id="h6-0-25" class="d">-                        if (!entryString.empty())
+</a><a href="#h6-0-26" id="h6-0-26" class="d">-                        {
+</a><a href="#h6-0-27" id="h6-0-27" class="d">-                            set.emplace(Utility::FoldCase(entryString));
+</a><a href="#h6-0-28" id="h6-0-28" class="d">-                        }
+</a><a href="#h6-0-29" id="h6-0-29" class="d">-                    }
+</a><a href="#h6-0-30" id="h6-0-30" class="d">-                }
+</a><a href="#h6-0-31" id="h6-0-31" class="d">-            }
+</a><a href="#h6-0-32" id="h6-0-32" class="d">-
+</a><a href="#h6-0-33" id="h6-0-33" class="d">-            std::vector&lt;Utility::NormalizedString&gt; result(
+</a><a href="#h6-0-34" id="h6-0-34" class="d">-                std::make_move_iterator(set.begin()),
+</a><a href="#h6-0-35" id="h6-0-35" class="d">-                std::make_move_iterator(set.end()));
+</a><a href="#h6-0-36" id="h6-0-36" class="d">-
+</a><a href="#h6-0-37" id="h6-0-37" class="d">-            return result;
+</a><a href="#h6-0-38" id="h6-0-38" class="d">-        }
+</a><a href="#h6-0-39" id="h6-0-39" class="d">-
+</a><a href="#h6-0-40" id="h6-0-40" class="d">-        std::vector&lt;Utility::NormalizedString&gt; GetPackageFamilyNames(const Manifest::Manifest&amp; manifest)
+</a><a href="#h6-0-41" id="h6-0-41" class="d">-        {
+</a><a href="#h6-0-42" id="h6-0-42" class="d">-            return GetSystemReferenceStrings(manifest, [](const Manifest::ManifestInstaller&amp; i) -&gt; const Utility::NormalizedString&amp; { return i.PackageFamilyName; });
+</a><a href="#h6-0-43" id="h6-0-43" class="d">-        }
+</a><a href="#h6-0-44" id="h6-0-44" class="d">-
+</a><a href="#h6-0-45" id="h6-0-45" class="d">-        std::vector&lt;Utility::NormalizedString&gt; GetProductCodes(const Manifest::Manifest&amp; manifest)
+</a><a href="#h6-0-46" id="h6-0-46" class="d">-        {
+</a><a href="#h6-0-47" id="h6-0-47" class="d">-            return GetSystemReferenceStrings(
+</a><a href="#h6-0-48" id="h6-0-48" class="d">-                manifest,
+</a><a href="#h6-0-49" id="h6-0-49" class="d">-                [](const Manifest::ManifestInstaller&amp; i) -&gt; const Utility::NormalizedString&amp; { return i.ProductCode; },
+</a><a href="#h6-0-50" id="h6-0-50" class="d">-                [](const Manifest::AppsAndFeaturesEntry&amp; e) -&gt; const Utility::NormalizedString&amp; { return e.ProductCode; });
+</a><a href="#h6-0-51" id="h6-0-51" class="d">-        }
+</a><a href="#h6-0-52" id="h6-0-52" class="d">-    }
+</a><a href="#h6-0-53" id="h6-0-53" class="d">-
+</a>     Schema::Version Interface::GetVersion() const
+     {
+         return { 1, 1 };
+<a href="#h6-1" id="h6-1" class="h">@@ -119,8 +68,8 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_1
+</a>         // Add the new 1.1 data
+         // These system reference strings are all stored with their cases folded so that they can be
+         // looked up ordinally; enabling the index to provide efficient searches.
+<a href="#h6-1-3" id="h6-1-3" class="d">-        PackageFamilyNameTable::EnsureExistsAndInsert(connection, GetPackageFamilyNames(manifest), manifestId);
+</a><a href="#h6-1-4" id="h6-1-4" class="d">-        ProductCodeTable::EnsureExistsAndInsert(connection, GetProductCodes(manifest), manifestId);
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+        PackageFamilyNameTable::EnsureExistsAndInsert(connection, manifest.GetPackageFamilyNames(), manifestId);
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+        ProductCodeTable::EnsureExistsAndInsert(connection, manifest.GetProductCodes(), manifestId);
+</a> 
+         savepoint.Commit();
+ 
+<a href="#h6-2" id="h6-2" class="h">@@ -134,8 +83,8 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_1
+</a>         auto [indexModified, manifestId] = V1_0::Interface::UpdateManifest(connection, manifest, relativePath);
+ 
+         // Update new 1:N tables as necessary
+<a href="#h6-2-3" id="h6-2-3" class="d">-        indexModified = PackageFamilyNameTable::UpdateIfNeededByManifestId(connection, GetPackageFamilyNames(manifest), manifestId) || indexModified;
+</a><a href="#h6-2-4" id="h6-2-4" class="d">-        indexModified = ProductCodeTable::UpdateIfNeededByManifestId(connection, GetProductCodes(manifest), manifestId) || indexModified;
+</a><a href="#h6-2-5" id="h6-2-5" class="i">+        indexModified = PackageFamilyNameTable::UpdateIfNeededByManifestId(connection, manifest.GetPackageFamilyNames(), manifestId) || indexModified;
+</a><a href="#h6-2-6" id="h6-2-6" class="i">+        indexModified = ProductCodeTable::UpdateIfNeededByManifestId(connection, manifest.GetProductCodes(), manifestId) || indexModified;
+</a> 
+         savepoint.Commit();
+ 
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_2/Interface_1_2.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_2/Interface_1_2.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_2/Interface_1_2.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_2/Interface_1_2.cpp</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -268,9 +268,14 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_2
+</a>             auto candidateInclusionsWithArch = request.Inclusions;
+             if (UpdatePackageMatchFilters(candidateInclusionsWithArch, m_normalizer, Utility::NormalizationField::Architecture))
+             {
+<a href="#h7-0-3" id="h7-0-3" class="d">-                // If DisplayNames contain arch, only use values with arch for search
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+                // If DisplayNames contain arch, only use Inclusions with arch for search
+</a>                 request.Inclusions = candidateInclusionsWithArch;
+             }
+<a href="#h7-0-7" id="h7-0-7" class="i">+            else
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+            {
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+                // Otherwise, just update the Inclusions with normalization
+</a><a href="#h7-0-10" id="h7-0-10" class="i">+                UpdatePackageMatchFilters(request.Inclusions, m_normalizer);
+</a><a href="#h7-0-11" id="h7-0-11" class="i">+            }
+</a> 
+             return V1_1::Interface::SearchInternal(connection, request);
+         }
+<a href="#h7-1" id="h7-1" class="h">@@ -285,6 +290,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_2
+</a>             {
+                 candidateSearches.emplace_back(std::move(candidateSearchWithArch));
+             }
+<a href="#h7-1-3" id="h7-1-3" class="i">+            UpdatePackageMatchFilters(request.Inclusions, m_normalizer);
+</a>             candidateSearches.emplace_back(request);
+ 
+             SearchResult result;
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_6/Interface_1_6.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_6/Interface_1_6.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_6/Interface_1_6.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_6/Interface_1_6.cpp</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -9,32 +9,6 @@
+</a> 
+ namespace AppInstaller::Repository::Microsoft::Schema::V1_6
+ {
+<a href="#h8-0-3" id="h8-0-3" class="d">-    namespace
+</a><a href="#h8-0-4" id="h8-0-4" class="d">-    {
+</a><a href="#h8-0-5" id="h8-0-5" class="d">-        std::vector&lt;Utility::NormalizedString&gt; GetUpgradeCodes(const Manifest::Manifest&amp; manifest)
+</a><a href="#h8-0-6" id="h8-0-6" class="d">-        {
+</a><a href="#h8-0-7" id="h8-0-7" class="d">-            std::set&lt;Utility::NormalizedString&gt; set;
+</a><a href="#h8-0-8" id="h8-0-8" class="d">-
+</a><a href="#h8-0-9" id="h8-0-9" class="d">-            for (const auto&amp; installer : manifest.Installers)
+</a><a href="#h8-0-10" id="h8-0-10" class="d">-            {
+</a><a href="#h8-0-11" id="h8-0-11" class="d">-                for (const auto&amp; appsAndFeaturesEntry : installer.AppsAndFeaturesEntries)
+</a><a href="#h8-0-12" id="h8-0-12" class="d">-                {
+</a><a href="#h8-0-13" id="h8-0-13" class="d">-                    const Utility::NormalizedString&amp; string = appsAndFeaturesEntry.UpgradeCode;
+</a><a href="#h8-0-14" id="h8-0-14" class="d">-                    if (!string.empty())
+</a><a href="#h8-0-15" id="h8-0-15" class="d">-                    {
+</a><a href="#h8-0-16" id="h8-0-16" class="d">-                        set.emplace(Utility::FoldCase(string));
+</a><a href="#h8-0-17" id="h8-0-17" class="d">-                    }
+</a><a href="#h8-0-18" id="h8-0-18" class="d">-                }
+</a><a href="#h8-0-19" id="h8-0-19" class="d">-            }
+</a><a href="#h8-0-20" id="h8-0-20" class="d">-
+</a><a href="#h8-0-21" id="h8-0-21" class="d">-            std::vector&lt;Utility::NormalizedString&gt; result(
+</a><a href="#h8-0-22" id="h8-0-22" class="d">-                std::make_move_iterator(set.begin()),
+</a><a href="#h8-0-23" id="h8-0-23" class="d">-                std::make_move_iterator(set.end()));
+</a><a href="#h8-0-24" id="h8-0-24" class="d">-
+</a><a href="#h8-0-25" id="h8-0-25" class="d">-            return result;
+</a><a href="#h8-0-26" id="h8-0-26" class="d">-        }
+</a><a href="#h8-0-27" id="h8-0-27" class="d">-    }
+</a><a href="#h8-0-28" id="h8-0-28" class="d">-
+</a>     Interface::Interface(Utility::NormalizationVersion normVersion) : V1_5::Interface(normVersion)
+     {
+     }
+<a href="#h8-1" id="h8-1" class="h">@@ -64,7 +38,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_6
+</a>         // Add the new 1.6 data
+         // These system reference strings are all stored with their cases folded so that they can be
+         // looked up ordinally; enabling the index to provide efficient searches.
+<a href="#h8-1-3" id="h8-1-3" class="d">-        UpgradeCodeTable::EnsureExistsAndInsert(connection, GetUpgradeCodes(manifest), manifestId);
+</a><a href="#h8-1-4" id="h8-1-4" class="i">+        UpgradeCodeTable::EnsureExistsAndInsert(connection, manifest.GetUpgradeCodes(), manifestId);
+</a> 
+         savepoint.Commit();
+ 
+<a href="#h8-2" id="h8-2" class="h">@@ -78,7 +52,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_6
+</a>         auto [indexModified, manifestId] = V1_5::Interface::UpdateManifest(connection, manifest, relativePath);
+ 
+         // Update new 1:N tables as necessary
+<a href="#h8-2-3" id="h8-2-3" class="d">-        indexModified = UpgradeCodeTable::UpdateIfNeededByManifestId(connection, GetUpgradeCodes(manifest), manifestId) || indexModified;
+</a><a href="#h8-2-4" id="h8-2-4" class="i">+        indexModified = UpgradeCodeTable::UpdateIfNeededByManifestId(connection, manifest.GetUpgradeCodes(), manifestId) || indexModified;
+</a> 
+         savepoint.Commit();
+ 
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerRepositoryCore/Rest/RestSource.cpp.html">src/AppInstallerRepositoryCore/Rest/RestSource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Rest/RestSource.cpp.html">src/AppInstallerRepositoryCore/Rest/RestSource.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -262,7 +262,10 @@ namespace AppInstaller::Repository::Rest
+</a>                 case PackageVersionMultiProperty::Name:
+                     if (m_versionInfo.Manifest)
+                     {
+<a href="#h9-0-3" id="h9-0-3" class="d">-                        BuildPackageVersionMultiPropertyWithFallback&lt;AppInstaller::Manifest::Localization::PackageName&gt;(result);
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+                        for (auto name : m_versionInfo.Manifest-&gt;GetPackageNames())
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+                        {
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+                            result.emplace_back(std::move(name));
+</a><a href="#h9-0-7" id="h9-0-7" class="i">+                        }
+</a>                     }
+                     else
+                     {
+<a href="#h9-1" id="h9-1" class="h">@@ -272,7 +275,10 @@ namespace AppInstaller::Repository::Rest
+</a>                 case PackageVersionMultiProperty::Publisher:
+                     if (m_versionInfo.Manifest)
+                     {
+<a href="#h9-1-3" id="h9-1-3" class="d">-                        BuildPackageVersionMultiPropertyWithFallback&lt;AppInstaller::Manifest::Localization::Publisher&gt;(result);
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+                        for (auto publisher : m_versionInfo.Manifest-&gt;GetPublishers())
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+                        {
+</a><a href="#h9-1-6" id="h9-1-6" class="i">+                            result.emplace_back(std::move(publisher));
+</a><a href="#h9-1-7" id="h9-1-7" class="i">+                        }
+</a>                     }
+                     else
+                     {
+<a href="#h9-2" id="h9-2" class="h">@@ -334,24 +340,6 @@ namespace AppInstaller::Repository::Rest
+</a>             }
+ 
+         private:
+<a href="#h9-2-3" id="h9-2-3" class="d">-            template&lt;AppInstaller::Manifest::Localization Field&gt;
+</a><a href="#h9-2-4" id="h9-2-4" class="d">-            void BuildPackageVersionMultiPropertyWithFallback(std::vector&lt;Utility::LocIndString&gt;&amp; result) const
+</a><a href="#h9-2-5" id="h9-2-5" class="d">-            {
+</a><a href="#h9-2-6" id="h9-2-6" class="d">-                result.emplace_back(m_versionInfo.Manifest-&gt;DefaultLocalization.Get&lt;Field&gt;());
+</a><a href="#h9-2-7" id="h9-2-7" class="d">-                for (const auto&amp; loc : m_versionInfo.Manifest-&gt;Localizations)
+</a><a href="#h9-2-8" id="h9-2-8" class="d">-                {
+</a><a href="#h9-2-9" id="h9-2-9" class="d">-                    auto f = loc.Get&lt;Field&gt;();
+</a><a href="#h9-2-10" id="h9-2-10" class="d">-                    if (f.empty())
+</a><a href="#h9-2-11" id="h9-2-11" class="d">-                    {
+</a><a href="#h9-2-12" id="h9-2-12" class="d">-                        result.emplace_back(loc.Get&lt;Field&gt;());
+</a><a href="#h9-2-13" id="h9-2-13" class="d">-                    }
+</a><a href="#h9-2-14" id="h9-2-14" class="d">-                    else
+</a><a href="#h9-2-15" id="h9-2-15" class="d">-                    {
+</a><a href="#h9-2-16" id="h9-2-16" class="d">-                        result.emplace_back(std::move(f));
+</a><a href="#h9-2-17" id="h9-2-17" class="d">-                    }
+</a><a href="#h9-2-18" id="h9-2-18" class="d">-                }
+</a><a href="#h9-2-19" id="h9-2-19" class="d">-            }
+</a><a href="#h9-2-20" id="h9-2-20" class="d">-
+</a>             std::shared_ptr&lt;AvailablePackage&gt; m_package;
+             IRestClient::VersionInfo m_versionInfo;
+         };
+<b>diff --git a/<a id="h10" href="../file/src/AppInstallerRepositoryCore/Rest/Schema/1_0/RestInterface_1_0.cpp.html">src/AppInstallerRepositoryCore/Rest/Schema/1_0/RestInterface_1_0.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Rest/Schema/1_0/RestInterface_1_0.cpp.html">src/AppInstallerRepositoryCore/Rest/Schema/1_0/RestInterface_1_0.cpp</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -180,28 +180,19 @@ namespace AppInstaller::Repository::Rest::Schema::V1_0
+</a>             std::vector&lt;VersionInfo&gt; versions;
+             for (auto&amp; manifestVersion : manifests)
+             {
+<a href="#h10-0-3" id="h10-0-3" class="d">-                std::vector&lt;std::string&gt; packageFamilyNames;
+</a><a href="#h10-0-4" id="h10-0-4" class="d">-                std::vector&lt;std::string&gt; productCodes;
+</a><a href="#h10-0-5" id="h10-0-5" class="d">-
+</a><a href="#h10-0-6" id="h10-0-6" class="d">-                for (auto&amp; installer : manifestVersion.Installers)
+</a><a href="#h10-0-7" id="h10-0-7" class="d">-                {
+</a><a href="#h10-0-8" id="h10-0-8" class="d">-                    if (!installer.PackageFamilyName.empty())
+</a><a href="#h10-0-9" id="h10-0-9" class="d">-                    {
+</a><a href="#h10-0-10" id="h10-0-10" class="d">-                        packageFamilyNames.emplace_back(installer.PackageFamilyName);
+</a><a href="#h10-0-11" id="h10-0-11" class="d">-                    }
+</a><a href="#h10-0-12" id="h10-0-12" class="d">-
+</a><a href="#h10-0-13" id="h10-0-13" class="d">-                    if (!installer.ProductCode.empty())
+</a><a href="#h10-0-14" id="h10-0-14" class="d">-                    {
+</a><a href="#h10-0-15" id="h10-0-15" class="d">-                        productCodes.emplace_back(installer.ProductCode);
+</a><a href="#h10-0-16" id="h10-0-16" class="d">-                    }
+</a><a href="#h10-0-17" id="h10-0-17" class="d">-                }
+</a><a href="#h10-0-18" id="h10-0-18" class="d">-
+</a><a href="#h10-0-19" id="h10-0-19" class="d">-                std::vector&lt;std::string&gt; uniquePackageFamilyNames = RestHelper::GetUniqueItems(packageFamilyNames);
+</a><a href="#h10-0-20" id="h10-0-20" class="d">-                std::vector&lt;std::string&gt; uniqueProductCodes = RestHelper::GetUniqueItems(productCodes);
+</a><a href="#h10-0-21" id="h10-0-21" class="i">+                auto packageFamilyNames = manifestVersion.GetPackageFamilyNames();
+</a><a href="#h10-0-22" id="h10-0-22" class="i">+                auto productCodes = manifestVersion.GetProductCodes();
+</a><a href="#h10-0-23" id="h10-0-23" class="i">+                auto arpVersionRange = manifestVersion.GetArpVersionRange();
+</a><a href="#h10-0-24" id="h10-0-24" class="i">+                auto upgradeCodes = manifestVersion.GetUpgradeCodes();
+</a> 
+                 versions.emplace_back(
+<a href="#h10-0-27" id="h10-0-27" class="d">-                    VersionInfo{ AppInstaller::Utility::VersionAndChannel {manifestVersion.Version, manifestVersion.Channel},
+</a><a href="#h10-0-28" id="h10-0-28" class="d">-                    manifestVersion, std::move(uniquePackageFamilyNames), std::move(uniqueProductCodes) });
+</a><a href="#h10-0-29" id="h10-0-29" class="i">+                    VersionInfo{
+</a><a href="#h10-0-30" id="h10-0-30" class="i">+                        AppInstaller::Utility::VersionAndChannel {manifestVersion.Version, manifestVersion.Channel},
+</a><a href="#h10-0-31" id="h10-0-31" class="i">+                        manifestVersion,
+</a><a href="#h10-0-32" id="h10-0-32" class="i">+                        std::vector&lt;std::string&gt;{ packageFamilyNames.begin(), packageFamilyNames.end()},
+</a><a href="#h10-0-33" id="h10-0-33" class="i">+                        std::vector&lt;std::string&gt;{ productCodes.begin(), productCodes.end()},
+</a><a href="#h10-0-34" id="h10-0-34" class="i">+                        arpVersionRange.IsEmpty() ? std::vector&lt;Utility::Version&gt;{} : std::vector&lt;Utility::Version&gt;{ arpVersionRange.GetMinVersion(), arpVersionRange.GetMaxVersion() },
+</a><a href="#h10-0-35" id="h10-0-35" class="i">+                        std::vector&lt;std::string&gt;{ upgradeCodes.begin(), upgradeCodes.end()} });
+</a>             }
+ 
+             Package package = Package{ std::move(packageInfo), std::move(versions) };
+<b>diff --git a/<a id="h11" href="../file/src/AppInstallerRepositoryCore/Rest/Schema/IRestClient.h.html">src/AppInstallerRepositoryCore/Rest/Schema/IRestClient.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Rest/Schema/IRestClient.h.html">src/AppInstallerRepositoryCore/Rest/Schema/IRestClient.h</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -24,6 +24,8 @@ namespace AppInstaller::Repository::Rest::Schema
+</a>         : PackageIdentifier(std::move(packageIdentifier)), PackageName(std::move(packageName)), Publisher(std::move(publisher)) {}
+     };
+ 
+<a href="#h11-0-3" id="h11-0-3" class="i">+    // NOTE: When changes are made to VersionInfo struct, remember to update the OptimizedSearch path in RestInterface1_0
+</a><a href="#h11-0-4" id="h11-0-4" class="i">+    // where VersionInfo struct was directly created from manifest.
+</a>     struct VersionInfo
+     {
+         AppInstaller::Utility::VersionAndChannel VersionAndChannel;
+</pre>
+</div>
+</body>
+</html>

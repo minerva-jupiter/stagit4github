@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Make rename retry more frequently for longer, then try making a hardlink (#1497) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/e630cf7c64291c3009e7b2e03ab73e314e501c76.html">e630cf7c64291c3009e7b2e03ab73e314e501c76</a>
+<b>parent</b> <a href="../commit/44dba6a63b663a77a546b584e61e72aec927c16f.html">44dba6a63b663a77a546b584e61e72aec927c16f</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 22 Sep 2021 17:48:28 -0700
+
+Make rename retry more frequently for longer, then try making a hardlink (#1497)
+
+We already had a single retry after a 250ms wait for our `rename` of the installer to make it shell actionable with the correct extension.  This change makes it try every 100ms for 500ms, then use `copy_file` with a hard link option as a fall back.
+
+The hard link is better than a true copy, as it won&#39;t take up more space.  But it won&#39;t get cleaned up on a successful install either.
+
+Long term we should put in some background cleanup to remove old installers that were abandoned due to failures.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp</a></td><td> | </td><td class="num">80</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Runtime.cpp</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>3 files changed, 74 insertions(+), 17 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -181,6 +181,68 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+             return args;
+         }
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        // Complicated rename algorithm due to somewhat arbitrary failures.
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        // 1. First, try to rename.
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+        // 2. Then, create an empty file for the target, and attempt to rename.
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+        // 3. Then, try repeatedly for 500ms in case it is a timing thing.
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        // 4. Attempt to use a hard link if available.
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+        // 5. Copy the file if nothing else has worked so far.
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+        void RenameFile(const std::filesystem::path&amp; from, const std::filesystem::path&amp; to)
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+        {
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            // 1. First, try to rename.
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+            try
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+            {
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                // std::filesystem::rename() handles motw correctly if applicable.
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                std::filesystem::rename(from, to);
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                return;
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+            }
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+            CATCH_LOG();
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+            // 2. Then, create an empty file for the target, and attempt to rename.
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+            //    This seems to fix things in certain cases, so we do it.
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+            try
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+            {
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+                {
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+                    std::ofstream targetFile{ to };
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+                }
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+                std::filesystem::rename(from, to);
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+                return;
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+            }
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+            CATCH_LOG();
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+            // 3. Then, try repeatedly for 500ms in case it is a timing thing.
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+            for (int i = 0; i &lt; 5; ++i)
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+            {
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+                try
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+                {
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+                    std::this_thread::sleep_for(100ms);
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+                    std::filesystem::rename(from, to);
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+                    return;
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+                }
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+                CATCH_LOG();
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+            }
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+            // 4. Attempt to use a hard link if available.
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+            if (Runtime::SupportsHardLinks(from))
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+            {
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+                try
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+                {
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+                    // Create a hard link to the file; the installer will be left in the temp directory afterward
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+                    // but it is better to succeed the operation and leave a file around than to fail.
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+                    // First we have to remove the target file as the function will not overwrite.
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+                    std::filesystem::remove(to);
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+                    std::filesystem::create_hard_link(from, to);
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+                    return;
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+                }
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+                CATCH_LOG();
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+            }
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+            // 5. Copy the file if nothing else has worked so far.
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+            // Create a copy of the file; the installer will be left in the temp directory afterward
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+            // but it is better to succeed the operation and leave a file around than to fail.
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+            std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing);
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+        }
+</a>     }
+ 
+     void ShellExecuteInstallImpl(Execution::Context&amp; context)
+<a href="#h0-1" id="h0-1" class="h">@@ -242,23 +304,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             break;
+         }
+ 
+<a href="#h0-1-3" id="h0-1-3" class="d">-        // If rename fails, don&#39;t give up quite yet.
+</a><a href="#h0-1-4" id="h0-1-4" class="d">-        bool retry = true;
+</a><a href="#h0-1-5" id="h0-1-5" class="d">-
+</a><a href="#h0-1-6" id="h0-1-6" class="d">-        try
+</a><a href="#h0-1-7" id="h0-1-7" class="d">-        {
+</a><a href="#h0-1-8" id="h0-1-8" class="d">-            // std::filesystem::rename() handles motw correctly if applicable.
+</a><a href="#h0-1-9" id="h0-1-9" class="d">-            std::filesystem::rename(installerPath, renamedDownloadedInstaller);
+</a><a href="#h0-1-10" id="h0-1-10" class="d">-            retry = false;
+</a><a href="#h0-1-11" id="h0-1-11" class="d">-        }
+</a><a href="#h0-1-12" id="h0-1-12" class="d">-        CATCH_LOG();
+</a><a href="#h0-1-13" id="h0-1-13" class="d">-
+</a><a href="#h0-1-14" id="h0-1-14" class="d">-        if (retry)
+</a><a href="#h0-1-15" id="h0-1-15" class="d">-        {
+</a><a href="#h0-1-16" id="h0-1-16" class="d">-            std::this_thread::sleep_for(250ms);
+</a><a href="#h0-1-17" id="h0-1-17" class="d">-            // If it fails again, let that one throw
+</a><a href="#h0-1-18" id="h0-1-18" class="d">-            std::filesystem::rename(installerPath, renamedDownloadedInstaller);
+</a><a href="#h0-1-19" id="h0-1-19" class="d">-        }
+</a><a href="#h0-1-20" id="h0-1-20" class="i">+        RenameFile(installerPath, renamedDownloadedInstaller);
+</a> 
+         installerPath.assign(renamedDownloadedInstaller);
+         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Successfully renamed downloaded installer. Path: &quot; &lt;&lt; installerPath);
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Public/AppInstallerRuntime.h.html">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerRuntime.h.html">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -60,4 +60,7 @@ namespace AppInstaller::Runtime
+</a> 
+     // Checks if the file system is NTFS
+     bool IsNTFS(const std::filesystem::path&amp; filePath);
+<a href="#h1-0-3" id="h1-0-3" class="i">+
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    // Checks if the file system at path supports hard links
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    bool SupportsHardLinks(const std::filesystem::path&amp; path);
+</a> }
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -409,6 +409,9 @@ namespace AppInstaller::Runtime
+</a>         return wil::test_token_membership(nullptr, SECURITY_NT_AUTHORITY, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS);
+     }
+ 
+<a href="#h2-0-3" id="h2-0-3" class="i">+    // TODO: Replace this function with proper checks for supported functionality rather
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    //       than simply relying on &quot;is it NTFS?&quot;, even if those functions delegate to
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    //       this one for the answer.
+</a>     bool IsNTFS(const std::filesystem::path&amp; filePath)
+     {
+         wil::unique_hfile fileHandle{ CreateFileW(
+<a href="#h2-1" id="h2-1" class="h">@@ -436,6 +439,11 @@ namespace AppInstaller::Runtime
+</a>         return _wcsicmp(fileSystemName, L&quot;NTFS&quot;) == 0;
+     }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="i">+    bool SupportsHardLinks(const std::filesystem::path&amp; path)
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+    {
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+        return IsNTFS(path);
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+    }
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+
+</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+     void TestHook_SetPathOverride(PathName target, const std::filesystem::path&amp; path)
+     {
+</pre>
+</div>
+</body>
+</html>

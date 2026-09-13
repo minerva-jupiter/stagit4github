@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Throw exception if Import-Module fails (#3104) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/c5f7df49fefc52fae9de42381a8559481b790439.html">c5f7df49fefc52fae9de42381a8559481b790439</a>
+<b>parent</b> <a href="../commit/41e2b4c5bcb24a3243f8d055e20c2d289305110f.html">41e2b4c5bcb24a3243f8d055e20c2d289305110f</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Fri, 24 Mar 2023 10:51:18 -0700
+
+Throw exception if Import-Module fails (#3104)
+
+Try to import the module of the DSC resource before calling Invoke-DscResource. This let us fail earlier and get more information about the error.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h2">src/Microsoft.Management.Configuration.Processor/Exceptions/ImportModuleException.cs</a></td><td> | </td><td class="num">33</td><td><span class="i">+++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/IProcessorEnvironment.cs</a></td><td> | </td><td class="num">8</td><td><span class="i">+++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/Microsoft.Management.Configuration.Processor/Set/ConfigurationSetProcessor.cs</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>7 files changed, 83 insertions(+), 1 deletion(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerSharedLib/Public/AppInstallerErrors.h.html">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/AppInstallerErrors.h.html">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -173,6 +173,7 @@
+</a> #define WINGET_CONFIG_ERROR_UNIT_INVOKE_TEST          ((HRESULT)0x8A15C105)
+ #define WINGET_CONFIG_ERROR_UNIT_INVOKE_SET           ((HRESULT)0x8A15C106)
+ #define WINGET_CONFIG_ERROR_UNIT_MODULE_CONFLICT      ((HRESULT)0x8A15C107)
+<a href="#h0-0-3" id="h0-0-3" class="i">+#define WINGET_CONFIG_ERROR_UNIT_IMPORT_MODULE        ((HRESULT)0x8A15C108)
+</a> 
+ namespace AppInstaller
+ {
+<b>diff --git a/<a id="h1" href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -45,5 +45,10 @@ namespace Microsoft.Management.Configuration.Processor.Exceptions
+</a>         /// Internal error calling Get-DscResource. More than one module found with the same version.
+         /// &lt;/summary&gt;
+         internal const int WinGetConfigUnitModuleConflict = unchecked((int)0x8A15C107);
+<a href="#h1-0-3" id="h1-0-3" class="i">+
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        /// &lt;summary&gt;
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        /// The module where the DSC resource is implemented cannot be imported.
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+        internal const int WinGetConfigUnitImportModule = unchecked((int)0x8A15C108);
+</a>     }
+ }
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/ImportModuleException.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/ImportModuleException.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/ImportModuleException.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/ImportModuleException.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -0,0 +1,33 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h2-0-1" id="h2-0-1" class="i">+// &lt;copyright file=&quot;BlockedFileException.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h2-0-2" id="h2-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h2-0-3" id="h2-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+namespace Microsoft.Management.Configuration.Processor.Exceptions
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+{
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+    using System;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+    /// &lt;summary&gt;
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+    /// Import-Module threw an exception.
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+    internal class ImportModuleException : Exception
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+    {
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+        /// &lt;summary&gt;
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;ImportModuleException&quot;/&gt; class.
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+        /// &lt;param name=&quot;moduleName&quot;&gt;Module name.&lt;/param&gt;
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+        /// &lt;param name=&quot;inner&quot;&gt;Inner exception.&lt;/param&gt;
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+        public ImportModuleException(string? moduleName, Exception inner)
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+            : base($&quot;Could not import module: {moduleName?.ToString() ?? &quot;&lt;no module&gt;&quot;}&quot;, inner)
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+        {
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+            this.HResult = ErrorCodes.WinGetConfigUnitImportModule;
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+            this.ModuleName = moduleName;
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+        }
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+
+</a><a href="#h2-0-27" id="h2-0-27" class="i">+        /// &lt;summary&gt;
+</a><a href="#h2-0-28" id="h2-0-28" class="i">+        /// Gets the module name.
+</a><a href="#h2-0-29" id="h2-0-29" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h2-0-30" id="h2-0-30" class="i">+        public string? ModuleName { get; }
+</a><a href="#h2-0-31" id="h2-0-31" class="i">+    }
+</a><a href="#h2-0-32" id="h2-0-32" class="i">+}
+</a><b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -8,6 +8,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a> {
+     using System;
+     using System.Collections.Generic;
+<a href="#h3-0-3" id="h3-0-3" class="i">+    using System.IO;
+</a>     using System.Linq;
+     using System.Management.Automation;
+     using System.Management.Automation.Runspaces;
+<a href="#h3-1" id="h3-1" class="h">@@ -197,6 +198,23 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+<a href="#h3-1-3" id="h3-1-3" class="i">+        public void ImportModule(string path)
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+        {
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+            if (!File.Exists(path))
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+            {
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+                throw new FileNotFoundException(path);
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+            }
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+            using PowerShell pwsh = PowerShell.Create(this.Runspace);
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+            _ = pwsh.AddCommand(Commands.ImportModule)
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+                    .AddParameter(Parameters.Name, path)
+</a><a href="#h3-1-14" id="h3-1-14" class="i">+                    .Invoke();
+</a><a href="#h3-1-15" id="h3-1-15" class="i">+
+</a><a href="#h3-1-16" id="h3-1-16" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a><a href="#h3-1-17" id="h3-1-17" class="i">+        }
+</a><a href="#h3-1-18" id="h3-1-18" class="i">+
+</a><a href="#h3-1-19" id="h3-1-19" class="i">+        /// &lt;inheritdoc/&gt;
+</a>         public PSObject? GetInstalledModule(ModuleSpecification moduleSpecification)
+         {
+             var parameters = new Dictionary&lt;string, object&gt;()
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/IProcessorEnvironment.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/IProcessorEnvironment.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/IProcessorEnvironment.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/IProcessorEnvironment.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -98,12 +98,18 @@ namespace Microsoft.Management.Configuration.Processor.ProcessorEnvironments
+</a>         PSModuleInfo? GetAvailableModule(string path);
+ 
+         /// &lt;summary&gt;
+<a href="#h4-0-3" id="h4-0-3" class="d">-        /// Call Import-Module with the fully qualified name.
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        /// Calls Import-Module with the fully qualified name.
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;moduleSpecification&quot;&gt;Module specification.&lt;/param&gt;
+         void ImportModule(ModuleSpecification moduleSpecification);
+ 
+         /// &lt;summary&gt;
+<a href="#h4-0-10" id="h4-0-10" class="i">+        /// Calls Import-Module with a file path.
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+        /// &lt;param name=&quot;path&quot;&gt;Module file path.&lt;/param&gt;
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+        void ImportModule(string path);
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+        /// &lt;summary&gt;
+</a>         /// Calls Get-InstalledModule.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;moduleSpecification&quot;&gt;Module specification.&lt;/param&gt;
+<b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs.html">src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs.html">src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -119,6 +119,7 @@ namespace Microsoft.Management.Configuration.Processor
+</a>                         {
+                             builder.Append($&quot;{p.Name} = &#39;{p.Value}&#39; &quot;);
+                         }
+<a href="#h5-0-3" id="h5-0-3" class="i">+
+</a>                         builder.Append(&quot;]&quot;);
+                     }
+ 
+<b>diff --git a/<a id="h6" href="../file/src/Microsoft.Management.Configuration.Processor/Set/ConfigurationSetProcessor.cs.html">src/Microsoft.Management.Configuration.Processor/Set/ConfigurationSetProcessor.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/Set/ConfigurationSetProcessor.cs.html">src/Microsoft.Management.Configuration.Processor/Set/ConfigurationSetProcessor.cs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -202,6 +202,24 @@ namespace Microsoft.Management.Configuration.Processor.Set
+</a>                 }
+             }
+ 
+<a href="#h6-0-3" id="h6-0-3" class="i">+            // PowerShell will prompt the user when a module that is downloaded from the internet is imported.
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+            // For a hosted environment, this will throw an exception because it doesn&#39;t support user interaction.
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+            // In the case we don&#39;t import the module here, eventually Invoke-DscResource will fail for class
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+            // resources because they will call a method on a null obj. It is easier to just fail here.
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+            // The exception being thrown will have the correct details (user needs to call Unblock-File)
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+            // instead of the cryptic Invoke with 0 arguments.
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+            if (dscResourceInfo.Path is not null)
+</a><a href="#h6-0-10" id="h6-0-10" class="i">+            {
+</a><a href="#h6-0-11" id="h6-0-11" class="i">+                try
+</a><a href="#h6-0-12" id="h6-0-12" class="i">+                {
+</a><a href="#h6-0-13" id="h6-0-13" class="i">+                    this.ProcessorEnvironment.ImportModule(dscResourceInfo.Path);
+</a><a href="#h6-0-14" id="h6-0-14" class="i">+                }
+</a><a href="#h6-0-15" id="h6-0-15" class="i">+                catch (Exception e)
+</a><a href="#h6-0-16" id="h6-0-16" class="i">+                {
+</a><a href="#h6-0-17" id="h6-0-17" class="i">+                    throw new ImportModuleException(dscResourceInfo.ModuleName, e);
+</a><a href="#h6-0-18" id="h6-0-18" class="i">+                }
+</a><a href="#h6-0-19" id="h6-0-19" class="i">+            }
+</a><a href="#h6-0-20" id="h6-0-20" class="i">+
+</a>             return dscResourceInfo;
+         }
+ 
+</pre>
+</div>
+</body>
+</html>

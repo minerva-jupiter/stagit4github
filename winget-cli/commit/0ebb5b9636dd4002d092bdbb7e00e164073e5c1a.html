@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Collect scope in installer metadata (#2415) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/0ebb5b9636dd4002d092bdbb7e00e164073e5c1a.html">0ebb5b9636dd4002d092bdbb7e00e164073e5c1a</a>
+<b>parent</b> <a href="../commit/4950d3361b7ad32886ac158fb4c85641a55c231f.html">4950d3361b7ad32886ac158fb4c85641a55c231f</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Fri,  5 Aug 2022 16:51:09 -0700
+
+Collect scope in installer metadata (#2415)
+
+Include the installed scope during metadata collection.  This uses the current detection method, which is &quot;HKLM or HKCU?&quot;
+
+When there us a mismatch, the value will be explicitly set to `Unknown`.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp</a></td><td> | </td><td class="num">180</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp</a></td><td> | </td><td class="num">95</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/Public/winget/InstallerMetadataCollectionContext.h</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++++++</span><span class="d">--</span></td></tr>
+</table></pre><pre>3 files changed, 269 insertions(+), 18 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp</a> b/<a href="../file/src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -75,7 +75,7 @@ namespace
+</a> 
+             if (CurrentMetadata)
+             {
+<a href="#h0-0-3" id="h0-0-3" class="d">-                json[L&quot;currentMetadata&quot;] = CurrentMetadata-&gt;ToJson(Utility::Version{ &quot;1.0&quot; }, 0);
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+                json[L&quot;currentMetadata&quot;] = CurrentMetadata-&gt;ToJson(CurrentMetadata-&gt;SchemaVersion, 0);
+</a>             }
+ 
+             if (SubmissionData)
+<a href="#h0-1" id="h0-1" class="h">@@ -412,6 +412,7 @@ TEST_CASE(&quot;MetadataCollection_NewPackage&quot;, &quot;[metadata_collection]&quot;)
+</a> 
+     IPackageVersion::Metadata metadata;
+     metadata[PackageVersionMetadata::InstalledType] = Manifest::InstallerTypeToString(Manifest::InstallerTypeEnum::Msi);
+<a href="#h0-1-3" id="h0-1-3" class="i">+    metadata[PackageVersionMetadata::InstalledScope] = Manifest::ScopeToString(Manifest::ScopeEnum::User);
+</a> 
+     correlationData-&gt;CorrelateForNewlyInstalledResult.Package = std::make_shared&lt;TestPackageVersion&gt;(manifest, metadata);
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -427,6 +428,7 @@ TEST_CASE(&quot;MetadataCollection_NewPackage&quot;, &quot;[metadata_collection]&quot;)
+</a>     REQUIRE(output.Metadata-&gt;InstallerMetadataMap.count(input.InstallerHash.value()) == 1);
+     const auto&amp; entry = output.Metadata-&gt;InstallerMetadataMap[input.InstallerHash.value()];
+     REQUIRE(entry.SubmissionIdentifier == input.SubmissionIdentifier.value());
+<a href="#h0-2-3" id="h0-2-3" class="i">+    REQUIRE(entry.Scope.empty());
+</a>     REQUIRE(entry.AppsAndFeaturesEntries.size() == 1);
+     REQUIRE(entry.AppsAndFeaturesEntries[0].DisplayName == manifest.DefaultLocalization.Get&lt;Manifest::Localization::PackageName&gt;());
+     REQUIRE(entry.AppsAndFeaturesEntries[0].Publisher == manifest.DefaultLocalization.Get&lt;Manifest::Localization::Publisher&gt;());
+<a href="#h0-3" id="h0-3" class="h">@@ -675,3 +677,179 @@ TEST_CASE(&quot;MetadataCollection_Merge_SameInstaller&quot;, &quot;[metadata_collection]&quot;)
+</a>         REQUIRE(!item.second.AppsAndFeaturesEntries[0].ProductCode.empty());
+     }
+ }
+<a href="#h0-3-3" id="h0-3-3" class="i">+
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+TEST_CASE(&quot;MetadataCollection_NewPackage_1_1&quot;, &quot;[metadata_collection]&quot;)
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+{
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+    TestInput input(MinimalDefaults);
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+    input.SupportedMetadataVersion = &quot;1.1&quot;;
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+    auto correlationData = std::make_unique&lt;TestARPCorrelationData&gt;();
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+
+</a><a href="#h0-3-10" id="h0-3-10" class="i">+    Manifest::Manifest manifest;
+</a><a href="#h0-3-11" id="h0-3-11" class="i">+    manifest.DefaultLocalization.Add&lt;Manifest::Localization::PackageName&gt;(&quot;Test Package Name&quot;);
+</a><a href="#h0-3-12" id="h0-3-12" class="i">+    manifest.DefaultLocalization.Add&lt;Manifest::Localization::Publisher&gt;(&quot;Test Publisher&quot;);
+</a><a href="#h0-3-13" id="h0-3-13" class="i">+    manifest.Version = &quot;1.2.3&quot;;
+</a><a href="#h0-3-14" id="h0-3-14" class="i">+    manifest.Installers.push_back({});
+</a><a href="#h0-3-15" id="h0-3-15" class="i">+    manifest.Installers[0].ProductCode = &quot;{guid}&quot;;
+</a><a href="#h0-3-16" id="h0-3-16" class="i">+
+</a><a href="#h0-3-17" id="h0-3-17" class="i">+    IPackageVersion::Metadata metadata;
+</a><a href="#h0-3-18" id="h0-3-18" class="i">+    metadata[PackageVersionMetadata::InstalledType] = Manifest::InstallerTypeToString(Manifest::InstallerTypeEnum::Msi);
+</a><a href="#h0-3-19" id="h0-3-19" class="i">+    metadata[PackageVersionMetadata::InstalledScope] = Manifest::ScopeToString(Manifest::ScopeEnum::User);
+</a><a href="#h0-3-20" id="h0-3-20" class="i">+
+</a><a href="#h0-3-21" id="h0-3-21" class="i">+    correlationData-&gt;CorrelateForNewlyInstalledResult.Package = std::make_shared&lt;TestPackageVersion&gt;(manifest, metadata);
+</a><a href="#h0-3-22" id="h0-3-22" class="i">+
+</a><a href="#h0-3-23" id="h0-3-23" class="i">+    InstallerMetadataCollectionContext context = CreateTestContext(std::move(correlationData), input);
+</a><a href="#h0-3-24" id="h0-3-24" class="i">+    TestOutput output = GetOutput(context);
+</a><a href="#h0-3-25" id="h0-3-25" class="i">+
+</a><a href="#h0-3-26" id="h0-3-26" class="i">+    REQUIRE(output.IsSuccess());
+</a><a href="#h0-3-27" id="h0-3-27" class="i">+    output.ValidateFieldPresence();
+</a><a href="#h0-3-28" id="h0-3-28" class="i">+
+</a><a href="#h0-3-29" id="h0-3-29" class="i">+    REQUIRE(output.Metadata-&gt;ProductVersionMin.ToString() == output.Metadata-&gt;ProductVersionMax.ToString());
+</a><a href="#h0-3-30" id="h0-3-30" class="i">+    REQUIRE(output.Metadata-&gt;ProductVersionMin.ToString() == manifest.Version);
+</a><a href="#h0-3-31" id="h0-3-31" class="i">+    REQUIRE(output.Metadata-&gt;InstallerMetadataMap.size() == 1);
+</a><a href="#h0-3-32" id="h0-3-32" class="i">+    REQUIRE(output.Metadata-&gt;InstallerMetadataMap.count(input.InstallerHash.value()) == 1);
+</a><a href="#h0-3-33" id="h0-3-33" class="i">+    const auto&amp; entry = output.Metadata-&gt;InstallerMetadataMap[input.InstallerHash.value()];
+</a><a href="#h0-3-34" id="h0-3-34" class="i">+    REQUIRE(entry.SubmissionIdentifier == input.SubmissionIdentifier.value());
+</a><a href="#h0-3-35" id="h0-3-35" class="i">+    REQUIRE(entry.Scope == metadata[PackageVersionMetadata::InstalledScope]);
+</a><a href="#h0-3-36" id="h0-3-36" class="i">+    REQUIRE(entry.AppsAndFeaturesEntries.size() == 1);
+</a><a href="#h0-3-37" id="h0-3-37" class="i">+    REQUIRE(entry.AppsAndFeaturesEntries[0].DisplayName == manifest.DefaultLocalization.Get&lt;Manifest::Localization::PackageName&gt;());
+</a><a href="#h0-3-38" id="h0-3-38" class="i">+    REQUIRE(entry.AppsAndFeaturesEntries[0].Publisher == manifest.DefaultLocalization.Get&lt;Manifest::Localization::Publisher&gt;());
+</a><a href="#h0-3-39" id="h0-3-39" class="i">+    REQUIRE(entry.AppsAndFeaturesEntries[0].DisplayVersion == manifest.Version);
+</a><a href="#h0-3-40" id="h0-3-40" class="i">+    REQUIRE(entry.AppsAndFeaturesEntries[0].ProductCode == manifest.Installers[0].ProductCode);
+</a><a href="#h0-3-41" id="h0-3-41" class="i">+    REQUIRE(entry.AppsAndFeaturesEntries[0].InstallerType == Manifest::InstallerTypeEnum::Msi);
+</a><a href="#h0-3-42" id="h0-3-42" class="i">+    REQUIRE(output.Metadata-&gt;HistoricalMetadataList.empty());
+</a><a href="#h0-3-43" id="h0-3-43" class="i">+}
+</a><a href="#h0-3-44" id="h0-3-44" class="i">+
+</a><a href="#h0-3-45" id="h0-3-45" class="i">+TEST_CASE(&quot;MetadataCollection_NewPackage_NoScope&quot;, &quot;[metadata_collection]&quot;)
+</a><a href="#h0-3-46" id="h0-3-46" class="i">+{
+</a><a href="#h0-3-47" id="h0-3-47" class="i">+    TestInput input(MinimalDefaults);
+</a><a href="#h0-3-48" id="h0-3-48" class="i">+    input.SupportedMetadataVersion = &quot;1.1&quot;;
+</a><a href="#h0-3-49" id="h0-3-49" class="i">+    auto correlationData = std::make_unique&lt;TestARPCorrelationData&gt;();
+</a><a href="#h0-3-50" id="h0-3-50" class="i">+
+</a><a href="#h0-3-51" id="h0-3-51" class="i">+    Manifest::Manifest manifest;
+</a><a href="#h0-3-52" id="h0-3-52" class="i">+    manifest.DefaultLocalization.Add&lt;Manifest::Localization::PackageName&gt;(&quot;Test Package Name&quot;);
+</a><a href="#h0-3-53" id="h0-3-53" class="i">+    manifest.DefaultLocalization.Add&lt;Manifest::Localization::Publisher&gt;(&quot;Test Publisher&quot;);
+</a><a href="#h0-3-54" id="h0-3-54" class="i">+    manifest.Version = &quot;1.2.3&quot;;
+</a><a href="#h0-3-55" id="h0-3-55" class="i">+    manifest.Installers.push_back({});
+</a><a href="#h0-3-56" id="h0-3-56" class="i">+    manifest.Installers[0].ProductCode = &quot;{guid}&quot;;
+</a><a href="#h0-3-57" id="h0-3-57" class="i">+
+</a><a href="#h0-3-58" id="h0-3-58" class="i">+    IPackageVersion::Metadata metadata;
+</a><a href="#h0-3-59" id="h0-3-59" class="i">+    metadata[PackageVersionMetadata::InstalledType] = Manifest::InstallerTypeToString(Manifest::InstallerTypeEnum::Msi);
+</a><a href="#h0-3-60" id="h0-3-60" class="i">+
+</a><a href="#h0-3-61" id="h0-3-61" class="i">+    correlationData-&gt;CorrelateForNewlyInstalledResult.Package = std::make_shared&lt;TestPackageVersion&gt;(manifest, metadata);
+</a><a href="#h0-3-62" id="h0-3-62" class="i">+
+</a><a href="#h0-3-63" id="h0-3-63" class="i">+    InstallerMetadataCollectionContext context = CreateTestContext(std::move(correlationData), input);
+</a><a href="#h0-3-64" id="h0-3-64" class="i">+    TestOutput output = GetOutput(context);
+</a><a href="#h0-3-65" id="h0-3-65" class="i">+
+</a><a href="#h0-3-66" id="h0-3-66" class="i">+    REQUIRE(output.IsSuccess());
+</a><a href="#h0-3-67" id="h0-3-67" class="i">+    output.ValidateFieldPresence();
+</a><a href="#h0-3-68" id="h0-3-68" class="i">+
+</a><a href="#h0-3-69" id="h0-3-69" class="i">+    REQUIRE(output.Metadata-&gt;InstallerMetadataMap.size() == 1);
+</a><a href="#h0-3-70" id="h0-3-70" class="i">+    REQUIRE(output.Metadata-&gt;InstallerMetadataMap.count(input.InstallerHash.value()) == 1);
+</a><a href="#h0-3-71" id="h0-3-71" class="i">+    const auto&amp; entry = output.Metadata-&gt;InstallerMetadataMap[input.InstallerHash.value()];
+</a><a href="#h0-3-72" id="h0-3-72" class="i">+    REQUIRE(entry.Scope.empty());
+</a><a href="#h0-3-73" id="h0-3-73" class="i">+}
+</a><a href="#h0-3-74" id="h0-3-74" class="i">+
+</a><a href="#h0-3-75" id="h0-3-75" class="i">+TEST_CASE(&quot;MetadataCollection_SameSubmission_SameInstaller_Scopes&quot;, &quot;[metadata_collection]&quot;)
+</a><a href="#h0-3-76" id="h0-3-76" class="i">+{
+</a><a href="#h0-3-77" id="h0-3-77" class="i">+    std::string version = &quot;1.3.5&quot;;
+</a><a href="#h0-3-78" id="h0-3-78" class="i">+    std::string productCode = &quot;{guid}&quot;;
+</a><a href="#h0-3-79" id="h0-3-79" class="i">+    Manifest::InstallerTypeEnum installerType = Manifest::InstallerTypeEnum::Msi;
+</a><a href="#h0-3-80" id="h0-3-80" class="i">+    std::string currentScope = GENERATE(std::string{},
+</a><a href="#h0-3-81" id="h0-3-81" class="i">+        Manifest::ScopeToString(Manifest::ScopeEnum::Unknown),
+</a><a href="#h0-3-82" id="h0-3-82" class="i">+        Manifest::ScopeToString(Manifest::ScopeEnum::User),
+</a><a href="#h0-3-83" id="h0-3-83" class="i">+        Manifest::ScopeToString(Manifest::ScopeEnum::Machine));
+</a><a href="#h0-3-84" id="h0-3-84" class="i">+    std::string newScope{ Manifest::ScopeToString(Manifest::ScopeEnum::User) };
+</a><a href="#h0-3-85" id="h0-3-85" class="i">+
+</a><a href="#h0-3-86" id="h0-3-86" class="i">+    INFO(currentScope);
+</a><a href="#h0-3-87" id="h0-3-87" class="i">+
+</a><a href="#h0-3-88" id="h0-3-88" class="i">+    TestInput input(MinimalDefaults, version, productCode, installerType);
+</a><a href="#h0-3-89" id="h0-3-89" class="i">+    input.SupportedMetadataVersion = &quot;1.1&quot;;
+</a><a href="#h0-3-90" id="h0-3-90" class="i">+    input.CurrentMetadata-&gt;SchemaVersion = { &quot;1.1&quot; };
+</a><a href="#h0-3-91" id="h0-3-91" class="i">+    input.CurrentMetadata-&gt;InstallerMetadataMap.begin()-&gt;second.Scope = currentScope;
+</a><a href="#h0-3-92" id="h0-3-92" class="i">+    auto correlationData = std::make_unique&lt;TestARPCorrelationData&gt;();
+</a><a href="#h0-3-93" id="h0-3-93" class="i">+
+</a><a href="#h0-3-94" id="h0-3-94" class="i">+    Manifest::Manifest manifest;
+</a><a href="#h0-3-95" id="h0-3-95" class="i">+    manifest.DefaultLocalization.Add&lt;Manifest::Localization::PackageName&gt;(&quot;Different Language Name&quot;);
+</a><a href="#h0-3-96" id="h0-3-96" class="i">+    // Same publisher
+</a><a href="#h0-3-97" id="h0-3-97" class="i">+    manifest.DefaultLocalization.Add&lt;Manifest::Localization::Publisher&gt;(input.CurrentMetadata-&gt;InstallerMetadataMap.begin()-&gt;second.AppsAndFeaturesEntries[0].Publisher);
+</a><a href="#h0-3-98" id="h0-3-98" class="i">+    manifest.Version = version;
+</a><a href="#h0-3-99" id="h0-3-99" class="i">+    manifest.Installers.push_back({});
+</a><a href="#h0-3-100" id="h0-3-100" class="i">+    manifest.Installers[0].ProductCode = productCode;
+</a><a href="#h0-3-101" id="h0-3-101" class="i">+
+</a><a href="#h0-3-102" id="h0-3-102" class="i">+    IPackageVersion::Metadata metadata;
+</a><a href="#h0-3-103" id="h0-3-103" class="i">+    metadata[PackageVersionMetadata::InstalledType] = Manifest::InstallerTypeToString(installerType);
+</a><a href="#h0-3-104" id="h0-3-104" class="i">+    metadata[PackageVersionMetadata::InstalledScope] = newScope;
+</a><a href="#h0-3-105" id="h0-3-105" class="i">+
+</a><a href="#h0-3-106" id="h0-3-106" class="i">+    correlationData-&gt;CorrelateForNewlyInstalledResult.Package = std::make_shared&lt;TestPackageVersion&gt;(manifest, metadata);
+</a><a href="#h0-3-107" id="h0-3-107" class="i">+
+</a><a href="#h0-3-108" id="h0-3-108" class="i">+    InstallerMetadataCollectionContext context = CreateTestContext(std::move(correlationData), input);
+</a><a href="#h0-3-109" id="h0-3-109" class="i">+    TestOutput output = GetOutput(context);
+</a><a href="#h0-3-110" id="h0-3-110" class="i">+
+</a><a href="#h0-3-111" id="h0-3-111" class="i">+    REQUIRE(output.IsSuccess());
+</a><a href="#h0-3-112" id="h0-3-112" class="i">+    output.ValidateFieldPresence();
+</a><a href="#h0-3-113" id="h0-3-113" class="i">+
+</a><a href="#h0-3-114" id="h0-3-114" class="i">+    REQUIRE(output.Metadata-&gt;InstallerMetadataMap.size() == 1);
+</a><a href="#h0-3-115" id="h0-3-115" class="i">+    REQUIRE(output.Metadata-&gt;InstallerMetadataMap.count(input.InstallerHash.value()) == 1);
+</a><a href="#h0-3-116" id="h0-3-116" class="i">+    const auto&amp; entry = output.Metadata-&gt;InstallerMetadataMap[input.InstallerHash.value()];
+</a><a href="#h0-3-117" id="h0-3-117" class="i">+
+</a><a href="#h0-3-118" id="h0-3-118" class="i">+    if (currentScope.empty())
+</a><a href="#h0-3-119" id="h0-3-119" class="i">+    {
+</a><a href="#h0-3-120" id="h0-3-120" class="i">+        REQUIRE(entry.Scope == newScope);
+</a><a href="#h0-3-121" id="h0-3-121" class="i">+    }
+</a><a href="#h0-3-122" id="h0-3-122" class="i">+    else if (currentScope != newScope)
+</a><a href="#h0-3-123" id="h0-3-123" class="i">+    {
+</a><a href="#h0-3-124" id="h0-3-124" class="i">+        // If Unknown, should stay Unknown
+</a><a href="#h0-3-125" id="h0-3-125" class="i">+        // If different, should become Unknown
+</a><a href="#h0-3-126" id="h0-3-126" class="i">+        REQUIRE(entry.Scope == Manifest::ScopeToString(Manifest::ScopeEnum::Unknown));
+</a><a href="#h0-3-127" id="h0-3-127" class="i">+    }
+</a><a href="#h0-3-128" id="h0-3-128" class="i">+    else
+</a><a href="#h0-3-129" id="h0-3-129" class="i">+    {
+</a><a href="#h0-3-130" id="h0-3-130" class="i">+        // If same, should not change
+</a><a href="#h0-3-131" id="h0-3-131" class="i">+        REQUIRE(entry.Scope == currentScope);
+</a><a href="#h0-3-132" id="h0-3-132" class="i">+    }
+</a><a href="#h0-3-133" id="h0-3-133" class="i">+}
+</a><a href="#h0-3-134" id="h0-3-134" class="i">+
+</a><a href="#h0-3-135" id="h0-3-135" class="i">+TEST_CASE(&quot;MetadataCollection_Merge_SameInstaller_Scopes&quot;, &quot;[metadata_collection]&quot;)
+</a><a href="#h0-3-136" id="h0-3-136" class="i">+{
+</a><a href="#h0-3-137" id="h0-3-137" class="i">+    TestMerge mergeData{ MinimalDefaults };
+</a><a href="#h0-3-138" id="h0-3-138" class="i">+    mergeData.Metadatas-&gt;emplace_back(MakeProductMetadata());
+</a><a href="#h0-3-139" id="h0-3-139" class="i">+
+</a><a href="#h0-3-140" id="h0-3-140" class="i">+    std::string currentScope = GENERATE(std::string{},
+</a><a href="#h0-3-141" id="h0-3-141" class="i">+        Manifest::ScopeToString(Manifest::ScopeEnum::Unknown),
+</a><a href="#h0-3-142" id="h0-3-142" class="i">+        Manifest::ScopeToString(Manifest::ScopeEnum::User),
+</a><a href="#h0-3-143" id="h0-3-143" class="i">+        Manifest::ScopeToString(Manifest::ScopeEnum::Machine));
+</a><a href="#h0-3-144" id="h0-3-144" class="i">+    std::string newScope{ Manifest::ScopeToString(Manifest::ScopeEnum::Machine) };
+</a><a href="#h0-3-145" id="h0-3-145" class="i">+
+</a><a href="#h0-3-146" id="h0-3-146" class="i">+    INFO(currentScope);
+</a><a href="#h0-3-147" id="h0-3-147" class="i">+
+</a><a href="#h0-3-148" id="h0-3-148" class="i">+    mergeData.Metadatas-&gt;at(0).SchemaVersion = { &quot;1.1&quot; };
+</a><a href="#h0-3-149" id="h0-3-149" class="i">+    mergeData.Metadatas-&gt;at(0).InstallerMetadataMap.begin()-&gt;second.Scope = currentScope;
+</a><a href="#h0-3-150" id="h0-3-150" class="i">+    mergeData.Metadatas-&gt;at(1).SchemaVersion = { &quot;1.1&quot; };
+</a><a href="#h0-3-151" id="h0-3-151" class="i">+    mergeData.Metadatas-&gt;at(1).InstallerMetadataMap.begin()-&gt;second.Scope = newScope;
+</a><a href="#h0-3-152" id="h0-3-152" class="i">+
+</a><a href="#h0-3-153" id="h0-3-153" class="i">+    std::wstring mergeResult = InstallerMetadataCollectionContext::Merge(mergeData.ToJSON(), 0, {});
+</a><a href="#h0-3-154" id="h0-3-154" class="i">+    REQUIRE(!mergeResult.empty());
+</a><a href="#h0-3-155" id="h0-3-155" class="i">+
+</a><a href="#h0-3-156" id="h0-3-156" class="i">+    ProductMetadata mergeMetadata;
+</a><a href="#h0-3-157" id="h0-3-157" class="i">+    mergeMetadata.FromJson(web::json::value::parse(mergeResult));
+</a><a href="#h0-3-158" id="h0-3-158" class="i">+
+</a><a href="#h0-3-159" id="h0-3-159" class="i">+    REQUIRE(mergeMetadata.InstallerMetadataMap.size() == 1);
+</a><a href="#h0-3-160" id="h0-3-160" class="i">+    for (const auto&amp; item : mergeMetadata.InstallerMetadataMap)
+</a><a href="#h0-3-161" id="h0-3-161" class="i">+    {
+</a><a href="#h0-3-162" id="h0-3-162" class="i">+        if (currentScope.empty())
+</a><a href="#h0-3-163" id="h0-3-163" class="i">+        {
+</a><a href="#h0-3-164" id="h0-3-164" class="i">+            REQUIRE(item.second.Scope == newScope);
+</a><a href="#h0-3-165" id="h0-3-165" class="i">+        }
+</a><a href="#h0-3-166" id="h0-3-166" class="i">+        else if (currentScope != newScope)
+</a><a href="#h0-3-167" id="h0-3-167" class="i">+        {
+</a><a href="#h0-3-168" id="h0-3-168" class="i">+            // If Unknown, should stay Unknown
+</a><a href="#h0-3-169" id="h0-3-169" class="i">+            // If different, should become Unknown
+</a><a href="#h0-3-170" id="h0-3-170" class="i">+            REQUIRE(item.second.Scope == Manifest::ScopeToString(Manifest::ScopeEnum::Unknown));
+</a><a href="#h0-3-171" id="h0-3-171" class="i">+        }
+</a><a href="#h0-3-172" id="h0-3-172" class="i">+        else
+</a><a href="#h0-3-173" id="h0-3-173" class="i">+        {
+</a><a href="#h0-3-174" id="h0-3-174" class="i">+            // If same, should not change
+</a><a href="#h0-3-175" id="h0-3-175" class="i">+            REQUIRE(item.second.Scope == currentScope);
+</a><a href="#h0-3-176" id="h0-3-176" class="i">+        }
+</a><a href="#h0-3-177" id="h0-3-177" class="i">+    }
+</a><a href="#h0-3-178" id="h0-3-178" class="i">+}
+</a><b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -16,8 +16,20 @@ namespace AppInstaller::Repository::Metadata
+</a> {
+     namespace
+     {
+<a href="#h1-0-3" id="h1-0-3" class="d">-        struct ProductMetadataFields_1_0
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        struct ProductMetadataFields_1_N
+</a>         {
+<a href="#h1-0-6" id="h1-0-6" class="i">+            ProductMetadataFields_1_N(const Version&amp; version)
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+            {
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+                if (::AppInstaller::Utility::Version{ &quot;1.1&quot; } &lt;= version)
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+                {
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+                    SchemaVersion = L&quot;1.1&quot;;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+                    Scope = L&quot;scope&quot;;
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+                }
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+            }
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+            utility::string_t SchemaVersion = L&quot;1.0&quot;;
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+            // 1.0
+</a>             utility::string_t ProductVersionMin = L&quot;productVersionMin&quot;;
+             utility::string_t ProductVersionMax = L&quot;productVersionMax&quot;;
+             utility::string_t Metadata = L&quot;metadata&quot;;
+<a href="#h1-1" id="h1-1" class="h">@@ -40,6 +52,9 @@ namespace AppInstaller::Repository::Metadata
+</a>             utility::string_t Publishers = L&quot;publishers&quot;;
+             utility::string_t ProductCodes = L&quot;productCodes&quot;;
+             utility::string_t UpgradeCodes = L&quot;upgradeCodes&quot;;
+<a href="#h1-1-3" id="h1-1-3" class="i">+
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+            // 1.1
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+            utility::string_t Scope;
+</a>         };
+ 
+         struct OutputFields_1_0
+<a href="#h1-2" id="h1-2" class="h">@@ -140,6 +155,24 @@ namespace AppInstaller::Repository::Metadata
+</a>                 entries.emplace_back(std::move(newEntry));
+             }
+         }
+<a href="#h1-2-3" id="h1-2-3" class="i">+
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+        std::optional&lt;std::string&gt; GetStringFromFutureSchema(const web::json::value&amp; value, const utility::string_t&amp; field)
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+        {
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+            if (field.empty())
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+            {
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+                return {};
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+            }
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+            return AppInstaller::JSON::GetRawStringValueFromJsonNode(value, field);
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+        }
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+        void SetStringFromFutureSchema(web::json::value&amp; json, const utility::string_t&amp; field, std::string_view value)
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+        {
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+            if (!field.empty())
+</a><a href="#h1-2-17" id="h1-2-17" class="i">+            {
+</a><a href="#h1-2-18" id="h1-2-18" class="i">+                json[field] = AppInstaller::JSON::GetStringValue(value);
+</a><a href="#h1-2-19" id="h1-2-19" class="i">+            }
+</a><a href="#h1-2-20" id="h1-2-20" class="i">+        }
+</a>     }
+ 
+     void ProductMetadata::Clear()
+<a href="#h1-3" id="h1-3" class="h">@@ -164,8 +197,7 @@ namespace AppInstaller::Repository::Metadata
+</a> 
+         if (SchemaVersion.PartAt(0).Integer == 1)
+         {
+<a href="#h1-3-3" id="h1-3-3" class="d">-            // We only have one version currently, so use that as long as the major version is 1
+</a><a href="#h1-3-4" id="h1-3-4" class="d">-            FromJson_1_0(json);
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+            FromJson_1_N(json);
+</a>         }
+         else
+         {
+<a href="#h1-4" id="h1-4" class="h">@@ -182,19 +214,19 @@ namespace AppInstaller::Repository::Metadata
+</a> 
+     web::json::value ProductMetadata::ToJson(const Utility::Version&amp; schemaVersion, size_t maximumSizeInBytes)
+     {
+<a href="#h1-4-3" id="h1-4-3" class="d">-        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Creating metadata JSON version &quot; &lt;&lt; schemaVersion.ToString());
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+        SchemaVersion = schemaVersion;
+</a><a href="#h1-4-5" id="h1-4-5" class="i">+        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Creating metadata JSON version &quot; &lt;&lt; SchemaVersion.ToString());
+</a> 
+         using ToJsonFunctionPointer = web::json::value(ProductMetadata::*)();
+         ToJsonFunctionPointer toJsonFunction = nullptr;
+ 
+<a href="#h1-4-10" id="h1-4-10" class="d">-        if (schemaVersion.PartAt(0).Integer == 1)
+</a><a href="#h1-4-11" id="h1-4-11" class="i">+        if (SchemaVersion.PartAt(0).Integer == 1)
+</a>         {
+<a href="#h1-4-13" id="h1-4-13" class="d">-            // We only have one version currently, so use that as long as the major version is 1
+</a><a href="#h1-4-14" id="h1-4-14" class="d">-            toJsonFunction = &amp;ProductMetadata::ToJson_1_0;
+</a><a href="#h1-4-15" id="h1-4-15" class="i">+            toJsonFunction = &amp;ProductMetadata::ToJson_1_N;
+</a>         }
+         else
+         {
+<a href="#h1-4-19" id="h1-4-19" class="d">-            AICLI_LOG(Repo, Error, &lt;&lt; &quot;Don&#39;t know how to handle metadata version &quot; &lt;&lt; schemaVersion.ToString());
+</a><a href="#h1-4-20" id="h1-4-20" class="i">+            AICLI_LOG(Repo, Error, &lt;&lt; &quot;Don&#39;t know how to handle metadata version &quot; &lt;&lt; SchemaVersion.ToString());
+</a>             THROW_HR(HRESULT_FROM_WIN32(ERROR_UNSUPPORTED_TYPE));
+         }
+ 
+<a href="#h1-5" id="h1-5" class="h">@@ -281,11 +313,11 @@ namespace AppInstaller::Repository::Metadata
+</a>         }
+     }
+ 
+<a href="#h1-5-3" id="h1-5-3" class="d">-    void ProductMetadata::FromJson_1_0(const web::json::value&amp; json)
+</a><a href="#h1-5-4" id="h1-5-4" class="i">+    void ProductMetadata::FromJson_1_N(const web::json::value&amp; json)
+</a>     {
+<a href="#h1-5-6" id="h1-5-6" class="d">-        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Parsing metadata JSON 1.0 fields&quot;);
+</a><a href="#h1-5-7" id="h1-5-7" class="i">+        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Parsing metadata JSON &quot; &lt;&lt; SchemaVersion.ToString() &lt;&lt; &quot; fields&quot;);
+</a> 
+<a href="#h1-5-9" id="h1-5-9" class="d">-        ProductMetadataFields_1_0 fields;
+</a><a href="#h1-5-10" id="h1-5-10" class="i">+        ProductMetadataFields_1_N fields{ SchemaVersion };
+</a> 
+         auto productVersionMinString = AppInstaller::JSON::GetRawStringValueFromJsonNode(json, fields.ProductVersionMin);
+         if (productVersionMinString)
+<a href="#h1-6" id="h1-6" class="h">@@ -330,6 +362,8 @@ namespace AppInstaller::Repository::Metadata
+</a>                 THROW_HR_IF(APPINSTALLER_CLI_ERROR_JSON_INVALID_FILE, !appsAndFeatures);
+                 installerMetadata.AppsAndFeaturesEntries = parser.DeserializeAppsAndFeaturesEntries(appsAndFeatures.value());
+ 
+<a href="#h1-6-3" id="h1-6-3" class="i">+                installerMetadata.Scope = GetStringFromFutureSchema(item, fields.Scope).value_or(std::string{});
+</a><a href="#h1-6-4" id="h1-6-4" class="i">+
+</a>                 InstallerMetadataMap[installerHashString] = std::move(installerMetadata);
+             }
+         }
+<a href="#h1-7" id="h1-7" class="h">@@ -353,15 +387,15 @@ namespace AppInstaller::Repository::Metadata
+</a>         }
+     }
+ 
+<a href="#h1-7-3" id="h1-7-3" class="d">-    web::json::value ProductMetadata::ToJson_1_0()
+</a><a href="#h1-7-4" id="h1-7-4" class="i">+    web::json::value ProductMetadata::ToJson_1_N()
+</a>     {
+<a href="#h1-7-6" id="h1-7-6" class="d">-        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Creating metadata JSON 1.0 fields&quot;);
+</a><a href="#h1-7-7" id="h1-7-7" class="i">+        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Creating metadata JSON &quot; &lt;&lt; SchemaVersion.ToString() &lt;&lt; &quot; fields&quot;);
+</a> 
+<a href="#h1-7-9" id="h1-7-9" class="d">-        ProductMetadataFields_1_0 fields;
+</a><a href="#h1-7-10" id="h1-7-10" class="i">+        ProductMetadataFields_1_N fields{ SchemaVersion };
+</a> 
+         web::json::value result;
+ 
+<a href="#h1-7-14" id="h1-7-14" class="d">-        result[fields.Version] = web::json::value::string(L&quot;1.0&quot;);
+</a><a href="#h1-7-15" id="h1-7-15" class="i">+        result[fields.Version] = web::json::value::string(fields.SchemaVersion);
+</a>         result[fields.ProductVersionMin] = AppInstaller::JSON::GetStringValue(ProductVersionMin.ToString());
+         result[fields.ProductVersionMax] = AppInstaller::JSON::GetStringValue(ProductVersionMax.ToString());
+ 
+<a href="#h1-8" id="h1-8" class="h">@@ -373,6 +407,7 @@ namespace AppInstaller::Repository::Metadata
+</a> 
+             itemValue[fields.InstallerHash] = AppInstaller::JSON::GetStringValue(item.first);
+             itemValue[fields.SubmissionIdentifier] = AppInstaller::JSON::GetStringValue(item.second.SubmissionIdentifier);
+<a href="#h1-8-3" id="h1-8-3" class="i">+            SetStringFromFutureSchema(itemValue, fields.Scope, item.second.Scope);
+</a> 
+             web::json::value appsAndFeaturesArray = web::json::value::array();
+             size_t appsAndFeaturesEntryIndex = 0;
+<a href="#h1-9" id="h1-9" class="h">@@ -736,6 +771,8 @@ namespace AppInstaller::Repository::Metadata
+</a>             newEntry.Publisher = package-&gt;GetProperty(PackageVersionProperty::Publisher).get();
+             // TODO: Support upgrade code throughout the code base...
+ 
+<a href="#h1-9-3" id="h1-9-3" class="i">+            Manifest::ScopeEnum scope = Manifest::ConvertToScopeEnum(packageMetadata[PackageVersionMetadata::InstalledScope]);
+</a><a href="#h1-9-4" id="h1-9-4" class="i">+
+</a>             // Add or update the metadata for the installer hash
+             auto itr = m_outputMetadata.InstallerMetadataMap.find(m_installerHash);
+ 
+<a href="#h1-10" id="h1-10" class="h">@@ -747,10 +784,25 @@ namespace AppInstaller::Repository::Metadata
+</a>                 newMetadata.SubmissionIdentifier = m_submissionIdentifier;
+                 newMetadata.AppsAndFeaturesEntries.emplace_back(std::move(newEntry));
+ 
+<a href="#h1-10-3" id="h1-10-3" class="i">+                if (scope != Manifest::ScopeEnum::Unknown)
+</a><a href="#h1-10-4" id="h1-10-4" class="i">+                {
+</a><a href="#h1-10-5" id="h1-10-5" class="i">+                    newMetadata.Scope = Manifest::ScopeToString(scope);
+</a><a href="#h1-10-6" id="h1-10-6" class="i">+                }
+</a><a href="#h1-10-7" id="h1-10-7" class="i">+
+</a>                 m_outputMetadata.InstallerMetadataMap[m_installerHash] = std::move(newMetadata);
+             }
+             else
+             {
+<a href="#h1-10-12" id="h1-10-12" class="i">+                if (itr-&gt;second.Scope.empty())
+</a><a href="#h1-10-13" id="h1-10-13" class="i">+                {
+</a><a href="#h1-10-14" id="h1-10-14" class="i">+                    itr-&gt;second.Scope = Manifest::ScopeToString(scope);
+</a><a href="#h1-10-15" id="h1-10-15" class="i">+                }
+</a><a href="#h1-10-16" id="h1-10-16" class="i">+                // If there is a conflicting scope already present, force it to Unknown
+</a><a href="#h1-10-17" id="h1-10-17" class="i">+                else if (scope != Manifest::ScopeEnum::Unknown &amp;&amp; Manifest::ConvertToScopeEnum(itr-&gt;second.Scope) != scope)
+</a><a href="#h1-10-18" id="h1-10-18" class="i">+                {
+</a><a href="#h1-10-19" id="h1-10-19" class="i">+                    itr-&gt;second.Scope = Manifest::ScopeToString(Manifest::ScopeEnum::Unknown);
+</a><a href="#h1-10-20" id="h1-10-20" class="i">+                }
+</a><a href="#h1-10-21" id="h1-10-21" class="i">+
+</a>                 // Existing entry for installer hash, add/update the entry
+                 FilterAndAddToEntries(std::move(newEntry), itr-&gt;second.AppsAndFeaturesEntries);
+             }
+<a href="#h1-11" id="h1-11" class="h">@@ -996,6 +1048,19 @@ namespace AppInstaller::Repository::Metadata
+</a>                 }
+                 else
+                 {
+<a href="#h1-11-3" id="h1-11-3" class="i">+                    if (itr-&gt;second.Scope.empty())
+</a><a href="#h1-11-4" id="h1-11-4" class="i">+                    {
+</a><a href="#h1-11-5" id="h1-11-5" class="i">+                        itr-&gt;second.Scope = installerMetadata.second.Scope;
+</a><a href="#h1-11-6" id="h1-11-6" class="i">+                    }
+</a><a href="#h1-11-7" id="h1-11-7" class="i">+                    else if (!installerMetadata.second.Scope.empty())
+</a><a href="#h1-11-8" id="h1-11-8" class="i">+                    {
+</a><a href="#h1-11-9" id="h1-11-9" class="i">+                        // If there is a conflicting scope already present, force it to Unknown
+</a><a href="#h1-11-10" id="h1-11-10" class="i">+                        if (Manifest::ConvertToScopeEnum(itr-&gt;second.Scope) != Manifest::ConvertToScopeEnum(installerMetadata.second.Scope))
+</a><a href="#h1-11-11" id="h1-11-11" class="i">+                        {
+</a><a href="#h1-11-12" id="h1-11-12" class="i">+                            itr-&gt;second.Scope = Manifest::ScopeToString(Manifest::ScopeEnum::Unknown);
+</a><a href="#h1-11-13" id="h1-11-13" class="i">+                        }
+</a><a href="#h1-11-14" id="h1-11-14" class="i">+                    }
+</a><a href="#h1-11-15" id="h1-11-15" class="i">+
+</a>                     // Merge into existing installer data
+                     for (const auto&amp; targetEntry : installerMetadata.second.AppsAndFeaturesEntries)
+                     {
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/Public/winget/InstallerMetadataCollectionContext.h.html">src/AppInstallerRepositoryCore/Public/winget/InstallerMetadataCollectionContext.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/InstallerMetadataCollectionContext.h.html">src/AppInstallerRepositoryCore/Public/winget/InstallerMetadataCollectionContext.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -39,13 +39,20 @@ namespace AppInstaller::Repository::Metadata
+</a>         // The installer specific metadata that we collect.
+         struct InstallerMetadata
+         {
+<a href="#h2-0-3" id="h2-0-3" class="i">+            friend ProductMetadata;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+            // 1.0
+</a>             std::string SubmissionIdentifier;
+             std::vector&lt;Manifest::AppsAndFeaturesEntry&gt; AppsAndFeaturesEntries;
+<a href="#h2-0-8" id="h2-0-8" class="i">+
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+            // 1.1
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+            std::string Scope;
+</a>         };
+ 
+         // Metadata from previous product revisions.
+         struct HistoricalMetadata
+         {
+<a href="#h2-0-16" id="h2-0-16" class="i">+            // 1.0
+</a>             Utility::Version ProductVersionMin;
+             Utility::Version ProductVersionMax;
+             std::set&lt;std::string&gt; Names;
+<a href="#h2-1" id="h2-1" class="h">@@ -54,6 +61,7 @@ namespace AppInstaller::Repository::Metadata
+</a>             std::set&lt;std::string&gt; UpgradeCodes;
+         };
+ 
+<a href="#h2-1-3" id="h2-1-3" class="i">+        // 1.0
+</a>         Utility::Version SchemaVersion;
+         Utility::Version ProductVersionMin;
+         Utility::Version ProductVersionMax;
+<a href="#h2-2" id="h2-2" class="h">@@ -62,8 +70,8 @@ namespace AppInstaller::Repository::Metadata
+</a>         std::vector&lt;HistoricalMetadata&gt; HistoricalMetadataList;
+ 
+     private:
+<a href="#h2-2-3" id="h2-2-3" class="d">-        void FromJson_1_0(const web::json::value&amp; json);
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-        web::json::value ToJson_1_0();
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+        void FromJson_1_N(const web::json::value&amp; json);
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+        web::json::value ToJson_1_N();
+</a> 
+         // Removes the historical data with the oldest version.
+         // Returns true if something was removed; false it not.
+</pre>
+</div>
+</body>
+</html>

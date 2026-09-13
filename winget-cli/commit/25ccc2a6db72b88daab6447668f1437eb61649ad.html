@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Add ODS logger and use it during init (#4969) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/25ccc2a6db72b88daab6447668f1437eb61649ad.html">25ccc2a6db72b88daab6447668f1437eb61649ad</a>
+<b>parent</b> <a href="../commit/03df8247284d8b74aabe810871e6da9e0f5dbc5f.html">03df8247284d8b74aabe810871e6da9e0f5dbc5f</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 19 Nov 2024 16:17:23 -0800
+
+Add ODS logger and use it during init (#4969)
+
+## Change
+The user settings (and then group policy) initialization happen before
+we get the file logger set up. To be able to see into what is happening
+there more easily, this change creates a logger that uses
+`OutputDebugString` and uses it during the initial file logger creation.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/COMContext.cpp</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Core.cpp</a></td><td> | </td><td class="num">44</td><td><span class="i">++++++++++++++++++++++++++++++++++++</span><span class="d">--------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.filters</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h4">src/AppInstallerCommonCore/OutputDebugStringLogger.cpp</a></td><td> | </td><td class="num">50</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h5">src/AppInstallerCommonCore/Public/winget/OutputDebugStringLogger.h</a></td><td> | </td><td class="num">29</td><td><span class="i">+++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>6 files changed, 131 insertions(+), 8 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/COMContext.cpp.html">src/AppInstallerCLICore/COMContext.cpp</a> b/<a href="../file/src/AppInstallerCLICore/COMContext.cpp.html">src/AppInstallerCLICore/COMContext.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -4,6 +4,7 @@
+</a> #include &quot;COMContext.h&quot;
+ #include &lt;AppInstallerFileLogger.h&gt;
+ #include &lt;winget/TraceLogger.h&gt;
+<a href="#h0-0-3" id="h0-0-3" class="i">+#include &lt;winget/OutputDebugStringLogger.h&gt;
+</a> 
+ namespace AppInstaller::CLI::Execution
+ {
+<a href="#h0-1" id="h0-1" class="h">@@ -77,12 +78,19 @@ namespace AppInstaller::CLI::Execution
+</a> 
+     void COMContext::SetLoggers(std::optional&lt;AppInstaller::Logging::Channel&gt; channel, std::optional&lt;AppInstaller::Logging::Level&gt; level)
+     {
+<a href="#h0-1-3" id="h0-1-3" class="i">+        // Set up debug string logging during initialization
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        Logging::OutputDebugStringLogger::Add();
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+        Logging::Log().EnableChannel(Logging::Channel::All);
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+        Logging::Log().SetLevel(Logging::Level::Verbose);
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+
+</a>         Logging::Log().EnableChannel(channel.has_value() ? channel.value() : Settings::User().Get&lt;Settings::Setting::LoggingChannelPreference&gt;());
+         Logging::Log().SetLevel(level.has_value() ? level.value() : Settings::User().Get&lt;Settings::Setting::LoggingLevelPreference&gt;());
+ 
+         // TODO: Log to file for COM API calls only when debugging in visual studio
+         Logging::FileLogger::Add(s_comLogFileNamePrefix);
+ 
+<a href="#h0-1-14" id="h0-1-14" class="i">+        Logging::OutputDebugStringLogger::Remove();
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+
+</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+         if (!Settings::User().Get&lt;Settings::Setting::KeepAllLogFiles&gt;())
+ #endif
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Core.cpp.html">src/AppInstallerCLICore/Core.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Core.cpp.html">src/AppInstallerCLICore/Core.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -9,6 +9,7 @@
+</a> #include &quot;Commands/InstallCommand.h&quot;
+ #include &quot;COMContext.h&quot;
+ #include &lt;AppInstallerFileLogger.h&gt;
+<a href="#h1-0-3" id="h1-0-3" class="i">+#include &lt;winget/OutputDebugStringLogger.h&gt;
+</a> 
+ #ifndef AICLI_DISABLE_TEST_HOOKS
+ #include &lt;winget/Debugging.h&gt;
+<a href="#h1-1" id="h1-1" class="h">@@ -66,21 +67,34 @@ namespace AppInstaller::CLI
+</a> 
+         init_apartment();
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+        // We have to do this here so the auto minidump config initialization gets caught
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+        Logging::OutputDebugStringLogger::Add();
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+        Logging::Log().EnableChannel(Logging::Channel::All);
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+        Logging::Log().SetLevel(Logging::Level::Verbose);
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+
+</a>         if (Settings::User().Get&lt;Settings::Setting::EnableSelfInitiatedMinidump&gt;())
+         {
+             Debugging::EnableSelfInitiatedMinidump();
+<a href="#h1-1-13" id="h1-1-13" class="d">-        }
+</a><a href="#h1-1-14" id="h1-1-14" class="i">+        }
+</a><a href="#h1-1-15" id="h1-1-15" class="i">+
+</a><a href="#h1-1-16" id="h1-1-16" class="i">+        Logging::OutputDebugStringLogger::Remove();
+</a> #endif
+ 
+         Logging::UseGlobalTelemetryLoggerActivityIdOnly();
+ 
+         Execution::Context context{ std::cout, std::cin };
+<a href="#h1-1-22" id="h1-1-22" class="d">-        auto previousThreadGlobals = context.SetForCurrentThread();
+</a><a href="#h1-1-23" id="h1-1-23" class="i">+        auto previousThreadGlobals = context.SetForCurrentThread();
+</a><a href="#h1-1-24" id="h1-1-24" class="i">+
+</a><a href="#h1-1-25" id="h1-1-25" class="i">+        // Set up debug string logging during initialization
+</a><a href="#h1-1-26" id="h1-1-26" class="i">+        Logging::OutputDebugStringLogger::Add();
+</a><a href="#h1-1-27" id="h1-1-27" class="i">+        Logging::Log().EnableChannel(Logging::Channel::All);
+</a><a href="#h1-1-28" id="h1-1-28" class="i">+        Logging::Log().SetLevel(Logging::Level::Verbose);
+</a> 
+         Logging::Log().EnableChannel(Settings::User().Get&lt;Settings::Setting::LoggingChannelPreference&gt;());
+         Logging::Log().SetLevel(Settings::User().Get&lt;Settings::Setting::LoggingLevelPreference&gt;());
+<a href="#h1-1-32" id="h1-1-32" class="d">-        Logging::FileLogger::Add();
+</a><a href="#h1-1-33" id="h1-1-33" class="i">+        Logging::FileLogger::Add();
+</a><a href="#h1-1-34" id="h1-1-34" class="i">+        Logging::OutputDebugStringLogger::Remove();
+</a>         Logging::EnableWilFailureTelemetry();
+ 
+         // Set output to UTF8
+<a href="#h1-2" id="h1-2" class="h">@@ -171,11 +185,18 @@ namespace AppInstaller::CLI
+</a> 
+     void ServerInitialize()
+     {
+<a href="#h1-2-3" id="h1-2-3" class="d">-#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+        // We have to do this here so the auto minidump config initialization gets caught
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+        Logging::OutputDebugStringLogger::Add();
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+        Logging::Log().EnableChannel(Logging::Channel::All);
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        Logging::Log().SetLevel(Logging::Level::Verbose);
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+
+</a>         if (Settings::User().Get&lt;Settings::Setting::EnableSelfInitiatedMinidump&gt;())
+         {
+             Debugging::EnableSelfInitiatedMinidump();
+<a href="#h1-2-13" id="h1-2-13" class="d">-        }
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+        }
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+        Logging::OutputDebugStringLogger::Remove();
+</a> #endif
+ 
+         AppInstaller::CLI::Execution::COMContext::SetLoggers();
+<a href="#h1-3" id="h1-3" class="h">@@ -183,11 +204,18 @@ namespace AppInstaller::CLI
+</a> 
+     void InProcInitialize()
+     {
+<a href="#h1-3-3" id="h1-3-3" class="d">-#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+        // We have to do this here so the auto minidump config initialization gets caught
+</a><a href="#h1-3-6" id="h1-3-6" class="i">+        Logging::OutputDebugStringLogger::Add();
+</a><a href="#h1-3-7" id="h1-3-7" class="i">+        Logging::Log().EnableChannel(Logging::Channel::All);
+</a><a href="#h1-3-8" id="h1-3-8" class="i">+        Logging::Log().SetLevel(Logging::Level::Verbose);
+</a><a href="#h1-3-9" id="h1-3-9" class="i">+
+</a>         if (Settings::User().Get&lt;Settings::Setting::EnableSelfInitiatedMinidump&gt;())
+         {
+             Debugging::EnableSelfInitiatedMinidump();
+<a href="#h1-3-13" id="h1-3-13" class="d">-        }
+</a><a href="#h1-3-14" id="h1-3-14" class="i">+        }
+</a><a href="#h1-3-15" id="h1-3-15" class="i">+
+</a><a href="#h1-3-16" id="h1-3-16" class="i">+        Logging::OutputDebugStringLogger::Remove();
+</a> #endif
+ 
+         // Explicitly set default channel and level before user settings from PackageManagerSettings
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.html">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj</a> b/<a href="../file/src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.html">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -448,6 +448,7 @@
+</a>     &lt;/ClInclude&gt;
+     &lt;ClInclude Include=&quot;Public\winget\NameNormalization.h&quot; /&gt;
+     &lt;ClInclude Include=&quot;Public\winget\NetworkSettings.h&quot; /&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+    &lt;ClInclude Include=&quot;Public\winget\OutputDebugStringLogger.h&quot; /&gt;
+</a>     &lt;ClInclude Include=&quot;Public\winget\PackageDependenciesValidationUtil.h&quot; /&gt;
+     &lt;ClInclude Include=&quot;Public\winget\PackageVersionDataManifest.h&quot; /&gt;
+     &lt;ClInclude Include=&quot;Public\winget\Pin.h&quot; /&gt;
+<a href="#h2-1" id="h2-1" class="h">@@ -504,6 +505,7 @@
+</a>     &lt;/ClCompile&gt;
+     &lt;ClCompile Include=&quot;NameNormalization.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;NetworkSettings.cpp&quot; /&gt;
+<a href="#h2-1-3" id="h2-1-3" class="i">+    &lt;ClCompile Include=&quot;OutputDebugStringLogger.cpp&quot; /&gt;
+</a>     &lt;ClCompile Include=&quot;PackageDependenciesValidationUtil.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;PackageVersionDataManifest.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;Pin.cpp&quot; /&gt;
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.filters.html">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.filters</a> b/<a href="../file/src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.filters.html">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.filters</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -207,6 +207,9 @@
+</a>     &lt;ClInclude Include=&quot;Public\winget\Fonts.h&quot;&gt;
+       &lt;Filter&gt;Public\winget&lt;/Filter&gt;
+     &lt;/ClInclude&gt;
+<a href="#h3-0-3" id="h3-0-3" class="i">+    &lt;ClInclude Include=&quot;Public\winget\OutputDebugStringLogger.h&quot;&gt;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+      &lt;Filter&gt;Public\winget&lt;/Filter&gt;
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+    &lt;/ClInclude&gt;
+</a>   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;ClCompile Include=&quot;pch.cpp&quot;&gt;
+<a href="#h3-1" id="h3-1" class="h">@@ -374,6 +377,9 @@
+</a>     &lt;ClCompile Include=&quot;Fonts.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h3-1-3" id="h3-1-3" class="i">+    &lt;ClCompile Include=&quot;OutputDebugStringLogger.cpp&quot;&gt;
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+      &lt;Filter&gt;Source Files&lt;/Filter&gt;
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+    &lt;/ClCompile&gt;
+</a>   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;None Include=&quot;PropertySheet.props&quot; /&gt;
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCommonCore/OutputDebugStringLogger.cpp.html">src/AppInstallerCommonCore/OutputDebugStringLogger.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/OutputDebugStringLogger.cpp.html">src/AppInstallerCommonCore/OutputDebugStringLogger.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -0,0 +1,50 @@
+</a><a href="#h4-0-0" id="h4-0-0" class="i">+// Copyright (c) Microsoft Corporation.
+</a><a href="#h4-0-1" id="h4-0-1" class="i">+// Licensed under the MIT License.
+</a><a href="#h4-0-2" id="h4-0-2" class="i">+#include &quot;pch.h&quot;
+</a><a href="#h4-0-3" id="h4-0-3" class="i">+#include &quot;winget/OutputDebugStringLogger.h&quot;
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+namespace AppInstaller::Logging
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+{
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+    namespace
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+    {
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+        static constexpr std::string_view s_OutputDebugStringLoggerName = &quot;OutputDebugStringLogger&quot;;
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+    }
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+    std::string OutputDebugStringLogger::GetName() const
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+    {
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+        return std::string{ s_OutputDebugStringLoggerName };
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+    }
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+    void OutputDebugStringLogger::Write(Channel channel, Level, std::string_view message) noexcept try
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+    {
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+        std::stringstream strstr;
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+        strstr &lt;&lt; &quot;[&quot; &lt;&lt; std::setw(GetMaxChannelNameLength()) &lt;&lt; std::left &lt;&lt; std::setfill(&#39; &#39;) &lt;&lt; GetChannelName(channel) &lt;&lt; &quot;] &quot; &lt;&lt; message &lt;&lt; std::endl;
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+        std::string formattedMessage = std::move(strstr).str();
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+        OutputDebugStringA(formattedMessage.c_str());
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+    }
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+    catch (...)
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+    {
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+        // Just eat any exceptions here; better than losing logs
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+    }
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+    void OutputDebugStringLogger::WriteDirect(Channel, Level, std::string_view message) noexcept try
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+    {
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+        std::string nullTerminatedMessage{ message };
+</a><a href="#h4-0-33" id="h4-0-33" class="i">+        OutputDebugStringA(nullTerminatedMessage.c_str());
+</a><a href="#h4-0-34" id="h4-0-34" class="i">+    }
+</a><a href="#h4-0-35" id="h4-0-35" class="i">+    catch (...)
+</a><a href="#h4-0-36" id="h4-0-36" class="i">+    {
+</a><a href="#h4-0-37" id="h4-0-37" class="i">+        // Just eat any exceptions here; better than losing logs
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+    }
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+    void OutputDebugStringLogger::Add()
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+    {
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+        Log().AddLogger(std::make_unique&lt;OutputDebugStringLogger&gt;());
+</a><a href="#h4-0-43" id="h4-0-43" class="i">+    }
+</a><a href="#h4-0-44" id="h4-0-44" class="i">+
+</a><a href="#h4-0-45" id="h4-0-45" class="i">+    void OutputDebugStringLogger::Remove()
+</a><a href="#h4-0-46" id="h4-0-46" class="i">+    {
+</a><a href="#h4-0-47" id="h4-0-47" class="i">+        Log().RemoveLogger(std::string{ s_OutputDebugStringLoggerName });
+</a><a href="#h4-0-48" id="h4-0-48" class="i">+    }
+</a><a href="#h4-0-49" id="h4-0-49" class="i">+}
+</a><b>diff --git a/<a id="h5" href="../file/src/AppInstallerCommonCore/Public/winget/OutputDebugStringLogger.h.html">src/AppInstallerCommonCore/Public/winget/OutputDebugStringLogger.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/OutputDebugStringLogger.h.html">src/AppInstallerCommonCore/Public/winget/OutputDebugStringLogger.h</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -0,0 +1,29 @@
+</a><a href="#h5-0-0" id="h5-0-0" class="i">+// Copyright (c) Microsoft Corporation.
+</a><a href="#h5-0-1" id="h5-0-1" class="i">+// Licensed under the MIT License.
+</a><a href="#h5-0-2" id="h5-0-2" class="i">+#pragma once
+</a><a href="#h5-0-3" id="h5-0-3" class="i">+#include &lt;AppInstallerLogging.h&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+namespace AppInstaller::Logging
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+{
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+    // Sends logs to the OutputDebugString function.
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+    // Intended for use during initialization debugging.
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+    struct OutputDebugStringLogger : ILogger
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+    {
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+        OutputDebugStringLogger() = default;
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+        ~OutputDebugStringLogger() = default;
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+        // ILogger
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+        std::string GetName() const override;
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+
+</a><a href="#h5-0-18" id="h5-0-18" class="i">+        void Write(Channel channel, Level, std::string_view message) noexcept override;
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+
+</a><a href="#h5-0-20" id="h5-0-20" class="i">+        void WriteDirect(Channel channel, Level level, std::string_view message) noexcept override;
+</a><a href="#h5-0-21" id="h5-0-21" class="i">+
+</a><a href="#h5-0-22" id="h5-0-22" class="i">+        // Adds OutputDebugStringLogger to the current Log
+</a><a href="#h5-0-23" id="h5-0-23" class="i">+        static void Add();
+</a><a href="#h5-0-24" id="h5-0-24" class="i">+
+</a><a href="#h5-0-25" id="h5-0-25" class="i">+        // Removes OutputDebugStringLogger from the current Log
+</a><a href="#h5-0-26" id="h5-0-26" class="i">+        static void Remove();
+</a><a href="#h5-0-27" id="h5-0-27" class="i">+    };
+</a><a href="#h5-0-28" id="h5-0-28" class="i">+}
+</a></pre>
+</div>
+</body>
+</html>

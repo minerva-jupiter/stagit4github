@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>DscPackageResource.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../"><img src="../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../log.html">Log</a> | <a href="../../../../files.html">Files</a> | <a href="../../../../refs.html">Refs</a> | <a href="../../../../file/README.md.html">README</a> | <a href="../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> DscPackageResource.cpp (20828B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;DscPackageResource.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;DscComposableObject.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Resources.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Workflows/WorkflowBase.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;Workflows/ConfigurationFlow.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;Workflows/InstallFlow.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> #include &quot;Workflows/UninstallFlow.h&quot;
+<a href="#l11" class="line" id="l11">     11</a> #include &quot;Workflows/UpdateFlow.h&quot;
+<a href="#l12" class="line" id="l12">     12</a> #include &lt;winget/PackageVersionSelection.h&gt;
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a> using namespace AppInstaller::Utility::literals;
+<a href="#l15" class="line" id="l15">     15</a> using namespace AppInstaller::Repository;
+<a href="#l16" class="line" id="l16">     16</a> 
+<a href="#l17" class="line" id="l17">     17</a> namespace AppInstaller::CLI
+<a href="#l18" class="line" id="l18">     18</a> {
+<a href="#l19" class="line" id="l19">     19</a>     namespace
+<a href="#l20" class="line" id="l20">     20</a>     {
+<a href="#l21" class="line" id="l21">     21</a>         WINGET_DSC_DEFINE_COMPOSABLE_PROPERTY_FLAGS(IdProperty, std::string, Identifier, &quot;id&quot;, DscComposablePropertyFlag::Required | DscComposablePropertyFlag::CopyToOutput, Resource::String::DscResourcePropertyDescriptionPackageId);
+<a href="#l22" class="line" id="l22">     22</a>         WINGET_DSC_DEFINE_COMPOSABLE_PROPERTY_FLAGS(SourceProperty, std::string, Source, &quot;source&quot;, DscComposablePropertyFlag::CopyToOutput, Resource::String::DscResourcePropertyDescriptionPackageSource);
+<a href="#l23" class="line" id="l23">     23</a>         WINGET_DSC_DEFINE_COMPOSABLE_PROPERTY(VersionProperty, std::string, Version, &quot;version&quot;, Resource::String::DscResourcePropertyDescriptionPackageVersion);
+<a href="#l24" class="line" id="l24">     24</a>         WINGET_DSC_DEFINE_COMPOSABLE_PROPERTY_ENUM(MatchOptionProperty, std::string, MatchOption, &quot;matchOption&quot;, Resource::String::DscResourcePropertyDescriptionPackageMatchOption, ({ &quot;equals&quot;, &quot;equalsCaseInsensitive&quot;, &quot;startsWithCaseInsensitive&quot;, &quot;containsCaseInsensitive&quot; }), &quot;equalsCaseInsensitive&quot;);
+<a href="#l25" class="line" id="l25">     25</a>         WINGET_DSC_DEFINE_COMPOSABLE_PROPERTY_DEFAULT(UseLatestProperty, bool, UseLatest, &quot;useLatest&quot;, Resource::String::DscResourcePropertyDescriptionPackageUseLatest, &quot;false&quot;);
+<a href="#l26" class="line" id="l26">     26</a>         WINGET_DSC_DEFINE_COMPOSABLE_PROPERTY_ENUM(InstallModeProperty, std::string, InstallMode, &quot;installMode&quot;, Resource::String::DscResourcePropertyDescriptionPackageInstallMode, ({ &quot;default&quot;, &quot;silent&quot;, &quot;interactive&quot; }), &quot;silent&quot;);
+<a href="#l27" class="line" id="l27">     27</a>         WINGET_DSC_DEFINE_COMPOSABLE_PROPERTY(AcceptAgreementsProperty, bool, AcceptAgreements, &quot;acceptAgreements&quot;, Resource::String::DscResourcePropertyDescriptionAcceptAgreements);
+<a href="#l28" class="line" id="l28">     28</a> 
+<a href="#l29" class="line" id="l29">     29</a>         // TODO: To support Scope on this resource:
+<a href="#l30" class="line" id="l30">     30</a>         //  1. Change the installed source to pull in all package info for both scopes by default
+<a href="#l31" class="line" id="l31">     31</a>         //  2. Change the installed source open in workflows to always open for everything, regardless of scope
+<a href="#l32" class="line" id="l32">     32</a>         //  3. Improve correlation handling if needed for cross-scope package installations
+<a href="#l33" class="line" id="l33">     33</a>         //  4. Update the test EXE installer to handle being installed for both scopes
+<a href="#l34" class="line" id="l34">     34</a>         using PackageResourceObject = DscComposableObject&lt;StandardExistProperty, StandardInDesiredStateProperty, IdProperty, SourceProperty, VersionProperty, MatchOptionProperty, UseLatestProperty, InstallModeProperty, AcceptAgreementsProperty&gt;;
+<a href="#l35" class="line" id="l35">     35</a> 
+<a href="#l36" class="line" id="l36">     36</a>         std::optional&lt;MatchType&gt; ToMatchType(const std::optional&lt;std::string&gt;&amp; value)
+<a href="#l37" class="line" id="l37">     37</a>         {
+<a href="#l38" class="line" id="l38">     38</a>             if (!value)
+<a href="#l39" class="line" id="l39">     39</a>             {
+<a href="#l40" class="line" id="l40">     40</a>                 return std::nullopt;
+<a href="#l41" class="line" id="l41">     41</a>             }
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a>             std::string lowerValue = Utility::ToLower(value.value());
+<a href="#l44" class="line" id="l44">     44</a> 
+<a href="#l45" class="line" id="l45">     45</a>             if (lowerValue == &quot;equals&quot;)
+<a href="#l46" class="line" id="l46">     46</a>             {
+<a href="#l47" class="line" id="l47">     47</a>                 return MatchType::Exact;
+<a href="#l48" class="line" id="l48">     48</a>             }
+<a href="#l49" class="line" id="l49">     49</a>             else if (lowerValue == &quot;equals&quot;&quot;case&quot;&quot;insensitive&quot;)
+<a href="#l50" class="line" id="l50">     50</a>             {
+<a href="#l51" class="line" id="l51">     51</a>                 return MatchType::CaseInsensitive;
+<a href="#l52" class="line" id="l52">     52</a>             }
+<a href="#l53" class="line" id="l53">     53</a>             else if (lowerValue == &quot;starts&quot;&quot;with&quot;&quot;case&quot;&quot;insensitive&quot;)
+<a href="#l54" class="line" id="l54">     54</a>             {
+<a href="#l55" class="line" id="l55">     55</a>                 return MatchType::StartsWith;
+<a href="#l56" class="line" id="l56">     56</a>             }
+<a href="#l57" class="line" id="l57">     57</a>             else if (lowerValue == &quot;contains&quot;&quot;case&quot;&quot;insensitive&quot;)
+<a href="#l58" class="line" id="l58">     58</a>             {
+<a href="#l59" class="line" id="l59">     59</a>                 return MatchType::Substring;
+<a href="#l60" class="line" id="l60">     60</a>             }
+<a href="#l61" class="line" id="l61">     61</a> 
+<a href="#l62" class="line" id="l62">     62</a>             THROW_HR(E_INVALIDARG);
+<a href="#l63" class="line" id="l63">     63</a>         }
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a>         struct PackageFunctionData
+<a href="#l66" class="line" id="l66">     66</a>         {
+<a href="#l67" class="line" id="l67">     67</a>             PackageFunctionData(Execution::Context&amp; context, const std::optional&lt;Json::Value&gt;&amp; json, bool ignoreFieldRequirements = false) :
+<a href="#l68" class="line" id="l68">     68</a>                 Input(json, ignoreFieldRequirements),
+<a href="#l69" class="line" id="l69">     69</a>                 ParentContext(context)
+<a href="#l70" class="line" id="l70">     70</a>             {
+<a href="#l71" class="line" id="l71">     71</a>                 Reset();
+<a href="#l72" class="line" id="l72">     72</a>             }
+<a href="#l73" class="line" id="l73">     73</a> 
+<a href="#l74" class="line" id="l74">     74</a>             const PackageResourceObject Input;
+<a href="#l75" class="line" id="l75">     75</a>             PackageResourceObject Output;
+<a href="#l76" class="line" id="l76">     76</a>             Execution::Context&amp; ParentContext;
+<a href="#l77" class="line" id="l77">     77</a>             std::unique_ptr&lt;Execution::Context&gt; SubContext;
+<a href="#l78" class="line" id="l78">     78</a> 
+<a href="#l79" class="line" id="l79">     79</a>             // Reset the state that is modified by Get
+<a href="#l80" class="line" id="l80">     80</a>             void Reset()
+<a href="#l81" class="line" id="l81">     81</a>             {
+<a href="#l82" class="line" id="l82">     82</a>                 Output = Input.CopyForOutput();
+<a href="#l83" class="line" id="l83">     83</a> 
+<a href="#l84" class="line" id="l84">     84</a>                 SubContext = ParentContext.CreateSubContext();
+<a href="#l85" class="line" id="l85">     85</a>                 SubContext-&gt;SetFlags(Execution::ContextFlag::DisableInteractivity);
+<a href="#l86" class="line" id="l86">     86</a> 
+<a href="#l87" class="line" id="l87">     87</a>                 if (Input.AcceptAgreements().value_or(false))
+<a href="#l88" class="line" id="l88">     88</a>                 {
+<a href="#l89" class="line" id="l89">     89</a>                     SubContext-&gt;Args.AddArg(Execution::Args::Type::AcceptSourceAgreements);
+<a href="#l90" class="line" id="l90">     90</a>                     SubContext-&gt;Args.AddArg(Execution::Args::Type::AcceptPackageAgreements);
+<a href="#l91" class="line" id="l91">     91</a>                 }
+<a href="#l92" class="line" id="l92">     92</a>             }
+<a href="#l93" class="line" id="l93">     93</a> 
+<a href="#l94" class="line" id="l94">     94</a>             void PrepareSubContextInputs()
+<a href="#l95" class="line" id="l95">     95</a>             {
+<a href="#l96" class="line" id="l96">     96</a>                 if (Input.Source())
+<a href="#l97" class="line" id="l97">     97</a>                 {
+<a href="#l98" class="line" id="l98">     98</a>                     SubContext-&gt;Args.AddArg(Execution::Args::Type::Source, Input.Source().value());
+<a href="#l99" class="line" id="l99">     99</a>                 }
+<a href="#l100" class="line" id="l100">    100</a>             }
+<a href="#l101" class="line" id="l101">    101</a> 
+<a href="#l102" class="line" id="l102">    102</a>             // Fills the Output object with the current state
+<a href="#l103" class="line" id="l103">    103</a>             bool Get()
+<a href="#l104" class="line" id="l104">    104</a>             {
+<a href="#l105" class="line" id="l105">    105</a>                 PrepareSubContextInputs();
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a>                 *SubContext &lt;&lt;
+<a href="#l108" class="line" id="l108">    108</a>                     Workflow::ReportExecutionStage(Workflow::ExecutionStage::Discovery) &lt;&lt;
+<a href="#l109" class="line" id="l109">    109</a>                     Workflow::OpenSource() &lt;&lt;
+<a href="#l110" class="line" id="l110">    110</a>                     Workflow::OpenCompositeSource(Workflow::DetermineInstalledSource(*SubContext), false, CompositeSearchBehavior::AllPackages);
+<a href="#l111" class="line" id="l111">    111</a> 
+<a href="#l112" class="line" id="l112">    112</a>                 if (SubContext-&gt;IsTerminated())
+<a href="#l113" class="line" id="l113">    113</a>                 {
+<a href="#l114" class="line" id="l114">    114</a>                     ParentContext.Terminate(SubContext-&gt;GetTerminationHR());
+<a href="#l115" class="line" id="l115">    115</a>                     return false;
+<a href="#l116" class="line" id="l116">    116</a>                 }
+<a href="#l117" class="line" id="l117">    117</a> 
+<a href="#l118" class="line" id="l118">    118</a>                 // Do a manual search of the now opened source
+<a href="#l119" class="line" id="l119">    119</a>                 Source&amp; source = SubContext-&gt;Get&lt;Execution::Data::Source&gt;();
+<a href="#l120" class="line" id="l120">    120</a>                 MatchType matchType = ToMatchType(Input.MatchOption()).value_or(MatchType::CaseInsensitive);
+<a href="#l121" class="line" id="l121">    121</a> 
+<a href="#l122" class="line" id="l122">    122</a>                 SearchRequest request;
+<a href="#l123" class="line" id="l123">    123</a>                 request.Filters.emplace_back(PackageMatchFilter(PackageMatchField::Id, matchType, Input.Identifier().value()));
+<a href="#l124" class="line" id="l124">    124</a> 
+<a href="#l125" class="line" id="l125">    125</a>                 SearchResult result = source.Search(request);
+<a href="#l126" class="line" id="l126">    126</a>                 SubContext-&gt;Add&lt;Execution::Data::SearchResult&gt;(result);
+<a href="#l127" class="line" id="l127">    127</a> 
+<a href="#l128" class="line" id="l128">    128</a>                 if (result.Matches.empty())
+<a href="#l129" class="line" id="l129">    129</a>                 {
+<a href="#l130" class="line" id="l130">    130</a>                     Output.Exist(false);
+<a href="#l131" class="line" id="l131">    131</a>                 }
+<a href="#l132" class="line" id="l132">    132</a>                 else if (result.Matches.size() &gt; 1)
+<a href="#l133" class="line" id="l133">    133</a>                 {
+<a href="#l134" class="line" id="l134">    134</a>                     AICLI_LOG(Config, Warning, &lt;&lt; &quot;Found &quot; &lt;&lt; result.Matches.size() &lt;&lt; &quot; matches when searching for &#39;&quot; &lt;&lt; Input.Identifier().value() &lt;&lt; &quot;&#39;&quot;);
+<a href="#l135" class="line" id="l135">    135</a>                     Output.Exist(false);
+<a href="#l136" class="line" id="l136">    136</a>                 }
+<a href="#l137" class="line" id="l137">    137</a>                 else
+<a href="#l138" class="line" id="l138">    138</a>                 {
+<a href="#l139" class="line" id="l139">    139</a>                     auto&amp; package = result.Matches.front().Package;
+<a href="#l140" class="line" id="l140">    140</a>                     SubContext-&gt;Add&lt;Execution::Data::Package&gt;(package);
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>                     auto installedPackage = package-&gt;GetInstalled();
+<a href="#l143" class="line" id="l143">    143</a> 
+<a href="#l144" class="line" id="l144">    144</a>                     // Fill Output and SubContext
+<a href="#l145" class="line" id="l145">    145</a>                     Output.Exist(static_cast&lt;bool&gt;(installedPackage));
+<a href="#l146" class="line" id="l146">    146</a>                     Output.Identifier(package-&gt;GetProperty(PackageProperty::Id));
+<a href="#l147" class="line" id="l147">    147</a> 
+<a href="#l148" class="line" id="l148">    148</a>                     if (installedPackage)
+<a href="#l149" class="line" id="l149">    149</a>                     {
+<a href="#l150" class="line" id="l150">    150</a>                         auto versionKeys = installedPackage-&gt;GetVersionKeys();
+<a href="#l151" class="line" id="l151">    151</a>                         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Get found &quot; &lt;&lt; versionKeys.size() &lt;&lt; &quot; installed versions&quot;);
+<a href="#l152" class="line" id="l152">    152</a> 
+<a href="#l153" class="line" id="l153">    153</a>                         std::shared_ptr&lt;Repository::IPackageVersion&gt; installedVersion;
+<a href="#l154" class="line" id="l154">    154</a> 
+<a href="#l155" class="line" id="l155">    155</a>                         // Find the specific version provided if possible
+<a href="#l156" class="line" id="l156">    156</a>                         if (Input.Version())
+<a href="#l157" class="line" id="l157">    157</a>                         {
+<a href="#l158" class="line" id="l158">    158</a>                             Utility::Version inputVersion{ Input.Version().value() };
+<a href="#l159" class="line" id="l159">    159</a> 
+<a href="#l160" class="line" id="l160">    160</a>                             for (const auto&amp; key : versionKeys)
+<a href="#l161" class="line" id="l161">    161</a>                             {
+<a href="#l162" class="line" id="l162">    162</a>                                 if (inputVersion == Utility::Version{ key.Version })
+<a href="#l163" class="line" id="l163">    163</a>                                 {
+<a href="#l164" class="line" id="l164">    164</a>                                     installedVersion = installedPackage-&gt;GetVersion(key);
+<a href="#l165" class="line" id="l165">    165</a>                                     break;
+<a href="#l166" class="line" id="l166">    166</a>                                 }
+<a href="#l167" class="line" id="l167">    167</a>                             }
+<a href="#l168" class="line" id="l168">    168</a>                         }
+<a href="#l169" class="line" id="l169">    169</a> 
+<a href="#l170" class="line" id="l170">    170</a>                         if (!installedVersion)
+<a href="#l171" class="line" id="l171">    171</a>                         {
+<a href="#l172" class="line" id="l172">    172</a>                             installedVersion = installedPackage-&gt;GetLatestVersion();
+<a href="#l173" class="line" id="l173">    173</a>                         }
+<a href="#l174" class="line" id="l174">    174</a> 
+<a href="#l175" class="line" id="l175">    175</a>                         if (installedVersion)
+<a href="#l176" class="line" id="l176">    176</a>                         {
+<a href="#l177" class="line" id="l177">    177</a>                             Output.Version(installedVersion-&gt;GetProperty(PackageVersionProperty::Version));
+<a href="#l178" class="line" id="l178">    178</a>                         }
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>                         auto data = Repository::GetLatestApplicableVersion(package);
+<a href="#l181" class="line" id="l181">    181</a>                         Output.UseLatest(!data.UpdateAvailable);
+<a href="#l182" class="line" id="l182">    182</a>                     }
+<a href="#l183" class="line" id="l183">    183</a>                 }
+<a href="#l184" class="line" id="l184">    184</a> 
+<a href="#l185" class="line" id="l185">    185</a>                 AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Get found:\n&quot; &lt;&lt; Json::writeString(Json::StreamWriterBuilder{}, Output.ToJson()));
+<a href="#l186" class="line" id="l186">    186</a>                 return true;
+<a href="#l187" class="line" id="l187">    187</a>             }
+<a href="#l188" class="line" id="l188">    188</a> 
+<a href="#l189" class="line" id="l189">    189</a>             void Uninstall()
+<a href="#l190" class="line" id="l190">    190</a>             {
+<a href="#l191" class="line" id="l191">    191</a>                 AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Uninstall invoked&quot;);
+<a href="#l192" class="line" id="l192">    192</a> 
+<a href="#l193" class="line" id="l193">    193</a>                 if (Input.Version())
+<a href="#l194" class="line" id="l194">    194</a>                 {
+<a href="#l195" class="line" id="l195">    195</a>                     SubContext-&gt;Args.AddArg(Execution::Args::Type::TargetVersion, Input.Version().value());
+<a href="#l196" class="line" id="l196">    196</a>                 }
+<a href="#l197" class="line" id="l197">    197</a>                 else
+<a href="#l198" class="line" id="l198">    198</a>                 {
+<a href="#l199" class="line" id="l199">    199</a>                     SubContext-&gt;Args.AddArg(Execution::Args::Type::AllVersions);
+<a href="#l200" class="line" id="l200">    200</a>                 }
+<a href="#l201" class="line" id="l201">    201</a> 
+<a href="#l202" class="line" id="l202">    202</a>                 *SubContext &lt;&lt;
+<a href="#l203" class="line" id="l203">    203</a>                     Workflow::UninstallSinglePackage;
+<a href="#l204" class="line" id="l204">    204</a> 
+<a href="#l205" class="line" id="l205">    205</a>                 if (SubContext-&gt;IsTerminated())
+<a href="#l206" class="line" id="l206">    206</a>                 {
+<a href="#l207" class="line" id="l207">    207</a>                     ParentContext.Terminate(SubContext-&gt;GetTerminationHR());
+<a href="#l208" class="line" id="l208">    208</a>                     return;
+<a href="#l209" class="line" id="l209">    209</a>                 }
+<a href="#l210" class="line" id="l210">    210</a> 
+<a href="#l211" class="line" id="l211">    211</a>                 Output.Exist(false);
+<a href="#l212" class="line" id="l212">    212</a>                 Output.Version(std::nullopt);
+<a href="#l213" class="line" id="l213">    213</a>                 Output.UseLatest(std::nullopt);
+<a href="#l214" class="line" id="l214">    214</a>             }
+<a href="#l215" class="line" id="l215">    215</a> 
+<a href="#l216" class="line" id="l216">    216</a>             void Install(bool allowDowngrade = false)
+<a href="#l217" class="line" id="l217">    217</a>             {
+<a href="#l218" class="line" id="l218">    218</a>                 AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Install invoked&quot;);
+<a href="#l219" class="line" id="l219">    219</a> 
+<a href="#l220" class="line" id="l220">    220</a>                 if (Input.Version())
+<a href="#l221" class="line" id="l221">    221</a>                 {
+<a href="#l222" class="line" id="l222">    222</a>                     SubContext-&gt;Args.AddArg(Execution::Args::Type::Version, Input.Version().value());
+<a href="#l223" class="line" id="l223">    223</a>                 }
+<a href="#l224" class="line" id="l224">    224</a> 
+<a href="#l225" class="line" id="l225">    225</a>                 *SubContext &lt;&lt;
+<a href="#l226" class="line" id="l226">    226</a>                     Workflow::SelectSinglePackageVersionForInstallOrUpgrade(Workflow::OperationType::Install, allowDowngrade) &lt;&lt;
+<a href="#l227" class="line" id="l227">    227</a>                     Workflow::InstallSinglePackage;
+<a href="#l228" class="line" id="l228">    228</a> 
+<a href="#l229" class="line" id="l229">    229</a>                 if (SubContext-&gt;IsTerminated())
+<a href="#l230" class="line" id="l230">    230</a>                 {
+<a href="#l231" class="line" id="l231">    231</a>                     ParentContext.Terminate(SubContext-&gt;GetTerminationHR());
+<a href="#l232" class="line" id="l232">    232</a>                     return;
+<a href="#l233" class="line" id="l233">    233</a>                 }
+<a href="#l234" class="line" id="l234">    234</a> 
+<a href="#l235" class="line" id="l235">    235</a>                 Output.Exist(true);
+<a href="#l236" class="line" id="l236">    236</a> 
+<a href="#l237" class="line" id="l237">    237</a>                 Output.Version(std::nullopt);
+<a href="#l238" class="line" id="l238">    238</a>                 if (SubContext-&gt;Contains(Execution::Data::PackageVersion))
+<a href="#l239" class="line" id="l239">    239</a>                 {
+<a href="#l240" class="line" id="l240">    240</a>                     const auto&amp; packageVersion = SubContext-&gt;Get&lt;Execution::Data::PackageVersion&gt;();
+<a href="#l241" class="line" id="l241">    241</a>                     if (packageVersion)
+<a href="#l242" class="line" id="l242">    242</a>                     {
+<a href="#l243" class="line" id="l243">    243</a>                         Output.Version(packageVersion-&gt;GetProperty(Repository::PackageVersionProperty::Version));
+<a href="#l244" class="line" id="l244">    244</a>                     }
+<a href="#l245" class="line" id="l245">    245</a>                 }
+<a href="#l246" class="line" id="l246">    246</a> 
+<a href="#l247" class="line" id="l247">    247</a>                 Output.UseLatest(std::nullopt);
+<a href="#l248" class="line" id="l248">    248</a>             }
+<a href="#l249" class="line" id="l249">    249</a> 
+<a href="#l250" class="line" id="l250">    250</a>             void Reinstall()
+<a href="#l251" class="line" id="l251">    251</a>             {
+<a href="#l252" class="line" id="l252">    252</a>                 AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Reinstall invoked&quot;);
+<a href="#l253" class="line" id="l253">    253</a> 
+<a href="#l254" class="line" id="l254">    254</a>                 SubContext-&gt;Args.AddArg(Execution::Args::Type::UninstallPrevious);
+<a href="#l255" class="line" id="l255">    255</a> 
+<a href="#l256" class="line" id="l256">    256</a>                 Install(true);
+<a href="#l257" class="line" id="l257">    257</a>             }
+<a href="#l258" class="line" id="l258">    258</a> 
+<a href="#l259" class="line" id="l259">    259</a>             // Determines if the current Output values match the Input values state.
+<a href="#l260" class="line" id="l260">    260</a>             bool Test()
+<a href="#l261" class="line" id="l261">    261</a>             {
+<a href="#l262" class="line" id="l262">    262</a>                 // Need to populate Output before calling
+<a href="#l263" class="line" id="l263">    263</a>                 THROW_HR_IF(E_UNEXPECTED, !Output.Exist().has_value());
+<a href="#l264" class="line" id="l264">    264</a> 
+<a href="#l265" class="line" id="l265">    265</a>                 if (Input.ShouldExist())
+<a href="#l266" class="line" id="l266">    266</a>                 {
+<a href="#l267" class="line" id="l267">    267</a>                     if (Output.Exist().value())
+<a href="#l268" class="line" id="l268">    268</a>                     {
+<a href="#l269" class="line" id="l269">    269</a>                         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Test needed to inspect these properties: Version(&quot; &lt;&lt; TestVersion() &lt;&lt; &quot;), Latest(&quot; &lt;&lt; TestLatest() &lt;&lt; &quot;)&quot;);
+<a href="#l270" class="line" id="l270">    270</a>                         return TestVersion() &amp;&amp; TestLatest();
+<a href="#l271" class="line" id="l271">    271</a>                     }
+<a href="#l272" class="line" id="l272">    272</a>                     else
+<a href="#l273" class="line" id="l273">    273</a>                     {
+<a href="#l274" class="line" id="l274">    274</a>                         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Test was false because the package was not installed&quot;);
+<a href="#l275" class="line" id="l275">    275</a>                         return false;
+<a href="#l276" class="line" id="l276">    276</a>                     }
+<a href="#l277" class="line" id="l277">    277</a>                 }
+<a href="#l278" class="line" id="l278">    278</a>                 else
+<a href="#l279" class="line" id="l279">    279</a>                 {
+<a href="#l280" class="line" id="l280">    280</a>                     AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Package::Test desired the package to not exist, and it &quot; &lt;&lt; (Output.Exist().value() ? &quot;did&quot; : &quot;did not&quot;));
+<a href="#l281" class="line" id="l281">    281</a>                     return !Output.Exist().value();
+<a href="#l282" class="line" id="l282">    282</a>                 }
+<a href="#l283" class="line" id="l283">    283</a>             }
+<a href="#l284" class="line" id="l284">    284</a> 
+<a href="#l285" class="line" id="l285">    285</a>             Json::Value DiffJson()
+<a href="#l286" class="line" id="l286">    286</a>             {
+<a href="#l287" class="line" id="l287">    287</a>                 // Need to populate Output before calling
+<a href="#l288" class="line" id="l288">    288</a>                 THROW_HR_IF(E_UNEXPECTED, !Output.Exist().has_value());
+<a href="#l289" class="line" id="l289">    289</a> 
+<a href="#l290" class="line" id="l290">    290</a>                 Json::Value result{ Json::ValueType::arrayValue };
+<a href="#l291" class="line" id="l291">    291</a> 
+<a href="#l292" class="line" id="l292">    292</a>                 if (Input.ShouldExist() != Output.Exist().value())
+<a href="#l293" class="line" id="l293">    293</a>                 {
+<a href="#l294" class="line" id="l294">    294</a>                     result.append(std::string{ StandardExistProperty::Name() });
+<a href="#l295" class="line" id="l295">    295</a>                 }
+<a href="#l296" class="line" id="l296">    296</a>                 else
+<a href="#l297" class="line" id="l297">    297</a>                 {
+<a href="#l298" class="line" id="l298">    298</a>                     if (!TestVersion())
+<a href="#l299" class="line" id="l299">    299</a>                     {
+<a href="#l300" class="line" id="l300">    300</a>                         result.append(std::string{ VersionProperty::Name() });
+<a href="#l301" class="line" id="l301">    301</a>                     }
+<a href="#l302" class="line" id="l302">    302</a> 
+<a href="#l303" class="line" id="l303">    303</a>                     if (!TestLatest())
+<a href="#l304" class="line" id="l304">    304</a>                     {
+<a href="#l305" class="line" id="l305">    305</a>                         result.append(std::string{ UseLatestProperty::Name() });
+<a href="#l306" class="line" id="l306">    306</a>                     }
+<a href="#l307" class="line" id="l307">    307</a>                 }
+<a href="#l308" class="line" id="l308">    308</a> 
+<a href="#l309" class="line" id="l309">    309</a>                 return result;
+<a href="#l310" class="line" id="l310">    310</a>             }
+<a href="#l311" class="line" id="l311">    311</a> 
+<a href="#l312" class="line" id="l312">    312</a>             bool TestVersion()
+<a href="#l313" class="line" id="l313">    313</a>             {
+<a href="#l314" class="line" id="l314">    314</a>                 if (Input.Version())
+<a href="#l315" class="line" id="l315">    315</a>                 {
+<a href="#l316" class="line" id="l316">    316</a>                     if (Output.Version())
+<a href="#l317" class="line" id="l317">    317</a>                     {
+<a href="#l318" class="line" id="l318">    318</a>                         return Utility::Version{ Input.Version().value() } == Utility::Version{ Output.Version().value() };
+<a href="#l319" class="line" id="l319">    319</a>                     }
+<a href="#l320" class="line" id="l320">    320</a>                     else
+<a href="#l321" class="line" id="l321">    321</a>                     {
+<a href="#l322" class="line" id="l322">    322</a>                         return false;
+<a href="#l323" class="line" id="l323">    323</a>                     }
+<a href="#l324" class="line" id="l324">    324</a>                 }
+<a href="#l325" class="line" id="l325">    325</a>                 else
+<a href="#l326" class="line" id="l326">    326</a>                 {
+<a href="#l327" class="line" id="l327">    327</a>                     return true;
+<a href="#l328" class="line" id="l328">    328</a>                 }
+<a href="#l329" class="line" id="l329">    329</a>             }
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>             bool TestLatest()
+<a href="#l332" class="line" id="l332">    332</a>             {
+<a href="#l333" class="line" id="l333">    333</a>                 if (Input.UseLatest() &amp;&amp; Input.UseLatest().value())
+<a href="#l334" class="line" id="l334">    334</a>                 {
+<a href="#l335" class="line" id="l335">    335</a>                     if (Output.UseLatest())
+<a href="#l336" class="line" id="l336">    336</a>                     {
+<a href="#l337" class="line" id="l337">    337</a>                         return Output.UseLatest().value();
+<a href="#l338" class="line" id="l338">    338</a>                     }
+<a href="#l339" class="line" id="l339">    339</a>                     else
+<a href="#l340" class="line" id="l340">    340</a>                     {
+<a href="#l341" class="line" id="l341">    341</a>                         return false;
+<a href="#l342" class="line" id="l342">    342</a>                     }
+<a href="#l343" class="line" id="l343">    343</a>                 }
+<a href="#l344" class="line" id="l344">    344</a>                 else
+<a href="#l345" class="line" id="l345">    345</a>                 {
+<a href="#l346" class="line" id="l346">    346</a>                     return true;
+<a href="#l347" class="line" id="l347">    347</a>                 }
+<a href="#l348" class="line" id="l348">    348</a>             }
+<a href="#l349" class="line" id="l349">    349</a>         };
+<a href="#l350" class="line" id="l350">    350</a>     }
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>     DscPackageResource::DscPackageResource(std::string_view parent) :
+<a href="#l353" class="line" id="l353">    353</a>         DscCommandBase(parent, &quot;package&quot;, DscResourceKind::Resource,
+<a href="#l354" class="line" id="l354">    354</a>             DscFunctions::Get | DscFunctions::Set | DscFunctions::Test | DscFunctions::Export | DscFunctions::Schema,
+<a href="#l355" class="line" id="l355">    355</a>             DscFunctionModifiers::ImplementsPretest | DscFunctionModifiers::HandlesExist | DscFunctionModifiers::ReturnsStateAndDiff)
+<a href="#l356" class="line" id="l356">    356</a>     {
+<a href="#l357" class="line" id="l357">    357</a>     }
+<a href="#l358" class="line" id="l358">    358</a> 
+<a href="#l359" class="line" id="l359">    359</a>     Resource::LocString DscPackageResource::ShortDescription() const
+<a href="#l360" class="line" id="l360">    360</a>     {
+<a href="#l361" class="line" id="l361">    361</a>         return Resource::String::DscPackageResourceShortDescription;
+<a href="#l362" class="line" id="l362">    362</a>     }
+<a href="#l363" class="line" id="l363">    363</a> 
+<a href="#l364" class="line" id="l364">    364</a>     Resource::LocString DscPackageResource::LongDescription() const
+<a href="#l365" class="line" id="l365">    365</a>     {
+<a href="#l366" class="line" id="l366">    366</a>         return Resource::String::DscPackageResourceLongDescription;
+<a href="#l367" class="line" id="l367">    367</a>     }
+<a href="#l368" class="line" id="l368">    368</a> 
+<a href="#l369" class="line" id="l369">    369</a>     std::string DscPackageResource::ResourceType() const
+<a href="#l370" class="line" id="l370">    370</a>     {
+<a href="#l371" class="line" id="l371">    371</a>         return &quot;Package&quot;;
+<a href="#l372" class="line" id="l372">    372</a>     }
+<a href="#l373" class="line" id="l373">    373</a> 
+<a href="#l374" class="line" id="l374">    374</a>     void DscPackageResource::ResourceFunctionGet(Execution::Context&amp; context) const
+<a href="#l375" class="line" id="l375">    375</a>     {
+<a href="#l376" class="line" id="l376">    376</a>         if (auto json = GetJsonFromInput(context))
+<a href="#l377" class="line" id="l377">    377</a>         {
+<a href="#l378" class="line" id="l378">    378</a>             PackageFunctionData data{ context, json };
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>             if (!data.Get())
+<a href="#l381" class="line" id="l381">    381</a>             {
+<a href="#l382" class="line" id="l382">    382</a>                 return;
+<a href="#l383" class="line" id="l383">    383</a>             }
+<a href="#l384" class="line" id="l384">    384</a> 
+<a href="#l385" class="line" id="l385">    385</a>             WriteJsonOutputLine(context, data.Output.ToJson());
+<a href="#l386" class="line" id="l386">    386</a>         }
+<a href="#l387" class="line" id="l387">    387</a>     }
+<a href="#l388" class="line" id="l388">    388</a> 
+<a href="#l389" class="line" id="l389">    389</a>     void DscPackageResource::ResourceFunctionSet(Execution::Context&amp; context) const
+<a href="#l390" class="line" id="l390">    390</a>     {
+<a href="#l391" class="line" id="l391">    391</a>         if (auto json = GetJsonFromInput(context))
+<a href="#l392" class="line" id="l392">    392</a>         {
+<a href="#l393" class="line" id="l393">    393</a>             PackageFunctionData data{ context, json };
+<a href="#l394" class="line" id="l394">    394</a> 
+<a href="#l395" class="line" id="l395">    395</a>             if (!data.Get())
+<a href="#l396" class="line" id="l396">    396</a>             {
+<a href="#l397" class="line" id="l397">    397</a>                 return;
+<a href="#l398" class="line" id="l398">    398</a>             }
+<a href="#l399" class="line" id="l399">    399</a> 
+<a href="#l400" class="line" id="l400">    400</a>             // Capture the diff before updating the output
+<a href="#l401" class="line" id="l401">    401</a>             auto diff = data.DiffJson();
+<a href="#l402" class="line" id="l402">    402</a> 
+<a href="#l403" class="line" id="l403">    403</a>             if (!data.Test())
+<a href="#l404" class="line" id="l404">    404</a>             {
+<a href="#l405" class="line" id="l405">    405</a>                 if (data.Input.ShouldExist())
+<a href="#l406" class="line" id="l406">    406</a>                 {
+<a href="#l407" class="line" id="l407">    407</a>                     if (data.Output.Exist().value())
+<a href="#l408" class="line" id="l408">    408</a>                     {
+<a href="#l409" class="line" id="l409">    409</a>                         if (!data.TestLatest())
+<a href="#l410" class="line" id="l410">    410</a>                         {
+<a href="#l411" class="line" id="l411">    411</a>                             // Install will swap to update flow
+<a href="#l412" class="line" id="l412">    412</a>                             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Installing package to update to latest&quot;);
+<a href="#l413" class="line" id="l413">    413</a>                             data.Install();
+<a href="#l414" class="line" id="l414">    414</a>                         }
+<a href="#l415" class="line" id="l415">    415</a>                         else // (!data.TestVersion())
+<a href="#l416" class="line" id="l416">    416</a>                         {
+<a href="#l417" class="line" id="l417">    417</a>                             Utility::Version inputVersion{ data.Input.Version().value() };
+<a href="#l418" class="line" id="l418">    418</a>                             Utility::Version outputVersion{ data.Output.Version().value() };
+<a href="#l419" class="line" id="l419">    419</a> 
+<a href="#l420" class="line" id="l420">    420</a>                             if (outputVersion &lt; inputVersion)
+<a href="#l421" class="line" id="l421">    421</a>                             {
+<a href="#l422" class="line" id="l422">    422</a>                                 // Install will swap to update flow
+<a href="#l423" class="line" id="l423">    423</a>                                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Installing package to update to desired version&quot;);
+<a href="#l424" class="line" id="l424">    424</a>                                 data.Install();
+<a href="#l425" class="line" id="l425">    425</a>                             }
+<a href="#l426" class="line" id="l426">    426</a>                             else
+<a href="#l427" class="line" id="l427">    427</a>                             {
+<a href="#l428" class="line" id="l428">    428</a>                                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Reinstalling package to downgrade to desired version&quot;);
+<a href="#l429" class="line" id="l429">    429</a>                                 data.Reinstall();
+<a href="#l430" class="line" id="l430">    430</a>                             }
+<a href="#l431" class="line" id="l431">    431</a>                         }
+<a href="#l432" class="line" id="l432">    432</a>                     }
+<a href="#l433" class="line" id="l433">    433</a>                     else
+<a href="#l434" class="line" id="l434">    434</a>                     {
+<a href="#l435" class="line" id="l435">    435</a>                         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Installing package as it was not found&quot;);
+<a href="#l436" class="line" id="l436">    436</a>                         data.Install();
+<a href="#l437" class="line" id="l437">    437</a>                     }
+<a href="#l438" class="line" id="l438">    438</a>                 }
+<a href="#l439" class="line" id="l439">    439</a>                 else
+<a href="#l440" class="line" id="l440">    440</a>                 {
+<a href="#l441" class="line" id="l441">    441</a>                     AICLI_LOG(CLI, Info, &lt;&lt; &quot;Uninstalling package as desired&quot;);
+<a href="#l442" class="line" id="l442">    442</a>                     data.Uninstall();
+<a href="#l443" class="line" id="l443">    443</a>                 }
+<a href="#l444" class="line" id="l444">    444</a> 
+<a href="#l445" class="line" id="l445">    445</a>                 if (data.SubContext-&gt;IsTerminated())
+<a href="#l446" class="line" id="l446">    446</a>                 {
+<a href="#l447" class="line" id="l447">    447</a>                     return;
+<a href="#l448" class="line" id="l448">    448</a>                 }
+<a href="#l449" class="line" id="l449">    449</a>             }
+<a href="#l450" class="line" id="l450">    450</a> 
+<a href="#l451" class="line" id="l451">    451</a>             WriteJsonOutputLine(context, data.Output.ToJson());
+<a href="#l452" class="line" id="l452">    452</a>             WriteJsonOutputLine(context, diff);
+<a href="#l453" class="line" id="l453">    453</a>         }
+<a href="#l454" class="line" id="l454">    454</a>     }
+<a href="#l455" class="line" id="l455">    455</a> 
+<a href="#l456" class="line" id="l456">    456</a>     void DscPackageResource::ResourceFunctionTest(Execution::Context&amp; context) const
+<a href="#l457" class="line" id="l457">    457</a>     {
+<a href="#l458" class="line" id="l458">    458</a>         if (auto json = GetJsonFromInput(context))
+<a href="#l459" class="line" id="l459">    459</a>         {
+<a href="#l460" class="line" id="l460">    460</a>             PackageFunctionData data{ context, json };
+<a href="#l461" class="line" id="l461">    461</a> 
+<a href="#l462" class="line" id="l462">    462</a>             if (!data.Get())
+<a href="#l463" class="line" id="l463">    463</a>             {
+<a href="#l464" class="line" id="l464">    464</a>                 return;
+<a href="#l465" class="line" id="l465">    465</a>             }
+<a href="#l466" class="line" id="l466">    466</a> 
+<a href="#l467" class="line" id="l467">    467</a>             data.Output.InDesiredState(data.Test());
+<a href="#l468" class="line" id="l468">    468</a> 
+<a href="#l469" class="line" id="l469">    469</a>             WriteJsonOutputLine(context, data.Output.ToJson());
+<a href="#l470" class="line" id="l470">    470</a>             WriteJsonOutputLine(context, data.DiffJson());
+<a href="#l471" class="line" id="l471">    471</a>         }
+<a href="#l472" class="line" id="l472">    472</a>     }
+<a href="#l473" class="line" id="l473">    473</a> 
+<a href="#l474" class="line" id="l474">    474</a>     void DscPackageResource::ResourceFunctionExport(Execution::Context&amp; context) const
+<a href="#l475" class="line" id="l475">    475</a>     {
+<a href="#l476" class="line" id="l476">    476</a>         auto json = GetJsonFromInput(context, false);
+<a href="#l477" class="line" id="l477">    477</a>         PackageFunctionData data{ context, json, true };
+<a href="#l478" class="line" id="l478">    478</a> 
+<a href="#l479" class="line" id="l479">    479</a>         data.PrepareSubContextInputs();
+<a href="#l480" class="line" id="l480">    480</a> 
+<a href="#l481" class="line" id="l481">    481</a>         if (!data.Input.UseLatest().value_or(true))
+<a href="#l482" class="line" id="l482">    482</a>         {
+<a href="#l483" class="line" id="l483">    483</a>             data.SubContext-&gt;Args.AddArg(Execution::Args::Type::IncludeVersions);
+<a href="#l484" class="line" id="l484">    484</a>         }
+<a href="#l485" class="line" id="l485">    485</a> 
+<a href="#l486" class="line" id="l486">    486</a>         data.SubContext-&gt;Args.AddArg(Execution::Args::Type::ConfigurationExportAll);
+<a href="#l487" class="line" id="l487">    487</a> 
+<a href="#l488" class="line" id="l488">    488</a>         *data.SubContext &lt;&lt;
+<a href="#l489" class="line" id="l489">    489</a>             Workflow::SearchSourceForPackageExport;
+<a href="#l490" class="line" id="l490">    490</a> 
+<a href="#l491" class="line" id="l491">    491</a>         if (data.SubContext-&gt;IsTerminated())
+<a href="#l492" class="line" id="l492">    492</a>         {
+<a href="#l493" class="line" id="l493">    493</a>             context.Terminate(data.SubContext-&gt;GetTerminationHR());
+<a href="#l494" class="line" id="l494">    494</a>             return;
+<a href="#l495" class="line" id="l495">    495</a>         }
+<a href="#l496" class="line" id="l496">    496</a> 
+<a href="#l497" class="line" id="l497">    497</a>         const auto&amp; packageCollection = data.SubContext-&gt;Get&lt;Execution::Data::PackageCollection&gt;();
+<a href="#l498" class="line" id="l498">    498</a> 
+<a href="#l499" class="line" id="l499">    499</a>         for (const auto&amp; source : packageCollection.Sources)
+<a href="#l500" class="line" id="l500">    500</a>         {
+<a href="#l501" class="line" id="l501">    501</a>             for (const auto&amp; package : source.Packages)
+<a href="#l502" class="line" id="l502">    502</a>             {
+<a href="#l503" class="line" id="l503">    503</a>                 PackageResourceObject output;
+<a href="#l504" class="line" id="l504">    504</a> 
+<a href="#l505" class="line" id="l505">    505</a>                 output.Identifier(package.Id);
+<a href="#l506" class="line" id="l506">    506</a>                 output.Source(source.Details.Name);
+<a href="#l507" class="line" id="l507">    507</a> 
+<a href="#l508" class="line" id="l508">    508</a>                 if (!package.VersionAndChannel.GetVersion().IsEmpty())
+<a href="#l509" class="line" id="l509">    509</a>                 {
+<a href="#l510" class="line" id="l510">    510</a>                     output.Version(package.VersionAndChannel.GetVersion().ToString());
+<a href="#l511" class="line" id="l511">    511</a>                 }
+<a href="#l512" class="line" id="l512">    512</a> 
+<a href="#l513" class="line" id="l513">    513</a>                 // TODO: Exporting scope requires one or more of the following:
+<a href="#l514" class="line" id="l514">    514</a>                 //  1. Support for &quot;OrUnknown&quot; scope variants during Set (and workflows)
+<a href="#l515" class="line" id="l515">    515</a>                 //  2. Tracking scope intent as we do for some other installer properties
+<a href="#l516" class="line" id="l516">    516</a>                 //  3. Checking for the availability of the current scope in the package
+<a href="#l517" class="line" id="l517">    517</a> 
+<a href="#l518" class="line" id="l518">    518</a>                 WriteJsonOutputLine(context, output.ToJson());
+<a href="#l519" class="line" id="l519">    519</a>             }
+<a href="#l520" class="line" id="l520">    520</a>         }
+<a href="#l521" class="line" id="l521">    521</a>     }
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>     void DscPackageResource::ResourceFunctionSchema(Execution::Context&amp; context) const
+<a href="#l524" class="line" id="l524">    524</a>     {
+<a href="#l525" class="line" id="l525">    525</a>         WriteJsonOutputLine(context, PackageResourceObject::Schema(ResourceType()));
+<a href="#l526" class="line" id="l526">    526</a>     }
+<a href="#l527" class="line" id="l527">    527</a> }
+</pre>
+</div>
+</body>
+</html>

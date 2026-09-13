@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>#476 - Package Pinning.md - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> #476 - Package Pinning.md (10121B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> ---
+<a href="#l2" class="line" id="l2">      2</a> author: Yao Sun @yao-msft
+<a href="#l3" class="line" id="l3">      3</a> created on: 2022-10-12
+<a href="#l4" class="line" id="l4">      4</a> last updated: 2022-10-12
+<a href="#l5" class="line" id="l5">      5</a> issue id: 476
+<a href="#l6" class="line" id="l6">      6</a> ---
+<a href="#l7" class="line" id="l7">      7</a> 
+<a href="#l8" class="line" id="l8">      8</a> # Package Pinning
+<a href="#l9" class="line" id="l9">      9</a> 
+<a href="#l10" class="line" id="l10">     10</a> For [#476](https://github.com/microsoft/winget-cli/issues/476)
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> ## Abstract
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a> This spec describes the functionality and high level implementation design of Package Pinning feature.
+<a href="#l15" class="line" id="l15">     15</a> 
+<a href="#l16" class="line" id="l16">     16</a> ## Inspiration
+<a href="#l17" class="line" id="l17">     17</a> 
+<a href="#l18" class="line" id="l18">     18</a> This is inspired by functionalities in other package managers, as well as community feedback.
+<a href="#l19" class="line" id="l19">     19</a> - Packages may introduce breaking changes that users may not want integrate into their workflow quite yet.
+<a href="#l20" class="line" id="l20">     20</a> - Packages may update themselves so that it will be duplicate effort for winget to try to update them.
+<a href="#l21" class="line" id="l21">     21</a> - User may want to maintain some of the packages through other channels outside of winget, or prefer one source over others within winget.
+<a href="#l22" class="line" id="l22">     22</a> - User may want some of the packages to stay in some major versions but allow minor version changes during upgrade.
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a> ## Solution Design
+<a href="#l25" class="line" id="l25">     25</a> 
+<a href="#l26" class="line" id="l26">     26</a> #### Package Pinning types
+<a href="#l27" class="line" id="l27">     27</a> To achieve goals listed above, winget will support 3 types of Package Pinning:
+<a href="#l28" class="line" id="l28">     28</a> - **Blocking:** The package is blocked from `winget upgrade --all` or `winget upgrade &lt;specific package&gt;`, user has to unblock the package to let winget perform upgrade.
+<a href="#l29" class="line" id="l29">     29</a> - **Pinning:** The package is excluded from `winget upgrade --all` but allowed in `winget upgrade &lt;specific package&gt;`, a new argument `--include-pinned` will be introduced to let `winget upgrade --all` to include pinned packages.
+<a href="#l30" class="line" id="l30">     30</a> - **Gating:** The package is pinned to specific version(s). For example, if a package is pinned to version `1.2.*`, any version between `1.2.0` to `1.2.&lt;anything&gt;` is considered valid.
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a> To allow user override, `--force` can be used with `winget upgrade &lt;specific package&gt;` to override some of the pinning created above.
+<a href="#l33" class="line" id="l33">     33</a> 
+<a href="#l34" class="line" id="l34">     34</a> #### Package Pinning Configuration Storage
+<a href="#l35" class="line" id="l35">     35</a> 
+<a href="#l36" class="line" id="l36">     36</a> A separate sqlite db (other than the existing tracking catalog) will be created to store the package pinning configurations from user.
+<a href="#l37" class="line" id="l37">     37</a> ```text
+<a href="#l38" class="line" id="l38">     38</a> PackageIdentifier       SourceIdentifier       Version        PinningType
+<a href="#l39" class="line" id="l39">     39</a> ----------------------------------------------------------------------------
+<a href="#l40" class="line" id="l40">     40</a> Microsoft.TestApp       winget                 1.2.*          Gating
+<a href="#l41" class="line" id="l41">     41</a> ```
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a> **Notes:** For this iteration, winget will only support pinning packages that are locally installed and correlatable with at least one of the remote sources. Winget will record a pinned package by the PackageIdentifier and SourceIdentifier. There can only be one pinning configuration for a specific package. In the future, winget may consider pinning packages from installed packages (upon improving the installed package&#39;s PackageIdentifier logic).
+<a href="#l44" class="line" id="l44">     44</a> 
+<a href="#l45" class="line" id="l45">     45</a> ## UI/UX Design
+<a href="#l46" class="line" id="l46">     46</a> 
+<a href="#l47" class="line" id="l47">     47</a> #### winget pin commands
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a> A new `winget pin` command with 3 sub-commands will be introduced.
+<a href="#l50" class="line" id="l50">     50</a> - Add package pinning configuration:
+<a href="#l51" class="line" id="l51">     51</a> 
+<a href="#l52" class="line" id="l52">     52</a>   `winget pin add &lt;package&gt; [--version &lt;optional gated version&gt;] [--source &lt;source&gt;] [--force] [--blocking]`
+<a href="#l53" class="line" id="l53">     53</a> 
+<a href="#l54" class="line" id="l54">     54</a> - Remove package pinning configuration:
+<a href="#l55" class="line" id="l55">     55</a> 
+<a href="#l56" class="line" id="l56">     56</a>   `winget pin remove &lt;package&gt; [--source &lt;source&gt;] [--force]`
+<a href="#l57" class="line" id="l57">     57</a> 
+<a href="#l58" class="line" id="l58">     58</a> - List package pinning configuration:
+<a href="#l59" class="line" id="l59">     59</a> 
+<a href="#l60" class="line" id="l60">     60</a>   `winget pin list &lt;package&gt; [--source &lt;source&gt;]` for a specific package or `winget pin list` to list all
+<a href="#l61" class="line" id="l61">     61</a> 
+<a href="#l62" class="line" id="l62">     62</a> #### Blocking
+<a href="#l63" class="line" id="l63">     63</a> To block a package from upgrade, use `winget pin add &lt;package&gt; --blocking`
+<a href="#l64" class="line" id="l64">     64</a> ```text
+<a href="#l65" class="line" id="l65">     65</a> cmd&gt; winget pin Microsoft.TestApp --blocking
+<a href="#l66" class="line" id="l66">     66</a> ```
+<a href="#l67" class="line" id="l67">     67</a> Now the pinning configuration is recorded as
+<a href="#l68" class="line" id="l68">     68</a> ```text
+<a href="#l69" class="line" id="l69">     69</a> PackageIdentifier       SourceIdentifier       Version        PinningType
+<a href="#l70" class="line" id="l70">     70</a> ----------------------------------------------------------------------------
+<a href="#l71" class="line" id="l71">     71</a> Microsoft.TestApp       winget                                Blocking
+<a href="#l72" class="line" id="l72">     72</a> Microsoft.TestAppStore  msstore                               Blocking
+<a href="#l73" class="line" id="l73">     73</a> ```
+<a href="#l74" class="line" id="l74">     74</a> **Note:** by default packages correlated from all sources are blocked, user can pass in `--source` to block for a specific source
+<a href="#l75" class="line" id="l75">     75</a> 
+<a href="#l76" class="line" id="l76">     76</a> Corresponding upgrade behavior
+<a href="#l77" class="line" id="l77">     77</a> ```text
+<a href="#l78" class="line" id="l78">     78</a> cmd&gt; winget upgrade -all
+<a href="#l79" class="line" id="l79">     79</a> Microsoft TestApp is blocked from upgrade and skipped
+<a href="#l80" class="line" id="l80">     80</a> 
+<a href="#l81" class="line" id="l81">     81</a> cmd&gt; winget upgrade Microsoft.TestApp
+<a href="#l82" class="line" id="l82">     82</a> Microsoft TestApp is blocked from upgrade
+<a href="#l83" class="line" id="l83">     83</a> 
+<a href="#l84" class="line" id="l84">     84</a> cmd&gt; winget upgrade Microsoft.TestApp --force
+<a href="#l85" class="line" id="l85">     85</a> Success
+<a href="#l86" class="line" id="l86">     86</a> ```
+<a href="#l87" class="line" id="l87">     87</a> 
+<a href="#l88" class="line" id="l88">     88</a> #### Pinning
+<a href="#l89" class="line" id="l89">     89</a> To pin a package from `winget upgrade --all`, use `winget pin add &lt;package&gt;`
+<a href="#l90" class="line" id="l90">     90</a> ```text
+<a href="#l91" class="line" id="l91">     91</a> cmd&gt; winget pin Microsoft.TestApp
+<a href="#l92" class="line" id="l92">     92</a> ```
+<a href="#l93" class="line" id="l93">     93</a> Now the pinning configuration is recorded as
+<a href="#l94" class="line" id="l94">     94</a> ```text
+<a href="#l95" class="line" id="l95">     95</a> PackageIdentifier       SourceIdentifier       Version        PinningType
+<a href="#l96" class="line" id="l96">     96</a> ----------------------------------------------------------------------------
+<a href="#l97" class="line" id="l97">     97</a> Microsoft.TestApp       winget                                Pinning
+<a href="#l98" class="line" id="l98">     98</a> Microsoft.TestAppStore  msstore                               Pinning
+<a href="#l99" class="line" id="l99">     99</a> ```
+<a href="#l100" class="line" id="l100">    100</a> **Note:** by default packages correlated from all sources are pinned, user can pass in `--source` to pin for a specific source
+<a href="#l101" class="line" id="l101">    101</a> 
+<a href="#l102" class="line" id="l102">    102</a> Corresponding upgrade behavior
+<a href="#l103" class="line" id="l103">    103</a> ```text
+<a href="#l104" class="line" id="l104">    104</a> cmd&gt; winget upgrade -all
+<a href="#l105" class="line" id="l105">    105</a> Microsoft TestApp is pinned from upgrade and skipped
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a> cmd&gt; winget upgrade Microsoft.TestApp
+<a href="#l108" class="line" id="l108">    108</a> Success
+<a href="#l109" class="line" id="l109">    109</a> ```
+<a href="#l110" class="line" id="l110">    110</a> 
+<a href="#l111" class="line" id="l111">    111</a> #### Gating
+<a href="#l112" class="line" id="l112">    112</a> To gate a package to some specific version, use `winget pin add &lt;package&gt; --version &lt;gated version&gt;`
+<a href="#l113" class="line" id="l113">    113</a> ```text
+<a href="#l114" class="line" id="l114">    114</a> cmd&gt; winget pin Microsoft.TestApp --version 1.2.*
+<a href="#l115" class="line" id="l115">    115</a> ```
+<a href="#l116" class="line" id="l116">    116</a> Now the pinning configuration is recorded as
+<a href="#l117" class="line" id="l117">    117</a> ```text
+<a href="#l118" class="line" id="l118">    118</a> PackageIdentifier       SourceIdentifier       Version        PinningType
+<a href="#l119" class="line" id="l119">    119</a> ----------------------------------------------------------------------------
+<a href="#l120" class="line" id="l120">    120</a> Microsoft.TestApp       winget                 1.2.*          Gating
+<a href="#l121" class="line" id="l121">    121</a> Microsoft.TestAppStore  msstore                1.2.*          Gating
+<a href="#l122" class="line" id="l122">    122</a> ```
+<a href="#l123" class="line" id="l123">    123</a> **Note:** by default packages correlated from all sources are gated, user can pass in `--source` to gate for a specific source
+<a href="#l124" class="line" id="l124">    124</a> 
+<a href="#l125" class="line" id="l125">    125</a> Corresponding upgrade behavior
+<a href="#l126" class="line" id="l126">    126</a> ```text
+<a href="#l127" class="line" id="l127">    127</a> cmd&gt; winget upgrade -all
+<a href="#l128" class="line" id="l128">    128</a> Success  // If the available versions for upgrade are: 1.2.3 and 1.3.0, the selected version for upgrade is 1.2.3
+<a href="#l129" class="line" id="l129">    129</a> 
+<a href="#l130" class="line" id="l130">    130</a> cmd&gt; winget upgrade Microsoft.TestApp
+<a href="#l131" class="line" id="l131">    131</a> Success  // If the available versions for upgrade are: 1.2.3 and 1.3.0, the selected version for upgrade is 1.2.3
+<a href="#l132" class="line" id="l132">    132</a> 
+<a href="#l133" class="line" id="l133">    133</a> cmd&gt; winget upgrade Microsoft.TestApp --version 1.3.0
+<a href="#l134" class="line" id="l134">    134</a> Microsoft TestApp is gated to version 1.2.* Override with --force
+<a href="#l135" class="line" id="l135">    135</a> 
+<a href="#l136" class="line" id="l136">    136</a> cmd&gt; winget upgrade Microsoft.TestApp --version 1.3.0 --force
+<a href="#l137" class="line" id="l137">    137</a> Success
+<a href="#l138" class="line" id="l138">    138</a> ```
+<a href="#l139" class="line" id="l139">    139</a> 
+<a href="#l140" class="line" id="l140">    140</a> **Note:** Regarding gated version syntax, it will be mostly same as what current winget version supports, except with special `.*` in the end as wild card matching any remaining version parts if there are any.
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a> Example:
+<a href="#l143" class="line" id="l143">    143</a> When `.*` in the end is detected:
+<a href="#l144" class="line" id="l144">    144</a> Gate version `1.0.*` matches Version `1.0.1`
+<a href="#l145" class="line" id="l145">    145</a> Gate version `1.0.*` matches Version `1.0`
+<a href="#l146" class="line" id="l146">    146</a> Gate version `1.0.*` matches Version `1`
+<a href="#l147" class="line" id="l147">    147</a> Gate version `1.0.*` matches Version `1.0.alpha`
+<a href="#l148" class="line" id="l148">    148</a> Gate version `1.0.*` matches Version `1.0.1.2.3`
+<a href="#l149" class="line" id="l149">    149</a> Gate version `1.0.*` matches Version `1.0.*`
+<a href="#l150" class="line" id="l150">    150</a> Gate version `1.0.*` does not match Version `1.1.1`
+<a href="#l151" class="line" id="l151">    151</a> 
+<a href="#l152" class="line" id="l152">    152</a> In rare cases where `*` is actually part of a version, only the last `.*` is considered wild card:
+<a href="#l153" class="line" id="l153">    153</a> Gate version `1.*.*` matches Version `1.*.1`
+<a href="#l154" class="line" id="l154">    154</a> Gate version `1.*.*` matches Version `1.*.*`
+<a href="#l155" class="line" id="l155">    155</a> Gate version `1.*.*` does not match Version `1.1.1`
+<a href="#l156" class="line" id="l156">    156</a> 
+<a href="#l157" class="line" id="l157">    157</a> If no `.*` in the end is detected, the gate version gates to the specific version:
+<a href="#l158" class="line" id="l158">    158</a> Gate version `1.0.1` matches Version `1.0.1`
+<a href="#l159" class="line" id="l159">    159</a> Gate version `1.0.1` does not match Version `1.1.1`
+<a href="#l160" class="line" id="l160">    160</a> 
+<a href="#l161" class="line" id="l161">    161</a> ## Capabilities
+<a href="#l162" class="line" id="l162">    162</a> 
+<a href="#l163" class="line" id="l163">    163</a> ### Accessibility
+<a href="#l164" class="line" id="l164">    164</a> 
+<a href="#l165" class="line" id="l165">    165</a> Accessibility should not be impacted by this change. There will be a few more tables printed to the terminal in certain cases, but they should use the current table implementation used by `winget upgrade` and `winget list`.
+<a href="#l166" class="line" id="l166">    166</a> 
+<a href="#l167" class="line" id="l167">    167</a> ### Security
+<a href="#l168" class="line" id="l168">    168</a> 
+<a href="#l169" class="line" id="l169">    169</a> Security of the Windows Package Manager should not be impacted by this change. However, security of user&#39;s software may be, as if they pin a insecure version of a package, it will not be upgraded by Winget unless explicitly requested by user.
+<a href="#l170" class="line" id="l170">    170</a> 
+<a href="#l171" class="line" id="l171">    171</a> ### Reliability
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a> The change will improve reliability, as users will be able to have fine-grained control of the Windows Package Manager&#39;s upgrade functionality to ensure their workflow is not disrupted.
+<a href="#l174" class="line" id="l174">    174</a> 
+<a href="#l175" class="line" id="l175">    175</a> ### Compatibility
+<a href="#l176" class="line" id="l176">    176</a> 
+<a href="#l177" class="line" id="l177">    177</a> There should not be any breaking changes to the code. Although there could be a mild breaking change to the behavior of `upgrade --all` (not all packages are upgraded anymore since pinned ones are skipped), this is purely opt-in from the user&#39;s perspective at this time (if they do not pin software, there should not be a change).
+<a href="#l178" class="line" id="l178">    178</a> 
+<a href="#l179" class="line" id="l179">    179</a> ### Performance, Power, and Efficiency
+<a href="#l180" class="line" id="l180">    180</a> 
+<a href="#l181" class="line" id="l181">    181</a> There should not be any notable performance changes.
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a> ## Potential Issues
+<a href="#l184" class="line" id="l184">    184</a> 
+<a href="#l185" class="line" id="l185">    185</a> - Installation/Upgrades from Com Apis may be impacted by user&#39;s package pinning configuration. It could be mitigated by returning a specific error code and the caller  retrying with Force option.
+<a href="#l186" class="line" id="l186">    186</a> - Package dependencies resolution may be impacted by user&#39;s package pinning configuration.
+<a href="#l187" class="line" id="l187">    187</a> - Package imports may be impacted by user&#39;s package pinning configuration.
+<a href="#l188" class="line" id="l188">    188</a> 
+<a href="#l189" class="line" id="l189">    189</a> ## Future considerations
+<a href="#l190" class="line" id="l190">    190</a> 
+<a href="#l191" class="line" id="l191">    191</a> - Implementation in this spec only supports pinning from remote sources, so all installed versions from same package share the same pinning configuration. Winget could better support side by side installations by introducing package pinning from installed source.
+<a href="#l192" class="line" id="l192">    192</a> - Package pinning from user and from manifest are stored separately, we may integrate the `winget pin` commands to control package pinning from manifests.
+<a href="#l193" class="line" id="l193">    193</a> - A couple UI integrations can be made to `winget upgrade` and `winget list` to show pinned status during listing.
+<a href="#l194" class="line" id="l194">    194</a> - Dependencies flow can be improved to first check pinned status of each dependent package before trying to install all dependencies.
+<a href="#l195" class="line" id="l195">    195</a> - Support setting pinned state right after installation/upgrades like `winget install foo --pin`.
+<a href="#l196" class="line" id="l196">    196</a> - Improvements to import export commands to work seamlessly with existing package pinning configurations.
+<a href="#l197" class="line" id="l197">    197</a> 
+<a href="#l198" class="line" id="l198">    198</a> ## Resources
+<a href="#l199" class="line" id="l199">    199</a> 
+<a href="#l200" class="line" id="l200">    200</a> - [Brew - How do I stop certain formulae from being upgraded?](https://docs.brew.sh/FAQ#how-do-i-stop-certain-formulae-from-being-updated)
+<a href="#l201" class="line" id="l201">    201</a> - [NPM - package.json dependencies](https://docs.npmjs.com/cli/v7/configuring-npm/package-json#dependencies)
+<a href="#l202" class="line" id="l202">    202</a> - [APT - Introduction to Holding Packages](https://help.ubuntu.com/community/PinningHowto#Introduction_to_Holding_Packages)
+<a href="#l203" class="line" id="l203">    203</a> - [Chocolatey - pin a package](https://docs.chocolatey.org/en-us/choco/commands/pin)
+<a href="#l204" class="line" id="l204">    204</a> 
+<a href="#l205" class="line" id="l205">    205</a> Special thanks to [@jedieaston](https://github.com/jedieaston) for coming up with the initial draft of Package Pinning spec at [#1894](https://github.com/microsoft/winget-cli/pull/1894/). A lot has been discussed and this spec is much inspired from the draft.
+</pre>
+</div>
+</body>
+</html>

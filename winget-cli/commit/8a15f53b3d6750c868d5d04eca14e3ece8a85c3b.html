@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Enable configuration via IConfigurationStatics (#3576) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/8a15f53b3d6750c868d5d04eca14e3ece8a85c3b.html">8a15f53b3d6750c868d5d04eca14e3ece8a85c3b</a>
+<b>parent</b> <a href="../commit/020c2f0f8a759fb87d094a5ab6d98e825b442d2d.html">020c2f0f8a759fb87d094a5ab6d98e825b442d2d</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Tue,  5 Sep 2023 09:50:25 -0700
+
+Enable configuration via IConfigurationStatics (#3576)
+
+Winget configuration is not going to be enabled by default. The user needs to opt-in by calling winget configuration --enable. Callers that are interested in using the OOP Microsoft.Management.Configuration APIs need a way to ensure configuration is enabled and enable it if not. This PR address that.
+
+New IConfigurationStatics methods
+IsConfigurationEnabled - Checks if the configuration is enabled by checking if the current AppInstaller package is the stub or full package. Inproc implementation always returns true.
+EnableConfigurationAsync - Asynchronously enables configuration. This changes the stub preference to full package and calls our own APIs to install AppIntaller. By design, this also updates AppInstaller to the newest version.
+Caveats
+Callers need to understand that this is effectively saying &quot;winget please update yourself&quot;. Which means that once EnableConfigurationAsync is done, configuration isn&#39;t ready yet. At this point, deployment scheduled AppInstaller for an update. The server process that owns the configuration statics object is already gone (or is about to) and a new instance of ConfigurationStaticFunctions needs to be created in order validate configuration is enabled. It is possible that creating that object fails with an error that the upgrade is in progress. Yes, this is awkward.
+
+Testing
+It is complicated to write automated tests for this without faking most of the stack. I manually created an AppInstaller package with an older version to what we internally have to do these tests. Then I used the current OOP configuration tests to update it.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCommonCore/MSStore.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i"></span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.cpp</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.h</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Deployment/PackageManager.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/WindowsPackageManager/ConfigurationStaticFunctions.cpp</a></td><td> | </td><td class="num">111</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>6 files changed, 129 insertions(+), 3 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCommonCore/MSStore.cpp.html">src/AppInstallerCommonCore/MSStore.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/MSStore.cpp.html">src/AppInstallerCommonCore/MSStore.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -4,13 +4,11 @@
+</a> #include &lt;winget/MSStore.h&gt;
+ #include &lt;winget/ManifestCommon.h&gt;
+ #include &lt;winget/Runtime.h&gt;
+<a href="#h0-0-3" id="h0-0-3" class="d">-#include &lt;winget/SelfManagement.h&gt;
+</a> #include &lt;AppInstallerFileLogger.h&gt;
+ #include &lt;AppInstallerErrors.h&gt;
+ 
+ namespace AppInstaller::MSStore
+ {
+<a href="#h0-0-9" id="h0-0-9" class="d">-    using namespace AppInstaller::SelfManagement;
+</a>     using namespace std::string_view_literals;
+     using namespace winrt::Windows::Foundation;
+     using namespace winrt::Windows::Foundation::Collections;
+<b>diff --git a/<a id="h1" href="../file/src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.cpp.html">src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.cpp.html">src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -40,4 +40,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         result-&gt;ConfigurationSetProcessorFactory(factory);
+         return *result;
+     }
+<a href="#h1-0-3" id="h1-0-3" class="i">+
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    Windows::Foundation::IAsyncActionWithProgress&lt;uint32_t&gt; ConfigurationStaticFunctions::EnsureConfigurationAvailableAsync()
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    {
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        THROW_HR(E_NOTIMPL);
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.h.html">src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.h.html">src/Microsoft.Management.Configuration/ConfigurationStaticFunctions.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -13,6 +13,8 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         Configuration::ConfigurationSet CreateConfigurationSet();
+         Windows::Foundation::IAsyncOperation&lt;IConfigurationSetProcessorFactory&gt; CreateConfigurationSetProcessorFactoryAsync(hstring const&amp; handler);
+         Configuration::ConfigurationProcessor CreateConfigurationProcessor(IConfigurationSetProcessorFactory const&amp; factory);
+<a href="#h2-0-3" id="h2-0-3" class="i">+        bool IsConfigurationAvailable() { return true; }
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        Windows::Foundation::IAsyncActionWithProgress&lt;uint32_t&gt; EnsureConfigurationAvailableAsync();
+</a>     };
+ }
+ namespace winrt::Microsoft::Management::Configuration::factory_implementation
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl.html">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a> b/<a href="../file/src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl.html">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -715,6 +715,12 @@ namespace Microsoft.Management.Configuration
+</a> 
+         // Creates a processor from the given factory.
+         ConfigurationProcessor CreateConfigurationProcessor(IConfigurationSetProcessorFactory factory);
+<a href="#h3-0-3" id="h3-0-3" class="i">+
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        // Whether configuration is enabled.
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        Boolean IsConfigurationAvailable{ get; };
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+        // Enables configuration. Requires store access.
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+        Windows.Foundation.IAsyncActionWithProgress&lt;UInt32&gt; EnsureConfigurationAvailableAsync();
+</a>     }
+ 
+     // Top level entry point for configuration, enabling easier usage in out-of-process scenarios.
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -54,6 +54,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         }
+         return catalogs.GetView();
+     }
+<a href="#h4-0-3" id="h4-0-3" class="i">+
+</a>     winrt::Microsoft::Management::Deployment::PackageCatalogReference PackageManager::GetPredefinedPackageCatalog(winrt::Microsoft::Management::Deployment::PredefinedPackageCatalog const&amp; predefinedPackageCatalog)
+     {
+         ::AppInstaller::Repository::Source source;
+<a href="#h4-1" id="h4-1" class="h">@@ -77,6 +78,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         packageCatalogRef-&gt;Initialize(*packageCatalogInfo, source);
+         return *packageCatalogRef;
+     }
+<a href="#h4-1-3" id="h4-1-3" class="i">+
+</a>     winrt::Microsoft::Management::Deployment::PackageCatalogReference PackageManager::GetLocalPackageCatalog(winrt::Microsoft::Management::Deployment::LocalPackageCatalog const&amp; localPackageCatalog)
+     {
+         ::AppInstaller::Repository::Source source;
+<a href="#h4-2" id="h4-2" class="h">@@ -97,6 +99,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         packageCatalogRef-&gt;Initialize(*packageCatalogInfo, source);
+         return *packageCatalogRef;
+     }
+<a href="#h4-2-3" id="h4-2-3" class="i">+
+</a>     winrt::Microsoft::Management::Deployment::PackageCatalogReference PackageManager::GetPackageCatalogByName(hstring const&amp; catalogName)
+     {
+         std::string name = winrt::to_string(catalogName);
+<a href="#h4-3" id="h4-3" class="h">@@ -120,6 +123,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             return nullptr;
+         }
+     }
+<a href="#h4-3-3" id="h4-3-3" class="i">+
+</a>     void AddPackageManifestToContext(winrt::Microsoft::Management::Deployment::PackageVersionInfo packageVersionInfo, ::AppInstaller::CLI::Execution::Context* context)
+     {
+         winrt::Microsoft::Management::Deployment::implementation::PackageVersionInfo* packageVersionInfoImpl = get_self&lt;winrt::Microsoft::Management::Deployment::implementation::PackageVersionInfo&gt;(packageVersionInfo);
+<a href="#h4-4" id="h4-4" class="h">@@ -138,12 +142,14 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         context-&gt;Add&lt;::AppInstaller::CLI::Execution::Data::Manifest&gt;(std::move(manifest));
+         context-&gt;Add&lt;::AppInstaller::CLI::Execution::Data::PackageVersion&gt;(std::move(internalPackageVersion));
+     }
+<a href="#h4-4-3" id="h4-4-3" class="i">+
+</a>     void AddInstalledVersionToContext(winrt::Microsoft::Management::Deployment::PackageVersionInfo installedVersionInfo, ::AppInstaller::CLI::Execution::Context* context)
+     {
+         winrt::Microsoft::Management::Deployment::implementation::PackageVersionInfo* installedVersionInfoImpl = get_self&lt;winrt::Microsoft::Management::Deployment::implementation::PackageVersionInfo&gt;(installedVersionInfo);
+         std::shared_ptr&lt;::AppInstaller::Repository::IPackageVersion&gt; internalInstalledVersion = installedVersionInfoImpl-&gt;GetRepositoryPackageVersion();
+         context-&gt;Add&lt;AppInstaller::CLI::Execution::Data::InstalledPackageVersion&gt;(internalInstalledVersion);
+     }
+<a href="#h4-4-10" id="h4-4-10" class="i">+
+</a>     winrt::Microsoft::Management::Deployment::PackageCatalogReference PackageManager::CreateCompositePackageCatalog(winrt::Microsoft::Management::Deployment::CreateCompositePackageCatalogOptions const&amp; options)
+     {
+         if (!options)
+<b>diff --git a/<a id="h5" href="../file/src/WindowsPackageManager/ConfigurationStaticFunctions.cpp.html">src/WindowsPackageManager/ConfigurationStaticFunctions.cpp</a> b/<a href="../file/src/WindowsPackageManager/ConfigurationStaticFunctions.cpp.html">src/WindowsPackageManager/ConfigurationStaticFunctions.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -13,9 +13,21 @@
+</a> #include &lt;winget/GroupPolicy.h&gt;
+ #include &lt;winget/Security.h&gt;
+ #include &lt;winget/ThreadGlobals.h&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+#include &lt;winget/SelfManagement.h&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+#include &lt;winget/MSStore.h&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+#include &lt;winrt/Microsoft.Management.Deployment.h&gt;
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+using namespace AppInstaller::SelfManagement;
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+using namespace winrt::Microsoft::Management::Deployment;
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+using namespace winrt::Windows::Foundation::Collections;
+</a> 
+ namespace ConfigurationShim
+ {
+<a href="#h5-0-13" id="h5-0-13" class="i">+    namespace
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+    {
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+        static std::atomic_bool s_canBeCreated{ true };
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+    }
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+
+</a>     CLSID CLSID_ConfigurationObjectLifetimeWatcher = { 0x89a8f1d4,0x1e24,0x46a4,{0x9f,0x6c,0x65,0x78,0xb0,0x47,0xf2,0xf7} };
+ 
+     struct
+<a href="#h5-1" id="h5-1" class="h">@@ -35,10 +47,22 @@ namespace ConfigurationShim
+</a>             diagnosticsLogger.EnableChannel(AppInstaller::Logging::Channel::All);
+             diagnosticsLogger.SetLevel(AppInstaller::Logging::Level::Verbose);
+             diagnosticsLogger.AddLogger(std::make_unique&lt;AppInstaller::Logging::FileLogger&gt;(&quot;ConfigStatics&quot;sv));
+<a href="#h5-1-3" id="h5-1-3" class="i">+
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+            if (IsConfigurationAvailable())
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+            {
+</a><a href="#h5-1-6" id="h5-1-6" class="i">+                m_statics = winrt::Microsoft::Management::Configuration::ConfigurationStaticFunctions();
+</a><a href="#h5-1-7" id="h5-1-7" class="i">+            }
+</a>         }
+ 
+         winrt::Microsoft::Management::Configuration::ConfigurationUnit CreateConfigurationUnit()
+         {
+<a href="#h5-1-12" id="h5-1-12" class="i">+            THROW_HR_IF(CO_E_CLASS_DISABLED, !s_canBeCreated);
+</a><a href="#h5-1-13" id="h5-1-13" class="i">+
+</a><a href="#h5-1-14" id="h5-1-14" class="i">+            if (!m_statics)
+</a><a href="#h5-1-15" id="h5-1-15" class="i">+            {
+</a><a href="#h5-1-16" id="h5-1-16" class="i">+                THROW_HR(APPINSTALLER_CLI_ERROR_PACKAGE_IS_STUB);
+</a><a href="#h5-1-17" id="h5-1-17" class="i">+            }
+</a><a href="#h5-1-18" id="h5-1-18" class="i">+
+</a>             auto result = m_statics.CreateConfigurationUnit();
+             result.as&lt;AppInstaller::WinRT::ILifetimeWatcher&gt;()-&gt;SetLifetimeWatcher(CreateLifetimeWatcher());
+             return result;
+<a href="#h5-2" id="h5-2" class="h">@@ -46,6 +70,13 @@ namespace ConfigurationShim
+</a> 
+         winrt::Microsoft::Management::Configuration::ConfigurationSet CreateConfigurationSet()
+         {
+<a href="#h5-2-3" id="h5-2-3" class="i">+            THROW_HR_IF(CO_E_CLASS_DISABLED, !s_canBeCreated);
+</a><a href="#h5-2-4" id="h5-2-4" class="i">+
+</a><a href="#h5-2-5" id="h5-2-5" class="i">+            if (!m_statics)
+</a><a href="#h5-2-6" id="h5-2-6" class="i">+            {
+</a><a href="#h5-2-7" id="h5-2-7" class="i">+                THROW_HR(APPINSTALLER_CLI_ERROR_PACKAGE_IS_STUB);
+</a><a href="#h5-2-8" id="h5-2-8" class="i">+            }
+</a><a href="#h5-2-9" id="h5-2-9" class="i">+
+</a>             auto result = m_statics.CreateConfigurationSet();
+             result.as&lt;AppInstaller::WinRT::ILifetimeWatcher&gt;()-&gt;SetLifetimeWatcher(CreateLifetimeWatcher());
+             return result;
+<a href="#h5-3" id="h5-3" class="h">@@ -53,6 +84,8 @@ namespace ConfigurationShim
+</a> 
+         winrt::Windows::Foundation::IAsyncOperation&lt;winrt::Microsoft::Management::Configuration::IConfigurationSetProcessorFactory&gt; CreateConfigurationSetProcessorFactoryAsync(winrt::hstring const&amp; handler)
+         {
+<a href="#h5-3-3" id="h5-3-3" class="i">+            THROW_HR_IF(CO_E_CLASS_DISABLED, !s_canBeCreated);
+</a><a href="#h5-3-4" id="h5-3-4" class="i">+
+</a>             auto strong_this{ get_strong() };
+             std::wstring lowerHandler = AppInstaller::Utility::ToLower(handler);
+ 
+<a href="#h5-4" id="h5-4" class="h">@@ -81,11 +114,85 @@ namespace ConfigurationShim
+</a> 
+         winrt::Microsoft::Management::Configuration::ConfigurationProcessor CreateConfigurationProcessor(winrt::Microsoft::Management::Configuration::IConfigurationSetProcessorFactory const&amp; factory)
+         {
+<a href="#h5-4-3" id="h5-4-3" class="i">+            THROW_HR_IF(CO_E_CLASS_DISABLED, !s_canBeCreated);
+</a><a href="#h5-4-4" id="h5-4-4" class="i">+
+</a><a href="#h5-4-5" id="h5-4-5" class="i">+            if (!m_statics)
+</a><a href="#h5-4-6" id="h5-4-6" class="i">+            {
+</a><a href="#h5-4-7" id="h5-4-7" class="i">+                THROW_HR(APPINSTALLER_CLI_ERROR_PACKAGE_IS_STUB);
+</a><a href="#h5-4-8" id="h5-4-8" class="i">+            }
+</a><a href="#h5-4-9" id="h5-4-9" class="i">+
+</a>             auto result = m_statics.CreateConfigurationProcessor(factory);
+             result.as&lt;AppInstaller::WinRT::ILifetimeWatcher&gt;()-&gt;SetLifetimeWatcher(CreateLifetimeWatcher());
+             return result;
+         }
+ 
+<a href="#h5-4-15" id="h5-4-15" class="i">+        bool IsConfigurationAvailable()
+</a><a href="#h5-4-16" id="h5-4-16" class="i">+        {
+</a><a href="#h5-4-17" id="h5-4-17" class="i">+            return !IsStubPackage();
+</a><a href="#h5-4-18" id="h5-4-18" class="i">+        }
+</a><a href="#h5-4-19" id="h5-4-19" class="i">+
+</a><a href="#h5-4-20" id="h5-4-20" class="i">+        winrt::Windows::Foundation::IAsyncActionWithProgress&lt;uint32_t&gt; EnsureConfigurationAvailableAsync()
+</a><a href="#h5-4-21" id="h5-4-21" class="i">+        {
+</a><a href="#h5-4-22" id="h5-4-22" class="i">+            THROW_HR_IF(CO_E_CLASS_DISABLED, !s_canBeCreated);
+</a><a href="#h5-4-23" id="h5-4-23" class="i">+
+</a><a href="#h5-4-24" id="h5-4-24" class="i">+            if (IsConfigurationAvailable())
+</a><a href="#h5-4-25" id="h5-4-25" class="i">+            {
+</a><a href="#h5-4-26" id="h5-4-26" class="i">+                return;
+</a><a href="#h5-4-27" id="h5-4-27" class="i">+            }
+</a><a href="#h5-4-28" id="h5-4-28" class="i">+
+</a><a href="#h5-4-29" id="h5-4-29" class="i">+            auto strong_this{ get_strong() };
+</a><a href="#h5-4-30" id="h5-4-30" class="i">+            co_await winrt::resume_background();
+</a><a href="#h5-4-31" id="h5-4-31" class="i">+
+</a><a href="#h5-4-32" id="h5-4-32" class="i">+            SetStubPreferred(false);
+</a><a href="#h5-4-33" id="h5-4-33" class="i">+
+</a><a href="#h5-4-34" id="h5-4-34" class="i">+            PackageManager packageManager;
+</a><a href="#h5-4-35" id="h5-4-35" class="i">+            PackageCatalogReference catalogRef{ packageManager.GetPredefinedPackageCatalog(PredefinedPackageCatalog::MicrosoftStore) };
+</a><a href="#h5-4-36" id="h5-4-36" class="i">+            THROW_HR_IF(APPINSTALLER_CLI_ERROR_INTERNAL_ERROR, !catalogRef);
+</a><a href="#h5-4-37" id="h5-4-37" class="i">+
+</a><a href="#h5-4-38" id="h5-4-38" class="i">+            ConnectResult connectResult = catalogRef.Connect();
+</a><a href="#h5-4-39" id="h5-4-39" class="i">+            THROW_HR_IF(APPINSTALLER_CLI_ERROR_SOURCE_OPEN_FAILED, connectResult.Status() != ConnectResultStatus::Ok);
+</a><a href="#h5-4-40" id="h5-4-40" class="i">+
+</a><a href="#h5-4-41" id="h5-4-41" class="i">+            PackageCatalog catalog = connectResult.PackageCatalog();
+</a><a href="#h5-4-42" id="h5-4-42" class="i">+
+</a><a href="#h5-4-43" id="h5-4-43" class="i">+            FindPackagesOptions findPackagesOptions;
+</a><a href="#h5-4-44" id="h5-4-44" class="i">+            PackageMatchFilter filter;
+</a><a href="#h5-4-45" id="h5-4-45" class="i">+            filter.Field(PackageMatchField::Id);
+</a><a href="#h5-4-46" id="h5-4-46" class="i">+            filter.Option(PackageFieldMatchOption::Equals);
+</a><a href="#h5-4-47" id="h5-4-47" class="i">+            filter.Value(AppInstaller::MSStore::s_AppInstallerProductId);
+</a><a href="#h5-4-48" id="h5-4-48" class="i">+            findPackagesOptions.Filters().Append(filter);
+</a><a href="#h5-4-49" id="h5-4-49" class="i">+
+</a><a href="#h5-4-50" id="h5-4-50" class="i">+            FindPackagesResult findPackagesResult{ catalog.FindPackages(findPackagesOptions) };
+</a><a href="#h5-4-51" id="h5-4-51" class="i">+
+</a><a href="#h5-4-52" id="h5-4-52" class="i">+            auto matches = findPackagesResult.Matches();
+</a><a href="#h5-4-53" id="h5-4-53" class="i">+            THROW_HR_IF(APPINSTALLER_CLI_ERROR_MISSING_PACKAGE, matches.Size() == 0);
+</a><a href="#h5-4-54" id="h5-4-54" class="i">+            auto catalogPackage = matches.GetAt(0).CatalogPackage();
+</a><a href="#h5-4-55" id="h5-4-55" class="i">+
+</a><a href="#h5-4-56" id="h5-4-56" class="i">+            InstallOptions installOptions;
+</a><a href="#h5-4-57" id="h5-4-57" class="i">+            installOptions.AcceptPackageAgreements(true);
+</a><a href="#h5-4-58" id="h5-4-58" class="i">+            installOptions.AllowUpgradeToUnknownVersion(true);
+</a><a href="#h5-4-59" id="h5-4-59" class="i">+            installOptions.Force(true);
+</a><a href="#h5-4-60" id="h5-4-60" class="i">+
+</a><a href="#h5-4-61" id="h5-4-61" class="i">+            auto progress = co_await winrt::get_progress_token();
+</a><a href="#h5-4-62" id="h5-4-62" class="i">+
+</a><a href="#h5-4-63" id="h5-4-63" class="i">+            // Don&#39;t use UpgradePackageAsync, we don&#39;t support upgrade for packages from the msstore
+</a><a href="#h5-4-64" id="h5-4-64" class="i">+            // it has to be install and internally we know is an update.
+</a><a href="#h5-4-65" id="h5-4-65" class="i">+            auto installTask = packageManager.InstallPackageAsync(catalogPackage, installOptions);
+</a><a href="#h5-4-66" id="h5-4-66" class="i">+            installTask.Progress([progress](auto const&amp;, InstallProgress installProgress)
+</a><a href="#h5-4-67" id="h5-4-67" class="i">+            {
+</a><a href="#h5-4-68" id="h5-4-68" class="i">+                if (installProgress.State == PackageInstallProgressState::Downloading &amp;&amp; installProgress.BytesRequired != 0)
+</a><a href="#h5-4-69" id="h5-4-69" class="i">+                {
+</a><a href="#h5-4-70" id="h5-4-70" class="i">+                    progress((uint32_t)(installProgress.DownloadProgress * 80));
+</a><a href="#h5-4-71" id="h5-4-71" class="i">+                }
+</a><a href="#h5-4-72" id="h5-4-72" class="i">+                else if (installProgress.State == PackageInstallProgressState::Installing)
+</a><a href="#h5-4-73" id="h5-4-73" class="i">+                {
+</a><a href="#h5-4-74" id="h5-4-74" class="i">+                    progress(((uint32_t)installProgress.InstallationProgress * 20) + 80);
+</a><a href="#h5-4-75" id="h5-4-75" class="i">+                }
+</a><a href="#h5-4-76" id="h5-4-76" class="i">+            });
+</a><a href="#h5-4-77" id="h5-4-77" class="i">+
+</a><a href="#h5-4-78" id="h5-4-78" class="i">+            co_await installTask;
+</a><a href="#h5-4-79" id="h5-4-79" class="i">+            s_canBeCreated = false;
+</a><a href="#h5-4-80" id="h5-4-80" class="i">+        }
+</a><a href="#h5-4-81" id="h5-4-81" class="i">+
+</a>     private:
+         // Returns a lifetime watcher object that is currently *unowned*.
+         IUnknown* CreateLifetimeWatcher()
+<a href="#h5-5" id="h5-5" class="h">@@ -97,7 +204,7 @@ namespace ConfigurationShim
+</a>             return out.detach();
+         }
+ 
+<a href="#h5-5-3" id="h5-5-3" class="d">-        winrt::Microsoft::Management::Configuration::ConfigurationStaticFunctions m_statics;
+</a><a href="#h5-5-4" id="h5-5-4" class="i">+        winrt::Microsoft::Management::Configuration::ConfigurationStaticFunctions m_statics = nullptr;
+</a>         AppInstaller::ThreadLocalStorage::WingetThreadGlobals m_threadGlobals;
+     };
+ 
+<a href="#h5-6" id="h5-6" class="h">@@ -114,6 +221,8 @@ namespace ConfigurationShim
+</a>             // TODO: Review of security for configuration OOP
+             RETURN_HR_IF(E_ACCESSDENIED, !::AppInstaller::Security::IsCOMCallerSameUserAndIntegrityLevel());
+ 
+<a href="#h5-6-3" id="h5-6-3" class="i">+            RETURN_HR_IF(CO_E_CLASS_DISABLED, !s_canBeCreated);
+</a><a href="#h5-6-4" id="h5-6-4" class="i">+
+</a>             return ::wil::wrl_factory_for_winrt_com_class&lt;TCppWinRTClass&gt;::CreateInstance(unknownOuter, riid, object);
+         }
+         CATCH_RETURN()
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Don&#39;t enable/disable admin settings if group policy prevents it (#2683) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/caadda4dfea452c32a042365dedf3ef8dd54486f.html">caadda4dfea452c32a042365dedf3ef8dd54486f</a>
+<b>parent</b> <a href="../commit/de94283ff11c71b497bb44f116b11b1866d52aa3.html">de94283ff11c71b497bb44f116b11b1866d52aa3</a>
+<b>Author:</b> AmirMS &lt;<a href="mailto:104940545+AmelBawa-msft@users.noreply.github.com">104940545+AmelBawa-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Mon, 14 Nov 2022 18:29:15 -0800
+
+Don&#39;t enable/disable admin settings if group policy prevents it (#2683)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/SettingsFlow.cpp</a></td><td> | </td><td class="num">32</td><td><span class="i">+++++++++++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h3">src/AppInstallerCLITests/AdminSettings.cpp</a></td><td> | </td><td class="num">63</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCommonCore/AdminSettings.cpp</a></td><td> | </td><td class="num">38</td><td><span class="i">++++++++++++++++++++++++++</span><span class="d">------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCommonCore/Public/winget/AdminSettings.h</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+</table></pre><pre>8 files changed, 132 insertions(+), 19 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -61,8 +61,10 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(DependenciesManagementError);
+         WINGET_DEFINE_RESOURCE_STRINGID(DependenciesManagementExitMessage);
+         WINGET_DEFINE_RESOURCE_STRINGID(DisabledByGroupPolicy);
+<a href="#h0-0-3" id="h0-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(DisableAdminSettingFailed);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(DisableInteractivityArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(Done);
+<a href="#h0-0-6" id="h0-0-6" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(EnableAdminSettingFailed);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ExactArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(ExperimentalArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(ExperimentalCommandLongDescription);
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/SettingsFlow.cpp.html">src/AppInstallerCLICore/Workflows/SettingsFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/SettingsFlow.cpp.html">src/AppInstallerCLICore/Workflows/SettingsFlow.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,25 +1,47 @@
+</a> // Copyright (c) Microsoft Corporation.
+ // Licensed under the MIT License.
+ #include &quot;pch.h&quot;
+<a href="#h1-0-3" id="h1-0-3" class="i">+#include &quot;Resources.h&quot;
+</a> #include &quot;SettingsFlow.h&quot;
+<a href="#h1-0-5" id="h1-0-5" class="i">+#include &lt;AppInstallerStrings.h&gt;
+</a> #include &lt;winget/UserSettings.h&gt;
+ #include &lt;winget/AdminSettings.h&gt;
+<a href="#h1-0-8" id="h1-0-8" class="d">-#include &quot;Resources.h&quot;
+</a> 
+ namespace AppInstaller::CLI::Workflow
+ {
+     using namespace AppInstaller::Settings;
+<a href="#h1-0-13" id="h1-0-13" class="i">+    using namespace AppInstaller::Utility;
+</a> 
+     void EnableAdminSetting(Execution::Context&amp; context)
+     {
+<a href="#h1-0-17" id="h1-0-17" class="d">-        Settings::EnableAdminSetting(Settings::StringToAdminSetting(context.Args.GetArg(Execution::Args::Type::AdminSettingEnable)));
+</a><a href="#h1-0-18" id="h1-0-18" class="d">-        context.Reporter.Info() &lt;&lt; Resource::String::AdminSettingEnabled;
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+        std::string_view adminSettingString = context.Args.GetArg(Execution::Args::Type::AdminSettingEnable);
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+        AdminSetting adminSetting = Settings::StringToAdminSetting(adminSettingString);
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+        if (Settings::EnableAdminSetting(adminSetting))
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+        {
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+            context.Reporter.Info() &lt;&lt; Resource::String::AdminSettingEnabled;
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+        }
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+        else
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+        {
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+            std::string adminSettingErrorMessage = Resource::LocString{ Resource::String::EnableAdminSettingFailed };
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+            context.Reporter.Error() &lt;&lt;
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+                Utility::LocIndString{ FindAndReplaceMessageToken(adminSettingErrorMessage, adminSettingString) };
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+        }
+</a>     }
+ 
+     void DisableAdminSetting(Execution::Context&amp; context)
+     {
+<a href="#h1-0-35" id="h1-0-35" class="d">-        Settings::DisableAdminSetting(Settings::StringToAdminSetting(context.Args.GetArg(Execution::Args::Type::AdminSettingDisable)));
+</a><a href="#h1-0-36" id="h1-0-36" class="d">-        context.Reporter.Info() &lt;&lt; Resource::String::AdminSettingDisabled;
+</a><a href="#h1-0-37" id="h1-0-37" class="i">+        std::string_view adminSettingString = context.Args.GetArg(Execution::Args::Type::AdminSettingDisable);
+</a><a href="#h1-0-38" id="h1-0-38" class="i">+        AdminSetting adminSetting = Settings::StringToAdminSetting(adminSettingString);
+</a><a href="#h1-0-39" id="h1-0-39" class="i">+        if (Settings::DisableAdminSetting(adminSetting))
+</a><a href="#h1-0-40" id="h1-0-40" class="i">+        {
+</a><a href="#h1-0-41" id="h1-0-41" class="i">+            context.Reporter.Info() &lt;&lt; Resource::String::AdminSettingDisabled;
+</a><a href="#h1-0-42" id="h1-0-42" class="i">+        }
+</a><a href="#h1-0-43" id="h1-0-43" class="i">+        else
+</a><a href="#h1-0-44" id="h1-0-44" class="i">+        {
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+            std::string adminSettingErrorMessage = Resource::LocString{ Resource::String::DisableAdminSettingFailed };
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+            context.Reporter.Error() &lt;&lt;
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+                Utility::LocIndString{ FindAndReplaceMessageToken(adminSettingErrorMessage, adminSettingString) };
+</a><a href="#h1-0-48" id="h1-0-48" class="i">+        }
+</a>     }
+ 
+     void OpenUserSetting(Execution::Context&amp; context)
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -1475,4 +1475,12 @@ Please specify one of them using the `--source` option to proceed.&lt;/value&gt;
+</a>   &lt;data name=&quot;PackageAlreadyInstalled&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;A package version is already installed. Installation cancelled.&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+  &lt;data name=&quot;EnableAdminSettingFailed&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    &lt;value&gt;Cannot enable %1. This setting is controlled by policy. For more information contact your system administrator.&lt;/value&gt;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    &lt;comment&gt;{Locked=&quot;%1&quot;} The value will be replaced with the feature name&lt;/comment&gt;
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+  &lt;/data&gt;
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+  &lt;data name=&quot;DisableAdminSettingFailed&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+    &lt;value&gt;Cannot disable %1. This setting is controlled by policy. For more information contact your system administrator.&lt;/value&gt;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+    &lt;comment&gt;{Locked=&quot;%1&quot;} The value will be replaced with the feature name&lt;/comment&gt;
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/AdminSettings.cpp.html">src/AppInstallerCLITests/AdminSettings.cpp</a> b/<a href="../file/src/AppInstallerCLITests/AdminSettings.cpp.html">src/AppInstallerCLITests/AdminSettings.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -0,0 +1,63 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="i">+// Copyright (c) Microsoft Corporation.
+</a><a href="#h3-0-1" id="h3-0-1" class="i">+// Licensed under the MIT License.
+</a><a href="#h3-0-2" id="h3-0-2" class="i">+#include &quot;pch.h&quot;
+</a><a href="#h3-0-3" id="h3-0-3" class="i">+#include &quot;TestCommon.h&quot;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+#include &quot;TestSettings.h&quot;
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+#include &lt;winget/AdminSettings.h&gt;
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+using namespace AppInstaller::Settings;
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+using namespace TestCommon;
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+TEST_CASE(&quot;AdminSetting_Enable&quot;, &quot;[adminSettings]&quot;)
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+{
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+    WHEN(&quot;Group policy&quot;)
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+    {
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+        SECTION(&quot;Not configured&quot;)
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+        {
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+            GroupPolicyTestOverride policies;
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+            policies.SetState(TogglePolicy::Policy::LocalManifestFiles, PolicyState::NotConfigured);
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+            REQUIRE(EnableAdminSetting(AdminSetting::LocalManifestFiles));
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+        }
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+
+</a><a href="#h3-0-21" id="h3-0-21" class="i">+        SECTION(&quot;Enabled&quot;)
+</a><a href="#h3-0-22" id="h3-0-22" class="i">+        {
+</a><a href="#h3-0-23" id="h3-0-23" class="i">+            GroupPolicyTestOverride policies;
+</a><a href="#h3-0-24" id="h3-0-24" class="i">+            policies.SetState(TogglePolicy::Policy::LocalManifestFiles, PolicyState::Enabled);
+</a><a href="#h3-0-25" id="h3-0-25" class="i">+            REQUIRE(EnableAdminSetting(AdminSetting::LocalManifestFiles));
+</a><a href="#h3-0-26" id="h3-0-26" class="i">+        }
+</a><a href="#h3-0-27" id="h3-0-27" class="i">+
+</a><a href="#h3-0-28" id="h3-0-28" class="i">+        SECTION(&quot;Disabled&quot;)
+</a><a href="#h3-0-29" id="h3-0-29" class="i">+        {
+</a><a href="#h3-0-30" id="h3-0-30" class="i">+            GroupPolicyTestOverride policies;
+</a><a href="#h3-0-31" id="h3-0-31" class="i">+            policies.SetState(TogglePolicy::Policy::LocalManifestFiles, PolicyState::Disabled);
+</a><a href="#h3-0-32" id="h3-0-32" class="i">+            REQUIRE_FALSE(EnableAdminSetting(AdminSetting::LocalManifestFiles));
+</a><a href="#h3-0-33" id="h3-0-33" class="i">+        }
+</a><a href="#h3-0-34" id="h3-0-34" class="i">+    }
+</a><a href="#h3-0-35" id="h3-0-35" class="i">+}
+</a><a href="#h3-0-36" id="h3-0-36" class="i">+
+</a><a href="#h3-0-37" id="h3-0-37" class="i">+TEST_CASE(&quot;AdminSetting_Disable&quot;, &quot;[adminSettings]&quot;)
+</a><a href="#h3-0-38" id="h3-0-38" class="i">+{
+</a><a href="#h3-0-39" id="h3-0-39" class="i">+    WHEN(&quot;Group policy&quot;)
+</a><a href="#h3-0-40" id="h3-0-40" class="i">+    {
+</a><a href="#h3-0-41" id="h3-0-41" class="i">+        SECTION(&quot;Not configured&quot;)
+</a><a href="#h3-0-42" id="h3-0-42" class="i">+        {
+</a><a href="#h3-0-43" id="h3-0-43" class="i">+            GroupPolicyTestOverride policies;
+</a><a href="#h3-0-44" id="h3-0-44" class="i">+            policies.SetState(TogglePolicy::Policy::LocalManifestFiles, PolicyState::NotConfigured);
+</a><a href="#h3-0-45" id="h3-0-45" class="i">+            REQUIRE(DisableAdminSetting(AdminSetting::LocalManifestFiles));
+</a><a href="#h3-0-46" id="h3-0-46" class="i">+        }
+</a><a href="#h3-0-47" id="h3-0-47" class="i">+
+</a><a href="#h3-0-48" id="h3-0-48" class="i">+        SECTION(&quot;Enabled&quot;)
+</a><a href="#h3-0-49" id="h3-0-49" class="i">+        {
+</a><a href="#h3-0-50" id="h3-0-50" class="i">+            GroupPolicyTestOverride policies;
+</a><a href="#h3-0-51" id="h3-0-51" class="i">+            policies.SetState(TogglePolicy::Policy::LocalManifestFiles, PolicyState::Enabled);
+</a><a href="#h3-0-52" id="h3-0-52" class="i">+            REQUIRE_FALSE(DisableAdminSetting(AdminSetting::LocalManifestFiles));
+</a><a href="#h3-0-53" id="h3-0-53" class="i">+        }
+</a><a href="#h3-0-54" id="h3-0-54" class="i">+
+</a><a href="#h3-0-55" id="h3-0-55" class="i">+        SECTION(&quot;Disabled&quot;)
+</a><a href="#h3-0-56" id="h3-0-56" class="i">+        {
+</a><a href="#h3-0-57" id="h3-0-57" class="i">+            GroupPolicyTestOverride policies;
+</a><a href="#h3-0-58" id="h3-0-58" class="i">+            policies.SetState(TogglePolicy::Policy::LocalManifestFiles, PolicyState::Disabled);
+</a><a href="#h3-0-59" id="h3-0-59" class="i">+            REQUIRE(DisableAdminSetting(AdminSetting::LocalManifestFiles));
+</a><a href="#h3-0-60" id="h3-0-60" class="i">+        }
+</a><a href="#h3-0-61" id="h3-0-61" class="i">+    }
+</a><a href="#h3-0-62" id="h3-0-62" class="i">+}
+</a><b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -187,6 +187,7 @@
+</a>     &lt;ClInclude Include=&quot;TestSource.h&quot; /&gt;
+   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+<a href="#h4-0-3" id="h4-0-3" class="i">+    &lt;ClCompile Include=&quot;AdminSettings.cpp&quot; /&gt;
+</a>     &lt;ClCompile Include=&quot;Archive.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;ARPChanges.cpp&quot; /&gt;
+     &lt;ClCompile Include=&quot;Certificates.cpp&quot; /&gt;
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -236,6 +236,9 @@
+</a>     &lt;ClCompile Include=&quot;RestInterface_1_4.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+    &lt;ClCompile Include=&quot;AdminSettings.cpp&quot;&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+      &lt;Filter&gt;Source Files\Common&lt;/Filter&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+    &lt;/ClCompile&gt;
+</a>   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;None Include=&quot;PropertySheet.props&quot; /&gt;
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCommonCore/AdminSettings.cpp.html">src/AppInstallerCommonCore/AdminSettings.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/AdminSettings.cpp.html">src/AppInstallerCommonCore/AdminSettings.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -181,18 +181,6 @@ namespace AppInstaller::Settings
+</a>         }
+     }
+ 
+<a href="#h6-0-3" id="h6-0-3" class="d">-    void EnableAdminSetting(AdminSetting setting)
+</a><a href="#h6-0-4" id="h6-0-4" class="d">-    {
+</a><a href="#h6-0-5" id="h6-0-5" class="d">-        AdminSettingsInternal adminSettingsInternal;
+</a><a href="#h6-0-6" id="h6-0-6" class="d">-        adminSettingsInternal.SetAdminSetting(setting, true);
+</a><a href="#h6-0-7" id="h6-0-7" class="d">-    }
+</a><a href="#h6-0-8" id="h6-0-8" class="d">-
+</a><a href="#h6-0-9" id="h6-0-9" class="d">-    void DisableAdminSetting(AdminSetting setting)
+</a><a href="#h6-0-10" id="h6-0-10" class="d">-    {
+</a><a href="#h6-0-11" id="h6-0-11" class="d">-        AdminSettingsInternal adminSettingsInternal;
+</a><a href="#h6-0-12" id="h6-0-12" class="d">-        adminSettingsInternal.SetAdminSetting(setting, false);
+</a><a href="#h6-0-13" id="h6-0-13" class="d">-    }
+</a><a href="#h6-0-14" id="h6-0-14" class="d">-
+</a>     TogglePolicy::Policy GetAdminSettingPolicy(AdminSetting setting)
+     {
+         switch (setting)
+<a href="#h6-1" id="h6-1" class="h">@@ -206,6 +194,32 @@ namespace AppInstaller::Settings
+</a>         }
+     }
+ 
+<a href="#h6-1-3" id="h6-1-3" class="i">+    bool EnableAdminSetting(AdminSetting setting)
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+    {
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+        auto policy = GetAdminSettingPolicy(setting);
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+        if (GroupPolicies().GetState(policy) == PolicyState::Disabled)
+</a><a href="#h6-1-7" id="h6-1-7" class="i">+        {
+</a><a href="#h6-1-8" id="h6-1-8" class="i">+            return false;
+</a><a href="#h6-1-9" id="h6-1-9" class="i">+        }
+</a><a href="#h6-1-10" id="h6-1-10" class="i">+
+</a><a href="#h6-1-11" id="h6-1-11" class="i">+        AdminSettingsInternal adminSettingsInternal;
+</a><a href="#h6-1-12" id="h6-1-12" class="i">+        adminSettingsInternal.SetAdminSetting(setting, true);
+</a><a href="#h6-1-13" id="h6-1-13" class="i">+        return true;
+</a><a href="#h6-1-14" id="h6-1-14" class="i">+    }
+</a><a href="#h6-1-15" id="h6-1-15" class="i">+
+</a><a href="#h6-1-16" id="h6-1-16" class="i">+    bool DisableAdminSetting(AdminSetting setting)
+</a><a href="#h6-1-17" id="h6-1-17" class="i">+    {
+</a><a href="#h6-1-18" id="h6-1-18" class="i">+        auto policy = GetAdminSettingPolicy(setting);
+</a><a href="#h6-1-19" id="h6-1-19" class="i">+        if (GroupPolicies().GetState(policy) == PolicyState::Enabled)
+</a><a href="#h6-1-20" id="h6-1-20" class="i">+        {
+</a><a href="#h6-1-21" id="h6-1-21" class="i">+            return false;
+</a><a href="#h6-1-22" id="h6-1-22" class="i">+        }
+</a><a href="#h6-1-23" id="h6-1-23" class="i">+
+</a><a href="#h6-1-24" id="h6-1-24" class="i">+        AdminSettingsInternal adminSettingsInternal;
+</a><a href="#h6-1-25" id="h6-1-25" class="i">+        adminSettingsInternal.SetAdminSetting(setting, false);
+</a><a href="#h6-1-26" id="h6-1-26" class="i">+        return true;
+</a><a href="#h6-1-27" id="h6-1-27" class="i">+    }
+</a><a href="#h6-1-28" id="h6-1-28" class="i">+
+</a>     bool IsAdminSettingEnabled(AdminSetting setting)
+     {
+         // Check for a policy that overrides this setting.
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCommonCore/Public/winget/AdminSettings.h.html">src/AppInstallerCommonCore/Public/winget/AdminSettings.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/AdminSettings.h.html">src/AppInstallerCommonCore/Public/winget/AdminSettings.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -18,9 +18,9 @@ namespace AppInstaller::Settings
+</a> 
+     std::string_view AdminSettingToString(AdminSetting setting);
+ 
+<a href="#h7-0-3" id="h7-0-3" class="d">-    void EnableAdminSetting(AdminSetting setting);
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+    bool EnableAdminSetting(AdminSetting setting);
+</a> 
+<a href="#h7-0-6" id="h7-0-6" class="d">-    void DisableAdminSetting(AdminSetting setting);
+</a><a href="#h7-0-7" id="h7-0-7" class="i">+    bool DisableAdminSetting(AdminSetting setting);
+</a> 
+     bool IsAdminSettingEnabled(AdminSetting setting);
+ }
+</pre>
+</div>
+</body>
+</html>

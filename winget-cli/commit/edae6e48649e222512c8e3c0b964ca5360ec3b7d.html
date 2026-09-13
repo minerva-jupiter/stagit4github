@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Handle single unknown version from REST source (#1483) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/edae6e48649e222512c8e3c0b964ca5360ec3b7d.html">edae6e48649e222512c8e3c0b964ca5360ec3b7d</a>
+<b>parent</b> <a href="../commit/dac49cd373aa33794e1060c760755f56df6b3184.html">dac49cd373aa33794e1060c760755f56df6b3184</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Sun, 19 Sep 2021 09:25:39 -0700
+
+Handle single unknown version from REST source (#1483)
+
+If a REST source returns a single version that is `Unknown`, look up all versions when the manifest is requested.
+
+The update is triggered by a `GetManifest` call that meets the criteria (version is `Unknown` and manifest is missing).  When we see that, and the version info in the package is consistent, we perform an optimized search that should return the versions and manifests.  Then we overwrite the data from the `PackageVersion` that called us and it returns the manifest.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerRepositoryCore/Rest/RestSource.cpp</a></td><td> | </td><td class="num">327</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------------------</span></td></tr>
+</table></pre><pre>1 file changed, 198 insertions(+), 129 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerRepositoryCore/Rest/RestSource.cpp.html">src/AppInstallerRepositoryCore/Rest/RestSource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Rest/RestSource.cpp.html">src/AppInstallerRepositoryCore/Rest/RestSource.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -29,12 +29,160 @@ namespace AppInstaller::Repository::Rest
+</a>             std::weak_ptr&lt;const RestSource&gt; m_source;
+         };
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+        // The IPackage implementation for Available packages from RestSource.
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        struct AvailablePackage : public std::enable_shared_from_this&lt;AvailablePackage&gt;, public SourceReference, public IPackage
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        {
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+            AvailablePackage(const std::shared_ptr&lt;const RestSource&gt;&amp; source, IRestClient::Package&amp;&amp; package) :
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+                SourceReference(source), m_package(std::move(package))
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+            {
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+                SortVersionsInternal();
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+            }
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            // Inherited via IPackage
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+            Utility::LocIndString GetProperty(PackageProperty property) const override
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+            {
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                switch (property)
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                {
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                case PackageProperty::Id:
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+                    return Utility::LocIndString{ m_package.PackageInformation.PackageIdentifier };
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+                case PackageProperty::Name:
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+                    return Utility::LocIndString{ m_package.PackageInformation.PackageName };
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+                default:
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+                    THROW_HR(E_UNEXPECTED);
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+                }
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+            }
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+            std::shared_ptr&lt;IPackageVersion&gt; GetInstalledVersion() const override
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+            {
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+                return {};
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+            }
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+            std::vector&lt;PackageVersionKey&gt; GetAvailableVersionKeys() const override
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+            {
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+                std::shared_ptr&lt;const RestSource&gt; source = GetReferenceSource();
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+                std::scoped_lock versionsLock{ m_packageVersionsLock };
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+                std::vector&lt;PackageVersionKey&gt; result;
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+                for (const auto&amp; versionInfo : m_package.Versions)
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+                {
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+                    result.emplace_back(
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+                        source-&gt;GetIdentifier(), versionInfo.VersionAndChannel.GetVersion().ToString(), versionInfo.VersionAndChannel.GetChannel().ToString());
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+                }
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+                return result;
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+            }
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+            std::shared_ptr&lt;IPackageVersion&gt; GetLatestAvailableVersion() const override
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+            {
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+                std::scoped_lock versionsLock{ m_packageVersionsLock };
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+                return GetLatestVersionInternal();
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+            }
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+            std::shared_ptr&lt;IPackageVersion&gt; GetAvailableVersion(const PackageVersionKey&amp; versionKey) const override;
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+            bool IsUpdateAvailable() const override
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+            {
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+                return false;
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+            }
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+            bool IsSame(const IPackage* other) const override
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+            {
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+                const AvailablePackage* otherAvailablePackage = dynamic_cast&lt;const AvailablePackage*&gt;(other);
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+                if (otherAvailablePackage)
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+                {
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+                    return GetReferenceSource()-&gt;IsSame(otherAvailablePackage-&gt;GetReferenceSource().get()) &amp;&amp;
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+                        Utility::CaseInsensitiveEquals(m_package.PackageInformation.PackageIdentifier, otherAvailablePackage-&gt;m_package.PackageInformation.PackageIdentifier);
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+                }
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+                return false;
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+            }
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+            // Helpers for PackageVersion interop
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+            const IRestClient::PackageInfo&amp; PackageInfo() const
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+            {
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+                return m_package.PackageInformation;
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+            }
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+            // This function is designed to handle the case where the only version that is returned by the
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+            // initial search is Unknown. In that case, we perform a search intended to trigger the optimized
+</a><a href="#h0-0-80" id="h0-0-80" class="i">+            // path and directly get all manifests.
+</a><a href="#h0-0-81" id="h0-0-81" class="i">+            bool HandleSingleUnknownVersion(IRestClient::VersionInfo&amp; versionInfo)
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+            {
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+                // If the calling version is unknown then we want to update it if we already
+</a><a href="#h0-0-84" id="h0-0-84" class="i">+                // have the results in the package.
+</a><a href="#h0-0-85" id="h0-0-85" class="i">+                if (versionInfo.VersionAndChannel.GetVersion().IsUnknown() &amp;&amp; !versionInfo.Manifest)
+</a><a href="#h0-0-86" id="h0-0-86" class="i">+                {
+</a><a href="#h0-0-87" id="h0-0-87" class="i">+                    std::scoped_lock versionsLock{ m_packageVersionsLock };
+</a><a href="#h0-0-88" id="h0-0-88" class="i">+                    if (m_package.Versions.size() == 1 &amp;&amp; m_package.Versions[0].VersionAndChannel.GetVersion().IsUnknown() &amp;&amp; !m_package.Versions[0].Manifest)
+</a><a href="#h0-0-89" id="h0-0-89" class="i">+                    {
+</a><a href="#h0-0-90" id="h0-0-90" class="i">+                        SearchRequest request;
+</a><a href="#h0-0-91" id="h0-0-91" class="i">+                        request.Filters.emplace_back(PackageMatchField::Id, MatchType::CaseInsensitive, m_package.PackageInformation.PackageIdentifier);
+</a><a href="#h0-0-92" id="h0-0-92" class="i">+
+</a><a href="#h0-0-93" id="h0-0-93" class="i">+                        IRestClient::SearchResult result = GetReferenceSource()-&gt;GetRestClient().Search(request);
+</a><a href="#h0-0-94" id="h0-0-94" class="i">+
+</a><a href="#h0-0-95" id="h0-0-95" class="i">+                        if (result.Matches.size() == 1)
+</a><a href="#h0-0-96" id="h0-0-96" class="i">+                        {
+</a><a href="#h0-0-97" id="h0-0-97" class="i">+                            m_package.Versions = std::move(result.Matches[0].Versions);
+</a><a href="#h0-0-98" id="h0-0-98" class="i">+                            SortVersionsInternal();
+</a><a href="#h0-0-99" id="h0-0-99" class="i">+                        }
+</a><a href="#h0-0-100" id="h0-0-100" class="i">+                        else
+</a><a href="#h0-0-101" id="h0-0-101" class="i">+                        {
+</a><a href="#h0-0-102" id="h0-0-102" class="i">+                            // Unexpected, but just leave things as they are
+</a><a href="#h0-0-103" id="h0-0-103" class="i">+                            AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Found &quot; &lt;&lt; result.Matches.size() &lt;&lt; &quot; matches for optimized search of &quot; &lt;&lt; m_package.PackageInformation.PackageIdentifier);
+</a><a href="#h0-0-104" id="h0-0-104" class="i">+                        }
+</a><a href="#h0-0-105" id="h0-0-105" class="i">+                    }
+</a><a href="#h0-0-106" id="h0-0-106" class="i">+
+</a><a href="#h0-0-107" id="h0-0-107" class="i">+                    if (!m_package.Versions.empty())
+</a><a href="#h0-0-108" id="h0-0-108" class="i">+                    {
+</a><a href="#h0-0-109" id="h0-0-109" class="i">+                        // The results are now sorted; either take the last one if it is unknown
+</a><a href="#h0-0-110" id="h0-0-110" class="i">+                        // or the first one if it is not (aka latest).
+</a><a href="#h0-0-111" id="h0-0-111" class="i">+                        if (m_package.Versions.back().VersionAndChannel.GetVersion().IsUnknown())
+</a><a href="#h0-0-112" id="h0-0-112" class="i">+                        {
+</a><a href="#h0-0-113" id="h0-0-113" class="i">+                            versionInfo = m_package.Versions.back();
+</a><a href="#h0-0-114" id="h0-0-114" class="i">+                        }
+</a><a href="#h0-0-115" id="h0-0-115" class="i">+                        else
+</a><a href="#h0-0-116" id="h0-0-116" class="i">+                        {
+</a><a href="#h0-0-117" id="h0-0-117" class="i">+                            versionInfo = m_package.Versions.front();
+</a><a href="#h0-0-118" id="h0-0-118" class="i">+                        }
+</a><a href="#h0-0-119" id="h0-0-119" class="i">+                    }
+</a><a href="#h0-0-120" id="h0-0-120" class="i">+
+</a><a href="#h0-0-121" id="h0-0-121" class="i">+                    return true;
+</a><a href="#h0-0-122" id="h0-0-122" class="i">+                }
+</a><a href="#h0-0-123" id="h0-0-123" class="i">+
+</a><a href="#h0-0-124" id="h0-0-124" class="i">+                return false;
+</a><a href="#h0-0-125" id="h0-0-125" class="i">+            }
+</a><a href="#h0-0-126" id="h0-0-126" class="i">+
+</a><a href="#h0-0-127" id="h0-0-127" class="i">+        private:
+</a><a href="#h0-0-128" id="h0-0-128" class="i">+            std::shared_ptr&lt;AvailablePackage&gt; NonConstSharedFromThis() const
+</a><a href="#h0-0-129" id="h0-0-129" class="i">+            {
+</a><a href="#h0-0-130" id="h0-0-130" class="i">+                return const_cast&lt;AvailablePackage*&gt;(this)-&gt;shared_from_this();
+</a><a href="#h0-0-131" id="h0-0-131" class="i">+            }
+</a><a href="#h0-0-132" id="h0-0-132" class="i">+
+</a><a href="#h0-0-133" id="h0-0-133" class="i">+            // Must hold m_packageVersionsLock while calling this
+</a><a href="#h0-0-134" id="h0-0-134" class="i">+            std::shared_ptr&lt;IPackageVersion&gt; GetLatestVersionInternal() const;
+</a><a href="#h0-0-135" id="h0-0-135" class="i">+
+</a><a href="#h0-0-136" id="h0-0-136" class="i">+            // Must hold m_packageVersionsLock while calling this
+</a><a href="#h0-0-137" id="h0-0-137" class="i">+            void SortVersionsInternal()
+</a><a href="#h0-0-138" id="h0-0-138" class="i">+            {
+</a><a href="#h0-0-139" id="h0-0-139" class="i">+                std::sort(m_package.Versions.begin(), m_package.Versions.end(),
+</a><a href="#h0-0-140" id="h0-0-140" class="i">+                    [](const IRestClient::VersionInfo&amp; a, const IRestClient::VersionInfo&amp; b)
+</a><a href="#h0-0-141" id="h0-0-141" class="i">+                    {
+</a><a href="#h0-0-142" id="h0-0-142" class="i">+                        return a.VersionAndChannel &lt; b.VersionAndChannel;
+</a><a href="#h0-0-143" id="h0-0-143" class="i">+                    });
+</a><a href="#h0-0-144" id="h0-0-144" class="i">+            }
+</a><a href="#h0-0-145" id="h0-0-145" class="i">+
+</a><a href="#h0-0-146" id="h0-0-146" class="i">+            IRestClient::Package m_package;
+</a><a href="#h0-0-147" id="h0-0-147" class="i">+            // Protects access to m_package.Versions
+</a><a href="#h0-0-148" id="h0-0-148" class="i">+            mutable std::mutex m_packageVersionsLock;
+</a><a href="#h0-0-149" id="h0-0-149" class="i">+        };
+</a><a href="#h0-0-150" id="h0-0-150" class="i">+
+</a>         // The IPackageVersion impl for RestSource.
+         struct PackageVersion : public SourceReference, public IPackageVersion
+         {
+             PackageVersion(
+<a href="#h0-0-155" id="h0-0-155" class="d">-                const std::shared_ptr&lt;const RestSource&gt;&amp; source, IRestClient::PackageInfo packageInfo, IRestClient::VersionInfo versionInfo)
+</a><a href="#h0-0-156" id="h0-0-156" class="d">-                : SourceReference(source), m_packageInfo(std::move(packageInfo)), m_versionInfo(std::move(versionInfo)) {}
+</a><a href="#h0-0-157" id="h0-0-157" class="i">+                const std::shared_ptr&lt;const RestSource&gt;&amp; source, std::shared_ptr&lt;AvailablePackage&gt;&amp;&amp; package, IRestClient::VersionInfo versionInfo)
+</a><a href="#h0-0-158" id="h0-0-158" class="i">+                : SourceReference(source), m_package(std::move(package)), m_versionInfo(std::move(versionInfo)) {}
+</a> 
+             // Inherited via IPackageVersion
+             Utility::LocIndString GetProperty(PackageVersionProperty property) const override
+<a href="#h0-1" id="h0-1" class="h">@@ -46,9 +194,9 @@ namespace AppInstaller::Repository::Rest
+</a>                 case PackageVersionProperty::SourceName:
+                     return Utility::LocIndString{ GetReferenceSource()-&gt;GetDetails().Name };
+                 case PackageVersionProperty::Id:
+<a href="#h0-1-3" id="h0-1-3" class="d">-                    return Utility::LocIndString{ m_packageInfo.PackageIdentifier };
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+                    return Utility::LocIndString{ m_package-&gt;PackageInfo().PackageIdentifier };
+</a>                 case PackageVersionProperty::Name:
+<a href="#h0-1-6" id="h0-1-6" class="d">-                    return Utility::LocIndString{ m_packageInfo.PackageName };
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+                    return Utility::LocIndString{ m_package-&gt;PackageInfo().PackageName };
+</a>                 case PackageVersionProperty::Version:
+                     return Utility::LocIndString{ m_versionInfo.VersionAndChannel.GetVersion().ToString() };
+                 case PackageVersionProperty::Channel:
+<a href="#h0-2" id="h0-2" class="h">@@ -82,7 +230,7 @@ namespace AppInstaller::Repository::Rest
+</a>                     }
+                     else
+                     {
+<a href="#h0-2-3" id="h0-2-3" class="d">-                        result.emplace_back(m_packageInfo.PackageName);
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+                        result.emplace_back(m_package-&gt;PackageInfo().PackageName);
+</a>                     }
+                     break;
+                 case PackageVersionMultiProperty::Publisher:
+<a href="#h0-3" id="h0-3" class="h">@@ -92,7 +240,7 @@ namespace AppInstaller::Repository::Rest
+</a>                     }
+                     else
+                     {
+<a href="#h0-3-3" id="h0-3-3" class="d">-                        result.emplace_back(m_packageInfo.Publisher);
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+                        result.emplace_back(m_package-&gt;PackageInfo().Publisher);
+</a>                     }
+                     break;
+                 case PackageVersionMultiProperty::Locale:
+<a href="#h0-4" id="h0-4" class="h">@@ -119,12 +267,18 @@ namespace AppInstaller::Repository::Rest
+</a>                     return m_versionInfo.Manifest.value();
+                 }
+ 
+<a href="#h0-4-3" id="h0-4-3" class="i">+                if (m_package-&gt;HandleSingleUnknownVersion(m_versionInfo) &amp;&amp;
+</a><a href="#h0-4-4" id="h0-4-4" class="i">+                    m_versionInfo.Manifest)
+</a><a href="#h0-4-5" id="h0-4-5" class="i">+                {
+</a><a href="#h0-4-6" id="h0-4-6" class="i">+                    return m_versionInfo.Manifest.value();
+</a><a href="#h0-4-7" id="h0-4-7" class="i">+                }
+</a><a href="#h0-4-8" id="h0-4-8" class="i">+
+</a>                 std::optional&lt;Manifest::Manifest&gt; manifest = GetReferenceSource()-&gt;GetRestClient().GetManifestByVersion(
+<a href="#h0-4-10" id="h0-4-10" class="d">-                    m_packageInfo.PackageIdentifier, m_versionInfo.VersionAndChannel.GetVersion().ToString(), m_versionInfo.VersionAndChannel.GetChannel().ToString());
+</a><a href="#h0-4-11" id="h0-4-11" class="i">+                    m_package-&gt;PackageInfo().PackageIdentifier, m_versionInfo.VersionAndChannel.GetVersion().ToString(), m_versionInfo.VersionAndChannel.GetChannel().ToString());
+</a> 
+                 if (!manifest)
+                 {
+<a href="#h0-4-15" id="h0-4-15" class="d">-                    AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Valid manifest not found for package: &quot; &lt;&lt; m_packageInfo.PackageIdentifier);
+</a><a href="#h0-4-16" id="h0-4-16" class="i">+                    AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Valid manifest not found for package: &quot; &lt;&lt; m_package-&gt;PackageInfo().PackageIdentifier);
+</a>                     return {};
+                 }
+                 
+<a href="#h0-5" id="h0-5" class="h">@@ -162,153 +316,68 @@ namespace AppInstaller::Repository::Rest
+</a>                 }
+             }
+ 
+<a href="#h0-5-3" id="h0-5-3" class="d">-            IRestClient::PackageInfo m_packageInfo;
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+            std::shared_ptr&lt;AvailablePackage&gt; m_package;
+</a>             IRestClient::VersionInfo m_versionInfo;
+         };
+ 
+<a href="#h0-5-8" id="h0-5-8" class="d">-        // The base for IPackage implementations here.
+</a><a href="#h0-5-9" id="h0-5-9" class="d">-        struct PackageBase : public SourceReference
+</a><a href="#h0-5-10" id="h0-5-10" class="d">-        {
+</a><a href="#h0-5-11" id="h0-5-11" class="d">-            PackageBase(const std::shared_ptr&lt;const RestSource&gt;&amp; source, IRestClient::Package&amp;&amp; package) :
+</a><a href="#h0-5-12" id="h0-5-12" class="d">-                SourceReference(source), m_package(std::move(package))
+</a><a href="#h0-5-13" id="h0-5-13" class="d">-            {
+</a><a href="#h0-5-14" id="h0-5-14" class="d">-                 // Sort the versions
+</a><a href="#h0-5-15" id="h0-5-15" class="d">-                 std::sort(m_package.Versions.begin(), m_package.Versions.end(),
+</a><a href="#h0-5-16" id="h0-5-16" class="d">-                     [](const IRestClient::VersionInfo&amp; a, const IRestClient::VersionInfo&amp; b)
+</a><a href="#h0-5-17" id="h0-5-17" class="d">-                     {
+</a><a href="#h0-5-18" id="h0-5-18" class="d">-                         return a.VersionAndChannel &lt; b.VersionAndChannel;
+</a><a href="#h0-5-19" id="h0-5-19" class="d">-                     });
+</a><a href="#h0-5-20" id="h0-5-20" class="d">-            }
+</a><a href="#h0-5-21" id="h0-5-21" class="d">-
+</a><a href="#h0-5-22" id="h0-5-22" class="d">-            Utility::LocIndString GetProperty(PackageProperty property) const
+</a><a href="#h0-5-23" id="h0-5-23" class="d">-            {
+</a><a href="#h0-5-24" id="h0-5-24" class="d">-                switch (property)
+</a><a href="#h0-5-25" id="h0-5-25" class="d">-                {
+</a><a href="#h0-5-26" id="h0-5-26" class="d">-                case PackageProperty::Id:
+</a><a href="#h0-5-27" id="h0-5-27" class="d">-                    return Utility::LocIndString{ m_package.PackageInformation.PackageIdentifier };
+</a><a href="#h0-5-28" id="h0-5-28" class="d">-                case PackageProperty::Name:
+</a><a href="#h0-5-29" id="h0-5-29" class="d">-                    return Utility::LocIndString{ m_package.PackageInformation.PackageName };
+</a><a href="#h0-5-30" id="h0-5-30" class="d">-                default:
+</a><a href="#h0-5-31" id="h0-5-31" class="d">-                    THROW_HR(E_UNEXPECTED);
+</a><a href="#h0-5-32" id="h0-5-32" class="d">-                }
+</a><a href="#h0-5-33" id="h0-5-33" class="d">-            }
+</a><a href="#h0-5-34" id="h0-5-34" class="d">-
+</a><a href="#h0-5-35" id="h0-5-35" class="d">-        protected:
+</a><a href="#h0-5-36" id="h0-5-36" class="d">-            std::shared_ptr&lt;IPackageVersion&gt; GetLatestVersionInternal() const
+</a><a href="#h0-5-37" id="h0-5-37" class="d">-            {
+</a><a href="#h0-5-38" id="h0-5-38" class="d">-                IRestClient::VersionInfo latestVersion = m_package.Versions.front();
+</a><a href="#h0-5-39" id="h0-5-39" class="d">-                return std::make_shared&lt;PackageVersion&gt;(GetReferenceSource(), m_package.PackageInformation, latestVersion);
+</a><a href="#h0-5-40" id="h0-5-40" class="d">-            }
+</a><a href="#h0-5-41" id="h0-5-41" class="d">-
+</a><a href="#h0-5-42" id="h0-5-42" class="d">-            IRestClient::Package m_package;
+</a><a href="#h0-5-43" id="h0-5-43" class="d">-        };
+</a><a href="#h0-5-44" id="h0-5-44" class="d">-
+</a><a href="#h0-5-45" id="h0-5-45" class="d">-        // The IPackage impl for Available packages from RestSource.
+</a><a href="#h0-5-46" id="h0-5-46" class="d">-        struct AvailablePackage : public PackageBase, public IPackage
+</a><a href="#h0-5-47" id="h0-5-47" class="i">+        std::shared_ptr&lt;IPackageVersion&gt; AvailablePackage::GetAvailableVersion(const PackageVersionKey&amp; versionKey) const
+</a>         {
+<a href="#h0-5-49" id="h0-5-49" class="d">-            using PackageBase::PackageBase;
+</a><a href="#h0-5-50" id="h0-5-50" class="d">-
+</a><a href="#h0-5-51" id="h0-5-51" class="d">-            // Inherited via IPackage
+</a><a href="#h0-5-52" id="h0-5-52" class="d">-            Utility::LocIndString GetProperty(PackageProperty property) const override
+</a><a href="#h0-5-53" id="h0-5-53" class="d">-            {
+</a><a href="#h0-5-54" id="h0-5-54" class="d">-                return PackageBase::GetProperty(property);
+</a><a href="#h0-5-55" id="h0-5-55" class="d">-            }
+</a><a href="#h0-5-56" id="h0-5-56" class="i">+            std::shared_ptr&lt;const RestSource&gt; source = GetReferenceSource();
+</a><a href="#h0-5-57" id="h0-5-57" class="i">+            std::scoped_lock versionsLock{ m_packageVersionsLock };
+</a> 
+<a href="#h0-5-59" id="h0-5-59" class="d">-            std::shared_ptr&lt;IPackageVersion&gt; GetInstalledVersion() const override
+</a><a href="#h0-5-60" id="h0-5-60" class="i">+            // Ensure that this key targets this (or any) source
+</a><a href="#h0-5-61" id="h0-5-61" class="i">+            if (!versionKey.SourceId.empty() &amp;&amp; versionKey.SourceId != source-&gt;GetIdentifier())
+</a>             {
+                 return {};
+             }
+ 
+<a href="#h0-5-66" id="h0-5-66" class="d">-            std::vector&lt;PackageVersionKey&gt; GetAvailableVersionKeys() const override
+</a><a href="#h0-5-67" id="h0-5-67" class="i">+            std::shared_ptr&lt;IPackageVersion&gt; packageVersion;
+</a><a href="#h0-5-68" id="h0-5-68" class="i">+            if (!versionKey.Version.empty() &amp;&amp; !versionKey.Channel.empty())
+</a>             {
+<a href="#h0-5-70" id="h0-5-70" class="d">-                std::shared_ptr&lt;const RestSource&gt; source = GetReferenceSource();
+</a><a href="#h0-5-71" id="h0-5-71" class="d">-
+</a><a href="#h0-5-72" id="h0-5-72" class="d">-                std::vector&lt;PackageVersionKey&gt; result;
+</a>                 for (const auto&amp; versionInfo : m_package.Versions)
+                 {
+<a href="#h0-5-75" id="h0-5-75" class="d">-                    result.emplace_back(
+</a><a href="#h0-5-76" id="h0-5-76" class="d">-                        source-&gt;GetIdentifier(), versionInfo.VersionAndChannel.GetVersion().ToString(), versionInfo.VersionAndChannel.GetChannel().ToString());
+</a><a href="#h0-5-77" id="h0-5-77" class="i">+                    if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetVersion().ToString(), versionKey.Version)
+</a><a href="#h0-5-78" id="h0-5-78" class="i">+                        &amp;&amp; CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetChannel().ToString(), versionKey.Channel))
+</a><a href="#h0-5-79" id="h0-5-79" class="i">+                    {
+</a><a href="#h0-5-80" id="h0-5-80" class="i">+                        packageVersion = std::make_shared&lt;PackageVersion&gt;(source, NonConstSharedFromThis(), versionInfo);
+</a><a href="#h0-5-81" id="h0-5-81" class="i">+                        break;
+</a><a href="#h0-5-82" id="h0-5-82" class="i">+                    }
+</a>                 }
+<a href="#h0-5-84" id="h0-5-84" class="d">-
+</a><a href="#h0-5-85" id="h0-5-85" class="d">-                return result;
+</a>             }
+<a href="#h0-5-87" id="h0-5-87" class="d">-
+</a><a href="#h0-5-88" id="h0-5-88" class="d">-            std::shared_ptr&lt;IPackageVersion&gt; GetLatestAvailableVersion() const override
+</a><a href="#h0-5-89" id="h0-5-89" class="i">+            else if (versionKey.Version.empty() &amp;&amp; versionKey.Channel.empty())
+</a>             {
+<a href="#h0-5-91" id="h0-5-91" class="d">-                return GetLatestVersionInternal();
+</a><a href="#h0-5-92" id="h0-5-92" class="i">+                packageVersion = GetLatestVersionInternal();
+</a>             }
+<a href="#h0-5-94" id="h0-5-94" class="d">-
+</a><a href="#h0-5-95" id="h0-5-95" class="d">-            std::shared_ptr&lt;IPackageVersion&gt; GetAvailableVersion(const PackageVersionKey&amp; versionKey) const override
+</a><a href="#h0-5-96" id="h0-5-96" class="i">+            else if (versionKey.Version.empty())
+</a>             {
+<a href="#h0-5-98" id="h0-5-98" class="d">-                std::shared_ptr&lt;const RestSource&gt; source = GetReferenceSource();
+</a><a href="#h0-5-99" id="h0-5-99" class="d">-
+</a><a href="#h0-5-100" id="h0-5-100" class="d">-                // Ensure that this key targets this (or any) source
+</a><a href="#h0-5-101" id="h0-5-101" class="d">-                if (!versionKey.SourceId.empty() &amp;&amp; versionKey.SourceId != source-&gt;GetIdentifier())
+</a><a href="#h0-5-102" id="h0-5-102" class="d">-                {
+</a><a href="#h0-5-103" id="h0-5-103" class="d">-                    return {};
+</a><a href="#h0-5-104" id="h0-5-104" class="d">-                }
+</a><a href="#h0-5-105" id="h0-5-105" class="d">-
+</a><a href="#h0-5-106" id="h0-5-106" class="d">-                std::shared_ptr&lt;IPackageVersion&gt; packageVersion;
+</a><a href="#h0-5-107" id="h0-5-107" class="d">-                if (!versionKey.Version.empty() &amp;&amp; !versionKey.Channel.empty())
+</a><a href="#h0-5-108" id="h0-5-108" class="i">+                for (const auto&amp; versionInfo : m_package.Versions)
+</a>                 {
+<a href="#h0-5-110" id="h0-5-110" class="d">-                    for (const auto&amp; versionInfo : m_package.Versions)
+</a><a href="#h0-5-111" id="h0-5-111" class="i">+                    if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetChannel().ToString(), versionKey.Channel))
+</a>                     {
+<a href="#h0-5-113" id="h0-5-113" class="d">-                        if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetVersion().ToString(), versionKey.Version)
+</a><a href="#h0-5-114" id="h0-5-114" class="d">-                            &amp;&amp; CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetChannel().ToString(), versionKey.Channel))
+</a><a href="#h0-5-115" id="h0-5-115" class="d">-                        {
+</a><a href="#h0-5-116" id="h0-5-116" class="d">-                            packageVersion = std::make_shared&lt;PackageVersion&gt;(source, m_package.PackageInformation, versionInfo);
+</a><a href="#h0-5-117" id="h0-5-117" class="d">-                            break;
+</a><a href="#h0-5-118" id="h0-5-118" class="d">-                        }
+</a><a href="#h0-5-119" id="h0-5-119" class="i">+                        packageVersion = std::make_shared&lt;PackageVersion&gt;(source, NonConstSharedFromThis(), versionInfo);
+</a><a href="#h0-5-120" id="h0-5-120" class="i">+                        break;
+</a>                     }
+                 }
+<a href="#h0-5-123" id="h0-5-123" class="d">-                else if (versionKey.Version.empty() &amp;&amp; versionKey.Channel.empty())
+</a><a href="#h0-5-124" id="h0-5-124" class="d">-                {
+</a><a href="#h0-5-125" id="h0-5-125" class="d">-                    packageVersion = GetLatestAvailableVersion();
+</a><a href="#h0-5-126" id="h0-5-126" class="d">-                }
+</a><a href="#h0-5-127" id="h0-5-127" class="d">-                else if (versionKey.Version.empty())
+</a><a href="#h0-5-128" id="h0-5-128" class="i">+            }
+</a><a href="#h0-5-129" id="h0-5-129" class="i">+            else if (versionKey.Channel.empty())
+</a><a href="#h0-5-130" id="h0-5-130" class="i">+            {
+</a><a href="#h0-5-131" id="h0-5-131" class="i">+                for (const auto&amp; versionInfo : m_package.Versions)
+</a>                 {
+<a href="#h0-5-133" id="h0-5-133" class="d">-                    for (const auto&amp; versionInfo : m_package.Versions)
+</a><a href="#h0-5-134" id="h0-5-134" class="i">+                    if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetVersion().ToString(), versionKey.Version))
+</a>                     {
+<a href="#h0-5-136" id="h0-5-136" class="d">-                        if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetChannel().ToString(), versionKey.Channel))
+</a><a href="#h0-5-137" id="h0-5-137" class="d">-                        {
+</a><a href="#h0-5-138" id="h0-5-138" class="d">-                            packageVersion = std::make_shared&lt;PackageVersion&gt;(source, m_package.PackageInformation, versionInfo);
+</a><a href="#h0-5-139" id="h0-5-139" class="d">-                            break;
+</a><a href="#h0-5-140" id="h0-5-140" class="d">-                        }
+</a><a href="#h0-5-141" id="h0-5-141" class="i">+                        packageVersion = std::make_shared&lt;PackageVersion&gt;(source, NonConstSharedFromThis(), versionInfo);
+</a><a href="#h0-5-142" id="h0-5-142" class="i">+                        break;
+</a>                     }
+                 }
+<a href="#h0-5-145" id="h0-5-145" class="d">-                else if (versionKey.Channel.empty())
+</a><a href="#h0-5-146" id="h0-5-146" class="d">-                {
+</a><a href="#h0-5-147" id="h0-5-147" class="d">-                    for (const auto&amp; versionInfo : m_package.Versions)
+</a><a href="#h0-5-148" id="h0-5-148" class="d">-                    {
+</a><a href="#h0-5-149" id="h0-5-149" class="d">-                        if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetVersion().ToString(), versionKey.Version))
+</a><a href="#h0-5-150" id="h0-5-150" class="d">-                        {
+</a><a href="#h0-5-151" id="h0-5-151" class="d">-                            packageVersion = std::make_shared&lt;PackageVersion&gt;(source, m_package.PackageInformation, versionInfo);
+</a><a href="#h0-5-152" id="h0-5-152" class="d">-                            break;
+</a><a href="#h0-5-153" id="h0-5-153" class="d">-                        }
+</a><a href="#h0-5-154" id="h0-5-154" class="d">-                    }
+</a><a href="#h0-5-155" id="h0-5-155" class="d">-                }
+</a><a href="#h0-5-156" id="h0-5-156" class="d">-
+</a><a href="#h0-5-157" id="h0-5-157" class="d">-                return packageVersion;
+</a><a href="#h0-5-158" id="h0-5-158" class="d">-            }
+</a><a href="#h0-5-159" id="h0-5-159" class="d">-
+</a><a href="#h0-5-160" id="h0-5-160" class="d">-            bool IsUpdateAvailable() const override
+</a><a href="#h0-5-161" id="h0-5-161" class="d">-            {
+</a><a href="#h0-5-162" id="h0-5-162" class="d">-                return false;
+</a>             }
+ 
+<a href="#h0-5-165" id="h0-5-165" class="d">-            bool IsSame(const IPackage* other) const override
+</a><a href="#h0-5-166" id="h0-5-166" class="d">-            {
+</a><a href="#h0-5-167" id="h0-5-167" class="d">-                const AvailablePackage* otherAvailablePackage = dynamic_cast&lt;const AvailablePackage*&gt;(other);
+</a><a href="#h0-5-168" id="h0-5-168" class="d">-
+</a><a href="#h0-5-169" id="h0-5-169" class="d">-                if (otherAvailablePackage)
+</a><a href="#h0-5-170" id="h0-5-170" class="d">-                {
+</a><a href="#h0-5-171" id="h0-5-171" class="d">-                    return GetReferenceSource()-&gt;IsSame(otherAvailablePackage-&gt;GetReferenceSource().get()) &amp;&amp;
+</a><a href="#h0-5-172" id="h0-5-172" class="d">-                        Utility::CaseInsensitiveEquals(m_package.PackageInformation.PackageIdentifier, otherAvailablePackage-&gt;m_package.PackageInformation.PackageIdentifier);
+</a><a href="#h0-5-173" id="h0-5-173" class="d">-                }
+</a><a href="#h0-5-174" id="h0-5-174" class="i">+            return packageVersion;
+</a><a href="#h0-5-175" id="h0-5-175" class="i">+        }
+</a> 
+<a href="#h0-5-177" id="h0-5-177" class="d">-                return false;
+</a><a href="#h0-5-178" id="h0-5-178" class="d">-            }
+</a><a href="#h0-5-179" id="h0-5-179" class="d">-        };
+</a><a href="#h0-5-180" id="h0-5-180" class="i">+        std::shared_ptr&lt;IPackageVersion&gt; AvailablePackage::GetLatestVersionInternal() const
+</a><a href="#h0-5-181" id="h0-5-181" class="i">+        {
+</a><a href="#h0-5-182" id="h0-5-182" class="i">+            return std::make_shared&lt;PackageVersion&gt;(GetReferenceSource(), NonConstSharedFromThis(), m_package.Versions.front());
+</a><a href="#h0-5-183" id="h0-5-183" class="i">+        }
+</a>     }
+ 
+     RestSource::RestSource(const SourceDetails&amp; details, std::string identifier, RestClient&amp;&amp; restClient)
+<a href="#h0-6" id="h0-6" class="h">@@ -352,9 +421,9 @@ namespace AppInstaller::Repository::Rest
+</a>         std::shared_ptr&lt;const RestSource&gt; sharedThis = shared_from_this();
+         for (auto&amp; result : results.Matches)
+         {
+<a href="#h0-6-3" id="h0-6-3" class="d">-            std::unique_ptr&lt;IPackage&gt; package = std::make_unique&lt;AvailablePackage&gt;(sharedThis, std::move(result));
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+            std::shared_ptr&lt;IPackage&gt; package = std::make_shared&lt;AvailablePackage&gt;(sharedThis, std::move(result));
+</a> 
+<a href="#h0-6-6" id="h0-6-6" class="d">-            // TODO: Improvise to use Package match filter to return relevant search results.
+</a><a href="#h0-6-7" id="h0-6-7" class="i">+            // TODO: Improve to use Package match filter to return relevant search results.
+</a>             PackageMatchFilter packageFilter{ {}, {}, {} };
+ 
+             searchResult.Matches.emplace_back(std::move(package), std::move(packageFilter));
+</pre>
+</div>
+</body>
+</html>

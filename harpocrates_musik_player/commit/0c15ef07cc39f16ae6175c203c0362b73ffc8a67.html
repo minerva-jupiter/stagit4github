@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(audio): add output device management and settings UI view - harpocrates_musik_player - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="harpocrates_musik_player.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="harpocrates_musik_player.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>harpocrates_musik_player</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/0c15ef07cc39f16ae6175c203c0362b73ffc8a67.html">0c15ef07cc39f16ae6175c203c0362b73ffc8a67</a>
+<b>parent</b> <a href="../commit/91f3b13632ae1cd334bfd9094aeab5ad0aaf9297.html">91f3b13632ae1cd334bfd9094aeab5ad0aaf9297</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Thu,  6 Aug 2026 17:42:06 +0900
+
+feat(audio): add output device management and settings UI view
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">Cargo.toml</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/audio.rs</a></td><td> | </td><td class="num">50</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/main.rs</a></td><td> | </td><td class="num">280</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/setting.rs</a></td><td> | </td><td class="num">21</td><td><span class="i">+++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/ui.rs</a></td><td> | </td><td class="num">249</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------------</span></td></tr>
+</table></pre><pre>5 files changed, 432 insertions(+), 172 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/Cargo.toml.html">Cargo.toml</a> b/<a href="../file/Cargo.toml.html">Cargo.toml</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -6,8 +6,8 @@ edition = &quot;2024&quot;
+</a> [dependencies]
+ crossterm = &quot;0.29.0&quot;
+ ratatui = {version = &quot;0.30.2&quot;}
+<a href="#h0-0-3" id="h0-0-3" class="d">-rodio = {version=&quot;0.22.2&quot;, default-features = true}
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-toml = {version = &quot;1.1.4+spec-1.1.0&quot;}
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+rodio = {version=&quot;0.22.2&quot;, features = [&quot;playback&quot;]}
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+toml = {version = &quot;1.1.4&quot;}
+</a> serde = {version = &quot;1.0.190&quot;, features = [&quot;derive&quot;]}
+ directories = {version = &quot;6.0.0&quot;}
+ 
+<b>diff --git a/<a id="h1" href="../file/src/audio.rs.html">src/audio.rs</a> b/<a href="../file/src/audio.rs.html">src/audio.rs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,9 +1,14 @@
+</a><a href="#h1-0-0" id="h1-0-0" class="i">+use crate::setting::AudioSettings;
+</a><a href="#h1-0-1" id="h1-0-1" class="i">+use rodio::Device;
+</a><a href="#h1-0-2" id="h1-0-2" class="i">+use rodio::cpal::traits::{DeviceTrait, HostTrait};
+</a><a href="#h1-0-3" id="h1-0-3" class="i">+use rodio::stream::{DeviceSinkBuilder, MixerDeviceSink};
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+
+</a> pub struct AudioEngine {
+     player: rodio::Player,
+     stream_handle: rodio::MixerDeviceSink,
+ }
+ pub trait AudioPlayer {
+<a href="#h1-0-10" id="h1-0-10" class="d">-    fn new() -&gt; Result&lt;AudioEngine, Box&lt;dyn std::error::Error&gt;&gt;;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+    fn new(audio_settings: &amp;AudioSettings) -&gt; Result&lt;AudioEngine, Box&lt;dyn std::error::Error&gt;&gt;;
+</a>     fn append_a_track(&amp;mut self, file: &amp;str) -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt;;
+     fn play(&amp;mut self);
+     fn pause(&amp;mut self);
+<a href="#h1-1" id="h1-1" class="h">@@ -19,8 +24,8 @@ pub trait AudioPlayer {
+</a> }
+ 
+ impl AudioPlayer for AudioEngine {
+<a href="#h1-1-3" id="h1-1-3" class="d">-    fn new() -&gt; Result&lt;Self, Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-        let stream_handle = rodio::DeviceSinkBuilder::open_default_sink()?;
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+    fn new(audio_settings: &amp;AudioSettings) -&gt; Result&lt;Self, Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+        let stream_handle = DeviceManager::open_sink(&amp;audio_settings.output_device())?;
+</a>         let player = rodio::Player::connect_new(stream_handle.mixer());
+         Ok(Self {
+             player,
+<a href="#h1-2" id="h1-2" class="h">@@ -70,3 +75,42 @@ impl AudioPlayer for AudioEngine {
+</a>         Ok(())
+     }
+ }
+<a href="#h1-2-3" id="h1-2-3" class="i">+
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+pub struct DeviceManager;
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+impl DeviceManager {
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+    pub fn list_device_names() -&gt; Vec&lt;String&gt; {
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        let host = rodio::cpal::default_host();
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+        let Ok(devices) = host.output_devices() else {
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+            return Vec::new();
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+        };
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+        devices.filter_map(|d| d.name().ok()).collect()
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+    }
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+    pub fn find_device_by_name(name: &amp;str) -&gt; Option&lt;Device&gt; {
+</a><a href="#h1-2-17" id="h1-2-17" class="i">+        if name.trim().is_empty() {
+</a><a href="#h1-2-18" id="h1-2-18" class="i">+            return None;
+</a><a href="#h1-2-19" id="h1-2-19" class="i">+        }
+</a><a href="#h1-2-20" id="h1-2-20" class="i">+
+</a><a href="#h1-2-21" id="h1-2-21" class="i">+        let host = rodio::cpal::default_host();
+</a><a href="#h1-2-22" id="h1-2-22" class="i">+        let Ok(mut devices) = host.output_devices() else {
+</a><a href="#h1-2-23" id="h1-2-23" class="i">+            return None;
+</a><a href="#h1-2-24" id="h1-2-24" class="i">+        };
+</a><a href="#h1-2-25" id="h1-2-25" class="i">+
+</a><a href="#h1-2-26" id="h1-2-26" class="i">+        devices.find(|d| d.name().map(|n| n == name).unwrap_or(false))
+</a><a href="#h1-2-27" id="h1-2-27" class="i">+    }
+</a><a href="#h1-2-28" id="h1-2-28" class="i">+
+</a><a href="#h1-2-29" id="h1-2-29" class="i">+    pub fn open_sink(device_name: &amp;str) -&gt; Result&lt;MixerDeviceSink, Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h1-2-30" id="h1-2-30" class="i">+        if let Some(device) = Self::find_device_by_name(device_name) {
+</a><a href="#h1-2-31" id="h1-2-31" class="i">+            if let Ok(builder) = DeviceSinkBuilder::from_device(device) {
+</a><a href="#h1-2-32" id="h1-2-32" class="i">+                if let Ok(sink) = builder.open_stream() {
+</a><a href="#h1-2-33" id="h1-2-33" class="i">+                    return Ok(sink);
+</a><a href="#h1-2-34" id="h1-2-34" class="i">+                }
+</a><a href="#h1-2-35" id="h1-2-35" class="i">+            }
+</a><a href="#h1-2-36" id="h1-2-36" class="i">+        }
+</a><a href="#h1-2-37" id="h1-2-37" class="i">+
+</a><a href="#h1-2-38" id="h1-2-38" class="i">+        let sink = DeviceSinkBuilder::open_default_sink()?;
+</a><a href="#h1-2-39" id="h1-2-39" class="i">+        Ok(sink)
+</a><a href="#h1-2-40" id="h1-2-40" class="i">+    }
+</a><a href="#h1-2-41" id="h1-2-41" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/src/main.rs.html">src/main.rs</a> b/<a href="../file/src/main.rs.html">src/main.rs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -24,8 +24,8 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>     io::stdout().execute(EnterAlternateScreen)?;
+     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-    let settings: Settings = Settings::load()?;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-    let mut audioengine: AudioEngine = AudioEngine::new()?;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    let mut settings: Settings = Settings::load()?;
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+    let mut audioengine: AudioEngine = AudioEngine::new(settings.audio())?;
+</a>     audioengine.set_volume(settings.audio().volume());
+ 
+     let raw_items = library::scan_library(settings.audio().library_path());
+<a href="#h2-1" id="h2-1" class="h">@@ -34,15 +34,57 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a> 
+     loop {
+         terminal.draw(|f| {
+<a href="#h2-1-3" id="h2-1-3" class="d">-            ui::render(f, &amp;library, &amp;mut state);
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+            ui::render(f, &amp;library, &amp;mut state, &amp;settings);
+</a>         })?;
+ 
+         if event::poll(Duration::from_millis(100))? {
+             if let Event::Key(key) = event::read()?
+                 &amp;&amp; key.kind == KeyEventKind::Press
+             {
+<a href="#h2-1-11" id="h2-1-11" class="i">+                if state.is_device_dialog_open {
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+                    match key.code {
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+                        KeyCode::Up =&gt; {
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+                            let i = state.device_dialog_state.selected().unwrap_or(0);
+</a><a href="#h2-1-15" id="h2-1-15" class="i">+                            if i &gt; 0 {
+</a><a href="#h2-1-16" id="h2-1-16" class="i">+                                state.device_dialog_state.select(Some(i - 1));
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+                            }
+</a><a href="#h2-1-18" id="h2-1-18" class="i">+                        }
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+                        KeyCode::Down =&gt; {
+</a><a href="#h2-1-20" id="h2-1-20" class="i">+                            let i = state.device_dialog_state.selected().unwrap_or(0);
+</a><a href="#h2-1-21" id="h2-1-21" class="i">+                            if !state.available_devices.is_empty()
+</a><a href="#h2-1-22" id="h2-1-22" class="i">+                                &amp;&amp; i &lt; state.available_devices.len() - 1
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+                            {
+</a><a href="#h2-1-24" id="h2-1-24" class="i">+                                state.device_dialog_state.select(Some(i + 1));
+</a><a href="#h2-1-25" id="h2-1-25" class="i">+                            }
+</a><a href="#h2-1-26" id="h2-1-26" class="i">+                        }
+</a><a href="#h2-1-27" id="h2-1-27" class="i">+                        KeyCode::Enter =&gt; {
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+                            if let Some(i) = state.device_dialog_state.selected() {
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+                                if let Some(device_name) = state.available_devices.get(i) {
+</a><a href="#h2-1-30" id="h2-1-30" class="i">+                                    settings.audio_mut().set_output_device(device_name.clone());
+</a><a href="#h2-1-31" id="h2-1-31" class="i">+                                    audioengine = AudioEngine::new(settings.audio())?;
+</a><a href="#h2-1-32" id="h2-1-32" class="i">+                                    audioengine.set_volume(settings.audio().volume());
+</a><a href="#h2-1-33" id="h2-1-33" class="i">+                                    settings.save()?;
+</a><a href="#h2-1-34" id="h2-1-34" class="i">+                                }
+</a><a href="#h2-1-35" id="h2-1-35" class="i">+                            }
+</a><a href="#h2-1-36" id="h2-1-36" class="i">+                            state.close_device_dialog();
+</a><a href="#h2-1-37" id="h2-1-37" class="i">+                        }
+</a><a href="#h2-1-38" id="h2-1-38" class="i">+                        KeyCode::Esc =&gt; {
+</a><a href="#h2-1-39" id="h2-1-39" class="i">+                            state.close_device_dialog();
+</a><a href="#h2-1-40" id="h2-1-40" class="i">+                        }
+</a><a href="#h2-1-41" id="h2-1-41" class="i">+                        _ =&gt; {}
+</a><a href="#h2-1-42" id="h2-1-42" class="i">+                    }
+</a><a href="#h2-1-43" id="h2-1-43" class="i">+                    continue;
+</a><a href="#h2-1-44" id="h2-1-44" class="i">+                }
+</a><a href="#h2-1-45" id="h2-1-45" class="i">+
+</a>                 match key.code {
+                     KeyCode::Char(&#39;q&#39;) =&gt; break,
+<a href="#h2-1-48" id="h2-1-48" class="i">+                    KeyCode::Char(&#39;s&#39;) =&gt; {
+</a><a href="#h2-1-49" id="h2-1-49" class="i">+                        state.focus = if state.focus == Focus::Settings {
+</a><a href="#h2-1-50" id="h2-1-50" class="i">+                            Focus::Artist
+</a><a href="#h2-1-51" id="h2-1-51" class="i">+                        } else {
+</a><a href="#h2-1-52" id="h2-1-52" class="i">+                            Focus::Settings
+</a><a href="#h2-1-53" id="h2-1-53" class="i">+                        };
+</a><a href="#h2-1-54" id="h2-1-54" class="i">+                    }
+</a>                     KeyCode::Char(&#39;p&#39;) =&gt; {
+                         if audioengine.is_paused() {
+                             audioengine.play();
+<a href="#h2-2" id="h2-2" class="h">@@ -51,117 +93,167 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>                         }
+                     }
+                     KeyCode::Left =&gt; {
+<a href="#h2-2-3" id="h2-2-3" class="d">-                        state.focus = match state.focus {
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-                            Focus::Artist =&gt; Focus::Artist,
+</a><a href="#h2-2-5" id="h2-2-5" class="d">-                            Focus::Album =&gt; Focus::Artist,
+</a><a href="#h2-2-6" id="h2-2-6" class="d">-                            Focus::Track =&gt; Focus::Album,
+</a><a href="#h2-2-7" id="h2-2-7" class="d">-                        };
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+                        if state.focus == Focus::Settings {
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+                            let selected_setting = state.settings_state.selected().unwrap_or(0);
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+                            if selected_setting == 0 {
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+                                let current_volume = settings.audio().volume();
+</a><a href="#h2-2-12" id="h2-2-12" class="i">+                                let new_volume = (current_volume - 0.01).max(0.0);
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+                                settings.audio_mut().set_volume(new_volume);
+</a><a href="#h2-2-14" id="h2-2-14" class="i">+                                audioengine.set_volume(new_volume);
+</a><a href="#h2-2-15" id="h2-2-15" class="i">+                                settings.save()?;
+</a><a href="#h2-2-16" id="h2-2-16" class="i">+                            }
+</a><a href="#h2-2-17" id="h2-2-17" class="i">+                        } else {
+</a><a href="#h2-2-18" id="h2-2-18" class="i">+                            state.focus = match state.focus {
+</a><a href="#h2-2-19" id="h2-2-19" class="i">+                                Focus::Artist =&gt; Focus::Artist,
+</a><a href="#h2-2-20" id="h2-2-20" class="i">+                                Focus::Album =&gt; Focus::Artist,
+</a><a href="#h2-2-21" id="h2-2-21" class="i">+                                Focus::Track =&gt; Focus::Album,
+</a><a href="#h2-2-22" id="h2-2-22" class="i">+                                Focus::Settings =&gt; Focus::Settings,
+</a><a href="#h2-2-23" id="h2-2-23" class="i">+                            };
+</a><a href="#h2-2-24" id="h2-2-24" class="i">+                        }
+</a>                     }
+                     KeyCode::Right =&gt; {
+<a href="#h2-2-27" id="h2-2-27" class="d">-                        state.focus = match state.focus {
+</a><a href="#h2-2-28" id="h2-2-28" class="d">-                            Focus::Artist =&gt; {
+</a><a href="#h2-2-29" id="h2-2-29" class="d">-                                state.album_state.select(Some(0));
+</a><a href="#h2-2-30" id="h2-2-30" class="d">-                                Focus::Album
+</a><a href="#h2-2-31" id="h2-2-31" class="i">+                        if state.focus == Focus::Settings {
+</a><a href="#h2-2-32" id="h2-2-32" class="i">+                            let selected_setting = state.settings_state.selected().unwrap_or(0);
+</a><a href="#h2-2-33" id="h2-2-33" class="i">+                            if selected_setting == 0 {
+</a><a href="#h2-2-34" id="h2-2-34" class="i">+                                let current_volume = settings.audio().volume();
+</a><a href="#h2-2-35" id="h2-2-35" class="i">+                                let new_volume = (current_volume + 0.01).min(1.0);
+</a><a href="#h2-2-36" id="h2-2-36" class="i">+                                settings.audio_mut().set_volume(new_volume);
+</a><a href="#h2-2-37" id="h2-2-37" class="i">+                                audioengine.set_volume(new_volume);
+</a><a href="#h2-2-38" id="h2-2-38" class="i">+                                settings.save()?;
+</a>                             }
+<a href="#h2-2-40" id="h2-2-40" class="d">-                            Focus::Album =&gt; {
+</a><a href="#h2-2-41" id="h2-2-41" class="d">-                                state.track_state.select(Some(0));
+</a><a href="#h2-2-42" id="h2-2-42" class="d">-                                Focus::Track
+</a><a href="#h2-2-43" id="h2-2-43" class="d">-                            }
+</a><a href="#h2-2-44" id="h2-2-44" class="d">-                            Focus::Track =&gt; Focus::Track,
+</a><a href="#h2-2-45" id="h2-2-45" class="d">-                        };
+</a><a href="#h2-2-46" id="h2-2-46" class="i">+                        } else {
+</a><a href="#h2-2-47" id="h2-2-47" class="i">+                            state.focus = match state.focus {
+</a><a href="#h2-2-48" id="h2-2-48" class="i">+                                Focus::Artist =&gt; {
+</a><a href="#h2-2-49" id="h2-2-49" class="i">+                                    state.album_state.select(Some(0));
+</a><a href="#h2-2-50" id="h2-2-50" class="i">+                                    Focus::Album
+</a><a href="#h2-2-51" id="h2-2-51" class="i">+                                }
+</a><a href="#h2-2-52" id="h2-2-52" class="i">+                                Focus::Album =&gt; {
+</a><a href="#h2-2-53" id="h2-2-53" class="i">+                                    state.track_state.select(Some(0));
+</a><a href="#h2-2-54" id="h2-2-54" class="i">+                                    Focus::Track
+</a><a href="#h2-2-55" id="h2-2-55" class="i">+                                }
+</a><a href="#h2-2-56" id="h2-2-56" class="i">+                                Focus::Track =&gt; Focus::Track,
+</a><a href="#h2-2-57" id="h2-2-57" class="i">+                                Focus::Settings =&gt; Focus::Settings,
+</a><a href="#h2-2-58" id="h2-2-58" class="i">+                            };
+</a><a href="#h2-2-59" id="h2-2-59" class="i">+                        }
+</a>                     }
+                     KeyCode::Up =&gt; {
+<a href="#h2-2-62" id="h2-2-62" class="d">-                        let current_state = match state.focus {
+</a><a href="#h2-2-63" id="h2-2-63" class="d">-                            Focus::Artist =&gt; &amp;mut state.artist_state,
+</a><a href="#h2-2-64" id="h2-2-64" class="d">-                            Focus::Album =&gt; &amp;mut state.album_state,
+</a><a href="#h2-2-65" id="h2-2-65" class="d">-                            Focus::Track =&gt; &amp;mut state.track_state,
+</a><a href="#h2-2-66" id="h2-2-66" class="d">-                        };
+</a><a href="#h2-2-67" id="h2-2-67" class="d">-                        let i = current_state.selected().unwrap_or(0);
+</a><a href="#h2-2-68" id="h2-2-68" class="d">-                        if i &gt; 0 {
+</a><a href="#h2-2-69" id="h2-2-69" class="d">-                            current_state.select(Some(i - 1));
+</a><a href="#h2-2-70" id="h2-2-70" class="i">+                        if state.focus == Focus::Settings {
+</a><a href="#h2-2-71" id="h2-2-71" class="i">+                            let i = state.settings_state.selected().unwrap_or(0);
+</a><a href="#h2-2-72" id="h2-2-72" class="i">+                            if i &gt; 0 {
+</a><a href="#h2-2-73" id="h2-2-73" class="i">+                                state.settings_state.select(Some(i - 1));
+</a><a href="#h2-2-74" id="h2-2-74" class="i">+                            }
+</a><a href="#h2-2-75" id="h2-2-75" class="i">+                        } else {
+</a><a href="#h2-2-76" id="h2-2-76" class="i">+                            let current_state = match state.focus {
+</a><a href="#h2-2-77" id="h2-2-77" class="i">+                                Focus::Artist =&gt; &amp;mut state.artist_state,
+</a><a href="#h2-2-78" id="h2-2-78" class="i">+                                Focus::Album =&gt; &amp;mut state.album_state,
+</a><a href="#h2-2-79" id="h2-2-79" class="i">+                                Focus::Track =&gt; &amp;mut state.track_state,
+</a><a href="#h2-2-80" id="h2-2-80" class="i">+                                Focus::Settings =&gt; &amp;mut state.artist_state,
+</a><a href="#h2-2-81" id="h2-2-81" class="i">+                            };
+</a><a href="#h2-2-82" id="h2-2-82" class="i">+                            let i = current_state.selected().unwrap_or(0);
+</a><a href="#h2-2-83" id="h2-2-83" class="i">+                            if i &gt; 0 {
+</a><a href="#h2-2-84" id="h2-2-84" class="i">+                                current_state.select(Some(i - 1));
+</a><a href="#h2-2-85" id="h2-2-85" class="i">+                            }
+</a>                         }
+                     }
+                     KeyCode::Down =&gt; {
+<a href="#h2-2-89" id="h2-2-89" class="d">-                        // カウントを取得するためにデータを取得
+</a><a href="#h2-2-90" id="h2-2-90" class="d">-                        let max_len = match state.focus {
+</a><a href="#h2-2-91" id="h2-2-91" class="d">-                            Focus::Artist =&gt; library.artists.len(),
+</a><a href="#h2-2-92" id="h2-2-92" class="d">-                            Focus::Album =&gt; {
+</a><a href="#h2-2-93" id="h2-2-93" class="d">-                                let artists: Vec&lt;_&gt; = library.artists.keys().collect();
+</a><a href="#h2-2-94" id="h2-2-94" class="d">-                                state
+</a><a href="#h2-2-95" id="h2-2-95" class="d">-                                    .artist_state
+</a><a href="#h2-2-96" id="h2-2-96" class="d">-                                    .selected()
+</a><a href="#h2-2-97" id="h2-2-97" class="d">-                                    .and_then(|i| artists.get(i))
+</a><a href="#h2-2-98" id="h2-2-98" class="d">-                                    .and_then(|a| library.artists.get(*a))
+</a><a href="#h2-2-99" id="h2-2-99" class="d">-                                    .map(|m| m.len())
+</a><a href="#h2-2-100" id="h2-2-100" class="d">-                                    .unwrap_or(0)
+</a><a href="#h2-2-101" id="h2-2-101" class="d">-                            }
+</a><a href="#h2-2-102" id="h2-2-102" class="d">-                            Focus::Track =&gt; {
+</a><a href="#h2-2-103" id="h2-2-103" class="d">-                                let artists: Vec&lt;_&gt; = library.artists.keys().collect();
+</a><a href="#h2-2-104" id="h2-2-104" class="d">-                                let artist =
+</a><a href="#h2-2-105" id="h2-2-105" class="d">-                                    state.artist_state.selected().and_then(|i| artists.get(i));
+</a><a href="#h2-2-106" id="h2-2-106" class="d">-                                let albums: Vec&lt;_&gt; = artist
+</a><a href="#h2-2-107" id="h2-2-107" class="d">-                                    .and_then(|a| library.artists.get(*a))
+</a><a href="#h2-2-108" id="h2-2-108" class="d">-                                    .map(|m| m.keys().collect())
+</a><a href="#h2-2-109" id="h2-2-109" class="d">-                                    .unwrap_or_default();
+</a><a href="#h2-2-110" id="h2-2-110" class="d">-                                let album =
+</a><a href="#h2-2-111" id="h2-2-111" class="d">-                                    state.album_state.selected().and_then(|i| albums.get(i));
+</a><a href="#h2-2-112" id="h2-2-112" class="d">-                                artist
+</a><a href="#h2-2-113" id="h2-2-113" class="d">-                                    .and_then(|a| library.artists.get(*a))
+</a><a href="#h2-2-114" id="h2-2-114" class="d">-                                    .and_then(|m| album.and_then(|al| m.get(*al)))
+</a><a href="#h2-2-115" id="h2-2-115" class="d">-                                    .map(|v| v.len())
+</a><a href="#h2-2-116" id="h2-2-116" class="d">-                                    .unwrap_or(0)
+</a><a href="#h2-2-117" id="h2-2-117" class="i">+                        if state.focus == Focus::Settings {
+</a><a href="#h2-2-118" id="h2-2-118" class="i">+                            let max_len = 3;
+</a><a href="#h2-2-119" id="h2-2-119" class="i">+                            let i = state.settings_state.selected().unwrap_or(0);
+</a><a href="#h2-2-120" id="h2-2-120" class="i">+                            if i &lt; max_len - 1 {
+</a><a href="#h2-2-121" id="h2-2-121" class="i">+                                state.settings_state.select(Some(i + 1));
+</a>                             }
+<a href="#h2-2-123" id="h2-2-123" class="d">-                        };
+</a><a href="#h2-2-124" id="h2-2-124" class="i">+                        } else {
+</a><a href="#h2-2-125" id="h2-2-125" class="i">+                            let max_len = match state.focus {
+</a><a href="#h2-2-126" id="h2-2-126" class="i">+                                Focus::Artist =&gt; library.artists.len(),
+</a><a href="#h2-2-127" id="h2-2-127" class="i">+                                Focus::Album =&gt; {
+</a><a href="#h2-2-128" id="h2-2-128" class="i">+                                    let artists: Vec&lt;_&gt; = library.artists.keys().collect();
+</a><a href="#h2-2-129" id="h2-2-129" class="i">+                                    state
+</a><a href="#h2-2-130" id="h2-2-130" class="i">+                                        .artist_state
+</a><a href="#h2-2-131" id="h2-2-131" class="i">+                                        .selected()
+</a><a href="#h2-2-132" id="h2-2-132" class="i">+                                        .and_then(|i| artists.get(i))
+</a><a href="#h2-2-133" id="h2-2-133" class="i">+                                        .and_then(|a| library.artists.get(*a))
+</a><a href="#h2-2-134" id="h2-2-134" class="i">+                                        .map(|m| m.len())
+</a><a href="#h2-2-135" id="h2-2-135" class="i">+                                        .unwrap_or(0)
+</a><a href="#h2-2-136" id="h2-2-136" class="i">+                                }
+</a><a href="#h2-2-137" id="h2-2-137" class="i">+                                Focus::Track =&gt; {
+</a><a href="#h2-2-138" id="h2-2-138" class="i">+                                    let artists: Vec&lt;_&gt; = library.artists.keys().collect();
+</a><a href="#h2-2-139" id="h2-2-139" class="i">+                                    let artist =
+</a><a href="#h2-2-140" id="h2-2-140" class="i">+                                        state.artist_state.selected().and_then(|i| artists.get(i));
+</a><a href="#h2-2-141" id="h2-2-141" class="i">+                                    let albums: Vec&lt;_&gt; = artist
+</a><a href="#h2-2-142" id="h2-2-142" class="i">+                                        .and_then(|a| library.artists.get(*a))
+</a><a href="#h2-2-143" id="h2-2-143" class="i">+                                        .map(|m| m.keys().collect())
+</a><a href="#h2-2-144" id="h2-2-144" class="i">+                                        .unwrap_or_default();
+</a><a href="#h2-2-145" id="h2-2-145" class="i">+                                    let album =
+</a><a href="#h2-2-146" id="h2-2-146" class="i">+                                        state.album_state.selected().and_then(|i| albums.get(i));
+</a><a href="#h2-2-147" id="h2-2-147" class="i">+                                    artist
+</a><a href="#h2-2-148" id="h2-2-148" class="i">+                                        .and_then(|a| library.artists.get(*a))
+</a><a href="#h2-2-149" id="h2-2-149" class="i">+                                        .and_then(|m| album.and_then(|al| m.get(*al)))
+</a><a href="#h2-2-150" id="h2-2-150" class="i">+                                        .map(|v| v.len())
+</a><a href="#h2-2-151" id="h2-2-151" class="i">+                                        .unwrap_or(0)
+</a><a href="#h2-2-152" id="h2-2-152" class="i">+                                }
+</a><a href="#h2-2-153" id="h2-2-153" class="i">+                                Focus::Settings =&gt; 0,
+</a><a href="#h2-2-154" id="h2-2-154" class="i">+                            };
+</a> 
+<a href="#h2-2-156" id="h2-2-156" class="d">-                        let current_state = match state.focus {
+</a><a href="#h2-2-157" id="h2-2-157" class="d">-                            Focus::Artist =&gt; &amp;mut state.artist_state,
+</a><a href="#h2-2-158" id="h2-2-158" class="d">-                            Focus::Album =&gt; &amp;mut state.album_state,
+</a><a href="#h2-2-159" id="h2-2-159" class="d">-                            Focus::Track =&gt; &amp;mut state.track_state,
+</a><a href="#h2-2-160" id="h2-2-160" class="d">-                        };
+</a><a href="#h2-2-161" id="h2-2-161" class="d">-                        let i = current_state.selected().unwrap_or(0);
+</a><a href="#h2-2-162" id="h2-2-162" class="d">-                        if max_len &gt; 0 &amp;&amp; i &lt; max_len - 1 {
+</a><a href="#h2-2-163" id="h2-2-163" class="d">-                            current_state.select(Some(i + 1));
+</a><a href="#h2-2-164" id="h2-2-164" class="i">+                            let current_state = match state.focus {
+</a><a href="#h2-2-165" id="h2-2-165" class="i">+                                Focus::Artist =&gt; &amp;mut state.artist_state,
+</a><a href="#h2-2-166" id="h2-2-166" class="i">+                                Focus::Album =&gt; &amp;mut state.album_state,
+</a><a href="#h2-2-167" id="h2-2-167" class="i">+                                Focus::Track =&gt; &amp;mut state.track_state,
+</a><a href="#h2-2-168" id="h2-2-168" class="i">+                                Focus::Settings =&gt; &amp;mut state.artist_state,
+</a><a href="#h2-2-169" id="h2-2-169" class="i">+                            };
+</a><a href="#h2-2-170" id="h2-2-170" class="i">+                            let i = current_state.selected().unwrap_or(0);
+</a><a href="#h2-2-171" id="h2-2-171" class="i">+                            if max_len &gt; 0 &amp;&amp; i &lt; max_len - 1 {
+</a><a href="#h2-2-172" id="h2-2-172" class="i">+                                current_state.select(Some(i + 1));
+</a><a href="#h2-2-173" id="h2-2-173" class="i">+                            }
+</a>                         }
+                     }
+                     KeyCode::Enter =&gt; {
+<a href="#h2-2-177" id="h2-2-177" class="d">-                        // 再生ロジック
+</a><a href="#h2-2-178" id="h2-2-178" class="d">-                        let artists: Vec&lt;_&gt; = library.artists.keys().collect();
+</a><a href="#h2-2-179" id="h2-2-179" class="d">-                        if let Some(artist_name) =
+</a><a href="#h2-2-180" id="h2-2-180" class="d">-                            state.artist_state.selected().and_then(|i| artists.get(i))
+</a><a href="#h2-2-181" id="h2-2-181" class="d">-                        {
+</a><a href="#h2-2-182" id="h2-2-182" class="d">-                            let artist_data = library.artists.get(*artist_name).unwrap();
+</a><a href="#h2-2-183" id="h2-2-183" class="d">-                            let albums: Vec&lt;_&gt; = artist_data.keys().collect();
+</a><a href="#h2-2-184" id="h2-2-184" class="i">+                        if state.focus == Focus::Settings {
+</a><a href="#h2-2-185" id="h2-2-185" class="i">+                            let selected_setting = state.settings_state.selected().unwrap_or(0);
+</a><a href="#h2-2-186" id="h2-2-186" class="i">+                            if selected_setting == 2 {
+</a><a href="#h2-2-187" id="h2-2-187" class="i">+                                let devices = audio::DeviceManager::list_device_names();
+</a><a href="#h2-2-188" id="h2-2-188" class="i">+                                state.open_device_dialog(devices);
+</a><a href="#h2-2-189" id="h2-2-189" class="i">+                            }
+</a><a href="#h2-2-190" id="h2-2-190" class="i">+                        } else {
+</a><a href="#h2-2-191" id="h2-2-191" class="i">+                            let artists: Vec&lt;_&gt; = library.artists.keys().collect();
+</a><a href="#h2-2-192" id="h2-2-192" class="i">+                            if let Some(artist_name) =
+</a><a href="#h2-2-193" id="h2-2-193" class="i">+                                state.artist_state.selected().and_then(|i| artists.get(i))
+</a><a href="#h2-2-194" id="h2-2-194" class="i">+                            {
+</a><a href="#h2-2-195" id="h2-2-195" class="i">+                                let artist_data = library.artists.get(*artist_name).unwrap();
+</a><a href="#h2-2-196" id="h2-2-196" class="i">+                                let albums: Vec&lt;_&gt; = artist_data.keys().collect();
+</a> 
+<a href="#h2-2-198" id="h2-2-198" class="d">-                            match state.focus {
+</a><a href="#h2-2-199" id="h2-2-199" class="d">-                                Focus::Track =&gt; {
+</a><a href="#h2-2-200" id="h2-2-200" class="d">-                                    if let Some(album_name) =
+</a><a href="#h2-2-201" id="h2-2-201" class="d">-                                        state.album_state.selected().and_then(|i| albums.get(i))
+</a><a href="#h2-2-202" id="h2-2-202" class="d">-                                    {
+</a><a href="#h2-2-203" id="h2-2-203" class="d">-                                        let tracks = artist_data.get(*album_name).unwrap();
+</a><a href="#h2-2-204" id="h2-2-204" class="d">-                                        if let Some(track) =
+</a><a href="#h2-2-205" id="h2-2-205" class="d">-                                            state.track_state.selected().and_then(|i| tracks.get(i))
+</a><a href="#h2-2-206" id="h2-2-206" class="i">+                                match state.focus {
+</a><a href="#h2-2-207" id="h2-2-207" class="i">+                                    Focus::Track =&gt; {
+</a><a href="#h2-2-208" id="h2-2-208" class="i">+                                        if let Some(album_name) =
+</a><a href="#h2-2-209" id="h2-2-209" class="i">+                                            state.album_state.selected().and_then(|i| albums.get(i))
+</a>                                         {
+<a href="#h2-2-211" id="h2-2-211" class="d">-                                            audioengine.stop();
+</a><a href="#h2-2-212" id="h2-2-212" class="d">-                                            audioengine
+</a><a href="#h2-2-213" id="h2-2-213" class="d">-                                                .append_a_track(track.path.to_str().unwrap())?;
+</a><a href="#h2-2-214" id="h2-2-214" class="d">-                                            audioengine.play();
+</a><a href="#h2-2-215" id="h2-2-215" class="i">+                                            let tracks = artist_data.get(*album_name).unwrap();
+</a><a href="#h2-2-216" id="h2-2-216" class="i">+                                            if let Some(track) = state
+</a><a href="#h2-2-217" id="h2-2-217" class="i">+                                                .track_state
+</a><a href="#h2-2-218" id="h2-2-218" class="i">+                                                .selected()
+</a><a href="#h2-2-219" id="h2-2-219" class="i">+                                                .and_then(|i| tracks.get(i))
+</a><a href="#h2-2-220" id="h2-2-220" class="i">+                                            {
+</a><a href="#h2-2-221" id="h2-2-221" class="i">+                                                audioengine.stop();
+</a><a href="#h2-2-222" id="h2-2-222" class="i">+                                                audioengine
+</a><a href="#h2-2-223" id="h2-2-223" class="i">+                                                    .append_a_track(track.path.to_str().unwrap())?;
+</a><a href="#h2-2-224" id="h2-2-224" class="i">+                                                audioengine.play();
+</a><a href="#h2-2-225" id="h2-2-225" class="i">+                                            }
+</a>                                         }
+                                     }
+<a href="#h2-2-228" id="h2-2-228" class="d">-                                }
+</a><a href="#h2-2-229" id="h2-2-229" class="d">-                                Focus::Album =&gt; {
+</a><a href="#h2-2-230" id="h2-2-230" class="d">-                                    if let Some(album_name) =
+</a><a href="#h2-2-231" id="h2-2-231" class="d">-                                        state.album_state.selected().and_then(|i| albums.get(i))
+</a><a href="#h2-2-232" id="h2-2-232" class="d">-                                    {
+</a><a href="#h2-2-233" id="h2-2-233" class="d">-                                        let tracks = artist_data.get(*album_name).unwrap();
+</a><a href="#h2-2-234" id="h2-2-234" class="d">-                                        audioengine.stop();
+</a><a href="#h2-2-235" id="h2-2-235" class="d">-                                        for track in tracks {
+</a><a href="#h2-2-236" id="h2-2-236" class="d">-                                            audioengine
+</a><a href="#h2-2-237" id="h2-2-237" class="d">-                                                .append_a_track(track.path.to_str().unwrap())?;
+</a><a href="#h2-2-238" id="h2-2-238" class="i">+                                    Focus::Album =&gt; {
+</a><a href="#h2-2-239" id="h2-2-239" class="i">+                                        if let Some(album_name) =
+</a><a href="#h2-2-240" id="h2-2-240" class="i">+                                            state.album_state.selected().and_then(|i| albums.get(i))
+</a><a href="#h2-2-241" id="h2-2-241" class="i">+                                        {
+</a><a href="#h2-2-242" id="h2-2-242" class="i">+                                            let tracks = artist_data.get(*album_name).unwrap();
+</a><a href="#h2-2-243" id="h2-2-243" class="i">+                                            audioengine.stop();
+</a><a href="#h2-2-244" id="h2-2-244" class="i">+                                            for track in tracks {
+</a><a href="#h2-2-245" id="h2-2-245" class="i">+                                                audioengine
+</a><a href="#h2-2-246" id="h2-2-246" class="i">+                                                    .append_a_track(track.path.to_str().unwrap())?;
+</a><a href="#h2-2-247" id="h2-2-247" class="i">+                                            }
+</a><a href="#h2-2-248" id="h2-2-248" class="i">+                                            audioengine.play();
+</a>                                         }
+<a href="#h2-2-250" id="h2-2-250" class="d">-                                        audioengine.play();
+</a>                                     }
+<a href="#h2-2-252" id="h2-2-252" class="i">+                                    _ =&gt; {}
+</a>                                 }
+<a href="#h2-2-254" id="h2-2-254" class="d">-                                _ =&gt; {}
+</a>                             }
+                         }
+                     }
+<b>diff --git a/<a id="h3" href="../file/src/setting.rs.html">src/setting.rs</a> b/<a href="../file/src/setting.rs.html">src/setting.rs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -43,6 +43,17 @@ impl Settings {
+</a>         &amp;self.audio
+     }
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+    pub fn audio_mut(&amp;mut self) -&gt; &amp;mut AudioSettings {
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        &amp;mut self.audio
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+    }
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+    pub fn save(&amp;self) -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+        let path = Self::get_path().ok_or(&quot;Failed to get config directory path&quot;)?;
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+        let content = toml::to_string(self)?;
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+        std::fs::write(path, content)?;
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+        Ok(())
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+    }
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+
+</a>     pub fn load() -&gt; Result&lt;Self, Box&lt;dyn std::error::Error&gt;&gt; {
+         let path = Self::get_path().ok_or(&quot;Failed to get config directory path&quot;)?;
+         if !path.exists() {
+<a href="#h3-1" id="h3-1" class="h">@@ -72,4 +83,14 @@ impl AudioSettings {
+</a>     pub fn volume(&amp;self) -&gt; f32 {
+         self.volume
+     }
+<a href="#h3-1-3" id="h3-1-3" class="i">+
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+    pub fn set_volume(&amp;mut self, volume: f32) {
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+        self.volume = volume;
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+    }
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+    pub fn output_device(&amp;self) -&gt; &amp;str {
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+        &amp;self.output_device
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+    }
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+    pub fn set_output_device(&amp;mut self, output_device: String) {
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+        self.output_device = output_device;
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h4" href="../file/src/ui.rs.html">src/ui.rs</a> b/<a href="../file/src/ui.rs.html">src/ui.rs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -1,17 +1,19 @@
+</a> use ratatui::{
+     Frame,
+<a href="#h4-0-2" id="h4-0-2" class="d">-    layout::{Constraint, Direction, Layout},
+</a><a href="#h4-0-3" id="h4-0-3" class="i">+    layout::{Constraint, Direction, Layout, Rect},
+</a>     style::{Color, Modifier, Style},
+<a href="#h4-0-5" id="h4-0-5" class="d">-    widgets::{Block, Borders, List, ListItem, ListState},
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+    widgets::{Block, Borders, Clear, List, ListItem, ListState},
+</a> };
+ 
+ use crate::library::Library;
+<a href="#h4-0-10" id="h4-0-10" class="i">+use crate::setting::Settings;
+</a> 
+ #[derive(PartialEq, Eq, Clone, Copy)]
+ pub enum Focus {
+     Artist,
+     Album,
+     Track,
+<a href="#h4-0-17" id="h4-0-17" class="i">+    Settings,
+</a> }
+ 
+ pub struct AppState {
+<a href="#h4-1" id="h4-1" class="h">@@ -19,100 +21,156 @@ pub struct AppState {
+</a>     pub artist_state: ListState,
+     pub album_state: ListState,
+     pub track_state: ListState,
+<a href="#h4-1-3" id="h4-1-3" class="i">+    pub settings_state: ListState,
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+    pub is_device_dialog_open: bool,
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+    pub available_devices: Vec&lt;String&gt;,
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+    pub device_dialog_state: ListState,
+</a> }
+ 
+ impl AppState {
+     pub fn new() -&gt; Self {
+         let mut artist_state = ListState::default();
+         artist_state.select(Some(0));
+<a href="#h4-1-13" id="h4-1-13" class="i">+        let mut settings_state = ListState::default();
+</a><a href="#h4-1-14" id="h4-1-14" class="i">+        settings_state.select(Some(0));
+</a><a href="#h4-1-15" id="h4-1-15" class="i">+        let mut device_dialog_state = ListState::default();
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+        device_dialog_state.select(Some(0));
+</a>         Self {
+             focus: Focus::Artist,
+             artist_state,
+             album_state: ListState::default(),
+             track_state: ListState::default(),
+<a href="#h4-1-22" id="h4-1-22" class="i">+            settings_state,
+</a><a href="#h4-1-23" id="h4-1-23" class="i">+            is_device_dialog_open: false,
+</a><a href="#h4-1-24" id="h4-1-24" class="i">+            available_devices: Vec::new(),
+</a><a href="#h4-1-25" id="h4-1-25" class="i">+            device_dialog_state,
+</a>         }
+     }
+<a href="#h4-1-28" id="h4-1-28" class="i">+
+</a><a href="#h4-1-29" id="h4-1-29" class="i">+    pub fn open_device_dialog(&amp;mut self, devices: Vec&lt;String&gt;) {
+</a><a href="#h4-1-30" id="h4-1-30" class="i">+        self.available_devices = devices;
+</a><a href="#h4-1-31" id="h4-1-31" class="i">+        self.is_device_dialog_open = true;
+</a><a href="#h4-1-32" id="h4-1-32" class="i">+        self.device_dialog_state.select(Some(0));
+</a><a href="#h4-1-33" id="h4-1-33" class="i">+    }
+</a><a href="#h4-1-34" id="h4-1-34" class="i">+
+</a><a href="#h4-1-35" id="h4-1-35" class="i">+    pub fn close_device_dialog(&amp;mut self) {
+</a><a href="#h4-1-36" id="h4-1-36" class="i">+        self.is_device_dialog_open = false;
+</a><a href="#h4-1-37" id="h4-1-37" class="i">+    }
+</a> }
+ 
+<a href="#h4-1-40" id="h4-1-40" class="d">-pub fn render(f: &amp;mut Frame, library: &amp;Library, state: &amp;mut AppState) {
+</a><a href="#h4-1-41" id="h4-1-41" class="d">-    let chunks = Layout::default()
+</a><a href="#h4-1-42" id="h4-1-42" class="d">-        .direction(Direction::Horizontal)
+</a><a href="#h4-1-43" id="h4-1-43" class="d">-        .constraints([
+</a><a href="#h4-1-44" id="h4-1-44" class="d">-            Constraint::Percentage(33),
+</a><a href="#h4-1-45" id="h4-1-45" class="d">-            Constraint::Percentage(33),
+</a><a href="#h4-1-46" id="h4-1-46" class="d">-            Constraint::Percentage(34),
+</a><a href="#h4-1-47" id="h4-1-47" class="d">-        ])
+</a><a href="#h4-1-48" id="h4-1-48" class="d">-        .split(f.area());
+</a><a href="#h4-1-49" id="h4-1-49" class="i">+pub fn render(f: &amp;mut Frame, library: &amp;Library, state: &amp;mut AppState, settings: &amp;Settings) {
+</a><a href="#h4-1-50" id="h4-1-50" class="i">+    if state.focus == Focus::Settings {
+</a><a href="#h4-1-51" id="h4-1-51" class="i">+        render_settings(f, state, settings);
+</a><a href="#h4-1-52" id="h4-1-52" class="i">+    } else {
+</a><a href="#h4-1-53" id="h4-1-53" class="i">+        let chunks = Layout::default()
+</a><a href="#h4-1-54" id="h4-1-54" class="i">+            .direction(Direction::Horizontal)
+</a><a href="#h4-1-55" id="h4-1-55" class="i">+            .constraints([
+</a><a href="#h4-1-56" id="h4-1-56" class="i">+                Constraint::Percentage(33),
+</a><a href="#h4-1-57" id="h4-1-57" class="i">+                Constraint::Percentage(33),
+</a><a href="#h4-1-58" id="h4-1-58" class="i">+                Constraint::Percentage(34),
+</a><a href="#h4-1-59" id="h4-1-59" class="i">+            ])
+</a><a href="#h4-1-60" id="h4-1-60" class="i">+            .split(f.area());
+</a> 
+<a href="#h4-1-62" id="h4-1-62" class="d">-    // 1. Artists
+</a><a href="#h4-1-63" id="h4-1-63" class="d">-    let artists: Vec&lt;String&gt; = library.artists.keys().cloned().collect();
+</a><a href="#h4-1-64" id="h4-1-64" class="d">-    let artist_items: Vec&lt;ListItem&gt; = artists
+</a><a href="#h4-1-65" id="h4-1-65" class="d">-        .iter()
+</a><a href="#h4-1-66" id="h4-1-66" class="d">-        .map(|name| ListItem::new(name.as_str()))
+</a><a href="#h4-1-67" id="h4-1-67" class="d">-        .collect();
+</a><a href="#h4-1-68" id="h4-1-68" class="i">+        let artists: Vec&lt;String&gt; = library.artists.keys().cloned().collect();
+</a><a href="#h4-1-69" id="h4-1-69" class="i">+        let artist_items: Vec&lt;ListItem&gt; = artists
+</a><a href="#h4-1-70" id="h4-1-70" class="i">+            .iter()
+</a><a href="#h4-1-71" id="h4-1-71" class="i">+            .map(|name| ListItem::new(name.as_str()))
+</a><a href="#h4-1-72" id="h4-1-72" class="i">+            .collect();
+</a><a href="#h4-1-73" id="h4-1-73" class="i">+        render_list(
+</a><a href="#h4-1-74" id="h4-1-74" class="i">+            f,
+</a><a href="#h4-1-75" id="h4-1-75" class="i">+            &quot;Artist&quot;,
+</a><a href="#h4-1-76" id="h4-1-76" class="i">+            artist_items,
+</a><a href="#h4-1-77" id="h4-1-77" class="i">+            chunks[0],
+</a><a href="#h4-1-78" id="h4-1-78" class="i">+            state.focus == Focus::Artist,
+</a><a href="#h4-1-79" id="h4-1-79" class="i">+            &amp;mut state.artist_state,
+</a><a href="#h4-1-80" id="h4-1-80" class="i">+        );
+</a> 
+<a href="#h4-1-82" id="h4-1-82" class="d">-    render_list(
+</a><a href="#h4-1-83" id="h4-1-83" class="d">-        f,
+</a><a href="#h4-1-84" id="h4-1-84" class="d">-        &quot;Artist&quot;,
+</a><a href="#h4-1-85" id="h4-1-85" class="d">-        artist_items,
+</a><a href="#h4-1-86" id="h4-1-86" class="d">-        chunks[0],
+</a><a href="#h4-1-87" id="h4-1-87" class="d">-        state.focus == Focus::Artist,
+</a><a href="#h4-1-88" id="h4-1-88" class="d">-        &amp;mut state.artist_state,
+</a><a href="#h4-1-89" id="h4-1-89" class="d">-    );
+</a><a href="#h4-1-90" id="h4-1-90" class="d">-
+</a><a href="#h4-1-91" id="h4-1-91" class="d">-    // 2. Albums (selected artist)
+</a><a href="#h4-1-92" id="h4-1-92" class="d">-    let selected_artist = state
+</a><a href="#h4-1-93" id="h4-1-93" class="d">-        .artist_state
+</a><a href="#h4-1-94" id="h4-1-94" class="d">-        .select_index()
+</a><a href="#h4-1-95" id="h4-1-95" class="d">-        .and_then(|i| artists.get(i));
+</a><a href="#h4-1-96" id="h4-1-96" class="d">-    let mut albums: Vec&lt;String&gt; = Vec::new();
+</a><a href="#h4-1-97" id="h4-1-97" class="d">-    if let Some(artist) = selected_artist {
+</a><a href="#h4-1-98" id="h4-1-98" class="d">-        if let Some(artist_data) = library.artists.get(artist) {
+</a><a href="#h4-1-99" id="h4-1-99" class="d">-            albums = artist_data.keys().cloned().collect();
+</a><a href="#h4-1-100" id="h4-1-100" class="i">+        let selected_artist = state
+</a><a href="#h4-1-101" id="h4-1-101" class="i">+            .artist_state
+</a><a href="#h4-1-102" id="h4-1-102" class="i">+            .select_index()
+</a><a href="#h4-1-103" id="h4-1-103" class="i">+            .and_then(|i| artists.get(i));
+</a><a href="#h4-1-104" id="h4-1-104" class="i">+        let mut albums: Vec&lt;String&gt; = Vec::new();
+</a><a href="#h4-1-105" id="h4-1-105" class="i">+        if let Some(artist) = selected_artist {
+</a><a href="#h4-1-106" id="h4-1-106" class="i">+            if let Some(artist_data) = library.artists.get(artist) {
+</a><a href="#h4-1-107" id="h4-1-107" class="i">+                albums = artist_data.keys().cloned().collect();
+</a><a href="#h4-1-108" id="h4-1-108" class="i">+            }
+</a>         }
+<a href="#h4-1-110" id="h4-1-110" class="d">-    }
+</a><a href="#h4-1-111" id="h4-1-111" class="d">-    let album_items: Vec&lt;ListItem&gt; = albums
+</a><a href="#h4-1-112" id="h4-1-112" class="d">-        .iter()
+</a><a href="#h4-1-113" id="h4-1-113" class="d">-        .map(|name| ListItem::new(name.as_str()))
+</a><a href="#h4-1-114" id="h4-1-114" class="d">-        .collect();
+</a><a href="#h4-1-115" id="h4-1-115" class="i">+        let album_items: Vec&lt;ListItem&gt; = albums
+</a><a href="#h4-1-116" id="h4-1-116" class="i">+            .iter()
+</a><a href="#h4-1-117" id="h4-1-117" class="i">+            .map(|name| ListItem::new(name.as_str()))
+</a><a href="#h4-1-118" id="h4-1-118" class="i">+            .collect();
+</a><a href="#h4-1-119" id="h4-1-119" class="i">+        render_list(
+</a><a href="#h4-1-120" id="h4-1-120" class="i">+            f,
+</a><a href="#h4-1-121" id="h4-1-121" class="i">+            &quot;Album&quot;,
+</a><a href="#h4-1-122" id="h4-1-122" class="i">+            album_items,
+</a><a href="#h4-1-123" id="h4-1-123" class="i">+            chunks[1],
+</a><a href="#h4-1-124" id="h4-1-124" class="i">+            state.focus == Focus::Album,
+</a><a href="#h4-1-125" id="h4-1-125" class="i">+            &amp;mut state.album_state,
+</a><a href="#h4-1-126" id="h4-1-126" class="i">+        );
+</a> 
+<a href="#h4-1-128" id="h4-1-128" class="d">-    render_list(
+</a><a href="#h4-1-129" id="h4-1-129" class="d">-        f,
+</a><a href="#h4-1-130" id="h4-1-130" class="d">-        &quot;Album&quot;,
+</a><a href="#h4-1-131" id="h4-1-131" class="d">-        album_items,
+</a><a href="#h4-1-132" id="h4-1-132" class="d">-        chunks[1],
+</a><a href="#h4-1-133" id="h4-1-133" class="d">-        state.focus == Focus::Album,
+</a><a href="#h4-1-134" id="h4-1-134" class="d">-        &amp;mut state.album_state,
+</a><a href="#h4-1-135" id="h4-1-135" class="d">-    );
+</a><a href="#h4-1-136" id="h4-1-136" class="d">-
+</a><a href="#h4-1-137" id="h4-1-137" class="d">-    // 3. Tracks (selected album)
+</a><a href="#h4-1-138" id="h4-1-138" class="d">-    let selected_album = state.album_state.select_index().and_then(|i| albums.get(i));
+</a><a href="#h4-1-139" id="h4-1-139" class="d">-    let mut tracks: Vec&lt;String&gt; = Vec::new();
+</a><a href="#h4-1-140" id="h4-1-140" class="d">-    if let (Some(artist), Some(album)) = (selected_artist, selected_album) {
+</a><a href="#h4-1-141" id="h4-1-141" class="d">-        if let Some(album_data) = library.artists.get(artist).and_then(|a| a.get(album)) {
+</a><a href="#h4-1-142" id="h4-1-142" class="d">-            tracks = album_data.iter().map(|t| t.title.clone()).collect();
+</a><a href="#h4-1-143" id="h4-1-143" class="i">+        let selected_album = state.album_state.select_index().and_then(|i| albums.get(i));
+</a><a href="#h4-1-144" id="h4-1-144" class="i">+        let mut tracks: Vec&lt;String&gt; = Vec::new();
+</a><a href="#h4-1-145" id="h4-1-145" class="i">+        if let (Some(artist), Some(album)) = (selected_artist, selected_album) {
+</a><a href="#h4-1-146" id="h4-1-146" class="i">+            if let Some(album_data) = library.artists.get(artist).and_then(|a| a.get(album)) {
+</a><a href="#h4-1-147" id="h4-1-147" class="i">+                tracks = album_data.iter().map(|t| t.title.clone()).collect();
+</a><a href="#h4-1-148" id="h4-1-148" class="i">+            }
+</a>         }
+<a href="#h4-1-150" id="h4-1-150" class="i">+        let track_items: Vec&lt;ListItem&gt; = tracks
+</a><a href="#h4-1-151" id="h4-1-151" class="i">+            .iter()
+</a><a href="#h4-1-152" id="h4-1-152" class="i">+            .map(|name| ListItem::new(name.as_str()))
+</a><a href="#h4-1-153" id="h4-1-153" class="i">+            .collect();
+</a><a href="#h4-1-154" id="h4-1-154" class="i">+        render_list(
+</a><a href="#h4-1-155" id="h4-1-155" class="i">+            f,
+</a><a href="#h4-1-156" id="h4-1-156" class="i">+            &quot;Track&quot;,
+</a><a href="#h4-1-157" id="h4-1-157" class="i">+            track_items,
+</a><a href="#h4-1-158" id="h4-1-158" class="i">+            chunks[2],
+</a><a href="#h4-1-159" id="h4-1-159" class="i">+            state.focus == Focus::Track,
+</a><a href="#h4-1-160" id="h4-1-160" class="i">+            &amp;mut state.track_state,
+</a><a href="#h4-1-161" id="h4-1-161" class="i">+        );
+</a>     }
+<a href="#h4-1-163" id="h4-1-163" class="d">-    let track_items: Vec&lt;ListItem&gt; = tracks
+</a><a href="#h4-1-164" id="h4-1-164" class="d">-        .iter()
+</a><a href="#h4-1-165" id="h4-1-165" class="d">-        .map(|name| ListItem::new(name.as_str()))
+</a><a href="#h4-1-166" id="h4-1-166" class="d">-        .collect();
+</a> 
+<a href="#h4-1-168" id="h4-1-168" class="d">-    render_list(
+</a><a href="#h4-1-169" id="h4-1-169" class="d">-        f,
+</a><a href="#h4-1-170" id="h4-1-170" class="d">-        &quot;Track&quot;,
+</a><a href="#h4-1-171" id="h4-1-171" class="d">-        track_items,
+</a><a href="#h4-1-172" id="h4-1-172" class="d">-        chunks[2],
+</a><a href="#h4-1-173" id="h4-1-173" class="d">-        state.focus == Focus::Track,
+</a><a href="#h4-1-174" id="h4-1-174" class="d">-        &amp;mut state.track_state,
+</a><a href="#h4-1-175" id="h4-1-175" class="d">-    );
+</a><a href="#h4-1-176" id="h4-1-176" class="i">+    if state.is_device_dialog_open {
+</a><a href="#h4-1-177" id="h4-1-177" class="i">+        render_device_dialog(f, state);
+</a><a href="#h4-1-178" id="h4-1-178" class="i">+    }
+</a><a href="#h4-1-179" id="h4-1-179" class="i">+}
+</a><a href="#h4-1-180" id="h4-1-180" class="i">+
+</a><a href="#h4-1-181" id="h4-1-181" class="i">+pub fn render_settings(frame: &amp;mut Frame, state: &amp;mut AppState, settings: &amp;Settings) {
+</a><a href="#h4-1-182" id="h4-1-182" class="i">+    let area = frame.area();
+</a><a href="#h4-1-183" id="h4-1-183" class="i">+    let settings_items = vec![
+</a><a href="#h4-1-184" id="h4-1-184" class="i">+        ListItem::new(format!(&quot;Volume: {:.2}&quot;, settings.audio().volume())),
+</a><a href="#h4-1-185" id="h4-1-185" class="i">+        ListItem::new(format!(&quot;Library Path: {}&quot;, settings.audio().library_path())),
+</a><a href="#h4-1-186" id="h4-1-186" class="i">+        ListItem::new(format!(
+</a><a href="#h4-1-187" id="h4-1-187" class="i">+            &quot;Output Device: {}&quot;,
+</a><a href="#h4-1-188" id="h4-1-188" class="i">+            settings.audio().output_device()
+</a><a href="#h4-1-189" id="h4-1-189" class="i">+        )),
+</a><a href="#h4-1-190" id="h4-1-190" class="i">+    ];
+</a><a href="#h4-1-191" id="h4-1-191" class="i">+
+</a><a href="#h4-1-192" id="h4-1-192" class="i">+    let list = List::new(settings_items)
+</a><a href="#h4-1-193" id="h4-1-193" class="i">+        .block(
+</a><a href="#h4-1-194" id="h4-1-194" class="i">+            Block::default()
+</a><a href="#h4-1-195" id="h4-1-195" class="i">+                .title(&quot;Settings&quot;)
+</a><a href="#h4-1-196" id="h4-1-196" class="i">+                .borders(Borders::ALL)
+</a><a href="#h4-1-197" id="h4-1-197" class="i">+                .border_style(if state.focus == Focus::Settings {
+</a><a href="#h4-1-198" id="h4-1-198" class="i">+                    Style::default().fg(Color::Yellow)
+</a><a href="#h4-1-199" id="h4-1-199" class="i">+                } else {
+</a><a href="#h4-1-200" id="h4-1-200" class="i">+                    Style::default()
+</a><a href="#h4-1-201" id="h4-1-201" class="i">+                }),
+</a><a href="#h4-1-202" id="h4-1-202" class="i">+        )
+</a><a href="#h4-1-203" id="h4-1-203" class="i">+        .highlight_style(
+</a><a href="#h4-1-204" id="h4-1-204" class="i">+            Style::default()
+</a><a href="#h4-1-205" id="h4-1-205" class="i">+                .bg(Color::Blue)
+</a><a href="#h4-1-206" id="h4-1-206" class="i">+                .add_modifier(Modifier::BOLD),
+</a><a href="#h4-1-207" id="h4-1-207" class="i">+        )
+</a><a href="#h4-1-208" id="h4-1-208" class="i">+        .highlight_symbol(&quot;&gt;&gt; &quot;);
+</a><a href="#h4-1-209" id="h4-1-209" class="i">+
+</a><a href="#h4-1-210" id="h4-1-210" class="i">+    frame.render_stateful_widget(list, area, &amp;mut state.settings_state);
+</a> }
+ 
+ fn render_list(
+<a href="#h4-1-214" id="h4-1-214" class="d">-    f: &amp;mut Frame,
+</a><a href="#h4-1-215" id="h4-1-215" class="i">+    frame: &amp;mut Frame,
+</a>     title: &amp;str,
+     items: Vec&lt;ListItem&gt;,
+<a href="#h4-1-218" id="h4-1-218" class="d">-    area: ratatui::layout::Rect,
+</a><a href="#h4-1-219" id="h4-1-219" class="i">+    area: Rect,
+</a>     focused: bool,
+     state: &amp;mut ListState,
+ ) {
+<a href="#h4-2" id="h4-2" class="h">@@ -121,7 +179,6 @@ fn render_list(
+</a>     } else {
+         Style::default()
+     };
+<a href="#h4-2-3" id="h4-2-3" class="d">-
+</a>     let list = List::new(items)
+         .block(
+             Block::default()
+<a href="#h4-3" id="h4-3" class="h">@@ -135,16 +192,62 @@ fn render_list(
+</a>                 .add_modifier(Modifier::BOLD),
+         )
+         .highlight_symbol(&quot;&gt;&gt; &quot;);
+<a href="#h4-3-3" id="h4-3-3" class="d">-
+</a><a href="#h4-3-4" id="h4-3-4" class="d">-    f.render_stateful_widget(list, area, state);
+</a><a href="#h4-3-5" id="h4-3-5" class="i">+    frame.render_stateful_widget(list, area, state);
+</a> }
+ 
+<a href="#h4-3-8" id="h4-3-8" class="d">-// Helper trait to get selection index safely
+</a> trait ListStateExt {
+     fn select_index(&amp;self) -&gt; Option&lt;usize&gt;;
+ }
+<a href="#h4-3-12" id="h4-3-12" class="i">+
+</a> impl ListStateExt for ListState {
+     fn select_index(&amp;self) -&gt; Option&lt;usize&gt; {
+         self.selected()
+     }
+ }
+<a href="#h4-3-18" id="h4-3-18" class="i">+
+</a><a href="#h4-3-19" id="h4-3-19" class="i">+pub fn render_device_dialog(frame: &amp;mut Frame, state: &amp;mut AppState) {
+</a><a href="#h4-3-20" id="h4-3-20" class="i">+    let area = centered_rect(60, 40, frame.area());
+</a><a href="#h4-3-21" id="h4-3-21" class="i">+    frame.render_widget(Clear, area);
+</a><a href="#h4-3-22" id="h4-3-22" class="i">+
+</a><a href="#h4-3-23" id="h4-3-23" class="i">+    let items: Vec&lt;ListItem&gt; = state
+</a><a href="#h4-3-24" id="h4-3-24" class="i">+        .available_devices
+</a><a href="#h4-3-25" id="h4-3-25" class="i">+        .iter()
+</a><a href="#h4-3-26" id="h4-3-26" class="i">+        .map(|name| ListItem::new(name.as_str()))
+</a><a href="#h4-3-27" id="h4-3-27" class="i">+        .collect();
+</a><a href="#h4-3-28" id="h4-3-28" class="i">+
+</a><a href="#h4-3-29" id="h4-3-29" class="i">+    let list = List::new(items)
+</a><a href="#h4-3-30" id="h4-3-30" class="i">+        .block(
+</a><a href="#h4-3-31" id="h4-3-31" class="i">+            Block::default()
+</a><a href="#h4-3-32" id="h4-3-32" class="i">+                .title(&quot;Select Output Device&quot;)
+</a><a href="#h4-3-33" id="h4-3-33" class="i">+                .borders(Borders::ALL)
+</a><a href="#h4-3-34" id="h4-3-34" class="i">+                .border_style(Style::default().fg(Color::Yellow)),
+</a><a href="#h4-3-35" id="h4-3-35" class="i">+        )
+</a><a href="#h4-3-36" id="h4-3-36" class="i">+        .highlight_style(
+</a><a href="#h4-3-37" id="h4-3-37" class="i">+            Style::default()
+</a><a href="#h4-3-38" id="h4-3-38" class="i">+                .bg(Color::Blue)
+</a><a href="#h4-3-39" id="h4-3-39" class="i">+                .add_modifier(Modifier::BOLD),
+</a><a href="#h4-3-40" id="h4-3-40" class="i">+        )
+</a><a href="#h4-3-41" id="h4-3-41" class="i">+        .highlight_symbol(&quot;&gt;&gt; &quot;);
+</a><a href="#h4-3-42" id="h4-3-42" class="i">+
+</a><a href="#h4-3-43" id="h4-3-43" class="i">+    frame.render_stateful_widget(list, area, &amp;mut state.device_dialog_state);
+</a><a href="#h4-3-44" id="h4-3-44" class="i">+}
+</a><a href="#h4-3-45" id="h4-3-45" class="i">+
+</a><a href="#h4-3-46" id="h4-3-46" class="i">+pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -&gt; Rect {
+</a><a href="#h4-3-47" id="h4-3-47" class="i">+    let popup_layout = Layout::default()
+</a><a href="#h4-3-48" id="h4-3-48" class="i">+        .direction(Direction::Vertical)
+</a><a href="#h4-3-49" id="h4-3-49" class="i">+        .constraints([
+</a><a href="#h4-3-50" id="h4-3-50" class="i">+            Constraint::Percentage((100 - percent_y) / 2),
+</a><a href="#h4-3-51" id="h4-3-51" class="i">+            Constraint::Percentage(percent_y),
+</a><a href="#h4-3-52" id="h4-3-52" class="i">+            Constraint::Percentage((100 - percent_y) / 2),
+</a><a href="#h4-3-53" id="h4-3-53" class="i">+        ])
+</a><a href="#h4-3-54" id="h4-3-54" class="i">+        .split(r);
+</a><a href="#h4-3-55" id="h4-3-55" class="i">+
+</a><a href="#h4-3-56" id="h4-3-56" class="i">+    Layout::default()
+</a><a href="#h4-3-57" id="h4-3-57" class="i">+        .direction(Direction::Horizontal)
+</a><a href="#h4-3-58" id="h4-3-58" class="i">+        .constraints([
+</a><a href="#h4-3-59" id="h4-3-59" class="i">+            Constraint::Percentage((100 - percent_x) / 2),
+</a><a href="#h4-3-60" id="h4-3-60" class="i">+            Constraint::Percentage(percent_x),
+</a><a href="#h4-3-61" id="h4-3-61" class="i">+            Constraint::Percentage((100 - percent_x) / 2),
+</a><a href="#h4-3-62" id="h4-3-62" class="i">+        ])
+</a><a href="#h4-3-63" id="h4-3-63" class="i">+        .split(popup_layout[1])[1]
+</a><a href="#h4-3-64" id="h4-3-64" class="i">+}
+</a></pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Introduce strong and weak comparisons between installers (#3956) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/4dc7647644d4c0a2176a466832f8cd486ac30e27.html">4dc7647644d4c0a2176a466832f8cd486ac30e27</a>
+<b>parent</b> <a href="../commit/829705ac9ee882c67dc66326eef5ec1c1094af82.html">829705ac9ee882c67dc66326eef5ec1c1094af82</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 13 Dec 2023 08:58:08 -0800
+
+Introduce strong and weak comparisons between installers (#3956)
+
+Rather than a `bool`, the installer comparison function now returns one
+of three values: negative, weak positive, and strong positive. The
+comparison functions are updated to choose between weak and strong
+positive results as appropriate. For instance, matching the system
+architecture when the alternative does not is a strong positive result.
+Simply being &quot;better&quot; in the list of emulated architectures is a weak
+positive result.
+
+The function that used these comparators in our priority order is
+updated to effectively do multiple passes, one looking for strong
+results and then one looking for weak results (in reality it is
+implemented with one pass as an optimization).
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a></td><td> | </td><td class="num">113</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/ManifestComparator.h</a></td><td> | </td><td class="num">14</td><td><span class="i">+++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLITests/ManifestComparator.cpp</a></td><td> | </td><td class="num">14</td><td><span class="i">++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCommonCore/AppInstallerTelemetry.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+</table></pre><pre>4 files changed, 119 insertions(+), 24 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.cpp.html">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.cpp.html">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -210,17 +210,18 @@ namespace AppInstaller::CLI::Workflow
+</a>                 return result;
+             }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-            bool IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            details::ComparisonResult IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a>             {
+                 auto arch1 = CheckAllowedArchitecture(first.Arch);
+                 auto arch2 = CheckAllowedArchitecture(second.Arch);
+ 
+                 if (arch1 &gt; arch2)
+                 {
+<a href="#h0-0-11" id="h0-0-11" class="d">-                    return true;
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+                    // A match with the primary architecture is strong
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+                    return (first.Arch == GetStrongArchitectureMatch() ? details::ComparisonResult::StrongPositive : details::ComparisonResult::WeakPositive);
+</a>                 }
+ 
+<a href="#h0-0-16" id="h0-0-16" class="d">-                return false;
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                return details::ComparisonResult::Negative;
+</a>             }
+ 
+         private:
+<a href="#h0-1" id="h0-1" class="h">@@ -245,6 +246,13 @@ namespace AppInstaller::CLI::Workflow
+</a>                 return unsupportedItr != installer.UnsupportedOSArchitectures.end();
+             }
+ 
+<a href="#h0-1-3" id="h0-1-3" class="i">+            Utility::Architecture GetStrongArchitectureMatch()
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+            {
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+                // If we have a preferential order, treat the first entry as strong.
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+                // Otherwise, treat the system architecture as strong (which is always first in the default order).
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+                return m_allowedArchitectures.empty() ? Utility::GetSystemArchitecture() : m_allowedArchitectures.front();
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+            }
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+
+</a>             std::vector&lt;Utility::Architecture&gt; m_allowedArchitectures;
+         };
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -313,11 +321,11 @@ namespace AppInstaller::CLI::Workflow
+</a>                 }
+             }
+ 
+<a href="#h0-2-3" id="h0-2-3" class="d">-            bool IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+            details::ComparisonResult IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a>             {
+                 if (m_preference.empty())
+                 {
+<a href="#h0-2-8" id="h0-2-8" class="d">-                    return false;
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+                    return details::ComparisonResult::Negative;
+</a>                 }
+ 
+                 for (Manifest::InstallerTypeEnum installerTypePreference : m_preference)
+<a href="#h0-3" id="h0-3" class="h">@@ -332,15 +340,16 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+                     if (isFirstInstallerTypePreferred &amp;&amp; isSecondInstallerTypePreferred)
+                     {
+<a href="#h0-3-3" id="h0-3-3" class="d">-                        return false;
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+                        return details::ComparisonResult::Negative;
+</a>                     }
+                     else if (isFirstInstallerTypePreferred != isSecondInstallerTypePreferred)
+                     {
+<a href="#h0-3-8" id="h0-3-8" class="d">-                        return isFirstInstallerTypePreferred;
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+                        // Treating this as a weak positive because one can use requirements to guarantee the installer type if necessary.
+</a><a href="#h0-3-10" id="h0-3-10" class="i">+                        return (isFirstInstallerTypePreferred ? details::ComparisonResult::WeakPositive : details::ComparisonResult::Negative);
+</a>                     }
+                 }
+ 
+<a href="#h0-3-14" id="h0-3-14" class="d">-                return false;
+</a><a href="#h0-3-15" id="h0-3-15" class="i">+                return details::ComparisonResult::Negative;
+</a>             }
+ 
+         private:
+<a href="#h0-4" id="h0-4" class="h">@@ -414,9 +423,17 @@ namespace AppInstaller::CLI::Workflow
+</a>                 return result;
+             }
+ 
+<a href="#h0-4-3" id="h0-4-3" class="d">-            bool IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a><a href="#h0-4-4" id="h0-4-4" class="i">+            details::ComparisonResult IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a>             {
+<a href="#h0-4-6" id="h0-4-6" class="d">-                return (first.EffectiveInstallerType() == m_installedType &amp;&amp; second.EffectiveInstallerType() != m_installedType);
+</a><a href="#h0-4-7" id="h0-4-7" class="i">+                if (first.EffectiveInstallerType() == m_installedType &amp;&amp; second.EffectiveInstallerType() != m_installedType)
+</a><a href="#h0-4-8" id="h0-4-8" class="i">+                {
+</a><a href="#h0-4-9" id="h0-4-9" class="i">+                    // Installed type matching is intended to be sticky, so make this a strong match.
+</a><a href="#h0-4-10" id="h0-4-10" class="i">+                    return details::ComparisonResult::StrongPositive;
+</a><a href="#h0-4-11" id="h0-4-11" class="i">+                }
+</a><a href="#h0-4-12" id="h0-4-12" class="i">+                else
+</a><a href="#h0-4-13" id="h0-4-13" class="i">+                {
+</a><a href="#h0-4-14" id="h0-4-14" class="i">+                    return details::ComparisonResult::Negative;
+</a><a href="#h0-4-15" id="h0-4-15" class="i">+                }
+</a>             }
+ 
+         private:
+<a href="#h0-5" id="h0-5" class="h">@@ -540,9 +557,15 @@ namespace AppInstaller::CLI::Workflow
+</a>                 return result;
+             }
+ 
+<a href="#h0-5-3" id="h0-5-3" class="d">-            bool IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+            details::ComparisonResult IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a>             {
+<a href="#h0-5-6" id="h0-5-6" class="d">-                return m_preference != Manifest::ScopeEnum::Unknown &amp;&amp; (first.Scope == m_preference &amp;&amp; second.Scope != m_preference);
+</a><a href="#h0-5-7" id="h0-5-7" class="i">+                if (m_preference != Manifest::ScopeEnum::Unknown &amp;&amp; first.Scope == m_preference &amp;&amp; second.Scope != m_preference)
+</a><a href="#h0-5-8" id="h0-5-8" class="i">+                {
+</a><a href="#h0-5-9" id="h0-5-9" class="i">+                    // When the second input is unknown, this is a weak result. If it is not (and therefore the opposite of the preference), this is strong.
+</a><a href="#h0-5-10" id="h0-5-10" class="i">+                    return (second.Scope == Manifest::ScopeEnum::Unknown ? details::ComparisonResult::WeakPositive : details::ComparisonResult::StrongPositive);
+</a><a href="#h0-5-11" id="h0-5-11" class="i">+                }
+</a><a href="#h0-5-12" id="h0-5-12" class="i">+
+</a><a href="#h0-5-13" id="h0-5-13" class="i">+                return details::ComparisonResult::Negative;
+</a>             }
+ 
+         private:
+<a href="#h0-6" id="h0-6" class="h">@@ -669,11 +692,11 @@ namespace AppInstaller::CLI::Workflow
+</a>                 return result;
+             }
+ 
+<a href="#h0-6-3" id="h0-6-3" class="d">-            bool IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+            details::ComparisonResult IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a>             {
+                 if (m_preference.empty())
+                 {
+<a href="#h0-6-8" id="h0-6-8" class="d">-                    return false;
+</a><a href="#h0-6-9" id="h0-6-9" class="i">+                    return details::ComparisonResult::Negative;
+</a>                 }
+ 
+                 for (auto const&amp; preferredLocale : m_preference)
+<a href="#h0-7" id="h0-7" class="h">@@ -683,13 +706,14 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+                     if (firstScore &gt;= Locale::MinimumDistanceScoreAsCompatibleMatch || secondScore &gt;= Locale::MinimumDistanceScoreAsCompatibleMatch)
+                     {
+<a href="#h0-7-3" id="h0-7-3" class="d">-                        return firstScore &gt; secondScore;
+</a><a href="#h0-7-4" id="h0-7-4" class="i">+                        // This could probably be enriched to always check all locales and determine strong/weak based off of the MinimumDistanceScoreAsCompatibleMatch.
+</a><a href="#h0-7-5" id="h0-7-5" class="i">+                        return (firstScore &gt; secondScore ? details::ComparisonResult::StrongPositive : details::ComparisonResult::Negative);
+</a>                     }
+                 }
+ 
+                 // At this point, the installer locale matches no preference.
+                 // if first is unknown and second is no match for sure, we might prefer unknown one.
+<a href="#h0-7-11" id="h0-7-11" class="d">-                return first.Locale.empty() &amp;&amp; !second.Locale.empty();
+</a><a href="#h0-7-12" id="h0-7-12" class="i">+                return (first.Locale.empty() &amp;&amp; !second.Locale.empty() ? details::ComparisonResult::WeakPositive : details::ComparisonResult::Negative);
+</a>             }
+ 
+         private:
+<a href="#h0-8" id="h0-8" class="h">@@ -774,7 +798,7 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+     InstallerAndInapplicabilities ManifestComparator::GetPreferredInstaller(const Manifest::Manifest&amp; manifest)
+     {
+<a href="#h0-8-3" id="h0-8-3" class="d">-        AICLI_LOG(CLI, Info, &lt;&lt; &quot;Starting installer selection.&quot;);
+</a><a href="#h0-8-4" id="h0-8-4" class="i">+        AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Starting installer selection.&quot;);
+</a> 
+         const Manifest::ManifestInstaller* result = nullptr;
+         std::vector&lt;InapplicabilityFlags&gt; inapplicabilitiesInstallers;
+<a href="#h0-9" id="h0-9" class="h">@@ -813,7 +837,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             auto inapplicability = filter-&gt;IsApplicable(installer);
+             if (inapplicability != InapplicabilityFlags::None)
+             {
+<a href="#h0-9-3" id="h0-9-3" class="d">-                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Installer &quot; &lt;&lt; installer &lt;&lt; &quot; not applicable: &quot; &lt;&lt; filter-&gt;ExplainInapplicable(installer));
+</a><a href="#h0-9-4" id="h0-9-4" class="i">+                AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Installer &quot; &lt;&lt; installer &lt;&lt; &quot; not applicable: &quot; &lt;&lt; filter-&gt;ExplainInapplicable(installer));
+</a>                 WI_SetAllFlags(inapplicabilityResult, inapplicability);
+             }
+         }
+<a href="#h0-10" id="h0-10" class="h">@@ -825,19 +849,64 @@ namespace AppInstaller::CLI::Workflow
+</a>         const Manifest::ManifestInstaller&amp; first,
+         const Manifest::ManifestInstaller&amp; second)
+     {
+<a href="#h0-10-3" id="h0-10-3" class="i">+        // The priority will still be used as a tie-break between weak results.
+</a><a href="#h0-10-4" id="h0-10-4" class="i">+        std::optional&lt;std::string_view&gt; firstWeakComparator;
+</a><a href="#h0-10-5" id="h0-10-5" class="i">+        bool firstWeakComparatorResult = false;
+</a><a href="#h0-10-6" id="h0-10-6" class="i">+
+</a>         for (auto comparator : m_comparators)
+         {
+<a href="#h0-10-9" id="h0-10-9" class="d">-            if (comparator-&gt;IsFirstBetter(first, second))
+</a><a href="#h0-10-10" id="h0-10-10" class="i">+            details::ComparisonResult forwardCompare = comparator-&gt;IsFirstBetter(first, second);
+</a><a href="#h0-10-11" id="h0-10-11" class="i">+            details::ComparisonResult reverseCompare = comparator-&gt;IsFirstBetter(second, first);
+</a><a href="#h0-10-12" id="h0-10-12" class="i">+
+</a><a href="#h0-10-13" id="h0-10-13" class="i">+            // Should not happen, but if it does it points at a serious bug that should be fixed.
+</a><a href="#h0-10-14" id="h0-10-14" class="i">+            if (forwardCompare != details::ComparisonResult::Negative &amp;&amp; reverseCompare != details::ComparisonResult::Negative)
+</a><a href="#h0-10-15" id="h0-10-15" class="i">+            {
+</a><a href="#h0-10-16" id="h0-10-16" class="i">+                AICLI_LOG(CLI, Error, &lt;&lt; &quot;Installer &quot; &lt;&lt; first &lt;&lt; &quot; and &quot; &lt;&lt; second &lt;&lt; &quot; are both better than each other?&quot;);
+</a><a href="#h0-10-17" id="h0-10-17" class="i">+                THROW_HR(E_UNEXPECTED);
+</a><a href="#h0-10-18" id="h0-10-18" class="i">+            }
+</a><a href="#h0-10-19" id="h0-10-19" class="i">+
+</a><a href="#h0-10-20" id="h0-10-20" class="i">+            if (forwardCompare == details::ComparisonResult::StrongPositive)
+</a>             {
+<a href="#h0-10-22" id="h0-10-22" class="d">-                AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Installer &quot; &lt;&lt; first &lt;&lt; &quot; is better than &quot; &lt;&lt; second &lt;&lt; &quot; due to: &quot; &lt;&lt; comparator-&gt;Name());
+</a><a href="#h0-10-23" id="h0-10-23" class="i">+                AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Installer &quot; &lt;&lt; first &lt;&lt; &quot; is better [strong] than &quot; &lt;&lt; second &lt;&lt; &quot; due to: &quot; &lt;&lt; comparator-&gt;Name());
+</a>                 return true;
+             }
+<a href="#h0-10-26" id="h0-10-26" class="d">-            else if (comparator-&gt;IsFirstBetter(second, first))
+</a><a href="#h0-10-27" id="h0-10-27" class="i">+
+</a><a href="#h0-10-28" id="h0-10-28" class="i">+            if (reverseCompare == details::ComparisonResult::StrongPositive)
+</a>             {
+                 // Second is better by this comparator, don&#39;t allow a lower priority one to override that.
+<a href="#h0-10-31" id="h0-10-31" class="d">-                AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Installer &quot; &lt;&lt; second &lt;&lt; &quot; is better than &quot; &lt;&lt; first &lt;&lt; &quot; due to: &quot; &lt;&lt; comparator-&gt;Name());
+</a><a href="#h0-10-32" id="h0-10-32" class="i">+                AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Installer &quot; &lt;&lt; second &lt;&lt; &quot; is better [strong] than &quot; &lt;&lt; first &lt;&lt; &quot; due to: &quot; &lt;&lt; comparator-&gt;Name());
+</a>                 return false;
+             }
+<a href="#h0-10-35" id="h0-10-35" class="i">+
+</a><a href="#h0-10-36" id="h0-10-36" class="i">+            // Save the first weak result that we get
+</a><a href="#h0-10-37" id="h0-10-37" class="i">+            if (!firstWeakComparator)
+</a><a href="#h0-10-38" id="h0-10-38" class="i">+            {
+</a><a href="#h0-10-39" id="h0-10-39" class="i">+                if (forwardCompare == details::ComparisonResult::WeakPositive)
+</a><a href="#h0-10-40" id="h0-10-40" class="i">+                {
+</a><a href="#h0-10-41" id="h0-10-41" class="i">+                    firstWeakComparator = comparator-&gt;Name();
+</a><a href="#h0-10-42" id="h0-10-42" class="i">+                    firstWeakComparatorResult = true;
+</a><a href="#h0-10-43" id="h0-10-43" class="i">+                }
+</a><a href="#h0-10-44" id="h0-10-44" class="i">+                else if (reverseCompare == details::ComparisonResult::WeakPositive)
+</a><a href="#h0-10-45" id="h0-10-45" class="i">+                {
+</a><a href="#h0-10-46" id="h0-10-46" class="i">+                    firstWeakComparator = comparator-&gt;Name();
+</a><a href="#h0-10-47" id="h0-10-47" class="i">+                    firstWeakComparatorResult = false;
+</a><a href="#h0-10-48" id="h0-10-48" class="i">+                }
+</a><a href="#h0-10-49" id="h0-10-49" class="i">+            }
+</a><a href="#h0-10-50" id="h0-10-50" class="i">+        }
+</a><a href="#h0-10-51" id="h0-10-51" class="i">+
+</a><a href="#h0-10-52" id="h0-10-52" class="i">+        // If we found a weak result (and no strong result because we made it here), return it.
+</a><a href="#h0-10-53" id="h0-10-53" class="i">+        if (firstWeakComparator)
+</a><a href="#h0-10-54" id="h0-10-54" class="i">+        {
+</a><a href="#h0-10-55" id="h0-10-55" class="i">+            if (firstWeakComparatorResult)
+</a><a href="#h0-10-56" id="h0-10-56" class="i">+            {
+</a><a href="#h0-10-57" id="h0-10-57" class="i">+                AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Installer &quot; &lt;&lt; first &lt;&lt; &quot; is better [weak] than &quot; &lt;&lt; second &lt;&lt; &quot; due to: &quot; &lt;&lt; *firstWeakComparator);
+</a><a href="#h0-10-58" id="h0-10-58" class="i">+            }
+</a><a href="#h0-10-59" id="h0-10-59" class="i">+            else
+</a><a href="#h0-10-60" id="h0-10-60" class="i">+            {
+</a><a href="#h0-10-61" id="h0-10-61" class="i">+                AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Installer &quot; &lt;&lt; second &lt;&lt; &quot; is better [weak] than &quot; &lt;&lt; first &lt;&lt; &quot; due to: &quot; &lt;&lt; *firstWeakComparator);
+</a><a href="#h0-10-62" id="h0-10-62" class="i">+            }
+</a><a href="#h0-10-63" id="h0-10-63" class="i">+
+</a><a href="#h0-10-64" id="h0-10-64" class="i">+            return firstWeakComparatorResult;
+</a>         }
+ 
+         // Equal, and thus not better
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.h.html">src/AppInstallerCLICore/Workflows/ManifestComparator.h</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.h.html">src/AppInstallerCLICore/Workflows/ManifestComparator.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -53,6 +53,18 @@ namespace AppInstaller::CLI::Workflow
+</a>             std::string_view m_name;
+         };
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+        // The result of ComparisonField::IsFirstBetter
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        enum class ComparisonResult
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        {
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+            // The first input is not better than the second input.
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+            Negative,
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+            // The first input is somewhat better than the second input.
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+            // If another comparison has a strong positive result, it will override a weak result.
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+            WeakPositive,
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+            // The first input is definitely better than the second input.
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+            StrongPositive,
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+        };
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+
+</a>         // An interface for defining new comparisons based on user inputs.
+         struct ComparisonField : public FilterField
+         {
+<a href="#h1-1" id="h1-1" class="h">@@ -61,7 +73,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             virtual ~ComparisonField() = default;
+ 
+             // Determines if the first installer is a better choice based on this field alone.
+<a href="#h1-1-3" id="h1-1-3" class="d">-            virtual bool IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) = 0;
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+            virtual ComparisonResult IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) = 0;
+</a>         };
+     }
+ 
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/ManifestComparator.cpp.html">src/AppInstallerCLITests/ManifestComparator.cpp</a> b/<a href="../file/src/AppInstallerCLITests/ManifestComparator.cpp.html">src/AppInstallerCLITests/ManifestComparator.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -846,3 +846,17 @@ TEST_CASE(&quot;ManifestComparator_InstallerType&quot;, &quot;[manifest_comparator]&quot;)
+</a>         RequireInapplicabilities(inapplicabilities, { InapplicabilityFlags::InstallerType, InapplicabilityFlags::InstallerType, InapplicabilityFlags::InstallerType });
+     }
+ }
+<a href="#h2-0-3" id="h2-0-3" class="i">+
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+TEST_CASE(&quot;ManifestComparator_MachineArchitecture_Strong_Scope_Weak&quot;, &quot;[manifest_comparator]&quot;)
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+{
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+    Manifest manifest;
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+    ManifestInstaller system = AddInstaller(manifest, GetSystemArchitecture(), InstallerTypeEnum::Msi, ScopeEnum::Unknown, &quot;&quot;, &quot;&quot;);
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+    ManifestInstaller user = AddInstaller(manifest, Architecture::Neutral, InstallerTypeEnum::Msi, ScopeEnum::User, &quot;&quot;, &quot;&quot;);
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+    ManifestComparatorTestContext context;
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+    ManifestComparator mc(context, {});
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+    auto [result, inapplicabilities] = mc.GetPreferredInstaller(manifest);
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+    RequireInstaller(result, system);
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+}
+</a><b>diff --git a/<a id="h3" href="../file/src/AppInstallerCommonCore/AppInstallerTelemetry.cpp.html">src/AppInstallerCommonCore/AppInstallerTelemetry.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/AppInstallerTelemetry.cpp.html">src/AppInstallerCommonCore/AppInstallerTelemetry.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -469,7 +469,7 @@ namespace AppInstaller::Logging
+</a>             }
+         }
+ 
+<a href="#h3-0-3" id="h3-0-3" class="d">-        AICLI_LOG(CLI, Info, &lt;&lt; &quot;Completed installer selection.&quot;);
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Completed installer selection.&quot;);
+</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer Architecture: &quot; &lt;&lt; arch);
+         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer URL: &quot; &lt;&lt; url);
+         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer InstallerType: &quot; &lt;&lt; installerType);
+</pre>
+</div>
+</body>
+</html>

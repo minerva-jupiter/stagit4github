@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>create_a_report_review_llm_with_lora.md - tech_note - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="tech_note.git Atom Feed" href="../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="tech_note.git Atom Feed (tags)" href="../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../"><img src="../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>tech_note</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../log.html">Log</a> | <a href="../../files.html">Files</a> | <a href="../../refs.html">Refs</a> | <a href="../../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> create_a_report_review_llm_with_lora.md (11820B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> ---
+<a href="#l2" class="line" id="l2">      2</a> title: レポートレビューLLMをLoRAで作る
+<a href="#l3" class="line" id="l3">      3</a> tags:
+<a href="#l4" class="line" id="l4">      4</a> - lora
+<a href="#l5" class="line" id="l5">      5</a> - llm
+<a href="#l6" class="line" id="l6">      6</a> - typst
+<a href="#l7" class="line" id="l7">      7</a> - qlora
+<a href="#l8" class="line" id="l8">      8</a> private: false
+<a href="#l9" class="line" id="l9">      9</a> updated_at: 2025-12-13 00:11
+<a href="#l10" class="line" id="l10">     10</a> id: null
+<a href="#l11" class="line" id="l11">     11</a> organization_url_name: null
+<a href="#l12" class="line" id="l12">     12</a> slide: false
+<a href="#l13" class="line" id="l13">     13</a> ---
+<a href="#l14" class="line" id="l14">     14</a> # 想定読者
+<a href="#l15" class="line" id="l15">     15</a> 
+<a href="#l16" class="line" id="l16">     16</a> この記事の想定読者は以下の人です．専門用語に関しては，検索すれば出てくるものとして，こちらで注釈を付けることはしません．誤用などあればコメント下さい．
+<a href="#l17" class="line" id="l17">     17</a> 
+<a href="#l18" class="line" id="l18">     18</a> - ローカルLLMの開発の経験のある人
+<a href="#l19" class="line" id="l19">     19</a> - LLMのファインチューニングの知識がある人
+<a href="#l20" class="line" id="l20">     20</a> 
+<a href="#l21" class="line" id="l21">     21</a> # はじめに
+<a href="#l22" class="line" id="l22">     22</a> 
+<a href="#l23" class="line" id="l23">     23</a> 本記事は，ローカル環境でLLMを動かし，物理学実験のレポートを提出前にレビューするアプリケーションを作ってみた備忘録です．
+<a href="#l24" class="line" id="l24">     24</a> 最終的な目標は，Typstで書かれた物理学実験のレポートに対し，教員から提示されるであろう指摘事項を前もって指摘してくれることです．
+<a href="#l25" class="line" id="l25">     25</a> なお，当該リポジトリは私の書いた実験レポートそのものが含まれる学習データがありますので，Private Repositoryになっています．
+<a href="#l26" class="line" id="l26">     26</a> 公開できる部分は公開したいのですが，記事に書き込んでしまうと冗長なのと，Geminiに同じことを頼んだら，同じようなコードが返ってくると思いますので，擬似コードだけ置いておきます．
+<a href="#l27" class="line" id="l27">     27</a> 学習に使用したデータはレポート2本とその指摘事項です．圧倒的に少ないですね．
+<a href="#l28" class="line" id="l28">     28</a> 
+<a href="#l29" class="line" id="l29">     29</a> ## 初期計画と環境コンテキスト
+<a href="#l30" class="line" id="l30">     30</a> 
+<a href="#l31" class="line" id="l31">     31</a> プロジェクト開始時の主要な計画と環境は以下の通りです．
+<a href="#l32" class="line" id="l32">     32</a> 
+<a href="#l33" class="line" id="l33">     33</a> ### 動作環境
+<a href="#l34" class="line" id="l34">     34</a> | 項目 | 詳細 |
+<a href="#l35" class="line" id="l35">     35</a> | :--- | :--- |
+<a href="#l36" class="line" id="l36">     36</a> | OS | Windows 11 |
+<a href="#l37" class="line" id="l37">     37</a> | CPU | AMD Ryzen 9 3900XT (12コア/24スレッド) |
+<a href="#l38" class="line" id="l38">     38</a> | GPU | NVIDIA GeForce RTX 3060 |
+<a href="#l39" class="line" id="l39">     39</a> 
+<a href="#l40" class="line" id="l40">     40</a> ### モデルと手法
+<a href="#l41" class="line" id="l41">     41</a> | 項目 | 詳細 |
+<a href="#l42" class="line" id="l42">     42</a> | :--- | :--- |
+<a href="#l43" class="line" id="l43">     43</a> | ベースモデル | Mistral 7B (GGUF 形式) |
+<a href="#l44" class="line" id="l44">     44</a> | ファインチューニング | QRoLA |
+<a href="#l45" class="line" id="l45">     45</a> 
+<a href="#l46" class="line" id="l46">     46</a> 
+<a href="#l47" class="line" id="l47">     47</a> # 仮実装
+<a href="#l48" class="line" id="l48">     48</a> ## 環境構築
+<a href="#l49" class="line" id="l49">     49</a> 
+<a href="#l50" class="line" id="l50">     50</a> とりあえず初期計画のために環境を整えます．
+<a href="#l51" class="line" id="l51">     51</a> どっかでPythonのパッケージマネージャーとしてRust製の`uv`ってのが巷で流行っているという話を聞いたので，今回は`uv`を使います．
+<a href="#l52" class="line" id="l52">     52</a> それにしてもRust製のPythonパッケージマネージャーなんて，もはやRustにしちまえよって感じですけどね．学習コストが高いんでね．
+<a href="#l53" class="line" id="l53">     53</a> 環境構築は備忘録的に書いた`README.md`の中身を掲示して置くことで代替とします．
+<a href="#l54" class="line" id="l54">     54</a> ```Markdown
+<a href="#l55" class="line" id="l55">     55</a> # Prepare Python
+<a href="#l56" class="line" id="l56">     56</a> ## create venv
+<a href="#l57" class="line" id="l57">     57</a> ### install uv
+<a href="#l58" class="line" id="l58">     58</a> `pip install uv`
+<a href="#l59" class="line" id="l59">     59</a> ### create .venv
+<a href="#l60" class="line" id="l60">     60</a> `uv venv .venv`
+<a href="#l61" class="line" id="l61">     61</a> ## activate venv
+<a href="#l62" class="line" id="l62">     62</a> `source .venv/bin/activate`
+<a href="#l63" class="line" id="l63">     63</a> if you use windows powershell, use `.\.venv\Scripts\activate.ps1`
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a> ## install requirements
+<a href="#l66" class="line" id="l66">     66</a> `uv pip install -r requirements.txt`
+<a href="#l67" class="line" id="l67">     67</a> 
+<a href="#l68" class="line" id="l68">     68</a> ## setting for cuda
+<a href="#l69" class="line" id="l69">     69</a> please make sure you have cuda installed and set the environment variable CUDA_HOME to the path of your cuda installation.
+<a href="#l70" class="line" id="l70">     70</a> check for it can do with `nvcc --version`
+<a href="#l71" class="line" id="l71">     71</a> and install pytorch for your cuda version.
+<a href="#l72" class="line" id="l72">     72</a> for example nvcc version is 13.0
+<a href="#l73" class="line" id="l73">     73</a> `uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu130 --reinstall`
+<a href="#l74" class="line" id="l74">     74</a> And then, check this python env can use cuda with `python gpu_check.py`
+<a href="#l75" class="line" id="l75">     75</a> 
+<a href="#l76" class="line" id="l76">     76</a> ## set API key for gemini(only need to use structuring-training-data)
+<a href="#l77" class="line" id="l77">     77</a> `export GEMINI_API_KEY=your_api_key`
+<a href="#l78" class="line" id="l78">     78</a> if you use windows powershell, use `$env:GEMINI_API_KEY=&quot;あなたのAPIキー&quot;`
+<a href="#l79" class="line" id="l79">     79</a> ```
+<a href="#l80" class="line" id="l80">     80</a> 厳密にはMarkdownのベストプラクティスには従ってないですが，許してください．読めりゃ，わかりゃいいんですよ．
+<a href="#l81" class="line" id="l81">     81</a> なぜかGPUに対応したPyTorch等が入らなくて，なんでだろうなとか思ってたら，そもそもPCに`cuda`がインストールされてませんでした．
+<a href="#l82" class="line" id="l82">     82</a> ## 学習用データ
+<a href="#l83" class="line" id="l83">     83</a> 
+<a href="#l84" class="line" id="l84">     84</a> 自分の書いたレポートとそれについた指摘事項を統合して学習データにします．
+<a href="#l85" class="line" id="l85">     85</a> 指摘事項とそれに当たっている部分を抜き出してセットにして入れるといいみたいなのですが，そのJSONを書くのがめんどくさかったので，GeminiのAPIを叩いてJSONを返してもらってます．
+<a href="#l86" class="line" id="l86">     86</a> 
+<a href="#l87" class="line" id="l87">     87</a> 次に，まとめられたJSONとレポート本体を合体させ，さらに合体した各レポートのセットを一つのjsonlファイルに合体させます．
+<a href="#l88" class="line" id="l88">     88</a> レポートを連番にして，連番毎にレポートのtypstファイルと指摘事項のtxtファイルを学習用データのディレクトリに入れて，それを読むようにすれば，学習用データが多くなっても安心です．
+<a href="#l89" class="line" id="l89">     89</a> 
+<a href="#l90" class="line" id="l90">     90</a> ## 学習
+<a href="#l91" class="line" id="l91">     91</a> 
+<a href="#l92" class="line" id="l92">     92</a> いよいよ学習です．
+<a href="#l93" class="line" id="l93">     93</a> 学習プログラムの入力はjsonlで出力はアダプターのアセット達です．
+<a href="#l94" class="line" id="l94">     94</a> それぞれ設定値です．
+<a href="#l95" class="line" id="l95">     95</a> 
+<a href="#l96" class="line" id="l96">     96</a> | パラメータ名 | 値 |
+<a href="#l97" class="line" id="l97">     97</a> | :--- | :--- |
+<a href="#l98" class="line" id="l98">     98</a> | **ベースモデル** | `Mistral-7B-Instruct-v0.2` |
+<a href="#l99" class="line" id="l99">     99</a> | **量子化 (4bit)** | `load_in_4bit=True` |
+<a href="#l100" class="line" id="l100">    100</a> | **量子化タイプ** | `bnb_4bit_quant_type=&quot;nf4&quot;` |
+<a href="#l101" class="line" id="l101">    101</a> | **LoRA R (ランク)** | `16` |
+<a href="#l102" class="line" id="l102">    102</a> | **LoRA Alpha** | `32` |
+<a href="#l103" class="line" id="l103">    103</a> | **バッチサイズ** | `1` |
+<a href="#l104" class="line" id="l104">    104</a> | **勾配蓄積** | `4` |
+<a href="#l105" class="line" id="l105">    105</a> | **学習率** | `2e-4` |
+<a href="#l106" class="line" id="l106">    106</a> | **最大ステップ数** | `50` |
+<a href="#l107" class="line" id="l107">    107</a> | **FP16** | `True` |
+<a href="#l108" class="line" id="l108">    108</a> 
+<a href="#l109" class="line" id="l109">    109</a> ## GGUF化
+<a href="#l110" class="line" id="l110">    110</a> 
+<a href="#l111" class="line" id="l111">    111</a> 先程の出力をllama.cppでRoLAしたモデルを読み込むために，GGUF化します．
+<a href="#l112" class="line" id="l112">    112</a> Gitのサブモジュールとして，llama.cppをクローンして，リポジトリのルートでこのコマンドを叩けばできます．
+<a href="#l113" class="line" id="l113">    113</a> ```
+<a href="#l114" class="line" id="l114">    114</a> python vendor/llama.cpp/convert_hf_to_gguf.py mistral_typst_merged --outfile mistral_typst_merged.f16.gguf --outtype f16
+<a href="#l115" class="line" id="l115">    115</a> ```
+<a href="#l116" class="line" id="l116">    116</a> (`mistral_typst_merged`はモデルのディレクトリ，`mistral_typst_merged.f16.gguf`は出力です)
+<a href="#l117" class="line" id="l117">    117</a> 
+<a href="#l118" class="line" id="l118">    118</a> ## 量子化
+<a href="#l119" class="line" id="l119">    119</a> 
+<a href="#l120" class="line" id="l120">    120</a> リソースバカ食いの可能性を危惧して，モデルを量子化します．
+<a href="#l121" class="line" id="l121">    121</a> ただ，何故かllama.cppの量子化が上手く動かなかったので，公式ビルドを落としてきてバイナリを叩いて量子化しました．
+<a href="#l122" class="line" id="l122">    122</a> 
+<a href="#l123" class="line" id="l123">    123</a> ## APIサーバー
+<a href="#l124" class="line" id="l124">    124</a> 
+<a href="#l125" class="line" id="l125">    125</a> 何をトチ狂ったのか，私はこの推論をAPIサーバーにしようと考えて，PythonでAPIサーバーを立て始めました．
+<a href="#l126" class="line" id="l126">    126</a> もともとはフロントエンドアプリをつけて，APIだけを自宅サーバーに立てて叩きたいなと思っていた名残です．
+<a href="#l127" class="line" id="l127">    127</a> 名残を実装に反映してしまうのがGeminiの悪い癖ですね．自分は間違わないと思っているのか，モジュールテストとかをしない方向で動いているように見えます．
+<a href="#l128" class="line" id="l128">    128</a> 冗談はさておき，このAPIサーバー，とても重大な欠陥がありました．
+<a href="#l129" class="line" id="l129">    129</a> モデルがJSONでない形式で返してきたときにパースエラーが起きるんです．
+<a href="#l130" class="line" id="l130">    130</a> APIの行き帰りは厳格にJSONでなければなりませんが，量子化したモデルにそれをやらすのもそもそも無理があります．
+<a href="#l131" class="line" id="l131">    131</a> 良く見てみると，トランスフォーマー型らしいと言えばそうなのですが，一行一行に対して支離滅裂な指摘事項が挙げられていて，到底設定したいた`max_tokens`では足りずにパースエラーを起こしていました．
+<a href="#l132" class="line" id="l132">    132</a> 
+<a href="#l133" class="line" id="l133">    133</a> ## 仮実装で露呈した問題点
+<a href="#l134" class="line" id="l134">    134</a> 
+<a href="#l135" class="line" id="l135">    135</a> - JSON形式の破壊
+<a href="#l136" class="line" id="l136">    136</a> - 量子化の問題
+<a href="#l137" class="line" id="l137">    137</a> - CPU推論
+<a href="#l138" class="line" id="l138">    138</a> 
+<a href="#l139" class="line" id="l139">    139</a> です．次の章から順番に説明と施した対策を挙げていきます．
+<a href="#l140" class="line" id="l140">    140</a> 
+<a href="#l141" class="line" id="l141">    141</a> # JSON形式
+<a href="#l142" class="line" id="l142">    142</a> 
+<a href="#l143" class="line" id="l143">    143</a> そもそもモデルに(それも量子化した)JSONを書かせるなんてエラーの元ですし，APIにしたいなら，出てきたテキストをそのままJSONにぶち込むように変更すればいいので，JSON形式で出力させるようなプロンプト(システムイントロダクション)は削除しました．
+<a href="#l144" class="line" id="l144">    144</a> そしてAPIサーバーを立てて，それを叩くpythonを作ってとやっているのが無駄なので，モデルを直接読み込んでtypstファイルをぶち込むようなpythonプログラムを書きました．
+<a href="#l145" class="line" id="l145">    145</a> 
+<a href="#l146" class="line" id="l146">    146</a> # QLoRAの問題
+<a href="#l147" class="line" id="l147">    147</a> 
+<a href="#l148" class="line" id="l148">    148</a> JSON問題が解決しても，回答の長さが`max_tokens`を軽々と突破する問題は依然として存在しました．
+<a href="#l149" class="line" id="l149">    149</a> そこで，私は諦めて量子化されていないf16のモデルを使いました．
+<a href="#l150" class="line" id="l150">    150</a> するとどうでしょう．10行程度のリストに収まりました．
+<a href="#l151" class="line" id="l151">    151</a> 
+<a href="#l152" class="line" id="l152">    152</a> # CPU推論
+<a href="#l153" class="line" id="l153">    153</a> 
+<a href="#l154" class="line" id="l154">    154</a> 推論を動かしていると，CPUとDRAMの使用率が最大に張り付きます．当然ですね．f16なLLMをローカルで動かしているのですから．
+<a href="#l155" class="line" id="l155">    155</a> 問題はそこではなくて，GPUを使ってくれないという点です．
+<a href="#l156" class="line" id="l156">    156</a> 私が1年前くらいに奮発して買ったGDDDR5が12GBも積まれているRTX3060をせっかく搭載しているというのに，一個も使わないんです．
+<a href="#l157" class="line" id="l157">    157</a> QLoRAではバイナリのバージョンを揃えてインストールしたので，llama.cppでも同様のことをしようと思ってやりました．
+<a href="#l158" class="line" id="l158">    158</a> 参考にさせていただいた記事です．
+<a href="#l159" class="line" id="l159">    159</a> https://zenn.dev/hellohazime/articles/ccd01c2df0b5c3
+<a href="#l160" class="line" id="l160">    160</a> でも，インストールに失敗しました．
+<a href="#l161" class="line" id="l161">    161</a> 仕方ないので，環境変数による強制ビルドをしました．
+<a href="#l162" class="line" id="l162">    162</a> ```PowerShell
+<a href="#l163" class="line" id="l163">    163</a> $env:CMAKE_ARGS=&#39;-DGGML_CUDA=ON -DCMAKE_CUDA_COMPILER=&quot;C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0/bin/nvcc.exe&quot; -DCUDA_TOOLKIT_ROOT_DIR=&quot;C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0&quot; -DCUDA_ARCHITECTURES=native&#39;
+<a href="#l164" class="line" id="l164">    164</a> $env:FORCE_CMAKE=1
+<a href="#l165" class="line" id="l165">    165</a> uv pip install -r requirements.txt --no-cache-dir
+<a href="#l166" class="line" id="l166">    166</a> ```
+<a href="#l167" class="line" id="l167">    167</a> これでも失敗しました．
+<a href="#l168" class="line" id="l168">    168</a> エラーログに`Use GGML_CUDA instead`
+<a href="#l169" class="line" id="l169">    169</a> って書いてあったので，次の記事を参考にmakeの環境変数を書き換えしました．
+<a href="#l170" class="line" id="l170">    170</a> https://qiita.com/Nikeri/items/27490eb865c42803d14c
+<a href="#l171" class="line" id="l171">    171</a> それでもエラーは止まりません．
+<a href="#l172" class="line" id="l172">    172</a> ```
+<a href="#l173" class="line" id="l173">    173</a> No CUDA toolset found.
+<a href="#l174" class="line" id="l174">    174</a> ```
+<a href="#l175" class="line" id="l175">    175</a> 意味がわかりません．ご丁寧にnvcc.exeのパスを入れてるのに，無いとか言われるんですからもうどうしようもないです．
+<a href="#l176" class="line" id="l176">    176</a> 今は諦めてCPUで推論を回してますが，時間と電気代がかかるのでぜひともやめてほしいところです．
+<a href="#l177" class="line" id="l177">    177</a> Gemini君が言うにはDLL地獄という状態らしくて，どうしたらいいかわかんないです．
+<a href="#l178" class="line" id="l178">    178</a> 
+<a href="#l179" class="line" id="l179">    179</a> # 今後への課題
+<a href="#l180" class="line" id="l180">    180</a> 
+<a href="#l181" class="line" id="l181">    181</a> 現状の問題点は以下の2つです．
+<a href="#l182" class="line" id="l182">    182</a> - CPUで推論している
+<a href="#l183" class="line" id="l183">    183</a> - レビューの品質が低い
+<a href="#l184" class="line" id="l184">    184</a> 
+<a href="#l185" class="line" id="l185">    185</a> 前者については前章で述べたので後者について述べます．
+<a href="#l186" class="line" id="l186">    186</a> レビュー品質が低い原因は色々と考えられます．
+<a href="#l187" class="line" id="l187">    187</a> 当初は50ステップとしていたLoRAですが，25ステップのあたりでlossが0.1412とかまで下がってるので，過学習が疑われます．
+<a href="#l188" class="line" id="l188">    188</a> 25ステップにすると，ファジーさはだいぶ弱まりましたが，全体的に当たらない指摘をしている部分が多いです．
+<a href="#l189" class="line" id="l189">    189</a> 開発途中に教員のレビューを受けたレポートが一本増えたので学習用データに追加してみましたが，反応は芳しくないです．
+<a href="#l190" class="line" id="l190">    190</a> 他の人のレポートを学習用データとして入れればもっと良いのですけどね．
+<a href="#l191" class="line" id="l191">    191</a> 
+<a href="#l192" class="line" id="l192">    192</a> # まとめ
+<a href="#l193" class="line" id="l193">    193</a> 
+<a href="#l194" class="line" id="l194">    194</a> レポートのレビューをするLLMをLoRAで作るには，まだ超えなければならい壁が幾つもあるように思います．
+<a href="#l195" class="line" id="l195">    195</a> 私のこれも到底，学科の仲間には見せることができない出来栄えですからね．
+<a href="#l196" class="line" id="l196">    196</a> 人間の脳も大概，説明可能性に欠けていると思うのですが，それを補おうとしてきた科学とそこから生まれたそれに矛盾する再現性のない深層学習．
+<a href="#l197" class="line" id="l197">    197</a> その表層にちょっとでも触れることができたかなと思います．
+<a href="#l198" class="line" id="l198">    198</a> 皆さんはくれぐれも，これを応用して，教科書の内容からレポートを生成しようなんて思わないでくださいね．
+<a href="#l199" class="line" id="l199">    199</a> 科学の自壊が進んでしまわないように．
+</pre>
+</div>
+</body>
+</html>

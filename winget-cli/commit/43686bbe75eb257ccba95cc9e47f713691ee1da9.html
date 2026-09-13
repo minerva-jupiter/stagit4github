@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Allow for smaller configuration outputs (#4754) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/43686bbe75eb257ccba95cc9e47f713691ee1da9.html">43686bbe75eb257ccba95cc9e47f713691ee1da9</a>
+<b>parent</b> <a href="../commit/3c530305b32e06b1610009a0312f7b73899086b4.html">3c530305b32e06b1610009a0312f7b73899086b4</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue,  3 Sep 2024 14:38:59 -0700
+
+Allow for smaller configuration outputs (#4754)
+
+## Change
+To prevent anything from outputting to our console, call `FreeConsole`
+in the configuration server.
+
+To allow for output of primarily results, when
+`--accept-configuration-agreements` is passed, one can now also pass
+`--suppress-prologue` to prevent the initial details from being
+presented. The only output (beyond the temporary progress spinner+text)
+will then be the disclaimer warning and the individual results.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Argument.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Commands/ConfigureCommand.cpp</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/ExecutionArgs.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp</a></td><td> | </td><td class="num">47</td><td><span class="i">+++++++++++++++++++++++++++</span><span class="d">--------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/ConfigurationRemotingServer/Program.cs</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>7 files changed, 42 insertions(+), 20 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Argument.cpp.html">src/AppInstallerCLICore/Argument.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Argument.cpp.html">src/AppInstallerCLICore/Argument.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -203,6 +203,8 @@ namespace AppInstaller::CLI
+</a>             return { type, &quot;file&quot;_liv, &#39;f&#39;, ArgTypeCategory::ConfigurationSetChoice, ArgTypeExclusiveSet::ConfigurationSetChoice };
+         case Execution::Args::Type::ConfigurationAcceptWarning:
+             return { type, &quot;accept-configuration-agreements&quot;_liv };
+<a href="#h0-0-3" id="h0-0-3" class="i">+        case Execution::Args::Type::ConfigurationSuppressPrologue:
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            return { type, &quot;suppress-initial-details&quot;_liv };
+</a>         case Execution::Args::Type::ConfigurationEnable:
+             return { type, &quot;enable&quot;_liv, ArgTypeCategory::None, ArgTypeExclusiveSet::StubType };
+         case Execution::Args::Type::ConfigurationDisable:
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Commands/ConfigureCommand.cpp.html">src/AppInstallerCLICore/Commands/ConfigureCommand.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Commands/ConfigureCommand.cpp.html">src/AppInstallerCLICore/Commands/ConfigureCommand.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -39,6 +39,7 @@ namespace AppInstaller::CLI
+</a>             Argument{ Execution::Args::Type::ConfigurationModulePath, Resource::String::ConfigurationModulePath, ArgumentType::Positional },
+             Argument{ Execution::Args::Type::ConfigurationHistoryItem, Resource::String::ConfigurationHistoryItemArgumentDescription, ArgumentType::Standard, Argument::Visibility::Help },
+             Argument{ Execution::Args::Type::ConfigurationAcceptWarning, Resource::String::ConfigurationAcceptWarningArgumentDescription, ArgumentType::Flag },
+<a href="#h1-0-3" id="h1-0-3" class="i">+            Argument{ Execution::Args::Type::ConfigurationSuppressPrologue, Resource::String::ConfigurationSuppressPrologueArgumentDescription, ArgumentType::Flag, Argument::Visibility::Help },
+</a>             Argument{ Execution::Args::Type::ConfigurationEnable, Resource::String::ConfigurationEnableMessage, ArgumentType::Flag, Argument::Visibility::Help },
+             Argument{ Execution::Args::Type::ConfigurationDisable, Resource::String::ConfigurationDisableMessage, ArgumentType::Flag, Argument::Visibility::Help },
+         };
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/ExecutionArgs.h.html">src/AppInstallerCLICore/ExecutionArgs.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionArgs.h.html">src/AppInstallerCLICore/ExecutionArgs.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -124,6 +124,7 @@ namespace AppInstaller::CLI::Execution
+</a>             // Configuration
+             ConfigurationFile,
+             ConfigurationAcceptWarning,
+<a href="#h2-0-3" id="h2-0-3" class="i">+            ConfigurationSuppressPrologue,
+</a>             ConfigurationEnable,
+             ConfigurationDisable,
+             ConfigurationModulePath,
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -106,6 +106,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ConfigurationSettings);
+         WINGET_DEFINE_RESOURCE_STRINGID(ConfigurationStatusWatchArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(ConfigurationSuccessfullyApplied);
+<a href="#h3-0-3" id="h3-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(ConfigurationSuppressPrologueArgumentDescription);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ConfigurationUnexpectedTestResult);
+         WINGET_DEFINE_RESOURCE_STRINGID(ConfigurationUnitAssertHadNegativeResult);
+         WINGET_DEFINE_RESOURCE_STRINGID(ConfigurationUnitFailed);
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp.html">src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp.html">src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -1369,27 +1369,31 @@ namespace AppInstaller::CLI::Workflow
+</a>         auto getDetailsOperation = configContext.Processor().GetSetDetailsAsync(configContext.Set(), ConfigurationUnitDetailFlags::ReadOnly);
+         auto unification = anon::CreateProgressCancellationUnification(std::move(progressScope), getDetailsOperation);
+ 
+<a href="#h4-0-3" id="h4-0-3" class="i">+        bool suppressDetailsOutput = context.Args.Contains(Args::Type::ConfigurationAcceptWarning) &amp;&amp; context.Args.Contains(Args::Type::ConfigurationSuppressPrologue);
+</a>         anon::OutputHelper outputHelper{ context };
+         uint32_t unitsShown = 0;
+ 
+<a href="#h4-0-7" id="h4-0-7" class="d">-        getDetailsOperation.Progress([&amp;](const IAsyncOperationWithProgress&lt;GetConfigurationSetDetailsResult, GetConfigurationUnitDetailsResult&gt;&amp; operation, const GetConfigurationUnitDetailsResult&amp;)
+</a><a href="#h4-0-8" id="h4-0-8" class="d">-            {
+</a><a href="#h4-0-9" id="h4-0-9" class="d">-                auto threadContext = context.SetForCurrentThread();
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+        if (!suppressDetailsOutput)
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+        {
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+            getDetailsOperation.Progress([&amp;](const IAsyncOperationWithProgress&lt;GetConfigurationSetDetailsResult, GetConfigurationUnitDetailsResult&gt;&amp; operation, const GetConfigurationUnitDetailsResult&amp;)
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+                {
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+                    auto threadContext = context.SetForCurrentThread();
+</a> 
+<a href="#h4-0-16" id="h4-0-16" class="d">-                unification.Reset();
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+                    unification.Reset();
+</a> 
+<a href="#h4-0-19" id="h4-0-19" class="d">-                auto unitResults = operation.GetResults().UnitResults();
+</a><a href="#h4-0-20" id="h4-0-20" class="d">-                for (unitsShown; unitsShown &lt; unitResults.Size(); ++unitsShown)
+</a><a href="#h4-0-21" id="h4-0-21" class="d">-                {
+</a><a href="#h4-0-22" id="h4-0-22" class="d">-                    GetConfigurationUnitDetailsResult unitResult = unitResults.GetAt(unitsShown);
+</a><a href="#h4-0-23" id="h4-0-23" class="d">-                    anon::LogFailedGetConfigurationUnitDetails(unitResult.Unit(), unitResult.ResultInformation());
+</a><a href="#h4-0-24" id="h4-0-24" class="d">-                    outputHelper.OutputConfigurationUnitInformation(unitResult.Unit());
+</a><a href="#h4-0-25" id="h4-0-25" class="d">-                }
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+                    auto unitResults = operation.GetResults().UnitResults();
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+                    for (unitsShown; unitsShown &lt; unitResults.Size(); ++unitsShown)
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+                    {
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+                        GetConfigurationUnitDetailsResult unitResult = unitResults.GetAt(unitsShown);
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+                        anon::LogFailedGetConfigurationUnitDetails(unitResult.Unit(), unitResult.ResultInformation());
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+                        outputHelper.OutputConfigurationUnitInformation(unitResult.Unit());
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+                    }
+</a> 
+<a href="#h4-0-34" id="h4-0-34" class="d">-                progressScope = context.Reporter.BeginAsyncProgress(true);
+</a><a href="#h4-0-35" id="h4-0-35" class="d">-                progressScope-&gt;Callback().SetProgressMessage(gettingDetailString);
+</a><a href="#h4-0-36" id="h4-0-36" class="d">-                unification.Progress(std::move(progressScope));
+</a><a href="#h4-0-37" id="h4-0-37" class="d">-            });
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+                    progressScope = context.Reporter.BeginAsyncProgress(true);
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+                    progressScope-&gt;Callback().SetProgressMessage(gettingDetailString);
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+                    unification.Progress(std::move(progressScope));
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+                });
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+        }
+</a> 
+         HRESULT hr = S_OK;
+         GetConfigurationSetDetailsResult result = nullptr;
+<a href="#h4-1" id="h4-1" class="h">@@ -1419,7 +1423,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         }
+ 
+         // Handle any missing progress callbacks that are in the results
+<a href="#h4-1-3" id="h4-1-3" class="d">-        if (result)
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+        if (result &amp;&amp; !suppressDetailsOutput)
+</a>         {
+             auto unitResults = result.UnitResults();
+             if (unitResults)
+<a href="#h4-2" id="h4-2" class="h">@@ -1434,11 +1438,14 @@ namespace AppInstaller::CLI::Workflow
+</a>         }
+ 
+         // Handle any units that are NOT in the results (due to an exception part of the way through)
+<a href="#h4-2-3" id="h4-2-3" class="d">-        auto allUnits = configContext.Set().Units();
+</a><a href="#h4-2-4" id="h4-2-4" class="d">-        for (unitsShown; unitsShown &lt; allUnits.Size(); ++unitsShown)
+</a><a href="#h4-2-5" id="h4-2-5" class="i">+        if (!suppressDetailsOutput)
+</a>         {
+<a href="#h4-2-7" id="h4-2-7" class="d">-            ConfigurationUnit unit = allUnits.GetAt(unitsShown);
+</a><a href="#h4-2-8" id="h4-2-8" class="d">-            outputHelper.OutputConfigurationUnitInformation(unit);
+</a><a href="#h4-2-9" id="h4-2-9" class="i">+            auto allUnits = configContext.Set().Units();
+</a><a href="#h4-2-10" id="h4-2-10" class="i">+            for (unitsShown; unitsShown &lt; allUnits.Size(); ++unitsShown)
+</a><a href="#h4-2-11" id="h4-2-11" class="i">+            {
+</a><a href="#h4-2-12" id="h4-2-12" class="i">+                ConfigurationUnit unit = allUnits.GetAt(unitsShown);
+</a><a href="#h4-2-13" id="h4-2-13" class="i">+                outputHelper.OutputConfigurationUnitInformation(unit);
+</a><a href="#h4-2-14" id="h4-2-14" class="i">+            }
+</a>         }
+ 
+         if (outputHelper.ValuesTruncated)
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -3109,4 +3109,7 @@ Please specify one of them using the --source option to proceed.&lt;/value&gt;
+</a>   &lt;data name=&quot;StoreInstall_PackageNotAvailableForCurrentSystem&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;The package is not compatible with the current Windows version or platform.&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+  &lt;data name=&quot;ConfigurationSuppressPrologueArgumentDescription&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    &lt;value&gt;Suppress showing initial configuration details when possible&lt;/value&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h6" href="../file/src/ConfigurationRemotingServer/Program.cs.html">src/ConfigurationRemotingServer/Program.cs</a> b/<a href="../file/src/ConfigurationRemotingServer/Program.cs.html">src/ConfigurationRemotingServer/Program.cs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -70,6 +70,9 @@ namespace ConfigurationRemotingServer
+</a> 
+         static int Main(string[] args)
+         {
+<a href="#h6-0-3" id="h6-0-3" class="i">+            // Remove any attached console to prevent modules (or their actions) from writing to our console.
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+            FreeConsole();
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+
+</a>             // Help find WindowsPackageManager.dll
+             AssemblyLoadContext.Default.ResolvingUnmanagedDll += NativeAssemblyLoadContext.ResolvingUnmanagedHandler;
+ 
+<a href="#h6-1" id="h6-1" class="h">@@ -196,5 +199,9 @@ namespace ConfigurationRemotingServer
+</a> 
+         [DllImport(&quot;kernel32.dll&quot;, CharSet = CharSet.Unicode)]
+         private static extern IntPtr GetCommandLineW();
+<a href="#h6-1-3" id="h6-1-3" class="i">+
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+        [DllImport(&quot;kernel32.dll&quot;)]
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+        [return: MarshalAs(UnmanagedType.Bool)]
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+        private static extern bool FreeConsole();
+</a>     }
+ }
+</pre>
+</div>
+</body>
+</html>

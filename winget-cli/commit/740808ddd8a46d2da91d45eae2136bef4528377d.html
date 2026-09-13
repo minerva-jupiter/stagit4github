@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Act on elevation requirements in majority cases (#2126) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/740808ddd8a46d2da91d45eae2136bef4528377d.html">740808ddd8a46d2da91d45eae2136bef4528377d</a>
+<b>parent</b> <a href="../commit/41e741a9d9473fddf5d528aaafd90e326adf4c48.html">41e741a9d9473fddf5d528aaafd90e326adf4c48</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu,  5 May 2022 11:04:58 -0700
+
+Act on elevation requirements in majority cases (#2126)
+
+When `ElevationRequirement` is set to `elevationProhibited` is set and winget is run elevated, block the installation with an error.
+
+When `elevatesSelf` or `elevationRequired` is set and winget is not run elevated, inform the user that an elevation prompt is expected.  Also in the case of `elevationRequired`, use the `runas` verb on ShellExecute to run the installer elevated.  This can be used on installers that will fail if they are not run elevated.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/allow.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Workflows/MsiInstallFlow.cpp</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp</a></td><td> | </td><td class="num">29</td><td><span class="i">+++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCommonCore/Errors.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCommonCore/Public/AppInstallerErrors.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+</table></pre><pre>8 files changed, 54 insertions(+), 2 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a> b/<a href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -443,6 +443,7 @@ Rpc
+</a> rpc
+ rubengustorage
+ ruleset
+<a href="#h0-0-3" id="h0-0-3" class="i">+runas
+</a> runsettings
+ runtimes
+ safecast
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -116,6 +116,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallCommandShortDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstalledPackageNotAvailable);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstalledPackageVersionNotAvailable);
+<a href="#h1-0-3" id="h1-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(InstallerElevationExpected);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallerBlockedByPolicy);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallerFailedSecurityCheck);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallerFailedVirusScan);
+<a href="#h1-1" id="h1-1" class="h">@@ -126,6 +127,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallerHashMismatchOverrideRequired);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallerHashVerified);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallerLogAvailable);
+<a href="#h1-1-3" id="h1-1-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(InstallerProhibitsElevation);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallFlowInstallSuccess);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallFlowRegistrationDeferred);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallFlowReturnCodeAlreadyInstalled);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -119,6 +119,14 @@ namespace AppInstaller::CLI::Workflow
+</a>         }
+ 
+         context &lt;&lt; EnsureSupportForInstall;
+<a href="#h2-0-3" id="h2-0-3" class="i">+        
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        // This installer cannot be run elevated, but we are running elevated.
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+        // Implementation of de-elevation is complex; simply block for now.
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        if (installer-&gt;ElevationRequirement == ElevationRequirementEnum::ElevationProhibited &amp;&amp; Runtime::IsRunningAsAdmin())
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+        {
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+            context.Reporter.Error() &lt;&lt; Resource::String::InstallerProhibitsElevation &lt;&lt; std::endl;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALLER_PROHIBITS_ELEVATION);
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+        }
+</a>     }
+ 
+     void ShowInstallationDisclaimer(Execution::Context&amp; context)
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Workflows/MsiInstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/MsiInstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/MsiInstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/MsiInstallFlow.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -32,10 +32,17 @@ namespace AppInstaller::CLI::Workflow
+</a>     {
+         context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowStartingPackageInstall &lt;&lt; std::endl;
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+        const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;();
+</a>         const std::filesystem::path&amp; installerPath = context.Get&lt;Execution::Data::InstallerPath&gt;();
+ 
+         Msi::MsiParsedArguments parsedArgs = Msi::ParseMSIArguments(context.Get&lt;Execution::Data::InstallerArgs&gt;());
+ 
+<a href="#h3-0-8" id="h3-0-8" class="i">+        // Inform of elevation requirements
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+        if (!Runtime::IsRunningAsAdmin() &amp;&amp; installer-&gt;ElevationRequirement == Manifest::ElevationRequirementEnum::ElevatesSelf)
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+        {
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+            context.Reporter.Warn() &lt;&lt; Resource::String::InstallerElevationExpected &lt;&lt; std::endl;
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+        }
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+
+</a>         auto installResult = context.Reporter.ExecuteWithProgress(
+             std::bind(InvokeMsiInstallProduct,
+                 installerPath,
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/ShellExecuteInstallerHandler.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -14,7 +14,7 @@ namespace AppInstaller::CLI::Workflow
+</a>     namespace
+     {
+         // ShellExecutes the given path.
+<a href="#h4-0-3" id="h4-0-3" class="d">-        std::optional&lt;DWORD&gt; InvokeShellExecute(const std::filesystem::path&amp; filePath, const std::string&amp; args, IProgressCallback&amp; progress)
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        std::optional&lt;DWORD&gt; InvokeShellExecuteEx(const std::filesystem::path&amp; filePath, const std::string&amp; args, bool useRunAs, IProgressCallback&amp; progress)
+</a>         {
+             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Starting: &#39;&quot; &lt;&lt; filePath.u8string() &lt;&lt; &quot;&#39; with arguments &#39;&quot; &lt;&lt; args &lt;&lt; &#39;\&#39;&#39;);
+ 
+<a href="#h4-1" id="h4-1" class="h">@@ -28,6 +28,13 @@ namespace AppInstaller::CLI::Workflow
+</a>             // Verified setting to SW_SHOW does not hurt silent mode since no UI will be shown.
+             execInfo.nShow = SW_SHOW;
+ 
+<a href="#h4-1-3" id="h4-1-3" class="i">+            // This installer must be run elevated, but we are not currently.
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+            // Have ShellExecute elevate the installer since it won&#39;t do so itself.
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+            if (useRunAs)
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+            {
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+                execInfo.lpVerb = L&quot;runas&quot;;
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+            }
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+
+</a>             THROW_LAST_ERROR_IF(!ShellExecuteExW(&amp;execInfo) || !execInfo.hProcess);
+ 
+             wil::unique_process_handle process{ execInfo.hProcess };
+<a href="#h4-2" id="h4-2" class="h">@@ -58,6 +65,11 @@ namespace AppInstaller::CLI::Workflow
+</a>             }
+         }
+ 
+<a href="#h4-2-3" id="h4-2-3" class="i">+        std::optional&lt;DWORD&gt; InvokeShellExecute(const std::filesystem::path&amp; filePath, const std::string&amp; args, IProgressCallback&amp; progress)
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+        {
+</a><a href="#h4-2-5" id="h4-2-5" class="i">+            return InvokeShellExecuteEx(filePath, args, false, progress);
+</a><a href="#h4-2-6" id="h4-2-6" class="i">+        }
+</a><a href="#h4-2-7" id="h4-2-7" class="i">+
+</a>         // Gets the escaped installer args.
+         std::string GetInstallerArgsTemplate(Execution::Context&amp; context)
+         {
+<a href="#h4-3" id="h4-3" class="h">@@ -187,12 +199,25 @@ namespace AppInstaller::CLI::Workflow
+</a>     {
+         context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowStartingPackageInstall &lt;&lt; std::endl;
+ 
+<a href="#h4-3-3" id="h4-3-3" class="i">+        const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;();
+</a>         const std::string&amp; installerArgs = context.Get&lt;Execution::Data::InstallerArgs&gt;();
+ 
+<a href="#h4-3-6" id="h4-3-6" class="i">+        // Inform of elevation requirements
+</a><a href="#h4-3-7" id="h4-3-7" class="i">+        bool isElevated = Runtime::IsRunningAsAdmin();
+</a><a href="#h4-3-8" id="h4-3-8" class="i">+
+</a><a href="#h4-3-9" id="h4-3-9" class="i">+        // The installer will run elevated, either by direct request or through the installer itself doing so.
+</a><a href="#h4-3-10" id="h4-3-10" class="i">+        if ((installer-&gt;ElevationRequirement == ElevationRequirementEnum::ElevationRequired ||
+</a><a href="#h4-3-11" id="h4-3-11" class="i">+            installer-&gt;ElevationRequirement == ElevationRequirementEnum::ElevatesSelf)
+</a><a href="#h4-3-12" id="h4-3-12" class="i">+            &amp;&amp; !isElevated)
+</a><a href="#h4-3-13" id="h4-3-13" class="i">+        {
+</a><a href="#h4-3-14" id="h4-3-14" class="i">+            context.Reporter.Warn() &lt;&lt; Resource::String::InstallerElevationExpected &lt;&lt; std::endl;
+</a><a href="#h4-3-15" id="h4-3-15" class="i">+        }
+</a><a href="#h4-3-16" id="h4-3-16" class="i">+
+</a>         auto installResult = context.Reporter.ExecuteWithProgress(
+<a href="#h4-3-18" id="h4-3-18" class="d">-            std::bind(InvokeShellExecute,
+</a><a href="#h4-3-19" id="h4-3-19" class="i">+            std::bind(InvokeShellExecuteEx,
+</a>                 context.Get&lt;Execution::Data::InstallerPath&gt;(),
+                 installerArgs,
+<a href="#h4-3-22" id="h4-3-22" class="i">+                installer-&gt;ElevationRequirement == ElevationRequirementEnum::ElevationRequired &amp;&amp; !isElevated,
+</a>                 std::placeholders::_1));
+ 
+         if (!installResult)
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -1287,6 +1287,12 @@ Please specify one of them using the `--source` option to proceed.&lt;/value&gt;
+</a>   &lt;data name=&quot;WaitArgumentDescription&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Prompts the user to press any key before exiting&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+  &lt;data name=&quot;InstallerElevationExpected&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    &lt;value&gt;The installer will request to run as administrator, expect a prompt.&lt;/value&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+  &lt;/data&gt;
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+  &lt;data name=&quot;InstallerProhibitsElevation&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+    &lt;value&gt;The installer cannot be run from an administrator context.&lt;/value&gt;
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+  &lt;/data&gt;
+</a>   &lt;data name=&quot;ModifiedPathRequiresShellRestart&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Path environment variable modified; restart your shell to use the new value.&lt;/value&gt;
+   &lt;/data&gt;
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCommonCore/Errors.cpp.html">src/AppInstallerCommonCore/Errors.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Errors.cpp.html">src/AppInstallerCommonCore/Errors.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -212,6 +212,8 @@ namespace AppInstaller
+</a>                 return &quot;A higher version of this application is already installed.&quot;;
+             case APPINSTALLER_CLI_ERROR_INSTALL_BLOCKED_BY_POLICY:
+                 return &quot;Organization policies are preventing installation. Contact your admin.&quot;;
+<a href="#h6-0-3" id="h6-0-3" class="i">+            case APPINSTALLER_CLI_ERROR_INSTALLER_PROHIBITS_ELEVATION:
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+                return &quot;The installer cannot be run from an administrator context.&quot;;
+</a>             default:
+                 return &quot;Unknown Error Code&quot;;
+             }
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCommonCore/Public/AppInstallerErrors.h.html">src/AppInstallerCommonCore/Public/AppInstallerErrors.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerErrors.h.html">src/AppInstallerCommonCore/Public/AppInstallerErrors.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -98,6 +98,7 @@
+</a> #define APPINSTALLER_CLI_ERROR_PORTABLE_REPARSE_POINT_NOT_SUPPORTED ((HRESULT)0x8A150053)
+ #define APPINSTALLER_CLI_ERROR_PORTABLE_PACKAGE_ALREADY_EXISTS  ((HRESULT)0x8A150054)
+ #define APPINSTALLER_CLI_ERROR_PORTABLE_SYMLINK_PATH_IS_DIRECTORY ((HRESULT)0x8A150055)
+<a href="#h7-0-3" id="h7-0-3" class="i">+#define APPINSTALLER_CLI_ERROR_INSTALLER_PROHIBITS_ELEVATION    ((HRESULT)0x8A150056)
+</a> 
+ // Install errors.
+ #define APPINSTALLER_CLI_ERROR_INSTALL_PACKAGE_IN_USE           ((HRESULT)0x8A150101)
+</pre>
+</div>
+</body>
+</html>

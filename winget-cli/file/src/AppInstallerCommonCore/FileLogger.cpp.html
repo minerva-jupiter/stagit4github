@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>FileLogger.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> FileLogger.cpp (5051B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;Public/AppInstallerFileLogger.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Public/AppInstallerRuntime.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Public/AppInstallerStrings.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;Public/AppInstallerDateTime.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;corecrt_io.h&gt;
+<a href="#l10" class="line" id="l10">     10</a> 
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> namespace AppInstaller::Logging
+<a href="#l13" class="line" id="l13">     13</a> {
+<a href="#l14" class="line" id="l14">     14</a>     using namespace std::string_view_literals;
+<a href="#l15" class="line" id="l15">     15</a>     using namespace std::chrono_literals;
+<a href="#l16" class="line" id="l16">     16</a> 
+<a href="#l17" class="line" id="l17">     17</a>     static constexpr std::string_view s_fileLoggerDefaultFilePrefix = &quot;WinGet&quot;sv;
+<a href="#l18" class="line" id="l18">     18</a>     static constexpr std::string_view s_fileLoggerDefaultFileExt = &quot;.log&quot;sv;
+<a href="#l19" class="line" id="l19">     19</a> 
+<a href="#l20" class="line" id="l20">     20</a>     FileLogger::FileLogger() : FileLogger(s_fileLoggerDefaultFilePrefix) {}
+<a href="#l21" class="line" id="l21">     21</a> 
+<a href="#l22" class="line" id="l22">     22</a>     FileLogger::FileLogger(const std::filesystem::path&amp; filePath)
+<a href="#l23" class="line" id="l23">     23</a>     {
+<a href="#l24" class="line" id="l24">     24</a>         m_name = GetNameForPath(filePath);
+<a href="#l25" class="line" id="l25">     25</a>         m_filePath = filePath;
+<a href="#l26" class="line" id="l26">     26</a>         OpenFileLoggerStream();
+<a href="#l27" class="line" id="l27">     27</a>     }
+<a href="#l28" class="line" id="l28">     28</a> 
+<a href="#l29" class="line" id="l29">     29</a>     FileLogger::FileLogger(const std::string_view fileNamePrefix)
+<a href="#l30" class="line" id="l30">     30</a>     {
+<a href="#l31" class="line" id="l31">     31</a>         m_name = &quot;file&quot;;
+<a href="#l32" class="line" id="l32">     32</a>         m_filePath = Runtime::GetPathTo(Runtime::PathName::DefaultLogLocation);
+<a href="#l33" class="line" id="l33">     33</a>         m_filePath /= fileNamePrefix.data() + (&#39;-&#39; + Utility::GetCurrentTimeForFilename() + s_fileLoggerDefaultFileExt.data());
+<a href="#l34" class="line" id="l34">     34</a>         OpenFileLoggerStream();
+<a href="#l35" class="line" id="l35">     35</a>     }
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a>     FileLogger::~FileLogger()
+<a href="#l38" class="line" id="l38">     38</a>     {
+<a href="#l39" class="line" id="l39">     39</a>         m_stream.flush();
+<a href="#l40" class="line" id="l40">     40</a>         // When std::ofstream is constructed from an existing File handle, it does not call fclose on destruction
+<a href="#l41" class="line" id="l41">     41</a>         // Only calling close() explicitly will close the file handle.
+<a href="#l42" class="line" id="l42">     42</a>         m_stream.close();
+<a href="#l43" class="line" id="l43">     43</a>     }
+<a href="#l44" class="line" id="l44">     44</a> 
+<a href="#l45" class="line" id="l45">     45</a>     std::string FileLogger::GetNameForPath(const std::filesystem::path&amp; filePath)
+<a href="#l46" class="line" id="l46">     46</a>     {
+<a href="#l47" class="line" id="l47">     47</a>         using namespace std::string_literals;
+<a href="#l48" class="line" id="l48">     48</a>         return &quot;file :: &quot;s + filePath.u8string();
+<a href="#l49" class="line" id="l49">     49</a>     }
+<a href="#l50" class="line" id="l50">     50</a> 
+<a href="#l51" class="line" id="l51">     51</a>     std::string_view FileLogger::DefaultPrefix()
+<a href="#l52" class="line" id="l52">     52</a>     {
+<a href="#l53" class="line" id="l53">     53</a>         return s_fileLoggerDefaultFilePrefix;
+<a href="#l54" class="line" id="l54">     54</a>     }
+<a href="#l55" class="line" id="l55">     55</a> 
+<a href="#l56" class="line" id="l56">     56</a>     std::string_view FileLogger::DefaultExt()
+<a href="#l57" class="line" id="l57">     57</a>     {
+<a href="#l58" class="line" id="l58">     58</a>         return s_fileLoggerDefaultFileExt;
+<a href="#l59" class="line" id="l59">     59</a>     }
+<a href="#l60" class="line" id="l60">     60</a> 
+<a href="#l61" class="line" id="l61">     61</a>     std::string FileLogger::GetName() const
+<a href="#l62" class="line" id="l62">     62</a>     {
+<a href="#l63" class="line" id="l63">     63</a>         return m_name;
+<a href="#l64" class="line" id="l64">     64</a>     }
+<a href="#l65" class="line" id="l65">     65</a> 
+<a href="#l66" class="line" id="l66">     66</a>     void FileLogger::Write(Channel channel, Level, std::string_view message) noexcept try
+<a href="#l67" class="line" id="l67">     67</a>     {
+<a href="#l68" class="line" id="l68">     68</a>         // Send to a string first to create a single block to write to a file.
+<a href="#l69" class="line" id="l69">     69</a>         std::stringstream strstr;
+<a href="#l70" class="line" id="l70">     70</a>         strstr &lt;&lt; std::chrono::system_clock::now() &lt;&lt; &quot; [&quot; &lt;&lt; std::setw(GetMaxChannelNameLength()) &lt;&lt; std::left &lt;&lt; std::setfill(&#39; &#39;) &lt;&lt; GetChannelName(channel) &lt;&lt; &quot;] &quot; &lt;&lt; message;
+<a href="#l71" class="line" id="l71">     71</a>         m_stream &lt;&lt; strstr.str() &lt;&lt; std::endl;
+<a href="#l72" class="line" id="l72">     72</a>     }
+<a href="#l73" class="line" id="l73">     73</a>     catch (...)
+<a href="#l74" class="line" id="l74">     74</a>     {
+<a href="#l75" class="line" id="l75">     75</a>         // Just eat any exceptions here; better than losing logs
+<a href="#l76" class="line" id="l76">     76</a>     }
+<a href="#l77" class="line" id="l77">     77</a> 
+<a href="#l78" class="line" id="l78">     78</a>     void FileLogger::WriteDirect(Channel, Level, std::string_view message) noexcept try
+<a href="#l79" class="line" id="l79">     79</a>     {
+<a href="#l80" class="line" id="l80">     80</a>         m_stream &lt;&lt; message &lt;&lt; std::endl;
+<a href="#l81" class="line" id="l81">     81</a>     }
+<a href="#l82" class="line" id="l82">     82</a>     catch (...)
+<a href="#l83" class="line" id="l83">     83</a>     {
+<a href="#l84" class="line" id="l84">     84</a>         // Just eat any exceptions here; better than losing logs
+<a href="#l85" class="line" id="l85">     85</a>     }
+<a href="#l86" class="line" id="l86">     86</a> 
+<a href="#l87" class="line" id="l87">     87</a>     void FileLogger::Add()
+<a href="#l88" class="line" id="l88">     88</a>     {
+<a href="#l89" class="line" id="l89">     89</a>         Log().AddLogger(std::make_unique&lt;FileLogger&gt;());
+<a href="#l90" class="line" id="l90">     90</a>     }
+<a href="#l91" class="line" id="l91">     91</a> 
+<a href="#l92" class="line" id="l92">     92</a>     void FileLogger::Add(const std::filesystem::path&amp; filePath)
+<a href="#l93" class="line" id="l93">     93</a>     {
+<a href="#l94" class="line" id="l94">     94</a>         Log().AddLogger(std::make_unique&lt;FileLogger&gt;(filePath));
+<a href="#l95" class="line" id="l95">     95</a>     }
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>     void FileLogger::Add(std::string_view fileNamePrefix)
+<a href="#l98" class="line" id="l98">     98</a>     {
+<a href="#l99" class="line" id="l99">     99</a>         Log().AddLogger(std::make_unique&lt;FileLogger&gt;(fileNamePrefix));
+<a href="#l100" class="line" id="l100">    100</a>     }
+<a href="#l101" class="line" id="l101">    101</a> 
+<a href="#l102" class="line" id="l102">    102</a>     void FileLogger::BeginCleanup()
+<a href="#l103" class="line" id="l103">    103</a>     {
+<a href="#l104" class="line" id="l104">    104</a>         BeginCleanup(Runtime::GetPathTo(Runtime::PathName::DefaultLogLocation));
+<a href="#l105" class="line" id="l105">    105</a>     }
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a>     void FileLogger::BeginCleanup(const std::filesystem::path&amp; filePath)
+<a href="#l108" class="line" id="l108">    108</a>     {
+<a href="#l109" class="line" id="l109">    109</a>         std::thread([filePath]()
+<a href="#l110" class="line" id="l110">    110</a>             {
+<a href="#l111" class="line" id="l111">    111</a>                 try
+<a href="#l112" class="line" id="l112">    112</a>                 {
+<a href="#l113" class="line" id="l113">    113</a>                     auto now = std::filesystem::file_time_type::clock::now();
+<a href="#l114" class="line" id="l114">    114</a> 
+<a href="#l115" class="line" id="l115">    115</a>                     // Remove all files that are older than 7 days from the standard log location.
+<a href="#l116" class="line" id="l116">    116</a>                     for (auto&amp; file : std::filesystem::directory_iterator{ filePath })
+<a href="#l117" class="line" id="l117">    117</a>                     {
+<a href="#l118" class="line" id="l118">    118</a>                         if (file.is_regular_file() &amp;&amp;
+<a href="#l119" class="line" id="l119">    119</a>                             now - file.last_write_time() &gt; (7 * 24h))
+<a href="#l120" class="line" id="l120">    120</a>                         {
+<a href="#l121" class="line" id="l121">    121</a>                             std::filesystem::remove(file.path());
+<a href="#l122" class="line" id="l122">    122</a>                         }
+<a href="#l123" class="line" id="l123">    123</a>                     }
+<a href="#l124" class="line" id="l124">    124</a>                 }
+<a href="#l125" class="line" id="l125">    125</a>                 // Just throw out everything
+<a href="#l126" class="line" id="l126">    126</a>                 catch (...) {}
+<a href="#l127" class="line" id="l127">    127</a>             }).detach();
+<a href="#l128" class="line" id="l128">    128</a>     }
+<a href="#l129" class="line" id="l129">    129</a> 
+<a href="#l130" class="line" id="l130">    130</a>     void FileLogger::OpenFileLoggerStream() 
+<a href="#l131" class="line" id="l131">    131</a>     {
+<a href="#l132" class="line" id="l132">    132</a>         // Prevent other writers to our log file, but allow readers
+<a href="#l133" class="line" id="l133">    133</a>         FILE* filePtr = _wfsopen(m_filePath.wstring().c_str(), L&quot;w&quot;, _SH_DENYWR);
+<a href="#l134" class="line" id="l134">    134</a> 
+<a href="#l135" class="line" id="l135">    135</a>         if (filePtr)
+<a href="#l136" class="line" id="l136">    136</a>         {
+<a href="#l137" class="line" id="l137">    137</a>             auto closeFile = wil::scope_exit([&amp;]() { fclose(filePtr); });
+<a href="#l138" class="line" id="l138">    138</a> 
+<a href="#l139" class="line" id="l139">    139</a>             // Prevent inheritance to ensure log file handle is not opened by other processes
+<a href="#l140" class="line" id="l140">    140</a>             THROW_IF_WIN32_BOOL_FALSE(SetHandleInformation(reinterpret_cast&lt;HANDLE&gt;(_get_osfhandle(_fileno(filePtr))), HANDLE_FLAG_INHERIT, 0));
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>             m_stream = std::ofstream{ filePtr };
+<a href="#l143" class="line" id="l143">    143</a>             closeFile.release();
+<a href="#l144" class="line" id="l144">    144</a>         }
+<a href="#l145" class="line" id="l145">    145</a>         else
+<a href="#l146" class="line" id="l146">    146</a>         {
+<a href="#l147" class="line" id="l147">    147</a>             AICLI_LOG(Core, Error, &lt;&lt; &quot;Failed to open log file &quot; &lt;&lt; m_filePath.u8string());
+<a href="#l148" class="line" id="l148">    148</a>             throw std::system_error(errno, std::generic_category());
+<a href="#l149" class="line" id="l149">    149</a>         }
+<a href="#l150" class="line" id="l150">    150</a>     }
+<a href="#l151" class="line" id="l151">    151</a> }
+</pre>
+</div>
+</body>
+</html>

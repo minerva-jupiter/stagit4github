@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>InstallAndCheckCorrelation.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../../"><img src="../../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../../log.html">Log</a> | <a href="../../../../../files.html">Files</a> | <a href="../../../../../refs.html">Refs</a> | <a href="../../../../../file/README.md.html">README</a> | <a href="../../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> InstallAndCheckCorrelation.cpp (27025B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> 
+<a href="#l4" class="line" id="l4">      4</a> #include &lt;Windows.h&gt;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;wil/cppwinrt.h&gt;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;wil/result.h&gt;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;wil/safecast.h&gt;
+<a href="#l9" class="line" id="l9">      9</a> 
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;winrt/Windows.Foundation.Collections.h&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;winrt/Microsoft.Management.Deployment.h&gt;
+<a href="#l12" class="line" id="l12">     12</a> 
+<a href="#l13" class="line" id="l13">     13</a> #include &lt;iostream&gt;
+<a href="#l14" class="line" id="l14">     14</a> #include &lt;filesystem&gt;
+<a href="#l15" class="line" id="l15">     15</a> #include &lt;fstream&gt;
+<a href="#l16" class="line" id="l16">     16</a> #include &lt;sstream&gt;
+<a href="#l17" class="line" id="l17">     17</a> 
+<a href="#l18" class="line" id="l18">     18</a> #include &lt;WinGetUtil.h&gt;
+<a href="#l19" class="line" id="l19">     19</a> 
+<a href="#l20" class="line" id="l20">     20</a> using namespace std::string_view_literals;
+<a href="#l21" class="line" id="l21">     21</a> using namespace winrt::Microsoft::Management::Deployment;
+<a href="#l22" class="line" id="l22">     22</a> using namespace winrt::Windows::Foundation;
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a> template &lt;typename T&gt;
+<a href="#l25" class="line" id="l25">     25</a> struct JSONPair
+<a href="#l26" class="line" id="l26">     26</a> {
+<a href="#l27" class="line" id="l27">     27</a>     JSONPair(std::string_view name, const T&amp; value, bool comma = true) :
+<a href="#l28" class="line" id="l28">     28</a>         Name(name), Value(value), Comma(comma)
+<a href="#l29" class="line" id="l29">     29</a>     {}
+<a href="#l30" class="line" id="l30">     30</a> 
+<a href="#l31" class="line" id="l31">     31</a>     std::string_view Name;
+<a href="#l32" class="line" id="l32">     32</a>     const T&amp; Value;
+<a href="#l33" class="line" id="l33">     33</a>     bool Comma;
+<a href="#l34" class="line" id="l34">     34</a> };
+<a href="#l35" class="line" id="l35">     35</a> 
+<a href="#l36" class="line" id="l36">     36</a> template &lt;typename T&gt;
+<a href="#l37" class="line" id="l37">     37</a> struct JSONControl
+<a href="#l38" class="line" id="l38">     38</a> {
+<a href="#l39" class="line" id="l39">     39</a>     constexpr static bool quote = true;
+<a href="#l40" class="line" id="l40">     40</a>     constexpr static bool output = true;
+<a href="#l41" class="line" id="l41">     41</a> };
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a> template &lt;&gt;
+<a href="#l44" class="line" id="l44">     44</a> struct JSONControl&lt;HRESULT&gt;
+<a href="#l45" class="line" id="l45">     45</a> {
+<a href="#l46" class="line" id="l46">     46</a>     constexpr static bool quote = false;
+<a href="#l47" class="line" id="l47">     47</a>     constexpr static bool output = true;
+<a href="#l48" class="line" id="l48">     48</a> };
+<a href="#l49" class="line" id="l49">     49</a> 
+<a href="#l50" class="line" id="l50">     50</a> template &lt;&gt;
+<a href="#l51" class="line" id="l51">     51</a> struct JSONControl&lt;bool&gt;
+<a href="#l52" class="line" id="l52">     52</a> {
+<a href="#l53" class="line" id="l53">     53</a>     constexpr static bool quote = false;
+<a href="#l54" class="line" id="l54">     54</a>     constexpr static bool output = true;
+<a href="#l55" class="line" id="l55">     55</a> };
+<a href="#l56" class="line" id="l56">     56</a> 
+<a href="#l57" class="line" id="l57">     57</a> template &lt;&gt;
+<a href="#l58" class="line" id="l58">     58</a> struct JSONControl&lt;nullptr_t&gt;
+<a href="#l59" class="line" id="l59">     59</a> {
+<a href="#l60" class="line" id="l60">     60</a>     constexpr static bool quote = false;
+<a href="#l61" class="line" id="l61">     61</a>     constexpr static bool output = false;
+<a href="#l62" class="line" id="l62">     62</a> };
+<a href="#l63" class="line" id="l63">     63</a> 
+<a href="#l64" class="line" id="l64">     64</a> template &lt;typename T&gt;
+<a href="#l65" class="line" id="l65">     65</a> std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const JSONPair&lt;T&gt;&amp; pair)
+<a href="#l66" class="line" id="l66">     66</a> {
+<a href="#l67" class="line" id="l67">     67</a>     out &lt;&lt; &#39;&quot;&#39; &lt;&lt; pair.Name &lt;&lt; &quot;\&quot;: &quot;;
+<a href="#l68" class="line" id="l68">     68</a>     if (JSONControl&lt;T&gt;::quote)
+<a href="#l69" class="line" id="l69">     69</a>     {
+<a href="#l70" class="line" id="l70">     70</a>         out &lt;&lt; &#39;&quot;&#39;;
+<a href="#l71" class="line" id="l71">     71</a>     }
+<a href="#l72" class="line" id="l72">     72</a>     if (JSONControl&lt;T&gt;::output)
+<a href="#l73" class="line" id="l73">     73</a>     {
+<a href="#l74" class="line" id="l74">     74</a>         out &lt;&lt; pair.Value;
+<a href="#l75" class="line" id="l75">     75</a>     }
+<a href="#l76" class="line" id="l76">     76</a>     if (JSONControl&lt;T&gt;::quote)
+<a href="#l77" class="line" id="l77">     77</a>     {
+<a href="#l78" class="line" id="l78">     78</a>         out &lt;&lt; &#39;&quot;&#39;;
+<a href="#l79" class="line" id="l79">     79</a>     }
+<a href="#l80" class="line" id="l80">     80</a>     if (pair.Comma)
+<a href="#l81" class="line" id="l81">     81</a>     {
+<a href="#l82" class="line" id="l82">     82</a>         out &lt;&lt; &#39;,&#39;;
+<a href="#l83" class="line" id="l83">     83</a>     }
+<a href="#l84" class="line" id="l84">     84</a>     return out &lt;&lt; std::endl;
+<a href="#l85" class="line" id="l85">     85</a> }
+<a href="#l86" class="line" id="l86">     86</a> 
+<a href="#l87" class="line" id="l87">     87</a> std::string ConvertToUTF8(std::wstring_view input)
+<a href="#l88" class="line" id="l88">     88</a> {
+<a href="#l89" class="line" id="l89">     89</a>     if (input.empty())
+<a href="#l90" class="line" id="l90">     90</a>     {
+<a href="#l91" class="line" id="l91">     91</a>         return {};
+<a href="#l92" class="line" id="l92">     92</a>     }
+<a href="#l93" class="line" id="l93">     93</a> 
+<a href="#l94" class="line" id="l94">     94</a>     int utf8ByteCount = WideCharToMultiByte(CP_UTF8, 0, input.data(), wil::safe_cast&lt;int&gt;(input.length()), nullptr, 0, nullptr, nullptr);
+<a href="#l95" class="line" id="l95">     95</a>     THROW_LAST_ERROR_IF(utf8ByteCount == 0);
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>     // Since the string view should not contain the null char, the result won&#39;t either.
+<a href="#l98" class="line" id="l98">     98</a>     // This allows us to use the resulting size value directly in the string constructor.
+<a href="#l99" class="line" id="l99">     99</a>     std::string result(wil::safe_cast&lt;size_t&gt;(utf8ByteCount), &#39;\0&#39;);
+<a href="#l100" class="line" id="l100">    100</a> 
+<a href="#l101" class="line" id="l101">    101</a>     int utf8BytesWritten = WideCharToMultiByte(CP_UTF8, 0, input.data(), wil::safe_cast&lt;int&gt;(input.length()), &amp;result[0], wil::safe_cast&lt;int&gt;(result.size()), nullptr, nullptr);
+<a href="#l102" class="line" id="l102">    102</a>     FAIL_FAST_HR_IF(E_UNEXPECTED, utf8ByteCount != utf8BytesWritten);
+<a href="#l103" class="line" id="l103">    103</a> 
+<a href="#l104" class="line" id="l104">    104</a>     return result;
+<a href="#l105" class="line" id="l105">    105</a> }
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a> std::wstring ConvertToUTF16(std::string_view input, UINT codePage = CP_UTF8)
+<a href="#l108" class="line" id="l108">    108</a> {
+<a href="#l109" class="line" id="l109">    109</a>     if (input.empty())
+<a href="#l110" class="line" id="l110">    110</a>     {
+<a href="#l111" class="line" id="l111">    111</a>         return {};
+<a href="#l112" class="line" id="l112">    112</a>     }
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>     int utf16CharCount = MultiByteToWideChar(codePage, 0, input.data(), wil::safe_cast&lt;int&gt;(input.length()), nullptr, 0);
+<a href="#l115" class="line" id="l115">    115</a>     THROW_LAST_ERROR_IF(utf16CharCount == 0);
+<a href="#l116" class="line" id="l116">    116</a> 
+<a href="#l117" class="line" id="l117">    117</a>     // Since the string view should not contain the null char, the result won&#39;t either.
+<a href="#l118" class="line" id="l118">    118</a>     // This allows us to use the resulting size value directly in the string constructor.
+<a href="#l119" class="line" id="l119">    119</a>     std::wstring result(wil::safe_cast&lt;size_t&gt;(utf16CharCount), L&#39;\0&#39;);
+<a href="#l120" class="line" id="l120">    120</a> 
+<a href="#l121" class="line" id="l121">    121</a>     int utf16CharsWritten = MultiByteToWideChar(codePage, 0, input.data(), wil::safe_cast&lt;int&gt;(input.length()), &amp;result[0], wil::safe_cast&lt;int&gt;(result.size()));
+<a href="#l122" class="line" id="l122">    122</a>     FAIL_FAST_HR_IF(E_UNEXPECTED, utf16CharCount != utf16CharsWritten);
+<a href="#l123" class="line" id="l123">    123</a> 
+<a href="#l124" class="line" id="l124">    124</a>     return result;
+<a href="#l125" class="line" id="l125">    125</a> }
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a> // CLSIDs for WinGet package
+<a href="#l128" class="line" id="l128">    128</a> const CLSID CLSID_PackageManager = { 0xC53A4F16, 0x787E, 0x42A4, 0xB3, 0x04, 0x29, 0xEF, 0xFB, 0x4B, 0xF5, 0x97 };  //C53A4F16-787E-42A4-B304-29EFFB4BF597
+<a href="#l129" class="line" id="l129">    129</a> const CLSID CLSID_InstallOptions = { 0x1095f097, 0xEB96, 0x453B, 0xB4, 0xE6, 0x16, 0x13, 0x63, 0x7F, 0x3B, 0x14 };  //1095F097-EB96-453B-B4E6-1613637F3B14
+<a href="#l130" class="line" id="l130">    130</a> const CLSID CLSID_FindPackagesOptions = { 0x572DED96, 0x9C60, 0x4526, { 0x8F, 0x92, 0xEE, 0x7D, 0x91, 0xD3, 0x8C, 0x1A } }; //572DED96-9C60-4526-8F92-EE7D91D38C1A
+<a href="#l131" class="line" id="l131">    131</a> const CLSID CLSID_PackageMatchFilter = { 0xD02C9DAF, 0x99DC, 0x429C, { 0xB5, 0x03, 0x4E, 0x50, 0x4E, 0x4A, 0xB0, 0x00 } }; //D02C9DAF-99DC-429C-B503-4E504E4AB000
+<a href="#l132" class="line" id="l132">    132</a> const CLSID CLSID_CreateCompositePackageCatalogOptions = { 0x526534B8, 0x7E46, 0x47C8, { 0x84, 0x16, 0xB1, 0x68, 0x5C, 0x32, 0x7D, 0x37 } }; //526534B8-7E46-47C8-8416-B1685C327D37
+<a href="#l133" class="line" id="l133">    133</a> 
+<a href="#l134" class="line" id="l134">    134</a> // CLSIDs for WinGetDev package
+<a href="#l135" class="line" id="l135">    135</a> const CLSID CLSID_PackageManager2 = { 0x74CB3139, 0xB7C5, 0x4B9E, { 0x93, 0x88, 0xE6, 0x61, 0x6D, 0xEA, 0x28, 0x8C } };  //74CB3139-B7C5-4B9E-9388-E6616DEA288C
+<a href="#l136" class="line" id="l136">    136</a> const CLSID CLSID_InstallOptions2 = { 0x44FE0580, 0x62F7, 0x44D4, 0x9E, 0x91, 0xAA, 0x96, 0x14, 0xAB, 0x3E, 0x86 };  //44FE0580-62F7-44D4-9E91-AA9614AB3E86
+<a href="#l137" class="line" id="l137">    137</a> const CLSID CLSID_FindPackagesOptions2 = { 0x1BD8FF3A, 0xEC50, 0x4F69, { 0xAE, 0xEE, 0xDF, 0x4C, 0x9D, 0x3B, 0xAA, 0x96 } }; //1BD8FF3A-EC50-4F69-AEEE-DF4C9D3BAA96
+<a href="#l138" class="line" id="l138">    138</a> const CLSID CLSID_PackageMatchFilter2 = { 0x3F85B9F4, 0x487A, 0x4C48, { 0x90, 0x35, 0x29, 0x03, 0xF8, 0xA6, 0xD9, 0xE8 } }; //3F85B9F4-487A-4C48-9035-2903F8A6D9E8
+<a href="#l139" class="line" id="l139">    139</a> const CLSID CLSID_CreateCompositePackageCatalogOptions2 = { 0xEE160901, 0xB317, 0x4EA7, { 0x9C, 0xC6, 0x53, 0x55, 0xC6, 0xD7, 0xD8, 0xA7 } }; //EE160901-B317-4EA7-9CC6-5355C6D7D8A7
+<a href="#l140" class="line" id="l140">    140</a> 
+<a href="#l141" class="line" id="l141">    141</a> // Helper object to make cleaner error handling
+<a href="#l142" class="line" id="l142">    142</a> struct Main
+<a href="#l143" class="line" id="l143">    143</a> {
+<a href="#l144" class="line" id="l144">    144</a>     std::string packageIdentifier;
+<a href="#l145" class="line" id="l145">    145</a>     std::string sourceName;
+<a href="#l146" class="line" id="l146">    146</a>     std::filesystem::path outputPath;
+<a href="#l147" class="line" id="l147">    147</a>     bool metadataCollection = false;
+<a href="#l148" class="line" id="l148">    148</a>     std::filesystem::path wingetUtilPath;
+<a href="#l149" class="line" id="l149">    149</a>     std::filesystem::path sys32Path;
+<a href="#l150" class="line" id="l150">    150</a>     bool useDevCLSIDs = false;
+<a href="#l151" class="line" id="l151">    151</a>     bool onlyCorrelate = false;
+<a href="#l152" class="line" id="l152">    152</a> 
+<a href="#l153" class="line" id="l153">    153</a>     int ParseArgs(int argc, char** argv)
+<a href="#l154" class="line" id="l154">    154</a>     {
+<a href="#l155" class="line" id="l155">    155</a>         // Supports the following arguments:
+<a href="#l156" class="line" id="l156">    156</a>         //  -id : [Required] The PackageIdentifier to install and check for correlation
+<a href="#l157" class="line" id="l157">    157</a>         //  -src : [Required] The source name for the package to install
+<a href="#l158" class="line" id="l158">    158</a>         //  -out : [Required] The file to write results to
+<a href="#l159" class="line" id="l159">    159</a>         //  -dev : [Optional] Use the dev CLSIDs
+<a href="#l160" class="line" id="l160">    160</a>         //  -cor : [Optional] Only correlate the package
+<a href="#l161" class="line" id="l161">    161</a> 
+<a href="#l162" class="line" id="l162">    162</a>         for (int i = 1; i &lt; argc; ++i)
+<a href="#l163" class="line" id="l163">    163</a>         {
+<a href="#l164" class="line" id="l164">    164</a>             if (&quot;-id&quot;sv == argv[i] &amp;&amp; i + 1 &lt; argc)
+<a href="#l165" class="line" id="l165">    165</a>             {
+<a href="#l166" class="line" id="l166">    166</a>                 packageIdentifier = argv[++i];
+<a href="#l167" class="line" id="l167">    167</a>             }
+<a href="#l168" class="line" id="l168">    168</a>             else if (&quot;-src&quot;sv == argv[i] &amp;&amp; i + 1 &lt; argc)
+<a href="#l169" class="line" id="l169">    169</a>             {
+<a href="#l170" class="line" id="l170">    170</a>                 sourceName = argv[++i];
+<a href="#l171" class="line" id="l171">    171</a>             }
+<a href="#l172" class="line" id="l172">    172</a>             else if (&quot;-out&quot;sv == argv[i] &amp;&amp; i + 1 &lt; argc)
+<a href="#l173" class="line" id="l173">    173</a>             {
+<a href="#l174" class="line" id="l174">    174</a>                 outputPath = argv[++i];
+<a href="#l175" class="line" id="l175">    175</a>             }
+<a href="#l176" class="line" id="l176">    176</a>             else if (&quot;-meta&quot;sv == argv[i] &amp;&amp; i + 1 &lt; argc)
+<a href="#l177" class="line" id="l177">    177</a>             {
+<a href="#l178" class="line" id="l178">    178</a>                 metadataCollection = true;
+<a href="#l179" class="line" id="l179">    179</a>                 wingetUtilPath = argv[++i];
+<a href="#l180" class="line" id="l180">    180</a>             }
+<a href="#l181" class="line" id="l181">    181</a>             else if (&quot;-sys32&quot;sv == argv[i] &amp;&amp; i + 1 &lt; argc)
+<a href="#l182" class="line" id="l182">    182</a>             {
+<a href="#l183" class="line" id="l183">    183</a>                 sys32Path = argv[++i];
+<a href="#l184" class="line" id="l184">    184</a>             }
+<a href="#l185" class="line" id="l185">    185</a>             else if (&quot;-dev&quot;sv == argv[i])
+<a href="#l186" class="line" id="l186">    186</a>             {
+<a href="#l187" class="line" id="l187">    187</a>                 useDevCLSIDs = true;
+<a href="#l188" class="line" id="l188">    188</a>             }
+<a href="#l189" class="line" id="l189">    189</a>             else if (&quot;-cor&quot;sv == argv[i])
+<a href="#l190" class="line" id="l190">    190</a>             {
+<a href="#l191" class="line" id="l191">    191</a>                 onlyCorrelate = true;
+<a href="#l192" class="line" id="l192">    192</a>             }
+<a href="#l193" class="line" id="l193">    193</a>         }
+<a href="#l194" class="line" id="l194">    194</a> 
+<a href="#l195" class="line" id="l195">    195</a>         // Check inputs
+<a href="#l196" class="line" id="l196">    196</a>         if (outputPath.empty())
+<a href="#l197" class="line" id="l197">    197</a>         {
+<a href="#l198" class="line" id="l198">    198</a>             std::cout &lt;&lt; &quot;No output file path specified, use -out&quot; &lt;&lt; std::endl;
+<a href="#l199" class="line" id="l199">    199</a>             return 2;
+<a href="#l200" class="line" id="l200">    200</a>         }
+<a href="#l201" class="line" id="l201">    201</a> 
+<a href="#l202" class="line" id="l202">    202</a>         if (!outputPath.has_stem())
+<a href="#l203" class="line" id="l203">    203</a>         {
+<a href="#l204" class="line" id="l204">    204</a>             std::cout &lt;&lt; &quot;Output path is not a file&quot; &lt;&lt; std::endl;
+<a href="#l205" class="line" id="l205">    205</a>             return 3;
+<a href="#l206" class="line" id="l206">    206</a>         }
+<a href="#l207" class="line" id="l207">    207</a> 
+<a href="#l208" class="line" id="l208">    208</a>         std::filesystem::create_directories(outputPath.parent_path());
+<a href="#l209" class="line" id="l209">    209</a> 
+<a href="#l210" class="line" id="l210">    210</a>         outputStream.open(outputPath);
+<a href="#l211" class="line" id="l211">    211</a> 
+<a href="#l212" class="line" id="l212">    212</a>         if (!outputStream)
+<a href="#l213" class="line" id="l213">    213</a>         {
+<a href="#l214" class="line" id="l214">    214</a>             std::cout &lt;&lt; &quot;Output file could not be created&quot; &lt;&lt; std::endl;
+<a href="#l215" class="line" id="l215">    215</a>             return 4;
+<a href="#l216" class="line" id="l216">    216</a>         }
+<a href="#l217" class="line" id="l217">    217</a> 
+<a href="#l218" class="line" id="l218">    218</a>         return 0;
+<a href="#l219" class="line" id="l219">    219</a>     }
+<a href="#l220" class="line" id="l220">    220</a> 
+<a href="#l221" class="line" id="l221">    221</a>     PackageManager CreatePackageManager()
+<a href="#l222" class="line" id="l222">    222</a>     {
+<a href="#l223" class="line" id="l223">    223</a>         if (useDevCLSIDs)
+<a href="#l224" class="line" id="l224">    224</a>         {
+<a href="#l225" class="line" id="l225">    225</a>             return winrt::create_instance&lt;PackageManager&gt;(CLSID_PackageManager2, CLSCTX_ALL);
+<a href="#l226" class="line" id="l226">    226</a>         }
+<a href="#l227" class="line" id="l227">    227</a>         return winrt::create_instance&lt;PackageManager&gt;(CLSID_PackageManager, CLSCTX_ALL);
+<a href="#l228" class="line" id="l228">    228</a>     }
+<a href="#l229" class="line" id="l229">    229</a> 
+<a href="#l230" class="line" id="l230">    230</a>     InstallOptions CreateInstallOptions()
+<a href="#l231" class="line" id="l231">    231</a>     {
+<a href="#l232" class="line" id="l232">    232</a>         if (useDevCLSIDs)
+<a href="#l233" class="line" id="l233">    233</a>         {
+<a href="#l234" class="line" id="l234">    234</a>             return winrt::create_instance&lt;InstallOptions&gt;(CLSID_InstallOptions2, CLSCTX_ALL);
+<a href="#l235" class="line" id="l235">    235</a>         }
+<a href="#l236" class="line" id="l236">    236</a>         return winrt::create_instance&lt;InstallOptions&gt;(CLSID_InstallOptions, CLSCTX_ALL);
+<a href="#l237" class="line" id="l237">    237</a>     }
+<a href="#l238" class="line" id="l238">    238</a> 
+<a href="#l239" class="line" id="l239">    239</a>     FindPackagesOptions CreateFindPackagesOptions()
+<a href="#l240" class="line" id="l240">    240</a>     {
+<a href="#l241" class="line" id="l241">    241</a>         if (useDevCLSIDs)
+<a href="#l242" class="line" id="l242">    242</a>         {
+<a href="#l243" class="line" id="l243">    243</a>             return winrt::create_instance&lt;FindPackagesOptions&gt;(CLSID_FindPackagesOptions2, CLSCTX_ALL);
+<a href="#l244" class="line" id="l244">    244</a>         }
+<a href="#l245" class="line" id="l245">    245</a>         return winrt::create_instance&lt;FindPackagesOptions&gt;(CLSID_FindPackagesOptions, CLSCTX_ALL);
+<a href="#l246" class="line" id="l246">    246</a>     }
+<a href="#l247" class="line" id="l247">    247</a> 
+<a href="#l248" class="line" id="l248">    248</a>     CreateCompositePackageCatalogOptions CreateCreateCompositePackageCatalogOptions()
+<a href="#l249" class="line" id="l249">    249</a>     {
+<a href="#l250" class="line" id="l250">    250</a>         if (useDevCLSIDs)
+<a href="#l251" class="line" id="l251">    251</a>         {
+<a href="#l252" class="line" id="l252">    252</a>             return winrt::create_instance&lt;CreateCompositePackageCatalogOptions&gt;(CLSID_CreateCompositePackageCatalogOptions2, CLSCTX_ALL);
+<a href="#l253" class="line" id="l253">    253</a>         }
+<a href="#l254" class="line" id="l254">    254</a>         return winrt::create_instance&lt;CreateCompositePackageCatalogOptions&gt;(CLSID_CreateCompositePackageCatalogOptions, CLSCTX_ALL);
+<a href="#l255" class="line" id="l255">    255</a>     }
+<a href="#l256" class="line" id="l256">    256</a> 
+<a href="#l257" class="line" id="l257">    257</a>     PackageMatchFilter CreatePackageMatchFilter()
+<a href="#l258" class="line" id="l258">    258</a>     {
+<a href="#l259" class="line" id="l259">    259</a>         if (useDevCLSIDs)
+<a href="#l260" class="line" id="l260">    260</a>         {
+<a href="#l261" class="line" id="l261">    261</a>             return winrt::create_instance&lt;PackageMatchFilter&gt;(CLSID_PackageMatchFilter2, CLSCTX_ALL);
+<a href="#l262" class="line" id="l262">    262</a>         }
+<a href="#l263" class="line" id="l263">    263</a>         return winrt::create_instance&lt;PackageMatchFilter&gt;(CLSID_PackageMatchFilter, CLSCTX_ALL);
+<a href="#l264" class="line" id="l264">    264</a>     }
+<a href="#l265" class="line" id="l265">    265</a> 
+<a href="#l266" class="line" id="l266">    266</a>     std::ofstream outputStream;
+<a href="#l267" class="line" id="l267">    267</a> 
+<a href="#l268" class="line" id="l268">    268</a>     // Result file outputs
+<a href="#l269" class="line" id="l269">    269</a>     HRESULT hr = S_OK;
+<a href="#l270" class="line" id="l270">    270</a>     std::string error;
+<a href="#l271" class="line" id="l271">    271</a>     std::string phase;
+<a href="#l272" class="line" id="l272">    272</a>     std::string action;
+<a href="#l273" class="line" id="l273">    273</a>     std::string packageName;
+<a href="#l274" class="line" id="l274">    274</a>     std::string packagePublisher;
+<a href="#l275" class="line" id="l275">    275</a>     bool correlatePackageKnown = false;
+<a href="#l276" class="line" id="l276">    276</a>     std::string packageKnownName;
+<a href="#l277" class="line" id="l277">    277</a>     std::string packageKnownPublisher;
+<a href="#l278" class="line" id="l278">    278</a>     bool correlateArchive = false;
+<a href="#l279" class="line" id="l279">    279</a>     std::string archiveName;
+<a href="#l280" class="line" id="l280">    280</a>     std::string archivePublisher;
+<a href="#l281" class="line" id="l281">    281</a> 
+<a href="#l282" class="line" id="l282">    282</a>     void ValidateArgs()
+<a href="#l283" class="line" id="l283">    283</a>     {
+<a href="#l284" class="line" id="l284">    284</a>         if (packageIdentifier.empty())
+<a href="#l285" class="line" id="l285">    285</a>         {
+<a href="#l286" class="line" id="l286">    286</a>             hr = E_INVALIDARG;
+<a href="#l287" class="line" id="l287">    287</a>             error = &quot;A package identifier must be supplied, use -id&quot;;
+<a href="#l288" class="line" id="l288">    288</a>             return;
+<a href="#l289" class="line" id="l289">    289</a>         }
+<a href="#l290" class="line" id="l290">    290</a> 
+<a href="#l291" class="line" id="l291">    291</a>         if (sourceName.empty())
+<a href="#l292" class="line" id="l292">    292</a>         {
+<a href="#l293" class="line" id="l293">    293</a>             hr = E_INVALIDARG;
+<a href="#l294" class="line" id="l294">    294</a>             error = &quot;A source name must be supplied, use -src&quot;;
+<a href="#l295" class="line" id="l295">    295</a>             return;
+<a href="#l296" class="line" id="l296">    296</a>         }
+<a href="#l297" class="line" id="l297">    297</a> 
+<a href="#l298" class="line" id="l298">    298</a>         if (metadataCollection &amp;&amp; sys32Path.empty())
+<a href="#l299" class="line" id="l299">    299</a>         {
+<a href="#l300" class="line" id="l300">    300</a>             hr = E_INVALIDARG;
+<a href="#l301" class="line" id="l301">    301</a>             error = &quot;Metadata collection requires mapping in the host&#39;s System32&quot;;
+<a href="#l302" class="line" id="l302">    302</a>             return;
+<a href="#l303" class="line" id="l303">    303</a>         }
+<a href="#l304" class="line" id="l304">    304</a>     }
+<a href="#l305" class="line" id="l305">    305</a> 
+<a href="#l306" class="line" id="l306">    306</a>     using WinGetBeginInstallerMetadataCollectionPtr = HRESULT (__stdcall *)(
+<a href="#l307" class="line" id="l307">    307</a>         WINGET_STRING inputJSON,
+<a href="#l308" class="line" id="l308">    308</a>         WINGET_STRING logFilePath,
+<a href="#l309" class="line" id="l309">    309</a>         WinGetBeginInstallerMetadataCollectionOptions options,
+<a href="#l310" class="line" id="l310">    310</a>         WINGET_INSTALLER_METADATA_COLLECTION_HANDLE* collectionHandle);
+<a href="#l311" class="line" id="l311">    311</a> 
+<a href="#l312" class="line" id="l312">    312</a>     using WinGetCompleteInstallerMetadataCollectionPtr = HRESULT(__stdcall*)(
+<a href="#l313" class="line" id="l313">    313</a>         WINGET_INSTALLER_METADATA_COLLECTION_HANDLE collectionHandle,
+<a href="#l314" class="line" id="l314">    314</a>         WINGET_STRING outputFilePath,
+<a href="#l315" class="line" id="l315">    315</a>         WinGetCompleteInstallerMetadataCollectionOptions options);
+<a href="#l316" class="line" id="l316">    316</a> 
+<a href="#l317" class="line" id="l317">    317</a>     WinGetBeginInstallerMetadataCollectionPtr WinGetBeginInstallerMetadataCollection = nullptr;
+<a href="#l318" class="line" id="l318">    318</a>     WinGetCompleteInstallerMetadataCollectionPtr WinGetCompleteInstallerMetadataCollection = nullptr;
+<a href="#l319" class="line" id="l319">    319</a>     WINGET_INSTALLER_METADATA_COLLECTION_HANDLE MetadataCollectionHandle = nullptr;
+<a href="#l320" class="line" id="l320">    320</a> 
+<a href="#l321" class="line" id="l321">    321</a>     void LoadWingetUtil()
+<a href="#l322" class="line" id="l322">    322</a>     {
+<a href="#l323" class="line" id="l323">    323</a>         AddDllDirectory(sys32Path.wstring().c_str());
+<a href="#l324" class="line" id="l324">    324</a>         HMODULE wingetutilModule = LoadLibraryExW(wingetUtilPath.wstring().c_str(), nullptr, LOAD_LIBRARY_SEARCH_USER_DIRS);
+<a href="#l325" class="line" id="l325">    325</a>         if (!wingetutilModule)
+<a href="#l326" class="line" id="l326">    326</a>         {
+<a href="#l327" class="line" id="l327">    327</a>             hr = HRESULT_FROM_WIN32(GetLastError());
+<a href="#l328" class="line" id="l328">    328</a>             return;
+<a href="#l329" class="line" id="l329">    329</a>         }
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>         this-&gt;WinGetBeginInstallerMetadataCollection = reinterpret_cast&lt;WinGetBeginInstallerMetadataCollectionPtr&gt;(GetProcAddress(wingetutilModule, &quot;WinGetBeginInstallerMetadataCollection&quot;));
+<a href="#l332" class="line" id="l332">    332</a>         if (!this-&gt;WinGetBeginInstallerMetadataCollection)
+<a href="#l333" class="line" id="l333">    333</a>         {
+<a href="#l334" class="line" id="l334">    334</a>             hr = HRESULT_FROM_WIN32(GetLastError());
+<a href="#l335" class="line" id="l335">    335</a>             return;
+<a href="#l336" class="line" id="l336">    336</a>         }
+<a href="#l337" class="line" id="l337">    337</a> 
+<a href="#l338" class="line" id="l338">    338</a>         this-&gt;WinGetCompleteInstallerMetadataCollection = reinterpret_cast&lt;WinGetCompleteInstallerMetadataCollectionPtr&gt;(GetProcAddress(wingetutilModule, &quot;WinGetCompleteInstallerMetadataCollection&quot;));
+<a href="#l339" class="line" id="l339">    339</a>         if (!this-&gt;WinGetCompleteInstallerMetadataCollection)
+<a href="#l340" class="line" id="l340">    340</a>         {
+<a href="#l341" class="line" id="l341">    341</a>             hr = HRESULT_FROM_WIN32(GetLastError());
+<a href="#l342" class="line" id="l342">    342</a>             return;
+<a href="#l343" class="line" id="l343">    343</a>         }
+<a href="#l344" class="line" id="l344">    344</a>     }
+<a href="#l345" class="line" id="l345">    345</a> 
+<a href="#l346" class="line" id="l346">    346</a>     void BeginMetadataCollection()
+<a href="#l347" class="line" id="l347">    347</a>     {
+<a href="#l348" class="line" id="l348">    348</a>         std::filesystem::path metadataInputPath = outputPath.parent_path();
+<a href="#l349" class="line" id="l349">    349</a>         metadataInputPath /= &quot;metadata_input.json&quot;;
+<a href="#l350" class="line" id="l350">    350</a>         std::ofstream stream{ metadataInputPath };
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>         stream &lt;&lt; &quot;{&quot; &lt;&lt; std::endl;
+<a href="#l353" class="line" id="l353">    353</a>         stream &lt;&lt; JSONPair{ &quot;supportedMetadataVersion&quot;, &quot;1.2&quot;};
+<a href="#l354" class="line" id="l354">    354</a>         // TODO: Could theoretically produce this if we could enumerate the data via COM
+<a href="#l355" class="line" id="l355">    355</a>         // stream &lt;&lt; JSONPair{ &quot;currentMetadata&quot;, &quot;&quot; };
+<a href="#l356" class="line" id="l356">    356</a>         stream &lt;&lt; JSONPair{ &quot;submissionData&quot;, nullptr, false } &lt;&lt; &quot;\n{\n&quot;;
+<a href="#l357" class="line" id="l357">    357</a>         stream &lt;&lt; JSONPair{ &quot;submissionIdentifier&quot;, packageIdentifier, false };
+<a href="#l358" class="line" id="l358">    358</a>         stream &lt;&lt; &quot;\n},\n&quot;;
+<a href="#l359" class="line" id="l359">    359</a>         stream &lt;&lt; JSONPair{ &quot;packageData&quot;, nullptr, false } &lt;&lt; &quot;\n{\n&quot;;
+<a href="#l360" class="line" id="l360">    360</a>         stream &lt;&lt; JSONPair{ &quot;installerHash&quot;, &quot;none&quot; };
+<a href="#l361" class="line" id="l361">    361</a>             stream &lt;&lt; JSONPair{ &quot;DefaultLocale&quot;, nullptr, false } &lt;&lt; &quot;\n{\n&quot;;
+<a href="#l362" class="line" id="l362">    362</a>             stream &lt;&lt; JSONPair{ &quot;PackageLocale&quot;, &quot;x-neutral&quot; };
+<a href="#l363" class="line" id="l363">    363</a>             stream &lt;&lt; JSONPair{ &quot;PackageName&quot;, packageName };
+<a href="#l364" class="line" id="l364">    364</a>             stream &lt;&lt; JSONPair{ &quot;Publisher&quot;, packagePublisher, false };
+<a href="#l365" class="line" id="l365">    365</a>             stream &lt;&lt; &quot;\n}\n&quot;;
+<a href="#l366" class="line" id="l366">    366</a>         stream &lt;&lt; &quot;\n},\n&quot;;
+<a href="#l367" class="line" id="l367">    367</a>         // Keep at the end to prevent a dangling comma
+<a href="#l368" class="line" id="l368">    368</a>         stream &lt;&lt; JSONPair{ &quot;version&quot;, &quot;1.0&quot;, false } &lt;&lt; &quot;}&quot; &lt;&lt; std::endl;
+<a href="#l369" class="line" id="l369">    369</a> 
+<a href="#l370" class="line" id="l370">    370</a>         std::filesystem::path metadataLogPath = outputPath.parent_path();
+<a href="#l371" class="line" id="l371">    371</a>         metadataLogPath /= &quot;metadata_log.txt&quot;;
+<a href="#l372" class="line" id="l372">    372</a> 
+<a href="#l373" class="line" id="l373">    373</a>         hr = this-&gt;WinGetBeginInstallerMetadataCollection(metadataInputPath.wstring().c_str(), metadataLogPath.wstring().c_str(), WinGetBeginInstallerMetadataCollectionOption_InputIsFilePath, &amp;MetadataCollectionHandle);
+<a href="#l374" class="line" id="l374">    374</a>         if (FAILED(hr))
+<a href="#l375" class="line" id="l375">    375</a>         {
+<a href="#l376" class="line" id="l376">    376</a>             return;
+<a href="#l377" class="line" id="l377">    377</a>         }
+<a href="#l378" class="line" id="l378">    378</a>     }
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>     void CompleteMetadataCollection()
+<a href="#l381" class="line" id="l381">    381</a>     {
+<a href="#l382" class="line" id="l382">    382</a>         std::filesystem::path metadataOutputPath = outputPath.parent_path();
+<a href="#l383" class="line" id="l383">    383</a>         metadataOutputPath /= &quot;metadata_output.json&quot;;
+<a href="#l384" class="line" id="l384">    384</a> 
+<a href="#l385" class="line" id="l385">    385</a>         hr = this-&gt;WinGetCompleteInstallerMetadataCollection(MetadataCollectionHandle, metadataOutputPath.wstring().c_str(), WinGetCompleteInstallerMetadataCollectionOption_None);
+<a href="#l386" class="line" id="l386">    386</a>         if (FAILED(hr))
+<a href="#l387" class="line" id="l387">    387</a>         {
+<a href="#l388" class="line" id="l388">    388</a>             return;
+<a href="#l389" class="line" id="l389">    389</a>         }
+<a href="#l390" class="line" id="l390">    390</a>     }
+<a href="#l391" class="line" id="l391">    391</a> 
+<a href="#l392" class="line" id="l392">    392</a>     void Install()
+<a href="#l393" class="line" id="l393">    393</a>     {
+<a href="#l394" class="line" id="l394">    394</a>         try
+<a href="#l395" class="line" id="l395">    395</a>         {
+<a href="#l396" class="line" id="l396">    396</a>             action = &quot;Create package manager&quot;;
+<a href="#l397" class="line" id="l397">    397</a>             auto packageManager = CreatePackageManager();
+<a href="#l398" class="line" id="l398">    398</a> 
+<a href="#l399" class="line" id="l399">    399</a>             action = &quot;Get source reference&quot;;
+<a href="#l400" class="line" id="l400">    400</a>             auto sourceRef = packageManager.GetPackageCatalogByName(ConvertToUTF16(sourceName));
+<a href="#l401" class="line" id="l401">    401</a> 
+<a href="#l402" class="line" id="l402">    402</a>             action = &quot;Connecting to catalog&quot;;
+<a href="#l403" class="line" id="l403">    403</a>             auto connectResult = sourceRef.Connect();
+<a href="#l404" class="line" id="l404">    404</a> 
+<a href="#l405" class="line" id="l405">    405</a>             if (connectResult.Status() != ConnectResultStatus::Ok)
+<a href="#l406" class="line" id="l406">    406</a>             {
+<a href="#l407" class="line" id="l407">    407</a>                 hr = E_FAIL;
+<a href="#l408" class="line" id="l408">    408</a>                 error = &quot;Error connecting to catalog&quot;;
+<a href="#l409" class="line" id="l409">    409</a>                 return;
+<a href="#l410" class="line" id="l410">    410</a>             }
+<a href="#l411" class="line" id="l411">    411</a> 
+<a href="#l412" class="line" id="l412">    412</a>             auto catalog = connectResult.PackageCatalog();
+<a href="#l413" class="line" id="l413">    413</a> 
+<a href="#l414" class="line" id="l414">    414</a>             action = &quot;Create find options&quot;;
+<a href="#l415" class="line" id="l415">    415</a>             auto findOptions = CreateFindPackagesOptions();
+<a href="#l416" class="line" id="l416">    416</a> 
+<a href="#l417" class="line" id="l417">    417</a>             action = &quot;Add package id filter&quot;;
+<a href="#l418" class="line" id="l418">    418</a>             auto filter = CreatePackageMatchFilter();
+<a href="#l419" class="line" id="l419">    419</a>             filter.Field(PackageMatchField::Id);
+<a href="#l420" class="line" id="l420">    420</a>             filter.Option(PackageFieldMatchOption::Equals);
+<a href="#l421" class="line" id="l421">    421</a>             filter.Value(ConvertToUTF16(packageIdentifier));
+<a href="#l422" class="line" id="l422">    422</a>             findOptions.Filters().Append(filter);
+<a href="#l423" class="line" id="l423">    423</a> 
+<a href="#l424" class="line" id="l424">    424</a>             action = &quot;Find package&quot;;
+<a href="#l425" class="line" id="l425">    425</a>             auto findResult = catalog.FindPackages(findOptions);
+<a href="#l426" class="line" id="l426">    426</a> 
+<a href="#l427" class="line" id="l427">    427</a>             if (findResult.Status() != FindPackagesResultStatus::Ok)
+<a href="#l428" class="line" id="l428">    428</a>             {
+<a href="#l429" class="line" id="l429">    429</a>                 hr = E_FAIL;
+<a href="#l430" class="line" id="l430">    430</a>                 std::ostringstream stream;
+<a href="#l431" class="line" id="l431">    431</a>                 stream &lt;&lt; &quot;Error &quot; &lt;&lt; static_cast&lt;int&gt;(findResult.Status()) &lt;&lt; &quot; finding package&quot;;
+<a href="#l432" class="line" id="l432">    432</a>                 error = std::move(stream).str();
+<a href="#l433" class="line" id="l433">    433</a>                 return;
+<a href="#l434" class="line" id="l434">    434</a>             }
+<a href="#l435" class="line" id="l435">    435</a> 
+<a href="#l436" class="line" id="l436">    436</a>             action = &quot;Get match&quot;;
+<a href="#l437" class="line" id="l437">    437</a>             auto matches = findResult.Matches();
+<a href="#l438" class="line" id="l438">    438</a> 
+<a href="#l439" class="line" id="l439">    439</a>             if (matches.Size() == 0)
+<a href="#l440" class="line" id="l440">    440</a>             {
+<a href="#l441" class="line" id="l441">    441</a>                 hr = E_NOT_SET;
+<a href="#l442" class="line" id="l442">    442</a>                 error = &quot;Package not found&quot;;
+<a href="#l443" class="line" id="l443">    443</a>                 return;
+<a href="#l444" class="line" id="l444">    444</a>             }
+<a href="#l445" class="line" id="l445">    445</a> 
+<a href="#l446" class="line" id="l446">    446</a>             auto package = matches.GetAt(0).CatalogPackage();
+<a href="#l447" class="line" id="l447">    447</a> 
+<a href="#l448" class="line" id="l448">    448</a>             action = &quot;Inspect package&quot;;
+<a href="#l449" class="line" id="l449">    449</a>             auto installVersion = package.DefaultInstallVersion();
+<a href="#l450" class="line" id="l450">    450</a>             packageName = ConvertToUTF8(installVersion.DisplayName());
+<a href="#l451" class="line" id="l451">    451</a>             packagePublisher = ConvertToUTF8(installVersion.Publisher());
+<a href="#l452" class="line" id="l452">    452</a> 
+<a href="#l453" class="line" id="l453">    453</a>             if (metadataCollection)
+<a href="#l454" class="line" id="l454">    454</a>             {
+<a href="#l455" class="line" id="l455">    455</a>                 BeginMetadataCollection();
+<a href="#l456" class="line" id="l456">    456</a>                 if (FAILED(hr))
+<a href="#l457" class="line" id="l457">    457</a>                 {
+<a href="#l458" class="line" id="l458">    458</a>                     return;
+<a href="#l459" class="line" id="l459">    459</a>                 }
+<a href="#l460" class="line" id="l460">    460</a>             }
+<a href="#l461" class="line" id="l461">    461</a> 
+<a href="#l462" class="line" id="l462">    462</a>             if (!onlyCorrelate)
+<a href="#l463" class="line" id="l463">    463</a>             {
+<a href="#l464" class="line" id="l464">    464</a>                 action = &quot;Create install options&quot;;
+<a href="#l465" class="line" id="l465">    465</a>                 auto installOptions = CreateInstallOptions();
+<a href="#l466" class="line" id="l466">    466</a> 
+<a href="#l467" class="line" id="l467">    467</a>                 installOptions.PackageInstallScope(PackageInstallScope::Any);
+<a href="#l468" class="line" id="l468">    468</a>                 installOptions.PackageInstallMode(PackageInstallMode::Silent);
+<a href="#l469" class="line" id="l469">    469</a> 
+<a href="#l470" class="line" id="l470">    470</a>                 std::cout &lt;&lt; &quot;Beginning to install &quot; &lt;&lt; packageIdentifier &lt;&lt; &quot; (&quot; &lt;&lt; packageName &lt;&lt; &quot;) from &quot; &lt;&lt; sourceName &lt;&lt; &quot;...&quot; &lt;&lt; std::endl;
+<a href="#l471" class="line" id="l471">    471</a>                 action = &quot;Install package&quot;;
+<a href="#l472" class="line" id="l472">    472</a>                 auto installOperation = packageManager.InstallPackageAsync(package, installOptions);
+<a href="#l473" class="line" id="l473">    473</a> 
+<a href="#l474" class="line" id="l474">    474</a>                 if (installOperation.wait_for(std::chrono::minutes(10)) != AsyncStatus::Completed)
+<a href="#l475" class="line" id="l475">    475</a>                 {
+<a href="#l476" class="line" id="l476">    476</a>                     hr = E_FAIL;
+<a href="#l477" class="line" id="l477">    477</a>                     error = &quot;Install operation timed out&quot;;
+<a href="#l478" class="line" id="l478">    478</a>                     return;
+<a href="#l479" class="line" id="l479">    479</a>                 }
+<a href="#l480" class="line" id="l480">    480</a> 
+<a href="#l481" class="line" id="l481">    481</a>                 auto installResult = installOperation.GetResults();
+<a href="#l482" class="line" id="l482">    482</a>                 if (installResult.Status() != InstallResultStatus::Ok)
+<a href="#l483" class="line" id="l483">    483</a>                 {
+<a href="#l484" class="line" id="l484">    484</a>                     hr = installResult.ExtendedErrorCode();
+<a href="#l485" class="line" id="l485">    485</a>                     error = &quot;Error installing package&quot;;
+<a href="#l486" class="line" id="l486">    486</a>                     return;
+<a href="#l487" class="line" id="l487">    487</a>                 }
+<a href="#l488" class="line" id="l488">    488</a>             }
+<a href="#l489" class="line" id="l489">    489</a> 
+<a href="#l490" class="line" id="l490">    490</a>             if (metadataCollection)
+<a href="#l491" class="line" id="l491">    491</a>             {
+<a href="#l492" class="line" id="l492">    492</a>                 CompleteMetadataCollection();
+<a href="#l493" class="line" id="l493">    493</a>                 if (FAILED(hr))
+<a href="#l494" class="line" id="l494">    494</a>                 {
+<a href="#l495" class="line" id="l495">    495</a>                     return;
+<a href="#l496" class="line" id="l496">    496</a>                 }
+<a href="#l497" class="line" id="l497">    497</a>             }
+<a href="#l498" class="line" id="l498">    498</a>         }
+<a href="#l499" class="line" id="l499">    499</a>         catch (const winrt::hresult_error&amp; hre)
+<a href="#l500" class="line" id="l500">    500</a>         {
+<a href="#l501" class="line" id="l501">    501</a>             hr = hre.code();
+<a href="#l502" class="line" id="l502">    502</a>             error = ConvertToUTF8(hre.message());
+<a href="#l503" class="line" id="l503">    503</a>         }
+<a href="#l504" class="line" id="l504">    504</a>     }
+<a href="#l505" class="line" id="l505">    505</a> 
+<a href="#l506" class="line" id="l506">    506</a>     void CorrelatePackageKnown()
+<a href="#l507" class="line" id="l507">    507</a>     {
+<a href="#l508" class="line" id="l508">    508</a>         try
+<a href="#l509" class="line" id="l509">    509</a>         {
+<a href="#l510" class="line" id="l510">    510</a>             action = &quot;Create package manager&quot;;
+<a href="#l511" class="line" id="l511">    511</a>             auto packageManager = CreatePackageManager();
+<a href="#l512" class="line" id="l512">    512</a> 
+<a href="#l513" class="line" id="l513">    513</a>             action = &quot;Get source reference&quot;;
+<a href="#l514" class="line" id="l514">    514</a>             auto sourceRef = packageManager.GetPackageCatalogByName(ConvertToUTF16(sourceName));
+<a href="#l515" class="line" id="l515">    515</a> 
+<a href="#l516" class="line" id="l516">    516</a>             action = &quot;Create composite catalog options&quot;;
+<a href="#l517" class="line" id="l517">    517</a>             auto compOptions = CreateCreateCompositePackageCatalogOptions();
+<a href="#l518" class="line" id="l518">    518</a> 
+<a href="#l519" class="line" id="l519">    519</a>             compOptions.Catalogs().Append(sourceRef);
+<a href="#l520" class="line" id="l520">    520</a>             compOptions.CompositeSearchBehavior(CompositeSearchBehavior::RemotePackagesFromAllCatalogs);
+<a href="#l521" class="line" id="l521">    521</a> 
+<a href="#l522" class="line" id="l522">    522</a>             action = &quot;Create composite catalog reference&quot;;
+<a href="#l523" class="line" id="l523">    523</a>             auto compRef = packageManager.CreateCompositePackageCatalog(compOptions);
+<a href="#l524" class="line" id="l524">    524</a> 
+<a href="#l525" class="line" id="l525">    525</a>             action = &quot;Connecting to catalog&quot;;
+<a href="#l526" class="line" id="l526">    526</a>             auto connectResult = compRef.Connect();
+<a href="#l527" class="line" id="l527">    527</a> 
+<a href="#l528" class="line" id="l528">    528</a>             if (connectResult.Status() != ConnectResultStatus::Ok)
+<a href="#l529" class="line" id="l529">    529</a>             {
+<a href="#l530" class="line" id="l530">    530</a>                 hr = E_FAIL;
+<a href="#l531" class="line" id="l531">    531</a>                 error = &quot;Error connecting to catalog&quot;;
+<a href="#l532" class="line" id="l532">    532</a>                 return;
+<a href="#l533" class="line" id="l533">    533</a>             }
+<a href="#l534" class="line" id="l534">    534</a> 
+<a href="#l535" class="line" id="l535">    535</a>             auto catalog = connectResult.PackageCatalog();
+<a href="#l536" class="line" id="l536">    536</a> 
+<a href="#l537" class="line" id="l537">    537</a>             action = &quot;Create find options&quot;;
+<a href="#l538" class="line" id="l538">    538</a>             auto findOptions = CreateFindPackagesOptions();
+<a href="#l539" class="line" id="l539">    539</a> 
+<a href="#l540" class="line" id="l540">    540</a>             action = &quot;Add package id filter&quot;;
+<a href="#l541" class="line" id="l541">    541</a>             auto filter = CreatePackageMatchFilter();
+<a href="#l542" class="line" id="l542">    542</a>             filter.Field(PackageMatchField::Id);
+<a href="#l543" class="line" id="l543">    543</a>             filter.Option(PackageFieldMatchOption::Equals);
+<a href="#l544" class="line" id="l544">    544</a>             filter.Value(ConvertToUTF16(packageIdentifier));
+<a href="#l545" class="line" id="l545">    545</a>             findOptions.Filters().Append(filter);
+<a href="#l546" class="line" id="l546">    546</a> 
+<a href="#l547" class="line" id="l547">    547</a>             action = &quot;Find package&quot;;
+<a href="#l548" class="line" id="l548">    548</a>             auto findResult = catalog.FindPackages(findOptions);
+<a href="#l549" class="line" id="l549">    549</a> 
+<a href="#l550" class="line" id="l550">    550</a>             if (findResult.Status() != FindPackagesResultStatus::Ok)
+<a href="#l551" class="line" id="l551">    551</a>             {
+<a href="#l552" class="line" id="l552">    552</a>                 hr = E_FAIL;
+<a href="#l553" class="line" id="l553">    553</a>                 error = &quot;Error finding packages&quot;;
+<a href="#l554" class="line" id="l554">    554</a>                 return;
+<a href="#l555" class="line" id="l555">    555</a>             }
+<a href="#l556" class="line" id="l556">    556</a> 
+<a href="#l557" class="line" id="l557">    557</a>             action = &quot;Get match&quot;;
+<a href="#l558" class="line" id="l558">    558</a>             auto matches = findResult.Matches();
+<a href="#l559" class="line" id="l559">    559</a> 
+<a href="#l560" class="line" id="l560">    560</a>             if (matches.Size() == 0)
+<a href="#l561" class="line" id="l561">    561</a>             {
+<a href="#l562" class="line" id="l562">    562</a>                 hr = E_NOT_SET;
+<a href="#l563" class="line" id="l563">    563</a>                 error = &quot;Package not found&quot;;
+<a href="#l564" class="line" id="l564">    564</a>                 return;
+<a href="#l565" class="line" id="l565">    565</a>             }
+<a href="#l566" class="line" id="l566">    566</a> 
+<a href="#l567" class="line" id="l567">    567</a>             auto package = matches.GetAt(0).CatalogPackage();
+<a href="#l568" class="line" id="l568">    568</a> 
+<a href="#l569" class="line" id="l569">    569</a>             action = &quot;Inspect package for installed version&quot;;
+<a href="#l570" class="line" id="l570">    570</a>             auto installed = package.InstalledVersion();
+<a href="#l571" class="line" id="l571">    571</a> 
+<a href="#l572" class="line" id="l572">    572</a>             if (installed)
+<a href="#l573" class="line" id="l573">    573</a>             {
+<a href="#l574" class="line" id="l574">    574</a>                 correlatePackageKnown = true;
+<a href="#l575" class="line" id="l575">    575</a>                 packageKnownName = ConvertToUTF8(installed.DisplayName());
+<a href="#l576" class="line" id="l576">    576</a>                 packageKnownPublisher = ConvertToUTF8(installed.Publisher());
+<a href="#l577" class="line" id="l577">    577</a>             }
+<a href="#l578" class="line" id="l578">    578</a>         }
+<a href="#l579" class="line" id="l579">    579</a>         catch (const winrt::hresult_error&amp; hre)
+<a href="#l580" class="line" id="l580">    580</a>         {
+<a href="#l581" class="line" id="l581">    581</a>             hr = hre.code();
+<a href="#l582" class="line" id="l582">    582</a>             error = ConvertToUTF8(hre.message());
+<a href="#l583" class="line" id="l583">    583</a>         }
+<a href="#l584" class="line" id="l584">    584</a>     }
+<a href="#l585" class="line" id="l585">    585</a> 
+<a href="#l586" class="line" id="l586">    586</a>     void CorrelateArchive()
+<a href="#l587" class="line" id="l587">    587</a>     {
+<a href="#l588" class="line" id="l588">    588</a>         try
+<a href="#l589" class="line" id="l589">    589</a>         {
+<a href="#l590" class="line" id="l590">    590</a>             action = &quot;Create package manager&quot;;
+<a href="#l591" class="line" id="l591">    591</a>             auto packageManager = CreatePackageManager();
+<a href="#l592" class="line" id="l592">    592</a> 
+<a href="#l593" class="line" id="l593">    593</a>             action = &quot;Get source reference&quot;;
+<a href="#l594" class="line" id="l594">    594</a>             auto sourceRef = packageManager.GetPackageCatalogByName(ConvertToUTF16(sourceName));
+<a href="#l595" class="line" id="l595">    595</a> 
+<a href="#l596" class="line" id="l596">    596</a>             action = &quot;Create composite catalog options&quot;;
+<a href="#l597" class="line" id="l597">    597</a>             auto compOptions = CreateCreateCompositePackageCatalogOptions();
+<a href="#l598" class="line" id="l598">    598</a> 
+<a href="#l599" class="line" id="l599">    599</a>             compOptions.Catalogs().Append(sourceRef);
+<a href="#l600" class="line" id="l600">    600</a>             compOptions.CompositeSearchBehavior(CompositeSearchBehavior::LocalCatalogs);
+<a href="#l601" class="line" id="l601">    601</a> 
+<a href="#l602" class="line" id="l602">    602</a>             action = &quot;Create composite catalog reference&quot;;
+<a href="#l603" class="line" id="l603">    603</a>             auto compRef = packageManager.CreateCompositePackageCatalog(compOptions);
+<a href="#l604" class="line" id="l604">    604</a> 
+<a href="#l605" class="line" id="l605">    605</a>             action = &quot;Connecting to catalog&quot;;
+<a href="#l606" class="line" id="l606">    606</a>             auto connectResult = compRef.Connect();
+<a href="#l607" class="line" id="l607">    607</a> 
+<a href="#l608" class="line" id="l608">    608</a>             if (connectResult.Status() != ConnectResultStatus::Ok)
+<a href="#l609" class="line" id="l609">    609</a>             {
+<a href="#l610" class="line" id="l610">    610</a>                 hr = E_FAIL;
+<a href="#l611" class="line" id="l611">    611</a>                 error = &quot;Error connecting to catalog&quot;;
+<a href="#l612" class="line" id="l612">    612</a>                 return;
+<a href="#l613" class="line" id="l613">    613</a>             }
+<a href="#l614" class="line" id="l614">    614</a> 
+<a href="#l615" class="line" id="l615">    615</a>             auto catalog = connectResult.PackageCatalog();
+<a href="#l616" class="line" id="l616">    616</a> 
+<a href="#l617" class="line" id="l617">    617</a>             action = &quot;Create find options&quot;;
+<a href="#l618" class="line" id="l618">    618</a>             auto findOptions = CreateFindPackagesOptions();
+<a href="#l619" class="line" id="l619">    619</a> 
+<a href="#l620" class="line" id="l620">    620</a>             action = &quot;Find package&quot;;
+<a href="#l621" class="line" id="l621">    621</a>             auto findResult = catalog.FindPackages(findOptions);
+<a href="#l622" class="line" id="l622">    622</a> 
+<a href="#l623" class="line" id="l623">    623</a>             if (findResult.Status() != FindPackagesResultStatus::Ok)
+<a href="#l624" class="line" id="l624">    624</a>             {
+<a href="#l625" class="line" id="l625">    625</a>                 hr = E_FAIL;
+<a href="#l626" class="line" id="l626">    626</a>                 error = &quot;Error finding packages&quot;;
+<a href="#l627" class="line" id="l627">    627</a>                 return;
+<a href="#l628" class="line" id="l628">    628</a>             }
+<a href="#l629" class="line" id="l629">    629</a> 
+<a href="#l630" class="line" id="l630">    630</a>             action = &quot;Get matches&quot;;
+<a href="#l631" class="line" id="l631">    631</a>             auto matches = findResult.Matches();
+<a href="#l632" class="line" id="l632">    632</a> 
+<a href="#l633" class="line" id="l633">    633</a>             action = &quot;Get source info&quot;;
+<a href="#l634" class="line" id="l634">    634</a>             auto sourceInfo = sourceRef.Info();
+<a href="#l635" class="line" id="l635">    635</a>             auto sourceIdentifier = sourceInfo.Id();
+<a href="#l636" class="line" id="l636">    636</a>             auto sourceType = sourceInfo.Type();
+<a href="#l637" class="line" id="l637">    637</a> 
+<a href="#l638" class="line" id="l638">    638</a>             for (const auto&amp; match : matches)
+<a href="#l639" class="line" id="l639">    639</a>             {
+<a href="#l640" class="line" id="l640">    640</a>                 auto package = match.CatalogPackage();
+<a href="#l641" class="line" id="l641">    641</a> 
+<a href="#l642" class="line" id="l642">    642</a>                 if (ConvertToUTF8(package.Id()) != packageIdentifier)
+<a href="#l643" class="line" id="l643">    643</a>                 {
+<a href="#l644" class="line" id="l644">    644</a>                     continue;
+<a href="#l645" class="line" id="l645">    645</a>                 }
+<a href="#l646" class="line" id="l646">    646</a> 
+<a href="#l647" class="line" id="l647">    647</a>                 auto installed = package.InstalledVersion();
+<a href="#l648" class="line" id="l648">    648</a> 
+<a href="#l649" class="line" id="l649">    649</a>                 if (installed)
+<a href="#l650" class="line" id="l650">    650</a>                 {
+<a href="#l651" class="line" id="l651">    651</a>                     auto installedCatalogInfo = installed.PackageCatalog().Info();
+<a href="#l652" class="line" id="l652">    652</a> 
+<a href="#l653" class="line" id="l653">    653</a>                     if (installedCatalogInfo.Id() == sourceIdentifier &amp;&amp; installedCatalogInfo.Type() == sourceType)
+<a href="#l654" class="line" id="l654">    654</a>                     {
+<a href="#l655" class="line" id="l655">    655</a>                         correlateArchive = true;
+<a href="#l656" class="line" id="l656">    656</a>                         archiveName = ConvertToUTF8(installed.DisplayName());
+<a href="#l657" class="line" id="l657">    657</a>                         archivePublisher = ConvertToUTF8(installed.Publisher());
+<a href="#l658" class="line" id="l658">    658</a>                         break;
+<a href="#l659" class="line" id="l659">    659</a>                     }
+<a href="#l660" class="line" id="l660">    660</a>                 }
+<a href="#l661" class="line" id="l661">    661</a>             }
+<a href="#l662" class="line" id="l662">    662</a>         }
+<a href="#l663" class="line" id="l663">    663</a>         catch (const winrt::hresult_error&amp; hre)
+<a href="#l664" class="line" id="l664">    664</a>         {
+<a href="#l665" class="line" id="l665">    665</a>             hr = hre.code();
+<a href="#l666" class="line" id="l666">    666</a>             error = ConvertToUTF8(hre.message());
+<a href="#l667" class="line" id="l667">    667</a>         }
+<a href="#l668" class="line" id="l668">    668</a>     }
+<a href="#l669" class="line" id="l669">    669</a> 
+<a href="#l670" class="line" id="l670">    670</a>     void ReportResult()
+<a href="#l671" class="line" id="l671">    671</a>     {
+<a href="#l672" class="line" id="l672">    672</a>         if (outputStream)
+<a href="#l673" class="line" id="l673">    673</a>         {
+<a href="#l674" class="line" id="l674">    674</a>             outputStream &lt;&lt; &quot;{&quot; &lt;&lt; std::endl;
+<a href="#l675" class="line" id="l675">    675</a>             outputStream &lt;&lt; JSONPair{ &quot;PackageIdentifier&quot;, packageIdentifier };
+<a href="#l676" class="line" id="l676">    676</a>             outputStream &lt;&lt; JSONPair{ &quot;Source&quot;, sourceName };
+<a href="#l677" class="line" id="l677">    677</a>             outputStream &lt;&lt; JSONPair{ &quot;UseDev&quot;, useDevCLSIDs };
+<a href="#l678" class="line" id="l678">    678</a>             outputStream &lt;&lt; JSONPair{ &quot;Error&quot;, error };
+<a href="#l679" class="line" id="l679">    679</a>             outputStream &lt;&lt; JSONPair{ &quot;Phase&quot;, phase };
+<a href="#l680" class="line" id="l680">    680</a>             outputStream &lt;&lt; JSONPair{ &quot;Action&quot;, action };
+<a href="#l681" class="line" id="l681">    681</a>             outputStream &lt;&lt; JSONPair{ &quot;PackageName&quot;, packageName };
+<a href="#l682" class="line" id="l682">    682</a>             outputStream &lt;&lt; JSONPair{ &quot;PackagePublisher&quot;, packagePublisher };
+<a href="#l683" class="line" id="l683">    683</a>             outputStream &lt;&lt; JSONPair{ &quot;CorrelatePackageKnown&quot;, correlatePackageKnown };
+<a href="#l684" class="line" id="l684">    684</a>             outputStream &lt;&lt; JSONPair{ &quot;PackageKnownName&quot;, packageKnownName };
+<a href="#l685" class="line" id="l685">    685</a>             outputStream &lt;&lt; JSONPair{ &quot;PackageKnownPublisher&quot;, packageKnownPublisher };
+<a href="#l686" class="line" id="l686">    686</a>             outputStream &lt;&lt; JSONPair{ &quot;CorrelateArchive&quot;, correlateArchive };
+<a href="#l687" class="line" id="l687">    687</a>             outputStream &lt;&lt; JSONPair{ &quot;ArchiveName&quot;, archiveName };
+<a href="#l688" class="line" id="l688">    688</a>             outputStream &lt;&lt; JSONPair{ &quot;ArchivePublisher&quot;, archivePublisher };
+<a href="#l689" class="line" id="l689">    689</a>             // Keep at the end to prevent a dangling comma
+<a href="#l690" class="line" id="l690">    690</a>             outputStream &lt;&lt; JSONPair{ &quot;HRESULT&quot;, hr, false } &lt;&lt; &quot;}&quot; &lt;&lt; std::endl;
+<a href="#l691" class="line" id="l691">    691</a>         }
+<a href="#l692" class="line" id="l692">    692</a>     }
+<a href="#l693" class="line" id="l693">    693</a> 
+<a href="#l694" class="line" id="l694">    694</a>     void main(int argc, char** argv)
+<a href="#l695" class="line" id="l695">    695</a>     {
+<a href="#l696" class="line" id="l696">    696</a>         hr = ParseArgs(argc, argv);
+<a href="#l697" class="line" id="l697">    697</a>         if (hr != 0)
+<a href="#l698" class="line" id="l698">    698</a>         {
+<a href="#l699" class="line" id="l699">    699</a>             return;
+<a href="#l700" class="line" id="l700">    700</a>         }
+<a href="#l701" class="line" id="l701">    701</a> 
+<a href="#l702" class="line" id="l702">    702</a>         ValidateArgs();
+<a href="#l703" class="line" id="l703">    703</a>         if (FAILED(hr))
+<a href="#l704" class="line" id="l704">    704</a>         {
+<a href="#l705" class="line" id="l705">    705</a>             return;
+<a href="#l706" class="line" id="l706">    706</a>         }
+<a href="#l707" class="line" id="l707">    707</a> 
+<a href="#l708" class="line" id="l708">    708</a>         if (metadataCollection)
+<a href="#l709" class="line" id="l709">    709</a>         {
+<a href="#l710" class="line" id="l710">    710</a>             LoadWingetUtil();
+<a href="#l711" class="line" id="l711">    711</a>             if (FAILED(hr))
+<a href="#l712" class="line" id="l712">    712</a>             {
+<a href="#l713" class="line" id="l713">    713</a>                 return;
+<a href="#l714" class="line" id="l714">    714</a>             }
+<a href="#l715" class="line" id="l715">    715</a>         }
+<a href="#l716" class="line" id="l716">    716</a> 
+<a href="#l717" class="line" id="l717">    717</a>         auto co_uninitialize = wil::CoInitializeEx();
+<a href="#l718" class="line" id="l718">    718</a> 
+<a href="#l719" class="line" id="l719">    719</a>         // Execute the install step
+<a href="#l720" class="line" id="l720">    720</a>         phase = &quot;Install&quot;;
+<a href="#l721" class="line" id="l721">    721</a>         std::cout &lt;&lt; &quot;Connecting to PackageManager...&quot; &lt;&lt; std::endl;
+<a href="#l722" class="line" id="l722">    722</a>         Install();
+<a href="#l723" class="line" id="l723">    723</a>         if (FAILED(hr))
+<a href="#l724" class="line" id="l724">    724</a>         {
+<a href="#l725" class="line" id="l725">    725</a>             return;
+<a href="#l726" class="line" id="l726">    726</a>         }
+<a href="#l727" class="line" id="l727">    727</a> 
+<a href="#l728" class="line" id="l728">    728</a>         // Check for the installed package being correlated when the remote package is known,
+<a href="#l729" class="line" id="l729">    729</a>         // as when trying to determine information about a single known package.
+<a href="#l730" class="line" id="l730">    730</a>         phase = &quot;Correlate when package known&quot;;
+<a href="#l731" class="line" id="l731">    731</a>         std::cout &lt;&lt; &quot;Correlating package when known...&quot; &lt;&lt; std::endl;
+<a href="#l732" class="line" id="l732">    732</a>         CorrelatePackageKnown();
+<a href="#l733" class="line" id="l733">    733</a> 
+<a href="#l734" class="line" id="l734">    734</a>         // Check for the installed package being correlated when archiving local package information.
+<a href="#l735" class="line" id="l735">    735</a>         phase = &quot;Correlate when archiving&quot;;
+<a href="#l736" class="line" id="l736">    736</a>         std::cout &lt;&lt; &quot;Correlating package when archiving...&quot; &lt;&lt; std::endl;
+<a href="#l737" class="line" id="l737">    737</a>         CorrelateArchive();
+<a href="#l738" class="line" id="l738">    738</a> 
+<a href="#l739" class="line" id="l739">    739</a>         std::cout &lt;&lt; &quot;Done&quot; &lt;&lt; std::endl;
+<a href="#l740" class="line" id="l740">    740</a>         phase = &quot;Completed&quot;;
+<a href="#l741" class="line" id="l741">    741</a>         action.clear();
+<a href="#l742" class="line" id="l742">    742</a>     }
+<a href="#l743" class="line" id="l743">    743</a> };
+<a href="#l744" class="line" id="l744">    744</a> 
+<a href="#l745" class="line" id="l745">    745</a> int main(int argc, char** argv) try
+<a href="#l746" class="line" id="l746">    746</a> {
+<a href="#l747" class="line" id="l747">    747</a>     Main mainMain;
+<a href="#l748" class="line" id="l748">    748</a>     mainMain.main(argc, argv);
+<a href="#l749" class="line" id="l749">    749</a>     mainMain.ReportResult();
+<a href="#l750" class="line" id="l750">    750</a>     return mainMain.hr;
+<a href="#l751" class="line" id="l751">    751</a> }
+<a href="#l752" class="line" id="l752">    752</a> catch (const std::exception&amp; e)
+<a href="#l753" class="line" id="l753">    753</a> {
+<a href="#l754" class="line" id="l754">    754</a>     std::cout &lt;&lt; &quot;Exception occurred: &quot; &lt;&lt; e.what() &lt;&lt; std::endl;
+<a href="#l755" class="line" id="l755">    755</a>     return 1;
+<a href="#l756" class="line" id="l756">    756</a> }
+<a href="#l757" class="line" id="l757">    757</a> catch (...)
+<a href="#l758" class="line" id="l758">    758</a> {
+<a href="#l759" class="line" id="l759">    759</a>     std::cout &lt;&lt; &quot;Unknown exception occurred&quot; &lt;&lt; std::endl;
+<a href="#l760" class="line" id="l760">    760</a>     return 1;
+<a href="#l761" class="line" id="l761">    761</a> }
+</pre>
+</div>
+</body>
+</html>

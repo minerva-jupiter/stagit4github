@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Use digest verification APIs for MSIX when available (#4564) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/57907ac7fa681703a4536e3b4deca8e17ee875d1.html">57907ac7fa681703a4536e3b4deca8e17ee875d1</a>
+<b>parent</b> <a href="../commit/ffab684f4d893e4d4f0bed0d9faa8f9929aa8408.html">ffab684f4d893e4d4f0bed0d9faa8f9929aa8408</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 19 Jun 2024 14:35:42 -0700
+
+Use digest verification APIs for MSIX when available (#4564)
+
+## Change
+When available (10.0.23504.0 according to MSDN), use the MSIX digest
+APIs to verify the package during streaming installation. When not
+available, download instead.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ExecutionContextData.h</a></td><td> | </td><td class="num">9</td><td><span class="i">++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/DownloadFlow.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">+++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCommonCore/Deployment.cpp</a></td><td> | </td><td class="num">136</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCommonCore/MsixInfo.cpp</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a></td><td> | </td><td class="num">22</td><td><span class="i">+++++++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h</a></td><td> | </td><td class="num">5</td><td><span class="i">++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerCommonCore/pch.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></td><td> | </td><td class="num">3</td><td><span class="i">+</span><span class="d">--</span></td></tr>
+</table></pre><pre>10 files changed, 164 insertions(+), 46 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ExecutionContextData.h.html">src/AppInstallerCLICore/ExecutionContextData.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionContextData.h.html">src/AppInstallerCLICore/ExecutionContextData.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -65,6 +65,7 @@ namespace AppInstaller::CLI::Execution
+</a>         DownloadDirectory,
+         ModifyPath,
+         RepairString,
+<a href="#h0-0-3" id="h0-0-3" class="i">+        MsixDigests,
+</a>         Max
+     };
+ 
+<a href="#h0-1" id="h0-1" class="h">@@ -276,11 +277,17 @@ namespace AppInstaller::CLI::Execution
+</a>             using value_t = std::string;
+         };
+ 
+<a href="#h0-1-3" id="h0-1-3" class="d">-
+</a>         template&lt;&gt;
+         struct DataMapping&lt;Data::RepairString&gt;
+         {
+             using value_t = std::string;
+         };
+<a href="#h0-1-9" id="h0-1-9" class="i">+
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+        template&lt;&gt;
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+        struct DataMapping&lt;Data::MsixDigests&gt;
+</a><a href="#h0-1-12" id="h0-1-12" class="i">+        {
+</a><a href="#h0-1-13" id="h0-1-13" class="i">+            // The pair is { URL, Digest }
+</a><a href="#h0-1-14" id="h0-1-14" class="i">+            using value_t = std::vector&lt;std::pair&lt;std::string, std::wstring&gt;&gt;;
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+        };
+</a>     }
+ }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/DownloadFlow.cpp.html">src/AppInstallerCLICore/Workflows/DownloadFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/DownloadFlow.cpp.html">src/AppInstallerCLICore/Workflows/DownloadFlow.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -4,6 +4,7 @@
+</a> #include &quot;DownloadFlow.h&quot;
+ #include &quot;MSStoreInstallerHandler.h&quot;
+ #include &lt;winget/Filesystem.h&gt;
+<a href="#h1-0-3" id="h1-0-3" class="i">+#include &lt;AppInstallerDeployment.h&gt;
+</a> #include &lt;AppInstallerDownloader.h&gt;
+ #include &lt;AppInstallerRuntime.h&gt;
+ #include &lt;AppInstallerMsixInfo.h&gt;
+<a href="#h1-1" id="h1-1" class="h">@@ -229,9 +230,11 @@ namespace AppInstaller::CLI::Workflow
+</a>                 // we can just verify signature hash without a full download and do a streaming install.
+                 // Even if we have the signature hash, we still do a full download if InstallerDownloadOnly
+                 // flag is set, or if we need to use a proxy (as deployment APIs won&#39;t use proxy for us).
+<a href="#h1-1-3" id="h1-1-3" class="i">+                // Finally, we require the digest API for streaming install as well.
+</a>                 if (installer.SignatureSha256.empty()
+                     || installerDownloadOnly
+<a href="#h1-1-6" id="h1-1-6" class="d">-                    || Network().GetProxyUri())
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+                    || Network().GetProxyUri()
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+                    || !Deployment::IsExpectedDigestsSupported())
+</a>                 {
+                     context &lt;&lt; DownloadInstallerFile;
+                 }
+<a href="#h1-2" id="h1-2" class="h">@@ -409,6 +412,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             auto signatureHash = msixInfo.GetSignatureHash();
+ 
+             context.Add&lt;Execution::Data::HashPair&gt;(std::make_pair(installer.SignatureSha256, signatureHash));
+<a href="#h1-2-3" id="h1-2-3" class="i">+            context.Add&lt;Execution::Data::MsixDigests&gt;({ std::make_pair(installer.Url, msixInfo.GetDigest()) });
+</a>         }
+         catch (...)
+         {
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -189,6 +189,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         void MsixInstall(Execution::Context&amp; context)
+         {
+             std::string uri;
+<a href="#h2-0-3" id="h2-0-3" class="i">+            Deployment::Options deploymentOptions;
+</a>             if (context.Contains(Execution::Data::InstallerPath))
+             {
+                 uri = context.Get&lt;Execution::Data::InstallerPath&gt;().u8string();
+<a href="#h2-1" id="h2-1" class="h">@@ -196,8 +197,11 @@ namespace AppInstaller::CLI::Workflow
+</a>             else
+             {
+                 uri = context.Get&lt;Execution::Data::Installer&gt;()-&gt;Url;
+<a href="#h2-1-3" id="h2-1-3" class="i">+                deploymentOptions.ExpectedDigests = context.Get&lt;Execution::Data::MsixDigests&gt;();
+</a>             }
+ 
+<a href="#h2-1-6" id="h2-1-6" class="i">+            deploymentOptions.SkipReputationCheck = WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerTrusted);
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+
+</a>             bool isMachineScope = Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine;
+ 
+             // TODO: There was a bug in deployment api if provision api was called in packaged context.
+<a href="#h2-2" id="h2-2" class="h">@@ -220,11 +224,11 @@ namespace AppInstaller::CLI::Workflow
+</a>                     {
+                         if (isMachineScope)
+                         {
+<a href="#h2-2-3" id="h2-2-3" class="d">-                            return Deployment::AddPackageMachineScope(uri, callback);
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+                            return Deployment::AddPackageMachineScope(uri, deploymentOptions, callback);
+</a>                         }
+                         else
+                         {
+<a href="#h2-2-8" id="h2-2-8" class="d">-                            return Deployment::AddPackageWithDeferredFallback(uri, WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerTrusted), callback);
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+                            return Deployment::AddPackageWithDeferredFallback(uri, deploymentOptions, callback);
+</a>                         }
+                     });
+             }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.html">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj</a> b/<a href="../file/src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj.html">src/AppInstallerCommonCore/AppInstallerCommonCore.vcxproj</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -9,7 +9,7 @@
+</a>     &lt;ProjectGuid&gt;{5890d6ed-7c3b-40f3-b436-b54f640d9e65}&lt;/ProjectGuid&gt;
+     &lt;Keyword&gt;Win32Proj&lt;/Keyword&gt;
+     &lt;RootNamespace&gt;AppInstallerLoggingCore&lt;/RootNamespace&gt;
+<a href="#h3-0-3" id="h3-0-3" class="d">-    &lt;WindowsTargetPlatformVersion&gt;10.0.22000.0&lt;/WindowsTargetPlatformVersion&gt;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    &lt;WindowsTargetPlatformVersion&gt;10.0.22621.0&lt;/WindowsTargetPlatformVersion&gt;
+</a>     &lt;WindowsTargetPlatformMinVersion&gt;10.0.17763.0&lt;/WindowsTargetPlatformMinVersion&gt;
+     &lt;WindowsSDKDesktopARMSupport&gt;true&lt;/WindowsSDKDesktopARMSupport&gt;
+     &lt;WindowsSDKDesktopARM64Support&gt;true&lt;/WindowsSDKDesktopARM64Support&gt;
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCommonCore/Deployment.cpp.html">src/AppInstallerCommonCore/Deployment.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Deployment.cpp.html">src/AppInstallerCommonCore/Deployment.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -66,49 +66,108 @@ namespace AppInstaller::Deployment
+</a> 
+             return S_OK;
+         }
+<a href="#h4-0-3" id="h4-0-3" class="i">+
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        bool ShouldUseReputationCheck(const Options&amp; options)
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+        {
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+            return options.ExpectedDigests.empty() &amp;&amp; !options.SkipReputationCheck;
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+        }
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+        IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; StartAddPackage(PackageManager&amp; packageManager, const winrt::Windows::Foundation::Uri&amp; uri, const Options&amp; options)
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+        {
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+            if (!options.ExpectedDigests.empty())
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+            {
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+                // Must use API that supports digests
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+                THROW_WIN32_IF(ERROR_NOT_SUPPORTED, !IsExpectedDigestsSupported());
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+                AddPackageOptions addPackageOptions;
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+                for (const auto&amp; digest : options.ExpectedDigests)
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+                {
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+                    addPackageOptions.ExpectedDigests().Insert(Uri{ Utility::ConvertToUTF16(digest.first) }, digest.second);
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+                }
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+                return packageManager.AddPackageByUriAsync(uri, addPackageOptions);
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+            }
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+            else if (options.SkipReputationCheck)
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+            {
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+                return packageManager.AddPackageAsync(
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+                    uri,
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+                    nullptr, /*dependencyPackageUris*/
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+                    DeploymentOptions::None,
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+                    nullptr, /*targetVolume*/
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+                    nullptr, /*optionalAndRelatedPackageFamilyNames*/
+</a><a href="#h4-0-33" id="h4-0-33" class="i">+                    nullptr, /*optionalPackageUris*/
+</a><a href="#h4-0-34" id="h4-0-34" class="i">+                    nullptr /*relatedPackageUris*/);
+</a><a href="#h4-0-35" id="h4-0-35" class="i">+            }
+</a><a href="#h4-0-36" id="h4-0-36" class="i">+            else
+</a><a href="#h4-0-37" id="h4-0-37" class="i">+            {
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+                return packageManager.RequestAddPackageAsync(
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+                    uri,
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+                    nullptr, /*dependencyPackageUris*/
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+                    DeploymentOptions::None,
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+                    nullptr, /*targetVolume*/
+</a><a href="#h4-0-43" id="h4-0-43" class="i">+                    nullptr, /*optionalAndRelatedPackageFamilyNames*/
+</a><a href="#h4-0-44" id="h4-0-44" class="i">+                    nullptr /*relatedPackageUris*/);
+</a><a href="#h4-0-45" id="h4-0-45" class="i">+            }
+</a><a href="#h4-0-46" id="h4-0-46" class="i">+        }
+</a><a href="#h4-0-47" id="h4-0-47" class="i">+
+</a><a href="#h4-0-48" id="h4-0-48" class="i">+        IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; StartStagePackage(PackageManager&amp; packageManager, const winrt::Windows::Foundation::Uri&amp; uri, const Options&amp; options)
+</a><a href="#h4-0-49" id="h4-0-49" class="i">+        {
+</a><a href="#h4-0-50" id="h4-0-50" class="i">+            if (!options.ExpectedDigests.empty())
+</a><a href="#h4-0-51" id="h4-0-51" class="i">+            {
+</a><a href="#h4-0-52" id="h4-0-52" class="i">+                // Must use API that supports digests
+</a><a href="#h4-0-53" id="h4-0-53" class="i">+                THROW_WIN32_IF(ERROR_NOT_SUPPORTED, !IsExpectedDigestsSupported());
+</a><a href="#h4-0-54" id="h4-0-54" class="i">+
+</a><a href="#h4-0-55" id="h4-0-55" class="i">+                StagePackageOptions stagePackageOptions;
+</a><a href="#h4-0-56" id="h4-0-56" class="i">+
+</a><a href="#h4-0-57" id="h4-0-57" class="i">+                for (const auto&amp; digest : options.ExpectedDigests)
+</a><a href="#h4-0-58" id="h4-0-58" class="i">+                {
+</a><a href="#h4-0-59" id="h4-0-59" class="i">+                    stagePackageOptions.ExpectedDigests().Insert(Uri{ Utility::ConvertToUTF16(digest.first) }, digest.second);
+</a><a href="#h4-0-60" id="h4-0-60" class="i">+                }
+</a><a href="#h4-0-61" id="h4-0-61" class="i">+
+</a><a href="#h4-0-62" id="h4-0-62" class="i">+                return packageManager.StagePackageByUriAsync(uri, stagePackageOptions);
+</a><a href="#h4-0-63" id="h4-0-63" class="i">+            }
+</a><a href="#h4-0-64" id="h4-0-64" class="i">+            else
+</a><a href="#h4-0-65" id="h4-0-65" class="i">+            {
+</a><a href="#h4-0-66" id="h4-0-66" class="i">+                return packageManager.StagePackageAsync(
+</a><a href="#h4-0-67" id="h4-0-67" class="i">+                    uri,
+</a><a href="#h4-0-68" id="h4-0-68" class="i">+                    nullptr /*dependencyPackageUris*/);
+</a><a href="#h4-0-69" id="h4-0-69" class="i">+            }
+</a><a href="#h4-0-70" id="h4-0-70" class="i">+        }
+</a><a href="#h4-0-71" id="h4-0-71" class="i">+    }
+</a><a href="#h4-0-72" id="h4-0-72" class="i">+
+</a><a href="#h4-0-73" id="h4-0-73" class="i">+    std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const Options&amp; options)
+</a><a href="#h4-0-74" id="h4-0-74" class="i">+    {
+</a><a href="#h4-0-75" id="h4-0-75" class="i">+        out &lt;&lt; &quot; { SkipReputationCheck = &quot; &lt;&lt; options.SkipReputationCheck &lt;&lt; &quot;, ExpectedDigests = {&quot;;
+</a><a href="#h4-0-76" id="h4-0-76" class="i">+
+</a><a href="#h4-0-77" id="h4-0-77" class="i">+        for (const auto&amp; digest : options.ExpectedDigests)
+</a><a href="#h4-0-78" id="h4-0-78" class="i">+        {
+</a><a href="#h4-0-79" id="h4-0-79" class="i">+            out &lt;&lt; &quot; { URI = &quot; &lt;&lt; digest.first &lt;&lt; &quot;, Digest = &quot; &lt;&lt; Utility::ConvertToUTF8(digest.second) &lt;&lt; &quot; } &quot;;
+</a><a href="#h4-0-80" id="h4-0-80" class="i">+        }
+</a><a href="#h4-0-81" id="h4-0-81" class="i">+
+</a><a href="#h4-0-82" id="h4-0-82" class="i">+        out &lt;&lt; &quot;} }&quot;;
+</a><a href="#h4-0-83" id="h4-0-83" class="i">+
+</a><a href="#h4-0-84" id="h4-0-84" class="i">+        return out;
+</a>     }
+ 
+     void AddPackage(
+         const winrt::Windows::Foundation::Uri&amp; uri,
+<a href="#h4-0-89" id="h4-0-89" class="d">-        winrt::Windows::Management::Deployment::DeploymentOptions options,
+</a><a href="#h4-0-90" id="h4-0-90" class="d">-        bool skipSmartScreen,
+</a><a href="#h4-0-91" id="h4-0-91" class="i">+        const Options&amp; options,
+</a>         IProgressCallback&amp; callback)
+     {
+         size_t id = GetDeploymentOperationId();
+<a href="#h4-0-95" id="h4-0-95" class="d">-        AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting AddPackage operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(uri.AbsoluteUri().c_str()) &lt;&lt; &quot; SkipSmartScreen: &quot; &lt;&lt; skipSmartScreen);
+</a><a href="#h4-0-96" id="h4-0-96" class="i">+        AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting AddPackage operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(uri.AbsoluteUri().c_str()) &lt;&lt; &quot; Options: &quot; &lt;&lt; options);
+</a> 
+         PackageManager packageManager;
+ 
+<a href="#h4-0-100" id="h4-0-100" class="d">-        IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; deployOperation;
+</a><a href="#h4-0-101" id="h4-0-101" class="d">-
+</a><a href="#h4-0-102" id="h4-0-102" class="d">-        if (skipSmartScreen)
+</a><a href="#h4-0-103" id="h4-0-103" class="d">-        {
+</a><a href="#h4-0-104" id="h4-0-104" class="d">-            deployOperation = packageManager.AddPackageAsync(
+</a><a href="#h4-0-105" id="h4-0-105" class="d">-                uri,
+</a><a href="#h4-0-106" id="h4-0-106" class="d">-                nullptr, /*dependencyPackageUris*/
+</a><a href="#h4-0-107" id="h4-0-107" class="d">-                options,
+</a><a href="#h4-0-108" id="h4-0-108" class="d">-                nullptr, /*targetVolume*/
+</a><a href="#h4-0-109" id="h4-0-109" class="d">-                nullptr, /*optionalAndRelatedPackageFamilyNames*/
+</a><a href="#h4-0-110" id="h4-0-110" class="d">-                nullptr, /*optionalPackageUris*/
+</a><a href="#h4-0-111" id="h4-0-111" class="d">-                nullptr /*relatedPackageUris*/);
+</a><a href="#h4-0-112" id="h4-0-112" class="d">-        }
+</a><a href="#h4-0-113" id="h4-0-113" class="d">-        else
+</a><a href="#h4-0-114" id="h4-0-114" class="d">-        {
+</a><a href="#h4-0-115" id="h4-0-115" class="d">-            deployOperation = packageManager.RequestAddPackageAsync(
+</a><a href="#h4-0-116" id="h4-0-116" class="d">-                uri,
+</a><a href="#h4-0-117" id="h4-0-117" class="d">-                nullptr, /*dependencyPackageUris*/
+</a><a href="#h4-0-118" id="h4-0-118" class="d">-                options,
+</a><a href="#h4-0-119" id="h4-0-119" class="d">-                nullptr, /*targetVolume*/
+</a><a href="#h4-0-120" id="h4-0-120" class="d">-                nullptr, /*optionalAndRelatedPackageFamilyNames*/
+</a><a href="#h4-0-121" id="h4-0-121" class="d">-                nullptr /*relatedPackageUris*/);
+</a><a href="#h4-0-122" id="h4-0-122" class="d">-        }
+</a><a href="#h4-0-123" id="h4-0-123" class="i">+        IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; deployOperation = StartAddPackage(packageManager, uri, options);
+</a> 
+         WaitForDeployment(deployOperation, id, callback);
+     }
+ 
+     bool AddPackageWithDeferredFallback(
+         std::string_view uri,
+<a href="#h4-0-130" id="h4-0-130" class="d">-        bool skipSmartScreen,
+</a><a href="#h4-0-131" id="h4-0-131" class="i">+        const Options&amp; options,
+</a>         IProgressCallback&amp; callback)
+     {
+         PackageManager packageManager;
+<a href="#h4-1" id="h4-1" class="h">@@ -129,24 +188,24 @@ namespace AppInstaller::Deployment
+</a> 
+         Uri uriObject(Utility::ConvertToUTF16(uri));
+ 
+<a href="#h4-1-3" id="h4-1-3" class="d">-        if (!skipSmartScreen)
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+        if (ShouldUseReputationCheck(options))
+</a>         {
+             // The only way to get SmartScreen is to use RequestAddPackageAsync, so we will have to start with that.
+             size_t id = GetDeploymentOperationId();
+             AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting RequestAddPackageAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; uri);
+ 
+<a href="#h4-1-10" id="h4-1-10" class="d">-            DeploymentOptions options = DeploymentOptions::None;
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+            DeploymentOptions deploymentOptions = DeploymentOptions::None;
+</a>             // Optimization to keep files if the package is in use. Only available in a newer OS per:
+             // https://docs.microsoft.com/en-us/uwp/api/Windows.Management.Deployment.DeploymentOptions
+             if (Runtime::IsCurrentOSVersionGreaterThanOrEqual(Utility::Version{ &quot;10.0.18362.0&quot; }))
+             {
+<a href="#h4-1-16" id="h4-1-16" class="d">-                options = DeploymentOptions::RetainFilesOnFailure;
+</a><a href="#h4-1-17" id="h4-1-17" class="i">+                deploymentOptions = DeploymentOptions::RetainFilesOnFailure;
+</a>             }
+ 
+             IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; deployOperation = packageManager.RequestAddPackageAsync(
+                 uriObject,
+                 nullptr, /*dependencyPackageUris*/
+<a href="#h4-1-23" id="h4-1-23" class="d">-                options,
+</a><a href="#h4-1-24" id="h4-1-24" class="i">+                deploymentOptions,
+</a>                 nullptr, /*targetVolume*/
+                 nullptr, /*optionalAndRelatedPackageFamilyNames*/
+                 nullptr /*relatedPackageUris*/);
+<a href="#h4-2" id="h4-2" class="h">@@ -167,9 +226,9 @@ namespace AppInstaller::Deployment
+</a>         progress.SetRange(0, 95);
+         {
+             size_t id = GetDeploymentOperationId();
+<a href="#h4-2-3" id="h4-2-3" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting StagePackageAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; uri);
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting StagePackageAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; uri &lt;&lt; &quot; Options: &quot; &lt;&lt; options);
+</a> 
+<a href="#h4-2-6" id="h4-2-6" class="d">-            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; stageOperation = packageManager.StagePackageAsync(uriObject, nullptr);
+</a><a href="#h4-2-7" id="h4-2-7" class="i">+            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; stageOperation = StartStagePackage(packageManager, uriObject, options);
+</a>             WaitForDeployment(stageOperation, id, progress);
+         }
+ 
+<a href="#h4-3" id="h4-3" class="h">@@ -214,6 +273,7 @@ namespace AppInstaller::Deployment
+</a> 
+     bool AddPackageMachineScope(
+         std::string_view uri,
+<a href="#h4-3-3" id="h4-3-3" class="i">+        const Options&amp; options,
+</a>         IProgressCallback&amp; callback)
+     {
+         PackageManager packageManager;
+<a href="#h4-4" id="h4-4" class="h">@@ -240,9 +300,9 @@ namespace AppInstaller::Deployment
+</a>         progress.SetRange(0, 90);
+         {
+             size_t id = GetDeploymentOperationId();
+<a href="#h4-4-3" id="h4-4-3" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting StagePackageAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; uri);
+</a><a href="#h4-4-4" id="h4-4-4" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting StagePackageAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; uri &lt;&lt; &quot; Options: &quot; &lt;&lt; options);
+</a> 
+<a href="#h4-4-6" id="h4-4-6" class="d">-            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; stageOperation = packageManager.StagePackageAsync(uriObject, nullptr);
+</a><a href="#h4-4-7" id="h4-4-7" class="i">+            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; stageOperation = StartStagePackage(packageManager, uriObject, options);
+</a>             WaitForDeployment(stageOperation, id, progress);
+         }
+ 
+<a href="#h4-5" id="h4-5" class="h">@@ -338,4 +398,10 @@ namespace AppInstaller::Deployment
+</a> 
+         WaitForDeployment(deployOperation, id, callback);
+     }
+<a href="#h4-5-3" id="h4-5-3" class="i">+
+</a><a href="#h4-5-4" id="h4-5-4" class="i">+    bool IsExpectedDigestsSupported()
+</a><a href="#h4-5-5" id="h4-5-5" class="i">+    {
+</a><a href="#h4-5-6" id="h4-5-6" class="i">+        static bool s_IsExpectedDigestsSupported = Metadata::ApiInformation::IsPropertyPresent(winrt::name_of&lt;AddPackageOptions&gt;(), L&quot;ExpectedDigests&quot;);
+</a><a href="#h4-5-7" id="h4-5-7" class="i">+        return s_IsExpectedDigestsSupported;
+</a><a href="#h4-5-8" id="h4-5-8" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCommonCore/MsixInfo.cpp.html">src/AppInstallerCommonCore/MsixInfo.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/MsixInfo.cpp.html">src/AppInstallerCommonCore/MsixInfo.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -625,6 +625,24 @@ namespace AppInstaller::Msix
+</a>         return Utility::SHA256::ComputeHash(signature.data(), static_cast&lt;uint32_t&gt;(signature.size()));
+     }
+ 
+<a href="#h5-0-3" id="h5-0-3" class="i">+    std::wstring MsixInfo::GetDigest()
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    {
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+        ComPtr&lt;IAppxDigestProvider&gt; digestProvider;
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+        if (m_isBundle)
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+        {
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+            THROW_IF_FAILED(m_bundleReader.As(&amp;digestProvider));
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+        }
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+        else
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+        {
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+            THROW_IF_FAILED(m_packageReader.As(&amp;digestProvider));
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+        }
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+        wil::unique_cotaskmem_string result;
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+        THROW_IF_FAILED(digestProvider-&gt;GetDigest(&amp;result));
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+
+</a><a href="#h5-0-18" id="h5-0-18" class="i">+        return result.get();
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+    }
+</a><a href="#h5-0-20" id="h5-0-20" class="i">+
+</a>     std::wstring MsixInfo::GetPackageFullNameWide()
+     {
+         ComPtr&lt;IAppxManifestPackageId&gt; packageId;
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCommonCore/Public/AppInstallerDeployment.h.html">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerDeployment.h.html">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -7,12 +7,24 @@
+</a> 
+ namespace AppInstaller::Deployment
+ {
+<a href="#h6-0-3" id="h6-0-3" class="i">+    // A set of optional values useful across many of the deployment functions.
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+    struct Options
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+    {
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+        Options() = default;
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+        explicit Options(bool skipReputationCheck) : SkipReputationCheck(skipReputationCheck) {}
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+        // Avoid using APIs that make a reputation check.
+</a><a href="#h6-0-10" id="h6-0-10" class="i">+        bool SkipReputationCheck = false;
+</a><a href="#h6-0-11" id="h6-0-11" class="i">+
+</a><a href="#h6-0-12" id="h6-0-12" class="i">+        // The pairs of URI+Digest to enforce.
+</a><a href="#h6-0-13" id="h6-0-13" class="i">+        std::vector&lt;std::pair&lt;std::string, std::wstring&gt;&gt; ExpectedDigests;
+</a><a href="#h6-0-14" id="h6-0-14" class="i">+    };
+</a><a href="#h6-0-15" id="h6-0-15" class="i">+
+</a>     // Calls winrt::Windows::Management::Deployment::PackageManager::AddPackageAsync if skipSmartScreen is true,
+     // Otherwise, calls winrt::Windows::Management::Deployment::PackageManager::RequestAddPackageAsync
+     void AddPackage(
+         const winrt::Windows::Foundation::Uri&amp; uri,
+<a href="#h6-0-20" id="h6-0-20" class="d">-        winrt::Windows::Management::Deployment::DeploymentOptions options,
+</a><a href="#h6-0-21" id="h6-0-21" class="d">-        bool skipSmartScreen,
+</a><a href="#h6-0-22" id="h6-0-22" class="i">+        const Options&amp; options,
+</a>         IProgressCallback&amp; callback);
+ 
+     // Calls winrt::Windows::Management::Deployment::PackageManager::AddPackageAsync if skipSmartScreen is true,
+<a href="#h6-1" id="h6-1" class="h">@@ -22,7 +34,7 @@ namespace AppInstaller::Deployment
+</a>     // Returns true if the registration was deferred; false if not.
+     bool AddPackageWithDeferredFallback(
+         std::string_view uri,
+<a href="#h6-1-3" id="h6-1-3" class="d">-        bool skipSmartScreen,
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+        const Options&amp; options,
+</a>         IProgressCallback&amp; callback);
+ 
+     // Calls winrt::Windows::Management::Deployment::PackageManager::RemovePackageAsync
+<a href="#h6-2" id="h6-2" class="h">@@ -36,6 +48,7 @@ namespace AppInstaller::Deployment
+</a>     //       winrt::Windows::Management::Deployment::PackageManager::RegisterPackageByFullNameAsync if not running as system
+     bool AddPackageMachineScope(
+         std::string_view uri,
+<a href="#h6-2-3" id="h6-2-3" class="i">+        const Options&amp; options,
+</a>         IProgressCallback&amp; callback);
+ 
+     // Calls winrt::Windows::Management::Deployment::PackageManager::DeprovisionPackageForAllUsersAsync
+<a href="#h6-3" id="h6-3" class="h">@@ -52,4 +65,7 @@ namespace AppInstaller::Deployment
+</a>     void RegisterPackage(
+         std::string_view packageFamilyName,
+         IProgressCallback&amp; callback);
+<a href="#h6-3-3" id="h6-3-3" class="i">+
+</a><a href="#h6-3-4" id="h6-3-4" class="i">+    // Determines if the ExpectedDigests property (and thus feture) is supported on the current version of Windows.
+</a><a href="#h6-3-5" id="h6-3-5" class="i">+    bool IsExpectedDigestsSupported();
+</a> }
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h.html">src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h.html">src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -73,9 +73,12 @@ namespace AppInstaller::Msix
+</a>         // If skipP7xFileId is true, returns content of converted .p7s
+         std::vector&lt;byte&gt; GetSignature(bool skipP7xFileId = false);
+ 
+<a href="#h7-0-3" id="h7-0-3" class="d">-        // Get the signature sha256 hash.
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+        // Gets the signature sha256 hash.
+</a>         Utility::SHA256::HashBuffer GetSignatureHash();
+ 
+<a href="#h7-0-7" id="h7-0-7" class="i">+        // Gets the digest of the package.
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+        std::wstring GetDigest();
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+
+</a>         // Gets the package full name.
+         std::wstring GetPackageFullNameWide();
+         std::string GetPackageFullName();
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerCommonCore/pch.h.html">src/AppInstallerCommonCore/pch.h</a> b/<a href="../file/src/AppInstallerCommonCore/pch.h.html">src/AppInstallerCommonCore/pch.h</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -86,6 +86,7 @@
+</a> #include &lt;winrt/Windows.ApplicationModel.AppExtensions.h&gt;
+ #include &lt;winrt/Windows.Foundation.h&gt;
+ #include &lt;winrt/Windows.Foundation.Collections.h&gt;
+<a href="#h8-0-3" id="h8-0-3" class="i">+#include &lt;winrt/Windows.Foundation.Metadata.h&gt;
+</a> #include &lt;winrt/Windows.Management.Deployment.h&gt;
+ #include &lt;winrt/Windows.Security.Cryptography.h&gt;
+ #include &lt;winrt/Windows.Services.Store.h&gt;
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -527,8 +527,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 winrt::Windows::Foundation::Uri uri = winrt::Windows::Foundation::Uri(localFile.c_str());
+                 Deployment::AddPackage(
+                     uri,
+<a href="#h9-0-3" id="h9-0-3" class="d">-                    winrt::Windows::Management::Deployment::DeploymentOptions::None,
+</a><a href="#h9-0-4" id="h9-0-4" class="d">-                    WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::Trusted),
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+                    Deployment::Options{ WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::Trusted) },
+</a>                     progress);
+ 
+                 if (download)
+</pre>
+</div>
+</body>
+</html>

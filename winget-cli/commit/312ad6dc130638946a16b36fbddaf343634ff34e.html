@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Remove ARP matching for single ARP change, and consider publisher+name for matching (#2119) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/312ad6dc130638946a16b36fbddaf343634ff34e.html">312ad6dc130638946a16b36fbddaf343634ff34e</a>
+<b>parent</b> <a href="../commit/0e9711356d8d2704c15027b53f21a2950b3522a2.html">0e9711356d8d2704c15027b53f21a2950b3522a2</a>
+<b>Author:</b> Chacón &lt;<a href="mailto:lechacon@users.noreply.github.com">lechacon@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Wed, 27 Apr 2022 21:44:21 -0700
+
+Remove ARP matching for single ARP change, and consider publisher+name for matching (#2119)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLIE2ETests/ListCommand.cs</a></td><td> | </td><td class="num">6</td><td><span class="i">++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/ARPChanges.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLITests/Correlation.cpp</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/ARPCorrelation.cpp</a></td><td> | </td><td class="num">40</td><td><span class="i">+++++++++++++++++++</span><span class="d">---------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h</a></td><td> | </td><td class="num">3</td><td><span class="i">++</span><span class="d">-</span></td></tr>
+</table></pre><pre>5 files changed, 30 insertions(+), 33 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLIE2ETests/ListCommand.cs.html">src/AppInstallerCLIE2ETests/ListCommand.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/ListCommand.cs.html">src/AppInstallerCLIE2ETests/ListCommand.cs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -34,11 +34,9 @@ namespace AppInstallerCLIE2ETests
+</a> 
+             result = TestCommon.RunAICLICommand(&quot;list&quot;, productCode);
+             Assert.AreEqual(Constants.ErrorCode.S_OK, result.ExitCode);
+<a href="#h0-0-3" id="h0-0-3" class="d">-            Assert.True(result.StdOut.Contains(productCode));
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            Assert.True(result.StdOut.Contains(&quot;AppInstallerTest.TestExeInstaller&quot;));
+</a>             Assert.True(result.StdOut.Contains(&quot;1.0.0.0&quot;));
+<a href="#h0-0-6" id="h0-0-6" class="d">-            // TODO: Uncomment when install starts tracking packages. Until then this won&#39;t be true because our install
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-            //       in this test is using a random guid that won&#39;t be in the index.
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-            //Assert.True(result.StdOut.Contains(&quot;2.0.0.0&quot;));
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+            Assert.True(result.StdOut.Contains(&quot;2.0.0.0&quot;));
+</a>         }
+     }
+ }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/ARPChanges.cpp.html">src/AppInstallerCLITests/ARPChanges.cpp</a> b/<a href="../file/src/AppInstallerCLITests/ARPChanges.cpp.html">src/AppInstallerCLITests/ARPChanges.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -324,7 +324,7 @@ TEST_CASE(&quot;ARPChanges_SingleChange_NoMatch&quot;, &quot;[ARPChanges][workflow]&quot;)
+</a>     context.AddEverythingResult(&quot;EverythingId1&quot;, &quot;EverythingName1&quot;, &quot;EverythingPublisher1&quot;, &quot;EverythingVersion1&quot;);
+ 
+     context &lt;&lt; ReportARPChanges;
+<a href="#h1-0-3" id="h1-0-3" class="d">-    context.ExpectEvent(1, 0, 0, context.EverythingResult.Matches.back().Package.get());
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    context.ExpectEvent(1, 0, 0);
+</a> }
+ 
+ TEST_CASE(&quot;ARPChanges_SingleChange_SingleMatch&quot;, &quot;[ARPChanges][workflow]&quot;)
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/Correlation.cpp.html">src/AppInstallerCLITests/Correlation.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Correlation.cpp.html">src/AppInstallerCLITests/Correlation.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -225,10 +225,10 @@ DataSet GetDataSet_NoNoise()
+</a>     dataSet.TestCases = LoadTestData();
+ 
+     // Arbitrary values. We should refine them as the algorithm gets better.
+<a href="#h2-0-3" id="h2-0-3" class="d">-    dataSet.RequiredTrueMatchRatio = 0.5;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-    dataSet.RequiredFalseMatchRatio = 0.1;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    dataSet.RequiredTrueMatchRatio = 0.7;
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+    dataSet.RequiredFalseMatchRatio = 0.05;
+</a>     dataSet.RequiredTrueMismatchRatio = 0; // There are no expected mismatches in this data set
+<a href="#h2-0-8" id="h2-0-8" class="d">-    dataSet.RequiredFalseMismatchRatio = 0.5;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+    dataSet.RequiredFalseMismatchRatio = 0.3;
+</a> 
+     return dataSet;
+ }
+<a href="#h2-1" id="h2-1" class="h">@@ -242,10 +242,10 @@ DataSet GetDataSet_WithNoise()
+</a>     dataSet.TestCases = std::move(baseTestCases);
+ 
+     // Arbitrary values. We should refine them as the algorithm gets better.
+<a href="#h2-1-3" id="h2-1-3" class="d">-    dataSet.RequiredTrueMatchRatio = 0.5;
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-    dataSet.RequiredFalseMatchRatio = 0.1;
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+    dataSet.RequiredTrueMatchRatio = 0.7;
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+    dataSet.RequiredFalseMatchRatio = 0.05;
+</a>     dataSet.RequiredTrueMismatchRatio = 0; // There are no expected mismatches in this data set
+<a href="#h2-1-8" id="h2-1-8" class="d">-    dataSet.RequiredFalseMismatchRatio = 0.5;
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+    dataSet.RequiredFalseMismatchRatio = 0.3;
+</a> 
+     return dataSet;
+ }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/ARPCorrelation.cpp.html">src/AppInstallerRepositoryCore/ARPCorrelation.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/ARPCorrelation.cpp.html">src/AppInstallerRepositoryCore/ARPCorrelation.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -147,15 +147,17 @@ namespace AppInstaller::Repository::Correlation
+</a>         if (manifest.DefaultLocalization.Contains(Localization::PackageName))
+         {
+             std::u32string defaultName = NormalizeAndPrepareName(manifest.DefaultLocalization.Get&lt;Localization::PackageName&gt;());
+<a href="#h3-0-3" id="h3-0-3" class="d">-            m_namesAndPublishers.emplace_back(defaultName, defaultPublisher);
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+            m_namesAndPublishers.emplace_back(defaultName, defaultPublisher, defaultName + defaultPublisher);
+</a> 
+             for (const auto&amp; loc : manifest.Localizations)
+             {
+                 if (loc.Contains(Localization::PackageName) || loc.Contains(Localization::Publisher))
+                 {
+<a href="#h3-0-10" id="h3-0-10" class="d">-                    m_namesAndPublishers.emplace_back(
+</a><a href="#h3-0-11" id="h3-0-11" class="d">-                        loc.Contains(Localization::PackageName) ? NormalizeAndPrepareName(loc.Get&lt;Localization::PackageName&gt;()) : defaultName,
+</a><a href="#h3-0-12" id="h3-0-12" class="d">-                        loc.Contains(Localization::Publisher) ? NormalizeAndPreparePublisher(loc.Get&lt;Localization::Publisher&gt;()) : defaultPublisher);
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+                    auto name = loc.Contains(Localization::PackageName) ? NormalizeAndPrepareName(loc.Get&lt;Localization::PackageName&gt;()) : defaultName;
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+                    auto publisher = loc.Contains(Localization::Publisher) ? NormalizeAndPreparePublisher(loc.Get&lt;Localization::Publisher&gt;()) : defaultPublisher;
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+                    auto nameAndPublisher = publisher + name;
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+                    m_namesAndPublishers.emplace_back(std::move(name), std::move(publisher), std::move(nameAndPublisher));
+</a>                 }
+             }
+         }
+<a href="#h3-1" id="h3-1" class="h">@@ -163,16 +165,23 @@ namespace AppInstaller::Repository::Correlation
+</a> 
+     double EditDistanceMatchConfidenceAlgorithm::ComputeConfidence(const ARPEntry&amp; arpEntry) const
+     {
+<a href="#h3-1-3" id="h3-1-3" class="i">+        // Name and Publisher are available as multi properties, but for ARP entries there will only be 0 or 1 values.
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+        auto arpName = NormalizeAndPrepareName(arpEntry.Entry-&gt;GetInstalledVersion()-&gt;GetProperty(PackageVersionProperty::Name).get());
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+        auto arpPublisher = NormalizeAndPreparePublisher(arpEntry.Entry-&gt;GetInstalledVersion()-&gt;GetProperty(PackageVersionProperty::Publisher).get());
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+        auto arpNamePublisher = arpPublisher + arpName;
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+
+</a>         // Get the best score across all localizations
+         double bestMatchingScore = 0;
+         for (const auto&amp; manifestNameAndPublisher : m_namesAndPublishers)
+         {
+<a href="#h3-1-12" id="h3-1-12" class="d">-            // Name and Publisher are available as multi properties, but for ARP entries there will only be 0 or 1 values.
+</a><a href="#h3-1-13" id="h3-1-13" class="d">-            auto arpName = arpEntry.Entry-&gt;GetInstalledVersion()-&gt;GetProperty(PackageVersionProperty::Name);
+</a><a href="#h3-1-14" id="h3-1-14" class="d">-            auto arpPublisher = arpEntry.Entry-&gt;GetInstalledVersion()-&gt;GetProperty(PackageVersionProperty::Publisher);
+</a><a href="#h3-1-15" id="h3-1-15" class="d">-
+</a><a href="#h3-1-16" id="h3-1-16" class="d">-            auto nameDistance = EditDistanceScore(manifestNameAndPublisher.first, NormalizeAndPrepareName(arpName.get()));
+</a><a href="#h3-1-17" id="h3-1-17" class="d">-            auto publisherDistance = EditDistanceScore(manifestNameAndPublisher.second, NormalizeAndPreparePublisher(arpPublisher.get()));
+</a><a href="#h3-1-18" id="h3-1-18" class="i">+            // Sometimes the publisher may be included in the name, for example Microsoft PowerToys as opposed to simply PowerToys.
+</a><a href="#h3-1-19" id="h3-1-19" class="i">+            // This may happen both in the ARP entry and the manifest. We try adding it in case it is in one but not in both.
+</a><a href="#h3-1-20" id="h3-1-20" class="i">+            auto nameDistance = std::max(
+</a><a href="#h3-1-21" id="h3-1-21" class="i">+                EditDistanceScore(std::get&lt;0&gt;(manifestNameAndPublisher), arpName),
+</a><a href="#h3-1-22" id="h3-1-22" class="i">+                std::max(
+</a><a href="#h3-1-23" id="h3-1-23" class="i">+                    EditDistanceScore(std::get&lt;2&gt;(manifestNameAndPublisher), arpName),
+</a><a href="#h3-1-24" id="h3-1-24" class="i">+                    EditDistanceScore(std::get&lt;0&gt;(manifestNameAndPublisher), arpNamePublisher)));
+</a><a href="#h3-1-25" id="h3-1-25" class="i">+            auto publisherDistance = EditDistanceScore(std::get&lt;1&gt;(manifestNameAndPublisher), arpPublisher);
+</a> 
+             // TODO: Consider other ways of merging the two values
+             auto score = (2 * nameDistance + publisherDistance) / 3;
+<a href="#h3-2" id="h3-2" class="h">@@ -288,12 +297,6 @@ namespace AppInstaller::Repository::Correlation
+</a>         }
+ 
+         // We now have all of the package changes; time to report them.
+<a href="#h3-2-3" id="h3-2-3" class="d">-        // The set of cases we could have for changes to ARP:
+</a><a href="#h3-2-4" id="h3-2-4" class="d">-        //  0 packages  ::  No changes were detected to ARP, which could mean that the installer
+</a><a href="#h3-2-5" id="h3-2-5" class="d">-        //                  did not write an entry. It could also be a forced reinstall.
+</a><a href="#h3-2-6" id="h3-2-6" class="d">-        //  1 package   ::  Golden path; this should be what we installed.
+</a><a href="#h3-2-7" id="h3-2-7" class="d">-        //  2+ packages ::  We need to determine which package actually matches the one that we
+</a><a href="#h3-2-8" id="h3-2-8" class="d">-        //                  were installing.
+</a>         //
+         // The set of cases we could have for finding packages based on the manifest:
+         //  0 packages  ::  The manifest data does not match the ARP information.
+<a href="#h3-3" id="h3-3" class="h">@@ -318,11 +321,6 @@ namespace AppInstaller::Repository::Correlation
+</a>         {
+             result.Package = findByManifest.Matches[0].Package-&gt;GetInstalledVersion();
+         }
+<a href="#h3-3-3" id="h3-3-3" class="d">-        // If only a single ARP entry was changed and we found no matches, report that.
+</a><a href="#h3-3-4" id="h3-3-4" class="d">-        else if (findByManifest.Matches.empty() &amp;&amp; changedArpEntries.size() == 1)
+</a><a href="#h3-3-5" id="h3-3-5" class="d">-        {
+</a><a href="#h3-3-6" id="h3-3-6" class="d">-            result.Package = changedArpEntries[0].Entry-&gt;GetInstalledVersion();
+</a><a href="#h3-3-7" id="h3-3-7" class="d">-        }
+</a>         else
+         {
+             // We were not able to find an exact match, so we now run some heuristics
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h.html">src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h.html">src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -83,7 +83,8 @@ namespace AppInstaller::Repository::Correlation
+</a>         std::u32string NormalizeAndPreparePublisher(std::string_view publisher) const;
+ 
+         AppInstaller::Utility::NameNormalizer m_normalizer{ AppInstaller::Utility::NormalizationVersion::Initial };
+<a href="#h4-0-3" id="h4-0-3" class="d">-        std::vector&lt;std::pair&lt;std::u32string, std::u32string&gt;&gt; m_namesAndPublishers;
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        // Each entry is a tuple { name, publisher, name + publisher }
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+        std::vector&lt;std::tuple&lt;std::u32string, std::u32string, std::u32string&gt;&gt; m_namesAndPublishers;
+</a>     };
+ 
+     // Finds the ARP entry in the ARP source that matches a newly installed package.
+</pre>
+</div>
+</body>
+</html>

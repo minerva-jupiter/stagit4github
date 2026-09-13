@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix mixed elevation integration issue by using MemoryStream (#4413) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/0aaccd646d1f36c2e7284c58688ddcee60fddb4d.html">0aaccd646d1f36c2e7284c58688ddcee60fddb4d</a>
+<b>parent</b> <a href="../commit/adecbb9324d7c9fca7b03b3da70ceb02fd5efc13.html">adecbb9324d7c9fca7b03b3da70ceb02fd5efc13</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Thu, 25 Apr 2024 23:14:35 -0700
+
+Fix mixed elevation integration issue by using MemoryStream (#4413)
+
+This work is done together with @ryfu-msft 
+
+Tested and validated on both Ryan and my machine.
+
+The issue is when InMemoryRandomAccessStream is used in
+ConfigurationRemoteServer, marshalling will complain about setting rpc
+security status too late. We fixed it by not using winrt
+InMemoryRandomAccessStream. Instead, we&#39;ll use System.IO.MemoryStream.
+###### Microsoft Reviewers: [Open in
+CodeFlow](https://microsoft.github.io/open-pr/?codeflow=https://github.com/microsoft/winget-cli/pull/4413)
+
+---------
+
+Co-authored-by: --global &lt;ryfu@microsoft.com&gt;
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></td><td> | </td><td class="num">22</td><td><span class="i">++++++++++</span><span class="d">------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/ConfigurationRemotingServer/Program.cs</a></td><td> | </td><td class="num">15</td><td><span class="i">+++++++</span><span class="d">--------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a></td><td> | </td><td class="num">5</td><td><span class="i">+++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Configuration/ConfigurationSet.cpp</a></td><td> | </td><td class="num">5</td><td><span class="i">+++</span><span class="d">--</span></td></tr>
+</table></pre><pre>4 files changed, 23 insertions(+), 24 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -153,18 +153,16 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                 highIntegritySet.Serialize(memoryStream);
+ 
+                 Streams::DataReader reader(memoryStream.GetInputStreamAt(0));
+<a href="#h0-0-3" id="h0-0-3" class="d">-                reader.UnicodeEncoding(Streams::UnicodeEncoding::Utf8);
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-                reader.LoadAsync((uint32_t)memoryStream.Size());
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-                winrt::hstring result;
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-                uint32_t bytesToRead = reader.UnconsumedBufferLength();
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-
+</a><a href="#h0-0-9" id="h0-0-9" class="d">-                if (bytesToRead &gt; 0)
+</a><a href="#h0-0-10" id="h0-0-10" class="d">-                {
+</a><a href="#h0-0-11" id="h0-0-11" class="d">-                    result = reader.ReadString(bytesToRead);
+</a><a href="#h0-0-12" id="h0-0-12" class="d">-                }
+</a><a href="#h0-0-13" id="h0-0-13" class="d">-
+</a><a href="#h0-0-14" id="h0-0-14" class="d">-                return winrt::to_string(result);
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                THROW_HR_IF(E_UNEXPECTED, memoryStream.Size() &gt; std::numeric_limits&lt;uint32_t&gt;::max());
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                uint32_t streamSize = (uint32_t)memoryStream.Size();
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                std::vector&lt;uint8_t&gt; bytes;
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+                bytes.resize(streamSize);
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+                reader.LoadAsync(streamSize);
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+                reader.ReadBytes(bytes);
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+                reader.DetachStream();
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+                memoryStream.Close();
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+                return { bytes.begin(), bytes.end() };
+</a>             }
+ 
+             ProcessorMap::iterator CreateSetProcessorForIntegrityLevel(Security::IntegrityLevel integrityLevel)
+<b>diff --git a/<a id="h1" href="../file/src/ConfigurationRemotingServer/Program.cs.html">src/ConfigurationRemotingServer/Program.cs</a> b/<a href="../file/src/ConfigurationRemotingServer/Program.cs.html">src/ConfigurationRemotingServer/Program.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -8,7 +8,6 @@ using System.Text.Json;
+</a> using System.Text.Json.Serialization;
+ using Microsoft.Management.Configuration;
+ using Microsoft.Management.Configuration.Processor;
+<a href="#h1-0-3" id="h1-0-3" class="d">-using Windows.Storage.Streams;
+</a> using WinRT;
+ 
+ namespace ConfigurationRemotingServer
+<a href="#h1-1" id="h1-1" class="h">@@ -118,14 +117,14 @@ namespace ConfigurationRemotingServer
+</a> 
+                     // Parse limitation set.
+                     byte[] limitationSetBytes = Encoding.UTF8.GetBytes(commandStr.Substring(secondSeparatorIndex + CommandLineSectionSeparator.Length));
+<a href="#h1-1-3" id="h1-1-3" class="d">-                    InMemoryRandomAccessStream limitationSetStream = new InMemoryRandomAccessStream();
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-                    DataWriter streamWriter = new DataWriter(limitationSetStream);
+</a><a href="#h1-1-5" id="h1-1-5" class="d">-                    streamWriter.WriteBytes(limitationSetBytes);
+</a><a href="#h1-1-6" id="h1-1-6" class="d">-                    streamWriter.StoreAsync().GetAwaiter().GetResult();
+</a><a href="#h1-1-7" id="h1-1-7" class="d">-                    streamWriter.DetachStream();
+</a><a href="#h1-1-8" id="h1-1-8" class="d">-                    limitationSetStream.Seek(0);
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+                    MemoryStream memoryStream = new MemoryStream();
+</a><a href="#h1-1-10" id="h1-1-10" class="i">+                    memoryStream.Write(limitationSetBytes);
+</a><a href="#h1-1-11" id="h1-1-11" class="i">+                    memoryStream.Flush();
+</a><a href="#h1-1-12" id="h1-1-12" class="i">+                    memoryStream.Seek(0, SeekOrigin.Begin);
+</a>                     ConfigurationProcessor processor = new ConfigurationProcessor(factory);
+<a href="#h1-1-14" id="h1-1-14" class="d">-                    var limitationSetResult = processor.OpenConfigurationSet(limitationSetStream);
+</a><a href="#h1-1-15" id="h1-1-15" class="i">+                    var limitationSetResult = processor.OpenConfigurationSet(memoryStream.AsInputStream());
+</a><a href="#h1-1-16" id="h1-1-16" class="i">+                    memoryStream.Close();
+</a><a href="#h1-1-17" id="h1-1-17" class="i">+
+</a>                     if (limitationSetResult.ResultCode != null)
+                     {
+                         throw limitationSetResult.ResultCode;
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -232,8 +232,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             // This is done here to enable easy cancellation propagation to the stream reads.
+             uint32_t bufferSize = 1 &lt;&lt; 20;
+             Windows::Storage::Streams::Buffer buffer(bufferSize);
+<a href="#h2-0-3" id="h2-0-3" class="d">-            Windows::Storage::Streams::InputStreamOptions readOptions = 
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-                Windows::Storage::Streams::InputStreamOptions::Partial | Windows::Storage::Streams::InputStreamOptions::ReadAhead;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+            // Memory stream in mixed elevation does not support InputStreamOptions as flags.
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+            Windows::Storage::Streams::InputStreamOptions readOptions = Windows::Storage::Streams::InputStreamOptions::Partial;
+</a>             std::string inputString;
+ 
+             for (;;)
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Configuration/ConfigurationSet.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSet.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSet.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSet.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -128,10 +128,11 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>     {
+         std::unique_ptr&lt;ConfigurationSetSerializer&gt; serializer = ConfigurationSetSerializer::CreateSerializer(m_schemaVersion);
+         hstring result = serializer-&gt;Serialize(this);
+<a href="#h3-0-3" id="h3-0-3" class="i">+        auto resultUtf8 = winrt::to_string(result);
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        std::vector&lt;uint8_t&gt; bytes(resultUtf8.begin(), resultUtf8.end());
+</a> 
+         Windows::Storage::Streams::DataWriter dataWriter{ stream };
+<a href="#h3-0-7" id="h3-0-7" class="d">-        dataWriter.UnicodeEncoding(Windows::Storage::Streams::UnicodeEncoding::Utf8);
+</a><a href="#h3-0-8" id="h3-0-8" class="d">-        dataWriter.WriteString(result);
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+        dataWriter.WriteBytes(bytes);
+</a>         dataWriter.StoreAsync().get();
+         dataWriter.DetachStream();
+     }
+</pre>
+</div>
+</body>
+</html>

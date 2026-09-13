@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Don&#39;t let unset error codes be thrown (#5255) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/ec46ec319b5b76c8552b3482418101c5653dede5.html">ec46ec319b5b76c8552b3482418101c5653dede5</a>
+<b>parent</b> <a href="../commit/24511e4f3d053d4f34f3157950e4e3a20599f039.html">24511e4f3d053d4f34f3157950e4e3a20599f039</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 27 Feb 2025 08:56:48 -0800
+
+Don&#39;t let unset error codes be thrown (#5255)
+
+## Change
+Some of the `http_exception`s coming through this function don&#39;t have
+error codes set. Throwing that success code causes WIL to fail fast.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCommonCore/HttpClientHelper.cpp</a></td><td> | </td><td class="num">19</td><td><span class="i">++++++++++++++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>1 file changed, 18 insertions(+), 1 deletion(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCommonCore/HttpClientHelper.cpp.html">src/AppInstallerCommonCore/HttpClientHelper.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/HttpClientHelper.cpp.html">src/AppInstallerCommonCore/HttpClientHelper.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -244,6 +244,23 @@ namespace AppInstaller::Http
+</a> 
+     [[noreturn]] void HttpClientHelper::RethrowAsWilException(const web::http::http_exception&amp; exception)
+     {
+<a href="#h0-0-3" id="h0-0-3" class="d">-        THROW_WIN32_MSG(exception.error_code().value(), &quot;%hs&quot;, exception.what());
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        // Some http_exceptions have no error code; default to REST internal error.
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        HRESULT toThrow = APPINSTALLER_CLI_ERROR_RESTAPI_INTERNAL_ERROR;
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+        // 99% of the time this code comes from GetLastError.
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        // In a few cases it will be 400; as in the HTTP status code.
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+        // Since that is the one case that http_client_winhttp.cpp uses, we map it specifically.
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+        // In the event that this makes no sense, ERROR_THREAD_MODE_ALREADY_BACKGROUND is Win32 error 400.
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+        int errorValue = exception.error_code().value();
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+        if (errorValue == web::http::status_codes::BadRequest)
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+        {
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+            toThrow = MAKE_HRESULT(SEVERITY_ERROR, FACILITY_HTTP, web::http::status_codes::BadRequest);
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+        }
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+        else if (errorValue)
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+        {
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+            toThrow = HRESULT_FROM_WIN32(errorValue);
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+        }
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+        THROW_HR_MSG(toThrow, &quot;%hs&quot;, exception.what());
+</a>     }
+ }
+</pre>
+</div>
+</body>
+</html>

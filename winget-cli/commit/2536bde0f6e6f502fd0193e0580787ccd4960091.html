@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix GetInstallProgress to return null directly when an install is not in progress for that package (#1385) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/2536bde0f6e6f502fd0193e0580787ccd4960091.html">2536bde0f6e6f502fd0193e0580787ccd4960091</a>
+<b>parent</b> <a href="../commit/cab941a8c458ca8b8685bd359c504f3e15ef1d06.html">cab941a8c458ca8b8685bd359c504f3e15ef1d06</a>
+<b>Author:</b> sreadingMSFT &lt;<a href="mailto:74242768+sreadingMSFT@users.noreply.github.com">74242768+sreadingMSFT@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue, 24 Aug 2021 02:01:02 -0700
+
+Fix GetInstallProgress to return null directly when an install is not in progress for that package (#1385)
+
+* Return null asyncoperation from GetInstallProgress
+
+* Fix header.
+
+* Remove double lock from contextorchestrator.
+
+* Fix spelling expectations
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/ContextOrchestrator.cpp</a></td><td> | </td><td class="num">42</td><td><span class="i">++++++++++++++++++++++++++++++</span><span class="d">------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/ContextOrchestrator.h</a></td><td> | </td><td class="num">3</td><td><span class="i">++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Deployment/Helpers.cpp</a></td><td> | </td><td class="num">14</td><td><span class="i">+++++++</span><span class="d">-------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Deployment/Helpers.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Deployment/PackageManager.cpp</a></td><td> | </td><td class="num">163</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------------</span></td></tr>
+</table></pre><pre>6 files changed, 152 insertions(+), 73 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -70,6 +70,7 @@ contosainstaller
+</a> contoso
+ contractversion
+ count&#39;th
+<a href="#h0-0-3" id="h0-0-3" class="i">+countof
+</a> countryregion
+ createmanifestmetadata
+ cstdint
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/ContextOrchestrator.cpp.html">src/AppInstallerCLICore/ContextOrchestrator.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ContextOrchestrator.cpp.html">src/AppInstallerCLICore/ContextOrchestrator.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -42,14 +42,21 @@ namespace AppInstaller::CLI::Execution
+</a>     
+     void ContextOrchestrator::EnqueueItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item)
+     {
+<a href="#h1-0-3" id="h1-0-3" class="d">-        std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        {
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+            std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a> 
+<a href="#h1-0-7" id="h1-0-7" class="d">-        THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_INSTALL_ALREADY_RUNNING), FindById(item-&gt;GetId()));
+</a><a href="#h1-0-8" id="h1-0-8" class="d">-        m_queueItems.push_back(item);
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+            THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_INSTALL_ALREADY_RUNNING), FindById(item-&gt;GetId()));
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+            m_queueItems.push_back(item);
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+        }
+</a> 
+         // Add the package to the Installing source so that it can be queried using the ISource interface.
+         const auto&amp; manifest = item-&gt;GetContext().Get&lt;Execution::Data::Manifest&gt;();
+         m_installingWriteableSource-&gt;AddPackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+<a href="#h1-0-16" id="h1-0-16" class="i">+
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+        {
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+            std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+            item-&gt;SetState(OrchestratorQueueItemState::Queued);
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+        }
+</a>     }
+ 
+     void ContextOrchestrator::EnqueueAndRunItem(std::shared_ptr&lt;OrchestratorQueueItem&gt; item)
+<a href="#h1-1" id="h1-1" class="h">@@ -62,7 +69,7 @@ namespace AppInstaller::CLI::Execution
+</a> 
+     std::shared_ptr&lt;OrchestratorQueueItem&gt; ContextOrchestrator::GetNextItem()
+     {
+<a href="#h1-1-3" id="h1-1-3" class="d">-        std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a> 
+         if (m_queueItems.empty())
+         {
+<a href="#h1-2" id="h1-2" class="h">@@ -73,10 +80,10 @@ namespace AppInstaller::CLI::Execution
+</a> 
+         // Check if item can be dequeued.
+         // Since only one item can be installed at a time currently the logic is very simple,
+<a href="#h1-2-3" id="h1-2-3" class="d">-        // and can just check if the first item is already running. This logic will need to become
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+        // and can just check if the first item is ready to run. This logic will need to become
+</a>         // more complicated if multiple operation types (e.g. Download &amp; Install) are added that can
+         // run simultaneously.
+<a href="#h1-2-7" id="h1-2-7" class="d">-        if (item-&gt;GetState() == OrchestratorQueueItemState::Running)
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        if (item-&gt;GetState() != OrchestratorQueueItemState::Queued)
+</a>         {
+             return {};
+         }
+<a href="#h1-3" id="h1-3" class="h">@@ -121,21 +128,32 @@ namespace AppInstaller::CLI::Execution
+</a> 
+     void ContextOrchestrator::RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state)
+     {
+<a href="#h1-3-3" id="h1-3-3" class="d">-        std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+        // OrchestratorQueueItemState::Running items should only be removed by the thread that ran the item.
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+        // Queued items can be removed by any thread. 
+</a><a href="#h1-3-6" id="h1-3-6" class="i">+        // NotQueued items should not be removed since, if found in the queue, they are in the process of being queued by another thread.
+</a><a href="#h1-3-7" id="h1-3-7" class="i">+        bool foundItem = false;
+</a> 
+<a href="#h1-3-9" id="h1-3-9" class="d">-        // Look for the item. It&#39;s ok if the item is not found since multiple listeners may try to remove the same item.
+</a><a href="#h1-3-10" id="h1-3-10" class="d">-        //auto itr = std::find(m_queueItems.begin(), m_queueItems.end(), item);
+</a><a href="#h1-3-11" id="h1-3-11" class="d">-        auto itr = FindIteratorById(item.GetId());
+</a><a href="#h1-3-12" id="h1-3-12" class="d">-        if (itr != m_queueItems.end() &amp;&amp; (*itr)-&gt;GetState() == state)
+</a>         {
+<a href="#h1-3-14" id="h1-3-14" class="d">-            m_queueItems.erase(itr);
+</a><a href="#h1-3-15" id="h1-3-15" class="i">+            std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+</a> 
+<a href="#h1-3-17" id="h1-3-17" class="i">+            // Look for the item. It&#39;s ok if the item is not found since multiple listeners may try to remove the same item.
+</a><a href="#h1-3-18" id="h1-3-18" class="i">+            auto itr = FindIteratorById(item.GetId());
+</a><a href="#h1-3-19" id="h1-3-19" class="i">+            if (itr != m_queueItems.end() &amp;&amp; (*itr)-&gt;GetState() == state)
+</a><a href="#h1-3-20" id="h1-3-20" class="i">+            {
+</a><a href="#h1-3-21" id="h1-3-21" class="i">+                foundItem = true;
+</a><a href="#h1-3-22" id="h1-3-22" class="i">+                m_queueItems.erase(itr);
+</a><a href="#h1-3-23" id="h1-3-23" class="i">+            }
+</a><a href="#h1-3-24" id="h1-3-24" class="i">+        }
+</a><a href="#h1-3-25" id="h1-3-25" class="i">+
+</a><a href="#h1-3-26" id="h1-3-26" class="i">+        if (foundItem)
+</a><a href="#h1-3-27" id="h1-3-27" class="i">+        {
+</a>             const auto&amp; manifest = item.GetContext().Get&lt;Execution::Data::Manifest&gt;();
+             m_installingWriteableSource-&gt;RemovePackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+ 
+             item.GetCompletedEvent().SetEvent();
+         }
+     }
+<a href="#h1-3-34" id="h1-3-34" class="i">+
+</a>     void ContextOrchestrator::CancelQueueItem(const OrchestratorQueueItem&amp; item)
+     {
+         // Always cancel the item, even if it isn&#39;t running yet, to get the terminationHR set correctly.
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/ContextOrchestrator.h.html">src/AppInstallerCLICore/ContextOrchestrator.h</a> b/<a href="../file/src/AppInstallerCLICore/ContextOrchestrator.h.html">src/AppInstallerCLICore/ContextOrchestrator.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -14,6 +14,7 @@ namespace AppInstaller::CLI::Execution
+</a> {
+     enum class OrchestratorQueueItemState
+     {
+<a href="#h2-0-3" id="h2-0-3" class="i">+        NotQueued,
+</a>         Queued,
+         Running
+     };
+<a href="#h2-1" id="h2-1" class="h">@@ -40,7 +41,7 @@ namespace AppInstaller::CLI::Execution
+</a>         const wil::unique_event&amp; GetCompletedEvent() const { return m_completedEvent; }
+         const OrchestratorQueueItemId&amp; GetId() const { return m_id; }
+     private:
+<a href="#h2-1-3" id="h2-1-3" class="d">-        OrchestratorQueueItemState m_state = OrchestratorQueueItemState::Queued;
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        OrchestratorQueueItemState m_state = OrchestratorQueueItemState::NotQueued;
+</a>         std::unique_ptr&lt;COMContext&gt; m_context;
+         wil::unique_event m_completedEvent{ wil::EventOptions::ManualReset };
+         OrchestratorQueueItemId m_id;
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Deployment/Helpers.cpp.html">src/Microsoft.Management.Deployment/Helpers.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/Helpers.cpp.html">src/Microsoft.Management.Deployment/Helpers.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -13,7 +13,7 @@ using namespace std::string_view_literals;
+</a> 
+ namespace winrt::Microsoft::Management::Deployment::implementation
+ {
+<a href="#h3-0-3" id="h3-0-3" class="d">-    std::optional&lt;DWORD&gt; GetCallerProcessId()
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    std::pair&lt;HRESULT, DWORD&gt; GetCallerProcessId()
+</a>     {
+         RPC_STATUS rpcStatus = RPC_S_OK;
+         RPC_CALL_ATTRIBUTES callAttributes = {};
+<a href="#h3-1" id="h3-1" class="h">@@ -25,9 +25,9 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             !((rpcStatus == RPC_S_OK) &amp;&amp; HandleToULong(callAttributes.ClientPID) == GetCurrentProcessId()))
+         {
+             DWORD callerProcessId = HandleToULong(callAttributes.ClientPID);
+<a href="#h3-1-3" id="h3-1-3" class="d">-            return callerProcessId;
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+            return { S_OK, callerProcessId };
+</a>         }
+<a href="#h3-1-6" id="h3-1-6" class="d">-        return {};
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+        return { E_ACCESSDENIED, 0 };
+</a>     }
+ 
+     std::wstring_view GetStringForCapability(Capability capability)
+<a href="#h3-2" id="h3-2" class="h">@@ -57,14 +57,14 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a> 
+     HRESULT EnsureComCallerHasCapability(Capability requiredCapability)
+     {
+<a href="#h3-2-3" id="h3-2-3" class="d">-        auto callerProcessId = GetCallerProcessId();
+</a><a href="#h3-2-4" id="h3-2-4" class="d">-        RETURN_HR_IF(E_ACCESSDENIED, !callerProcessId.has_value());
+</a><a href="#h3-2-5" id="h3-2-5" class="d">-        HRESULT hr = EnsureProcessHasCapability(requiredCapability, callerProcessId.value());
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+        auto [hr, callerProcessId] = GetCallerProcessId();
+</a><a href="#h3-2-7" id="h3-2-7" class="i">+        RETURN_IF_FAILED(hr);
+</a><a href="#h3-2-8" id="h3-2-8" class="i">+        hr = EnsureProcessHasCapability(requiredCapability, callerProcessId);
+</a>         // The Windows.Management.Deployment API has set the precedent that packageManagement is a superset of packageQuery
+         // and packageQuery does not need to be declared separately.
+         if (FAILED(hr) &amp;&amp; requiredCapability == Capability::PackageQuery)
+         {
+<a href="#h3-2-13" id="h3-2-13" class="d">-            return EnsureProcessHasCapability(Capability::PackageManagement, callerProcessId.value());
+</a><a href="#h3-2-14" id="h3-2-14" class="i">+            return EnsureProcessHasCapability(Capability::PackageManagement, callerProcessId);
+</a>         }
+         return hr;
+     }
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Deployment/Helpers.h.html">src/Microsoft.Management.Deployment/Helpers.h</a> b/<a href="../file/src/Microsoft.Management.Deployment/Helpers.h.html">src/Microsoft.Management.Deployment/Helpers.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -10,6 +10,6 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a> 
+     HRESULT EnsureProcessHasCapability(Capability requiredCapability, DWORD callerProcessId);
+     HRESULT EnsureComCallerHasCapability(Capability requiredCapability);
+<a href="#h4-0-3" id="h4-0-3" class="d">-    std::optional&lt;DWORD&gt; GetCallerProcessId();
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+    std::pair&lt;HRESULT, DWORD&gt; GetCallerProcessId();
+</a>     std::wstring TryGetCallerProcessInfo(DWORD callerProcessId);
+ } 
+\ No newline at end of file
+<b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -233,7 +233,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             return {};
+         }
+     }
+<a href="#h5-0-3" id="h5-0-3" class="d">-    
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+
+</a>     Microsoft::Management::Deployment::PackageVersionInfo GetPackageVersionInfo(winrt::Microsoft::Management::Deployment::CatalogPackage package, winrt::Microsoft::Management::Deployment::InstallOptions options)
+     {
+         Microsoft::Management::Deployment::PackageVersionInfo packageVersionInfo{ nullptr };
+<a href="#h5-1" id="h5-1" class="h">@@ -255,8 +255,8 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>     }
+ 
+     std::unique_ptr&lt;::AppInstaller::COMContext&gt; CreateContextFromInstallOptions(
+<a href="#h5-1-3" id="h5-1-3" class="d">-        winrt::Microsoft::Management::Deployment::CatalogPackage package, 
+</a><a href="#h5-1-4" id="h5-1-4" class="d">-        winrt::Microsoft::Management::Deployment::InstallOptions options, 
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+        winrt::Microsoft::Management::Deployment::CatalogPackage package,
+</a><a href="#h5-1-6" id="h5-1-6" class="i">+        winrt::Microsoft::Management::Deployment::InstallOptions options,
+</a>         std::wstring callerProcessInfoString)
+     {
+         std::unique_ptr&lt;::AppInstaller::COMContext&gt; context = std::make_unique&lt;::AppInstaller::COMContext&gt;();
+<a href="#h5-2" id="h5-2" class="h">@@ -366,45 +366,29 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         }
+         return nullptr;
+     }
+<a href="#h5-2-3" id="h5-2-3" class="d">-
+</a>     winrt::Windows::Foundation::IAsyncOperationWithProgress&lt;winrt::Microsoft::Management::Deployment::InstallResult, winrt::Microsoft::Management::Deployment::InstallProgress&gt; GetInstallOperation(
+<a href="#h5-2-5" id="h5-2-5" class="d">-        bool addToQueue, 
+</a><a href="#h5-2-6" id="h5-2-6" class="d">-        winrt::Microsoft::Management::Deployment::CatalogPackage package, 
+</a><a href="#h5-2-7" id="h5-2-7" class="d">-        winrt::Microsoft::Management::Deployment::InstallOptions options, 
+</a><a href="#h5-2-8" id="h5-2-8" class="d">-        winrt::Microsoft::Management::Deployment::PackageCatalogInfo catalogInfo)
+</a><a href="#h5-2-9" id="h5-2-9" class="i">+        bool canCancelQueueItem,
+</a><a href="#h5-2-10" id="h5-2-10" class="i">+        std::shared_ptr&lt;Execution::OrchestratorQueueItem&gt; queueItemParam,
+</a><a href="#h5-2-11" id="h5-2-11" class="i">+        winrt::Microsoft::Management::Deployment::CatalogPackage package = nullptr,
+</a><a href="#h5-2-12" id="h5-2-12" class="i">+        winrt::Microsoft::Management::Deployment::InstallOptions options = nullptr,
+</a><a href="#h5-2-13" id="h5-2-13" class="i">+        std::wstring callerProcessInfoString = {})
+</a>     {
+         winrt::hresult terminationHR = S_OK;
+         hstring correlationData = (options) ? options.CorrelationData() : L&quot;&quot;;
+         ::Workflow::ExecutionStage executionStage = ::Workflow::ExecutionStage::Initial;
+ 
+<a href="#h5-2-19" id="h5-2-19" class="d">-        #define WINGET_RETURN_INSTALL_RESULT_IF(installResult, boolVal) { if(boolVal) { co_return installResult; }}
+</a><a href="#h5-2-20" id="h5-2-20" class="d">-        #define WINGET_RETURN_INSTALL_RESULT_HR(hr) { WINGET_RETURN_INSTALL_RESULT_IF(GetInstallResult(executionStage, hr, correlationData, false), true) }
+</a><a href="#h5-2-21" id="h5-2-21" class="d">-        #define WINGET_RETURN_INSTALL_RESULT_HR_IF(hr, boolVal) { if(boolVal) { WINGET_RETURN_INSTALL_RESULT_HR(hr) }}
+</a><a href="#h5-2-22" id="h5-2-22" class="d">-        #define WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(hr) { WINGET_RETURN_INSTALL_RESULT_HR_IF(hr, FAILED(hr)) }
+</a><a href="#h5-2-23" id="h5-2-23" class="d">-
+</a><a href="#h5-2-24" id="h5-2-24" class="d">-        // options and catalog can both be null, package must be set.
+</a><a href="#h5-2-25" id="h5-2-25" class="d">-        WINGET_RETURN_INSTALL_RESULT_HR_IF(APPINSTALLER_CLI_ERROR_INVALID_CL_ARGUMENTS, !package);
+</a><a href="#h5-2-26" id="h5-2-26" class="d">-
+</a>         try
+         {
+<a href="#h5-2-29" id="h5-2-29" class="i">+            // re-scope the parameter to inside the try block to avoid lifetime management issues.
+</a><a href="#h5-2-30" id="h5-2-30" class="i">+            std::shared_ptr&lt;Execution::OrchestratorQueueItem&gt; queueItem = std::move(queueItemParam);
+</a><a href="#h5-2-31" id="h5-2-31" class="i">+
+</a>             auto report_progress{ co_await winrt::get_progress_token() };
+             auto cancellationToken{ co_await winrt::get_cancellation_token() };
+<a href="#h5-2-34" id="h5-2-34" class="i">+            // co_await does not guarantee that it&#39;s on a background thread, so do so explicitly.
+</a><a href="#h5-2-35" id="h5-2-35" class="i">+            co_await winrt::resume_background();
+</a> 
+<a href="#h5-2-37" id="h5-2-37" class="d">-            wil::unique_event progressEvent{ wil::EventOptions::None };
+</a><a href="#h5-2-38" id="h5-2-38" class="d">-
+</a><a href="#h5-2-39" id="h5-2-39" class="d">-            std::shared_ptr&lt;Execution::OrchestratorQueueItem&gt; queueItem = nullptr;
+</a><a href="#h5-2-40" id="h5-2-40" class="d">-            if (addToQueue)
+</a><a href="#h5-2-41" id="h5-2-41" class="i">+            if (queueItem == nullptr)
+</a>             {
+<a href="#h5-2-43" id="h5-2-43" class="d">-                // Check for permissions and get caller info for telemetry.
+</a><a href="#h5-2-44" id="h5-2-44" class="d">-                // This must be done before any co_awaits since it requires info from the rpc caller thread.
+</a><a href="#h5-2-45" id="h5-2-45" class="d">-                std::optional&lt;DWORD&gt; callerProcessId = GetCallerProcessId();
+</a><a href="#h5-2-46" id="h5-2-46" class="d">-                WINGET_RETURN_INSTALL_RESULT_HR_IF(E_ACCESSDENIED, !callerProcessId.has_value());
+</a><a href="#h5-2-47" id="h5-2-47" class="d">-                WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(EnsureProcessHasCapability(Capability::PackageManagement, callerProcessId.value()));
+</a><a href="#h5-2-48" id="h5-2-48" class="d">-                std::wstring callerProcessInfoString = TryGetCallerProcessInfo(callerProcessId.value());
+</a><a href="#h5-2-49" id="h5-2-49" class="d">-
+</a><a href="#h5-2-50" id="h5-2-50" class="d">-                // co_await does not guarantee that it&#39;s on a background thread, so do so explicitly.
+</a><a href="#h5-2-51" id="h5-2-51" class="d">-                co_await winrt::resume_background();
+</a><a href="#h5-2-52" id="h5-2-52" class="d">-
+</a>                 Microsoft::Management::Deployment::PackageVersionInfo packageVersionInfo = GetPackageVersionInfo(package, options);
+                 std::unique_ptr&lt;::AppInstaller::COMContext&gt; comContext = CreateContextFromInstallOptions(package, options, callerProcessInfoString);
+                 queueItem = Execution::OrchestratorQueueItemFactory::CreateItemForInstall(std::wstring{ package.Id() }, std::wstring{ packageVersionInfo.PackageCatalog().Info().Id() }, std::move(comContext));
+<a href="#h5-3" id="h5-3" class="h">@@ -413,20 +397,14 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>                 InstallProgress queuedProgress{ PackageInstallProgressState::Queued, 0, 0, 0 };
+                 report_progress(queuedProgress);
+             }
+<a href="#h5-3-3" id="h5-3-3" class="d">-            else
+</a>             {
+<a href="#h5-3-5" id="h5-3-5" class="d">-                WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(EnsureComCallerHasCapability(Capability::PackageQuery));
+</a><a href="#h5-3-6" id="h5-3-6" class="d">-
+</a><a href="#h5-3-7" id="h5-3-7" class="d">-                queueItem = GetExistingQueueItemForPackage(package, catalogInfo);
+</a><a href="#h5-3-8" id="h5-3-8" class="d">-                WINGET_RETURN_INSTALL_RESULT_IF(nullptr, queueItem == nullptr);
+</a><a href="#h5-3-9" id="h5-3-9" class="d">-
+</a>                 // correlation data is not passed in when retrieving an existing queue item, so get it from the existing context.
+                 correlationData = hstring(queueItem-&gt;GetContext().GetCorrelationJson());
+<a href="#h5-3-12" id="h5-3-12" class="d">-
+</a><a href="#h5-3-13" id="h5-3-13" class="d">-                // co_await does not guarantee that it&#39;s on a background thread, so do so explicitly.
+</a><a href="#h5-3-14" id="h5-3-14" class="d">-                co_await winrt::resume_background();
+</a>             }
+ 
+<a href="#h5-3-17" id="h5-3-17" class="i">+            wil::unique_event progressEvent{ wil::EventOptions::None };
+</a><a href="#h5-3-18" id="h5-3-18" class="i">+            wil::unique_event cancelWaitEvent{ wil::EventOptions::None };
+</a><a href="#h5-3-19" id="h5-3-19" class="i">+
+</a>             std::atomic&lt;winrt::Microsoft::Management::Deployment::InstallProgress&gt; installProgress;
+             queueItem-&gt;GetContext().AddProgressCallbackFunction([&amp;installProgress, &amp;progressEvent](
+                 ::AppInstaller::ReportType reportType,
+<a href="#h5-4" id="h5-4" class="h">@@ -439,27 +417,41 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>                     if (installProgressOptional.has_value())
+                     {
+                         installProgress = installProgressOptional.value();
+<a href="#h5-4-3" id="h5-4-3" class="d">-                        ::SetEvent(progressEvent.get());
+</a><a href="#h5-4-4" id="h5-4-4" class="i">+                        progressEvent.SetEvent();
+</a>                     }
+                     return;
+                 }
+             );
+<a href="#h5-4-9" id="h5-4-9" class="d">-            cancellationToken.callback([&amp;queueItem]
+</a><a href="#h5-4-10" id="h5-4-10" class="i">+
+</a><a href="#h5-4-11" id="h5-4-11" class="i">+            std::weak_ptr&lt;Execution::OrchestratorQueueItem&gt; weakQueueItem(queueItem);
+</a><a href="#h5-4-12" id="h5-4-12" class="i">+            cancellationToken.callback([weakQueueItem, &amp;canCancelQueueItem, &amp;cancelWaitEvent]
+</a>                 {
+<a href="#h5-4-14" id="h5-4-14" class="d">-                    // The cancellation of the AsyncOperation on the client triggers Cancel which causes the Execute to end.
+</a><a href="#h5-4-15" id="h5-4-15" class="d">-                    Execution::ContextOrchestrator::Instance().CancelQueueItem(*queueItem);
+</a><a href="#h5-4-16" id="h5-4-16" class="i">+                    if (canCancelQueueItem)
+</a><a href="#h5-4-17" id="h5-4-17" class="i">+                    {
+</a><a href="#h5-4-18" id="h5-4-18" class="i">+                        auto strongQueueItem = weakQueueItem.lock();
+</a><a href="#h5-4-19" id="h5-4-19" class="i">+                        if (strongQueueItem) {
+</a><a href="#h5-4-20" id="h5-4-20" class="i">+                            // The cancellation of the AsyncOperation on the client triggers Cancel which causes the Execute to end.
+</a><a href="#h5-4-21" id="h5-4-21" class="i">+                            Execution::ContextOrchestrator::Instance().CancelQueueItem(*strongQueueItem);
+</a><a href="#h5-4-22" id="h5-4-22" class="i">+                        }
+</a><a href="#h5-4-23" id="h5-4-23" class="i">+                    }
+</a><a href="#h5-4-24" id="h5-4-24" class="i">+                    else
+</a><a href="#h5-4-25" id="h5-4-25" class="i">+                    {
+</a><a href="#h5-4-26" id="h5-4-26" class="i">+                        cancelWaitEvent.SetEvent();
+</a><a href="#h5-4-27" id="h5-4-27" class="i">+                    }
+</a>                 });
+ 
+             // Wait for completion or progress events.
+             // Waiting for both on the same thread ensures that progress is never reported after the async operation itself has completed.
+             bool completionEventFired = false;
+<a href="#h5-4-33" id="h5-4-33" class="d">-            HANDLE operationEvents[2];
+</a><a href="#h5-4-34" id="h5-4-34" class="i">+            bool cancelWaitEventFired = false;
+</a><a href="#h5-4-35" id="h5-4-35" class="i">+            HANDLE operationEvents[3];
+</a>             operationEvents[0] = progressEvent.get();
+             operationEvents[1] = queueItem-&gt;GetCompletedEvent().get();
+<a href="#h5-4-38" id="h5-4-38" class="d">-            while (!completionEventFired)
+</a><a href="#h5-4-39" id="h5-4-39" class="i">+            operationEvents[2] = cancelWaitEvent.get();
+</a><a href="#h5-4-40" id="h5-4-40" class="i">+            while (!completionEventFired &amp;&amp; !cancelWaitEventFired)
+</a>             {
+                 DWORD dwEvent = WaitForMultipleObjects(
+<a href="#h5-4-43" id="h5-4-43" class="d">-                    2 /* number of events */,
+</a><a href="#h5-4-44" id="h5-4-44" class="i">+                    _countof(operationEvents) /* number of events */,
+</a>                     operationEvents /* event array */,
+                     FALSE /* bWaitAll, FALSE to wake on any event */,
+                     INFINITE /* wait until operation completion */);
+<a href="#h5-5" id="h5-5" class="h">@@ -481,30 +473,97 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>                     completionEventFired = true;
+                     break;
+ 
+<a href="#h5-5-3" id="h5-5-3" class="i">+                    // operationEvents[2] was signaled, operation is cancelled
+</a><a href="#h5-5-4" id="h5-5-4" class="i">+                case WAIT_OBJECT_0 + 2:
+</a><a href="#h5-5-5" id="h5-5-5" class="i">+                    cancelWaitEventFired = true;
+</a><a href="#h5-5-6" id="h5-5-6" class="i">+                    break;
+</a><a href="#h5-5-7" id="h5-5-7" class="i">+
+</a>                     // Return value is invalid.
+                 default:
+                     THROW_LAST_ERROR();
+                 }
+             }
+ 
+<a href="#h5-5-14" id="h5-5-14" class="d">-            // The install command has finished, check for success/failure and how far it got.
+</a><a href="#h5-5-15" id="h5-5-15" class="d">-            terminationHR = queueItem-&gt;GetContext().GetTerminationHR();
+</a><a href="#h5-5-16" id="h5-5-16" class="d">-            executionStage = queueItem-&gt;GetContext().GetExecutionStage();
+</a><a href="#h5-5-17" id="h5-5-17" class="i">+            if (completionEventFired)
+</a><a href="#h5-5-18" id="h5-5-18" class="i">+            {
+</a><a href="#h5-5-19" id="h5-5-19" class="i">+                // The install command has finished, check for success/failure and how far it got.
+</a><a href="#h5-5-20" id="h5-5-20" class="i">+                terminationHR = queueItem-&gt;GetContext().GetTerminationHR();
+</a><a href="#h5-5-21" id="h5-5-21" class="i">+                executionStage = queueItem-&gt;GetContext().GetExecutionStage();
+</a><a href="#h5-5-22" id="h5-5-22" class="i">+            }
+</a>         }
+         WINGET_CATCH_STORE(terminationHR, APPINSTALLER_CLI_ERROR_COMMAND_FAILED);
+ 
+         // TODO - RebootRequired not yet populated, msi arguments not returned from Execute.
+<a href="#h5-5-27" id="h5-5-27" class="d">-        WINGET_RETURN_INSTALL_RESULT_HR(terminationHR);
+</a><a href="#h5-5-28" id="h5-5-28" class="i">+        co_return GetInstallResult(executionStage, terminationHR, correlationData, false);
+</a>     }
+ 
+<a href="#h5-5-31" id="h5-5-31" class="i">+    winrt::Windows::Foundation::IAsyncOperationWithProgress&lt;winrt::Microsoft::Management::Deployment::InstallResult, winrt::Microsoft::Management::Deployment::InstallProgress&gt; GetEmptyAsynchronousResultForInstallOperation(
+</a><a href="#h5-5-32" id="h5-5-32" class="i">+        HRESULT hr,
+</a><a href="#h5-5-33" id="h5-5-33" class="i">+        hstring correlationData)
+</a><a href="#h5-5-34" id="h5-5-34" class="i">+    {
+</a><a href="#h5-5-35" id="h5-5-35" class="i">+        // If a function uses co_await or co_return (i.e. if it is a co_routine), it cannot use return directly.
+</a><a href="#h5-5-36" id="h5-5-36" class="i">+        // This helper helps a function that is not a coroutine itself to return errors asynchronously.
+</a><a href="#h5-5-37" id="h5-5-37" class="i">+        co_return GetInstallResult(::Workflow::ExecutionStage::Initial, hr, correlationData, false);
+</a><a href="#h5-5-38" id="h5-5-38" class="i">+    }
+</a><a href="#h5-5-39" id="h5-5-39" class="i">+
+</a><a href="#h5-5-40" id="h5-5-40" class="i">+#define WINGET_RETURN_INSTALL_RESULT_HR_IF(hr, boolVal) { if(boolVal) { return GetEmptyAsynchronousResultForInstallOperation(hr, correlationData); }}
+</a><a href="#h5-5-41" id="h5-5-41" class="i">+#define WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(hr) { WINGET_RETURN_INSTALL_RESULT_HR_IF(hr, FAILED(hr)) }
+</a><a href="#h5-5-42" id="h5-5-42" class="i">+
+</a>     winrt::Windows::Foundation::IAsyncOperationWithProgress&lt;winrt::Microsoft::Management::Deployment::InstallResult, winrt::Microsoft::Management::Deployment::InstallProgress&gt; PackageManager::InstallPackageAsync(winrt::Microsoft::Management::Deployment::CatalogPackage package, winrt::Microsoft::Management::Deployment::InstallOptions options)
+     {
+<a href="#h5-5-45" id="h5-5-45" class="d">-        return GetInstallOperation(true, package, options, nullptr);
+</a><a href="#h5-5-46" id="h5-5-46" class="i">+        hstring correlationData = (options) ? options.CorrelationData() : L&quot;&quot;;
+</a><a href="#h5-5-47" id="h5-5-47" class="i">+
+</a><a href="#h5-5-48" id="h5-5-48" class="i">+        // options and catalog can both be null, package must be set.
+</a><a href="#h5-5-49" id="h5-5-49" class="i">+        WINGET_RETURN_INSTALL_RESULT_HR_IF(APPINSTALLER_CLI_ERROR_INVALID_CL_ARGUMENTS, !package);
+</a><a href="#h5-5-50" id="h5-5-50" class="i">+
+</a><a href="#h5-5-51" id="h5-5-51" class="i">+        HRESULT hr = S_OK;
+</a><a href="#h5-5-52" id="h5-5-52" class="i">+        std::wstring callerProcessInfoString;
+</a><a href="#h5-5-53" id="h5-5-53" class="i">+        try
+</a><a href="#h5-5-54" id="h5-5-54" class="i">+        {
+</a><a href="#h5-5-55" id="h5-5-55" class="i">+            // Check for permissions and get caller info for telemetry.
+</a><a href="#h5-5-56" id="h5-5-56" class="i">+            // This must be done before any co_awaits since it requires info from the rpc caller thread.
+</a><a href="#h5-5-57" id="h5-5-57" class="i">+            auto [hrGetCallerId, callerProcessId] = GetCallerProcessId();
+</a><a href="#h5-5-58" id="h5-5-58" class="i">+            WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(hrGetCallerId);
+</a><a href="#h5-5-59" id="h5-5-59" class="i">+            WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(EnsureProcessHasCapability(Capability::PackageManagement, callerProcessId));
+</a><a href="#h5-5-60" id="h5-5-60" class="i">+            callerProcessInfoString = TryGetCallerProcessInfo(callerProcessId);
+</a><a href="#h5-5-61" id="h5-5-61" class="i">+        }
+</a><a href="#h5-5-62" id="h5-5-62" class="i">+        WINGET_CATCH_STORE(hr, APPINSTALLER_CLI_ERROR_COMMAND_FAILED);
+</a><a href="#h5-5-63" id="h5-5-63" class="i">+        WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(hr);
+</a><a href="#h5-5-64" id="h5-5-64" class="i">+
+</a><a href="#h5-5-65" id="h5-5-65" class="i">+        return GetInstallOperation(true /*canCancelQueueItem*/, nullptr /*queueItem*/, package, options, std::move(callerProcessInfoString));
+</a>     }
+ 
+     winrt::Windows::Foundation::IAsyncOperationWithProgress&lt;winrt::Microsoft::Management::Deployment::InstallResult, winrt::Microsoft::Management::Deployment::InstallProgress&gt; PackageManager::GetInstallProgress(winrt::Microsoft::Management::Deployment::CatalogPackage package, winrt::Microsoft::Management::Deployment::PackageCatalogInfo catalogInfo)
+     {
+<a href="#h5-5-70" id="h5-5-70" class="d">-        return GetInstallOperation(false, package, nullptr, catalogInfo);
+</a><a href="#h5-5-71" id="h5-5-71" class="i">+        hstring correlationData;
+</a><a href="#h5-5-72" id="h5-5-72" class="i">+        WINGET_RETURN_INSTALL_RESULT_HR_IF(APPINSTALLER_CLI_ERROR_INVALID_CL_ARGUMENTS, !package);
+</a><a href="#h5-5-73" id="h5-5-73" class="i">+
+</a><a href="#h5-5-74" id="h5-5-74" class="i">+        HRESULT hr = S_OK;
+</a><a href="#h5-5-75" id="h5-5-75" class="i">+        std::shared_ptr&lt;Execution::OrchestratorQueueItem&gt; queueItem = nullptr;
+</a><a href="#h5-5-76" id="h5-5-76" class="i">+        bool canCancelQueueItem = false;
+</a><a href="#h5-5-77" id="h5-5-77" class="i">+        try
+</a><a href="#h5-5-78" id="h5-5-78" class="i">+        {
+</a><a href="#h5-5-79" id="h5-5-79" class="i">+            // Check for permissions
+</a><a href="#h5-5-80" id="h5-5-80" class="i">+            // This must be done before any co_awaits since it requires info from the rpc caller thread.
+</a><a href="#h5-5-81" id="h5-5-81" class="i">+            auto [hrGetCallerId, callerProcessId] = GetCallerProcessId();
+</a><a href="#h5-5-82" id="h5-5-82" class="i">+            WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(hrGetCallerId);
+</a><a href="#h5-5-83" id="h5-5-83" class="i">+            canCancelQueueItem = SUCCEEDED(EnsureProcessHasCapability(Capability::PackageManagement, callerProcessId));
+</a><a href="#h5-5-84" id="h5-5-84" class="i">+            if (!canCancelQueueItem)
+</a><a href="#h5-5-85" id="h5-5-85" class="i">+            {
+</a><a href="#h5-5-86" id="h5-5-86" class="i">+                WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(EnsureProcessHasCapability(Capability::PackageQuery, callerProcessId));
+</a><a href="#h5-5-87" id="h5-5-87" class="i">+            }
+</a><a href="#h5-5-88" id="h5-5-88" class="i">+
+</a><a href="#h5-5-89" id="h5-5-89" class="i">+            // Get the queueItem synchronously.
+</a><a href="#h5-5-90" id="h5-5-90" class="i">+            queueItem = GetExistingQueueItemForPackage(package, catalogInfo);
+</a><a href="#h5-5-91" id="h5-5-91" class="i">+            if (queueItem == nullptr)
+</a><a href="#h5-5-92" id="h5-5-92" class="i">+            {
+</a><a href="#h5-5-93" id="h5-5-93" class="i">+                return nullptr;
+</a><a href="#h5-5-94" id="h5-5-94" class="i">+            }
+</a><a href="#h5-5-95" id="h5-5-95" class="i">+        }
+</a><a href="#h5-5-96" id="h5-5-96" class="i">+        WINGET_CATCH_STORE(hr, APPINSTALLER_CLI_ERROR_COMMAND_FAILED);
+</a><a href="#h5-5-97" id="h5-5-97" class="i">+        WINGET_RETURN_INSTALL_RESULT_HR_IF_FAILED(hr);
+</a><a href="#h5-5-98" id="h5-5-98" class="i">+
+</a><a href="#h5-5-99" id="h5-5-99" class="i">+        return GetInstallOperation(canCancelQueueItem, std::move(queueItem));
+</a>     }
+ 
+     CoCreatableCppWinRtClass(PackageManager);
+</pre>
+</div>
+</body>
+</html>

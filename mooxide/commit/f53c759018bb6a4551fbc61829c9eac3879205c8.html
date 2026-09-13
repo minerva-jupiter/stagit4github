@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(synth)!: Replace single oscillator with a three-oscillator engine - mooxide - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="mooxide.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="mooxide.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>mooxide</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/f53c759018bb6a4551fbc61829c9eac3879205c8.html">f53c759018bb6a4551fbc61829c9eac3879205c8</a>
+<b>parent</b> <a href="../commit/a2b82534f023d2b4537938abb3dcb64a405534f4.html">a2b82534f023d2b4537938abb3dcb64a405534f4</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Tue, 10 Mar 2026 23:03:10 +0900
+
+feat(synth)!: Replace single oscillator with a three-oscillator engine
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/lib.rs</a></td><td> | </td><td class="num">170</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------</span></td></tr>
+</table></pre><pre>1 file changed, 119 insertions(+), 51 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/lib.rs.html">src/lib.rs</a> b/<a href="../file/src/lib.rs.html">src/lib.rs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1,6 +1,5 @@
+</a> use nih_plug::prelude::*;
+ use std::f32::consts;
+<a href="#h0-0-2" id="h0-0-2" class="d">-use std::str::SplitAsciiWhitespace;
+</a> use std::sync::Arc;
+ 
+ // This is a shortened version of the gain example with most comments removed, check out
+<a href="#h0-1" id="h0-1" class="h">@@ -10,7 +9,7 @@ use std::sync::Arc;
+</a> struct Mooxide {
+     params: Arc&lt;MooxideParams&gt;,
+     sample_rate: f32,
+<a href="#h0-1-3" id="h0-1-3" class="d">-    phase: f32,
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+    phases: [f32; 3],
+</a>     midi_note_id: u8,
+     midi_note_frequency: f32,
+     midi_note_velocity: Smoother&lt;f32&gt;,
+<a href="#h0-2" id="h0-2" class="h">@@ -26,14 +25,51 @@ pub enum Waveform {
+</a>     Sawtooth,
+ }
+ 
+<a href="#h0-2-3" id="h0-2-3" class="i">+#[derive(Enum, PartialEq, Clone, Copy)]
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+pub enum Range {
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+    #[name = &quot;2&quot;]
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+    Two,
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+    #[name = &quot;4&quot;]
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+    Four,
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+    #[name = &quot;8&quot;]
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+    Eight,
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+    #[name = &quot;16&quot;]
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+    Sixteen,
+</a><a href="#h0-2-13" id="h0-2-13" class="i">+    #[name = &quot;32&quot;]
+</a><a href="#h0-2-14" id="h0-2-14" class="i">+    ThirtyTwo,
+</a><a href="#h0-2-15" id="h0-2-15" class="i">+}
+</a><a href="#h0-2-16" id="h0-2-16" class="i">+
+</a> #[derive(Params)]
+ struct MooxideParams {
+     /// The parameter&#39;s ID is used to identify the parameter in the wrappred plugin API. As long as
+     /// these IDs remain constant, you can rename and reorder these fields as you wish. The
+     /// parameters are exposed to the host in the same order they were defined. In this case, this
+     /// gain parameter is stored as linear gain while the values are displayed in decibels.
+<a href="#h0-2-23" id="h0-2-23" class="d">-    #[id = &quot;osc_wave&quot;]
+</a><a href="#h0-2-24" id="h0-2-24" class="d">-    pub wave: EnumParam&lt;Waveform&gt;,
+</a><a href="#h0-2-25" id="h0-2-25" class="i">+    #[id = &quot;tune&quot;]
+</a><a href="#h0-2-26" id="h0-2-26" class="i">+    pub tune: FloatParam,
+</a><a href="#h0-2-27" id="h0-2-27" class="i">+    #[id = &quot;occ1_range&quot;]
+</a><a href="#h0-2-28" id="h0-2-28" class="i">+    pub osc1_range: EnumParam&lt;Range&gt;,
+</a><a href="#h0-2-29" id="h0-2-29" class="i">+    #[id = &quot;osc1_wave&quot;]
+</a><a href="#h0-2-30" id="h0-2-30" class="i">+    pub osc1_wave: EnumParam&lt;Waveform&gt;,
+</a><a href="#h0-2-31" id="h0-2-31" class="i">+    #[id = &quot;osc1_mix&quot;]
+</a><a href="#h0-2-32" id="h0-2-32" class="i">+    pub osc1_mix: FloatParam,
+</a><a href="#h0-2-33" id="h0-2-33" class="i">+    #[id = &quot;osc2_range&quot;]
+</a><a href="#h0-2-34" id="h0-2-34" class="i">+    pub osc2_range: EnumParam&lt;Range&gt;,
+</a><a href="#h0-2-35" id="h0-2-35" class="i">+    #[id = &quot;osc2_detune&quot;]
+</a><a href="#h0-2-36" id="h0-2-36" class="i">+    pub osc2_detune: FloatParam,
+</a><a href="#h0-2-37" id="h0-2-37" class="i">+    #[id = &quot;osc2_wave&quot;]
+</a><a href="#h0-2-38" id="h0-2-38" class="i">+    pub osc2_wave: EnumParam&lt;Waveform&gt;,
+</a><a href="#h0-2-39" id="h0-2-39" class="i">+    #[id = &quot;osc2_mix&quot;]
+</a><a href="#h0-2-40" id="h0-2-40" class="i">+    pub osc2_mix: FloatParam,
+</a><a href="#h0-2-41" id="h0-2-41" class="i">+    #[id = &quot;osc3_range&quot;]
+</a><a href="#h0-2-42" id="h0-2-42" class="i">+    pub osc3_range: EnumParam&lt;Range&gt;,
+</a><a href="#h0-2-43" id="h0-2-43" class="i">+    #[id = &quot;osc3_detune&quot;]
+</a><a href="#h0-2-44" id="h0-2-44" class="i">+    pub osc3_detune: FloatParam,
+</a><a href="#h0-2-45" id="h0-2-45" class="i">+    #[id = &quot;osc3_wave&quot;]
+</a><a href="#h0-2-46" id="h0-2-46" class="i">+    pub osc3_wave: EnumParam&lt;Waveform&gt;,
+</a><a href="#h0-2-47" id="h0-2-47" class="i">+    #[id = &quot;osc3_mix&quot;]
+</a><a href="#h0-2-48" id="h0-2-48" class="i">+    pub osc3_mix: FloatParam,
+</a><a href="#h0-2-49" id="h0-2-49" class="i">+
+</a>     #[id = &quot;gain&quot;]
+     pub gain: FloatParam,
+ }
+<a href="#h0-3" id="h0-3" class="h">@@ -43,7 +79,7 @@ impl Default for Mooxide {
+</a>         Self {
+             params: Arc::new(MooxideParams::default()),
+             sample_rate: 1.0,
+<a href="#h0-3-3" id="h0-3-3" class="d">-            phase: 0.0,
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+            phases: [0.0; 3],
+</a>             midi_note_id: 0,
+             midi_note_frequency: 1.0,
+             midi_note_velocity: Smoother::new(SmoothingStyle::Linear(5.0)),
+<a href="#h0-4" id="h0-4" class="h">@@ -54,43 +90,67 @@ impl Default for Mooxide {
+</a> impl Default for MooxideParams {
+     fn default() -&gt; Self {
+         Self {
+<a href="#h0-4-3" id="h0-4-3" class="d">-            gain: FloatParam::new(
+</a><a href="#h0-4-4" id="h0-4-4" class="d">-                &quot;Gain&quot;,
+</a><a href="#h0-4-5" id="h0-4-5" class="d">-                -10.0,
+</a><a href="#h0-4-6" id="h0-4-6" class="i">+            gain: FloatParam::new(&quot;Gain&quot;, 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+</a><a href="#h0-4-7" id="h0-4-7" class="i">+            tune: FloatParam::new(
+</a><a href="#h0-4-8" id="h0-4-8" class="i">+                &quot;Tune&quot;,
+</a><a href="#h0-4-9" id="h0-4-9" class="i">+                0.0,
+</a>                 FloatRange::Linear {
+<a href="#h0-4-11" id="h0-4-11" class="d">-                    min: -30.0,
+</a><a href="#h0-4-12" id="h0-4-12" class="d">-                    max: 0.0,
+</a><a href="#h0-4-13" id="h0-4-13" class="i">+                    min: -1.0,
+</a><a href="#h0-4-14" id="h0-4-14" class="i">+                    max: 1.0,
+</a>                 },
+<a href="#h0-4-16" id="h0-4-16" class="d">-            )
+</a><a href="#h0-4-17" id="h0-4-17" class="d">-            .with_smoother(SmoothingStyle::Linear(3.0))
+</a><a href="#h0-4-18" id="h0-4-18" class="d">-            .with_step_size(0.01)
+</a><a href="#h0-4-19" id="h0-4-19" class="d">-            .with_unit(&quot; dB&quot;),
+</a><a href="#h0-4-20" id="h0-4-20" class="d">-            wave: EnumParam::new(&quot;Waveform&quot;, Waveform::Sine),
+</a><a href="#h0-4-21" id="h0-4-21" class="i">+            ),
+</a><a href="#h0-4-22" id="h0-4-22" class="i">+            osc1_range: EnumParam::new(&quot;Range&quot;, Range::Sixteen),
+</a><a href="#h0-4-23" id="h0-4-23" class="i">+            osc1_wave: EnumParam::new(&quot;Waveform&quot;, Waveform::Sine),
+</a><a href="#h0-4-24" id="h0-4-24" class="i">+            osc1_mix: FloatParam::new(&quot;Mix&quot;, 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+</a><a href="#h0-4-25" id="h0-4-25" class="i">+            osc2_range: EnumParam::new(&quot;Range&quot;, Range::Sixteen),
+</a><a href="#h0-4-26" id="h0-4-26" class="i">+            osc2_detune: FloatParam::new(
+</a><a href="#h0-4-27" id="h0-4-27" class="i">+                &quot;Detune&quot;,
+</a><a href="#h0-4-28" id="h0-4-28" class="i">+                0.0,
+</a><a href="#h0-4-29" id="h0-4-29" class="i">+                FloatRange::Linear {
+</a><a href="#h0-4-30" id="h0-4-30" class="i">+                    min: -1.0,
+</a><a href="#h0-4-31" id="h0-4-31" class="i">+                    max: 1.0,
+</a><a href="#h0-4-32" id="h0-4-32" class="i">+                },
+</a><a href="#h0-4-33" id="h0-4-33" class="i">+            ),
+</a><a href="#h0-4-34" id="h0-4-34" class="i">+            osc2_wave: EnumParam::new(&quot;Waveform&quot;, Waveform::Sine),
+</a><a href="#h0-4-35" id="h0-4-35" class="i">+            osc2_mix: FloatParam::new(&quot;Mix&quot;, 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+</a><a href="#h0-4-36" id="h0-4-36" class="i">+            osc3_range: EnumParam::new(&quot;Range&quot;, Range::Sixteen),
+</a><a href="#h0-4-37" id="h0-4-37" class="i">+            osc3_detune: FloatParam::new(
+</a><a href="#h0-4-38" id="h0-4-38" class="i">+                &quot;Detune&quot;,
+</a><a href="#h0-4-39" id="h0-4-39" class="i">+                0.0,
+</a><a href="#h0-4-40" id="h0-4-40" class="i">+                FloatRange::Linear {
+</a><a href="#h0-4-41" id="h0-4-41" class="i">+                    min: -1.0,
+</a><a href="#h0-4-42" id="h0-4-42" class="i">+                    max: 1.0,
+</a><a href="#h0-4-43" id="h0-4-43" class="i">+                },
+</a><a href="#h0-4-44" id="h0-4-44" class="i">+            ),
+</a><a href="#h0-4-45" id="h0-4-45" class="i">+            osc3_wave: EnumParam::new(&quot;Waveform&quot;, Waveform::Sine),
+</a><a href="#h0-4-46" id="h0-4-46" class="i">+            osc3_mix: FloatParam::new(&quot;Mix&quot;, 1.0, FloatRange::Linear { min: 0.0, max: 1.0 }),
+</a>         }
+     }
+ }
+ 
+ impl Mooxide {
+<a href="#h0-4-52" id="h0-4-52" class="d">-    fn sin(&amp;mut self, frequency: f32) -&gt; f32 {
+</a><a href="#h0-4-53" id="h0-4-53" class="d">-        let sine = (self.phase * consts::TAU).sin();
+</a><a href="#h0-4-54" id="h0-4-54" class="d">-        self.update_phase(frequency);
+</a><a href="#h0-4-55" id="h0-4-55" class="d">-        sine
+</a><a href="#h0-4-56" id="h0-4-56" class="d">-    }
+</a><a href="#h0-4-57" id="h0-4-57" class="d">-    fn triangle(&amp;mut self, frequency: f32) -&gt; f32 {
+</a><a href="#h0-4-58" id="h0-4-58" class="d">-        let triangle = 2.0 * (1.0 - self.phase).abs() - 1.0;
+</a><a href="#h0-4-59" id="h0-4-59" class="d">-        self.update_phase(frequency);
+</a><a href="#h0-4-60" id="h0-4-60" class="d">-        triangle
+</a><a href="#h0-4-61" id="h0-4-61" class="d">-    }
+</a><a href="#h0-4-62" id="h0-4-62" class="d">-    fn sawtooth(&amp;mut self, frequency: f32) -&gt; f32 {
+</a><a href="#h0-4-63" id="h0-4-63" class="d">-        let sawtooth = self.phase * 2.0 - 1.0;
+</a><a href="#h0-4-64" id="h0-4-64" class="d">-        self.update_phase(frequency);
+</a><a href="#h0-4-65" id="h0-4-65" class="d">-        sawtooth
+</a><a href="#h0-4-66" id="h0-4-66" class="d">-    }
+</a><a href="#h0-4-67" id="h0-4-67" class="i">+    fn osc(&amp;mut self, index: usize, freq: f32, wave: Waveform) -&gt; f32 {
+</a><a href="#h0-4-68" id="h0-4-68" class="i">+        let phase = &amp;mut self.phases[index];
+</a><a href="#h0-4-69" id="h0-4-69" class="i">+        let out = match wave {
+</a><a href="#h0-4-70" id="h0-4-70" class="i">+            Waveform::Sine =&gt; (*phase * consts::TAU).sin(),
+</a><a href="#h0-4-71" id="h0-4-71" class="i">+            Waveform::Triangle =&gt; 2.0 * (1.0 - 2.0 * (*phase - 0.5).abs()) - 1.0,
+</a><a href="#h0-4-72" id="h0-4-72" class="i">+            Waveform::Sawtooth =&gt; *phase * 2.0 - 1.0,
+</a><a href="#h0-4-73" id="h0-4-73" class="i">+        };
+</a> 
+<a href="#h0-4-75" id="h0-4-75" class="d">-    fn update_phase(&amp;mut self, frequency: f32) {
+</a><a href="#h0-4-76" id="h0-4-76" class="d">-        self.phase += frequency / self.sample_rate;
+</a><a href="#h0-4-77" id="h0-4-77" class="d">-        if self.phase &gt;= 1.0 {
+</a><a href="#h0-4-78" id="h0-4-78" class="d">-            self.phase -= 1.0;
+</a><a href="#h0-4-79" id="h0-4-79" class="i">+        // update phase
+</a><a href="#h0-4-80" id="h0-4-80" class="i">+        *phase += freq / self.sample_rate;
+</a><a href="#h0-4-81" id="h0-4-81" class="i">+        if *phase &gt;= 1.0 {
+</a><a href="#h0-4-82" id="h0-4-82" class="i">+            *phase -= 1.0;
+</a><a href="#h0-4-83" id="h0-4-83" class="i">+        }
+</a><a href="#h0-4-84" id="h0-4-84" class="i">+        out
+</a><a href="#h0-4-85" id="h0-4-85" class="i">+    }
+</a><a href="#h0-4-86" id="h0-4-86" class="i">+    fn get_range_mult(&amp;self, range: Range) -&gt; f32 {
+</a><a href="#h0-4-87" id="h0-4-87" class="i">+        match range {
+</a><a href="#h0-4-88" id="h0-4-88" class="i">+            Range::Two =&gt; 0.5,
+</a><a href="#h0-4-89" id="h0-4-89" class="i">+            Range::Four =&gt; 1.0,
+</a><a href="#h0-4-90" id="h0-4-90" class="i">+            Range::Eight =&gt; 2.0,
+</a><a href="#h0-4-91" id="h0-4-91" class="i">+            Range::Sixteen =&gt; 4.0,
+</a><a href="#h0-4-92" id="h0-4-92" class="i">+            Range::ThirtyTwo =&gt; 8.0,
+</a>         }
+     }
+ }
+<a href="#h0-5" id="h0-5" class="h">@@ -152,7 +212,7 @@ impl Plugin for Mooxide {
+</a>     fn reset(&amp;mut self) {
+         // Reset buffers and envelopes here. This can be called from the audio thread and may not
+         // allocate. You can remove this function if you do not need it.
+<a href="#h0-5-3" id="h0-5-3" class="d">-        self.phase = 0.0;
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+        self.phases = [0.0; 3];
+</a>         self.midi_note_id = 0;
+         self.midi_note_frequency = 1.0;
+         self.midi_note_velocity.reset(0.0);
+<a href="#h0-6" id="h0-6" class="h">@@ -169,7 +229,7 @@ impl Plugin for Mooxide {
+</a>             let gain = self.params.gain.smoothed.next();
+ 
+             // This plugin can be either triggered by MIDI or controleld by a parameter
+<a href="#h0-6-3" id="h0-6-3" class="d">-            let sine = {
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+            let displacement = {
+</a>                 // Act on the next MIDI event
+                 while let Some(event) = next_event {
+                     if event.timing() &gt; sample_id as u32 {
+<a href="#h0-7" id="h0-7" class="h">@@ -197,24 +257,32 @@ impl Plugin for Mooxide {
+</a> 
+                     next_event = context.next_event();
+                 }
+<a href="#h0-7-3" id="h0-7-3" class="i">+                let osc1 = self.osc(
+</a><a href="#h0-7-4" id="h0-7-4" class="i">+                    0,
+</a><a href="#h0-7-5" id="h0-7-5" class="i">+                    self.midi_note_frequency * self.get_range_mult(self.params.osc1_range.value()),
+</a><a href="#h0-7-6" id="h0-7-6" class="i">+                    self.params.osc1_wave.value(),
+</a><a href="#h0-7-7" id="h0-7-7" class="i">+                );
+</a><a href="#h0-7-8" id="h0-7-8" class="i">+                let osc2 = self.osc(
+</a><a href="#h0-7-9" id="h0-7-9" class="i">+                    1,
+</a><a href="#h0-7-10" id="h0-7-10" class="i">+                    self.midi_note_frequency
+</a><a href="#h0-7-11" id="h0-7-11" class="i">+                        * self.get_range_mult(self.params.osc2_range.value())
+</a><a href="#h0-7-12" id="h0-7-12" class="i">+                        * (1.0 + self.params.osc2_detune.value() * 0.01),
+</a><a href="#h0-7-13" id="h0-7-13" class="i">+                    self.params.osc2_wave.value(),
+</a><a href="#h0-7-14" id="h0-7-14" class="i">+                );
+</a><a href="#h0-7-15" id="h0-7-15" class="i">+                let osc3 = self.osc(
+</a><a href="#h0-7-16" id="h0-7-16" class="i">+                    2,
+</a><a href="#h0-7-17" id="h0-7-17" class="i">+                    self.midi_note_frequency
+</a><a href="#h0-7-18" id="h0-7-18" class="i">+                        * self.get_range_mult(self.params.osc3_range.value())
+</a><a href="#h0-7-19" id="h0-7-19" class="i">+                        * (1.0 + self.params.osc3_detune.value() * 0.01),
+</a><a href="#h0-7-20" id="h0-7-20" class="i">+                    self.params.osc3_wave.value(),
+</a><a href="#h0-7-21" id="h0-7-21" class="i">+                );
+</a> 
+<a href="#h0-7-23" id="h0-7-23" class="d">-                // This gain envelope prevents clicks with new notes and with released notes
+</a><a href="#h0-7-24" id="h0-7-24" class="d">-                let current_waveform = self.params.wave.value();
+</a><a href="#h0-7-25" id="h0-7-25" class="d">-                match current_waveform {
+</a><a href="#h0-7-26" id="h0-7-26" class="d">-                    Waveform::Sine =&gt; {
+</a><a href="#h0-7-27" id="h0-7-27" class="d">-                        self.sin(self.midi_note_frequency) * self.midi_note_velocity.next()
+</a><a href="#h0-7-28" id="h0-7-28" class="d">-                    }
+</a><a href="#h0-7-29" id="h0-7-29" class="d">-                    Waveform::Triangle =&gt; {
+</a><a href="#h0-7-30" id="h0-7-30" class="d">-                        self.triangle(self.midi_note_frequency) * self.midi_note_velocity.next()
+</a><a href="#h0-7-31" id="h0-7-31" class="d">-                    }
+</a><a href="#h0-7-32" id="h0-7-32" class="d">-                    Waveform::Sawtooth =&gt; {
+</a><a href="#h0-7-33" id="h0-7-33" class="d">-                        self.sawtooth(self.midi_note_frequency) * self.midi_note_velocity.next()
+</a><a href="#h0-7-34" id="h0-7-34" class="d">-                    }
+</a><a href="#h0-7-35" id="h0-7-35" class="d">-                    _ =&gt; self.sin(self.midi_note_frequency) * self.midi_note_velocity.next(),
+</a><a href="#h0-7-36" id="h0-7-36" class="d">-                }
+</a><a href="#h0-7-37" id="h0-7-37" class="i">+                osc1 * self.params.osc1_mix.value()
+</a><a href="#h0-7-38" id="h0-7-38" class="i">+                    + osc2 * self.params.osc2_mix.value()
+</a><a href="#h0-7-39" id="h0-7-39" class="i">+                    + osc3 * self.params.osc3_mix.value()
+</a>             };
+             for sample in channel_samples {
+<a href="#h0-7-42" id="h0-7-42" class="d">-                *sample = sine * util::db_to_gain_fast(gain);
+</a><a href="#h0-7-43" id="h0-7-43" class="i">+                *sample = displacement * util::db_to_gain_fast(gain);
+</a>             }
+         }
+ 
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Show PurchaseUrl if present in manifest (#2416) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/f66b390b92ca2b2203c1f9c3f28def8a8e4a8634.html">f66b390b92ca2b2203c1f9c3f28def8a8e4a8634</a>
+<b>parent</b> <a href="../commit/45a3867c7c2425edc1805265a6e29371170a3e45.html">45a3867c7c2425edc1805265a6e29371170a3e45</a>
+<b>Author:</b> Kaleb Luedtke &lt;<a href="mailto:jluedtk@jci.com">jluedtk@jci.com</a>&gt;
+<b>Date:</b>   Tue, 23 Aug 2022 15:31:54 -0500
+
+Show PurchaseUrl if present in manifest (#2416)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/ShowFlow.cpp</a></td><td> | </td><td class="num">189</td><td><span class="i">++++++++++++++++++++++++++++++++</span><span class="d">-----------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+</table></pre><pre>3 files changed, 80 insertions(+), 113 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -299,6 +299,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ShowLabelPublisher);
+         WINGET_DEFINE_RESOURCE_STRINGID(ShowLabelPublisherSupportUrl);
+         WINGET_DEFINE_RESOURCE_STRINGID(ShowLabelPublisherUrl);
+<a href="#h0-0-3" id="h0-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(ShowLabelPurchaseUrl);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ShowLabelReleaseNotes);
+         WINGET_DEFINE_RESOURCE_STRINGID(ShowLabelReleaseNotesUrl);
+         WINGET_DEFINE_RESOURCE_STRINGID(ShowLabelTags);
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/ShowFlow.cpp.html">src/AppInstallerCLICore/Workflows/ShowFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ShowFlow.cpp.html">src/AppInstallerCLICore/Workflows/ShowFlow.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -12,17 +12,57 @@ using namespace AppInstaller::Utility;
+</a> using namespace AppInstaller::Utility::literals;
+ 
+ namespace {
+<a href="#h1-0-3" id="h1-0-3" class="d">-    void ShowMultiLineField(Execution::OutputStream&amp; outputStream, AppInstaller::StringResource::StringId label, std::string&amp; value)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    template &lt;typename String&gt;
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    void ShowSingleLineField(Execution::OutputStream outputStream, AppInstaller::StringResource::StringId label, const String&amp; value, bool indent = false)
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    {
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        if (value.empty())
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+        {
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+            return;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+        }
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+        if (indent)
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+        {
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+            outputStream &lt;&lt; &quot;  &quot;_liv;
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+        }
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+        outputStream &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; label &lt;&lt; &#39; &#39; &lt;&lt; value &lt;&lt; std::endl;
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+    }
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+    template &lt;typename String&gt;
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+    void ShowMultiLineField(Execution::OutputStream outputStream, AppInstaller::StringResource::StringId label, const String&amp; value)
+</a>     {
+<a href="#h1-0-22" id="h1-0-22" class="d">-        bool isMultiLine = FindAndReplace(value, &quot;\n&quot;, &quot;\n  &quot;);
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+        if (value.empty())
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+        {
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+            return;
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+        }
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+        /*
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+            We need to be able to find and replace within the string.However, we don&#39;t want to own the original string
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+            Therefore, a copy is created here so we can manipulate it. The memory should be freed again once this method
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+            returns and the string is no longer in scope.
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+        */
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+        std::string shownValue = value;
+</a><a href="#h1-0-33" id="h1-0-33" class="i">+        bool isMultiLine = FindAndReplace(shownValue, &quot;\n&quot;, &quot;\n  &quot;);
+</a>         outputStream &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; label;
+         if (isMultiLine)
+         {
+<a href="#h1-0-37" id="h1-0-37" class="d">-            outputStream &lt;&lt; std::endl &lt;&lt; &quot;  &quot;_liv &lt;&lt; value &lt;&lt; std::endl;
+</a><a href="#h1-0-38" id="h1-0-38" class="i">+            outputStream &lt;&lt; std::endl &lt;&lt; &quot;  &quot;_liv &lt;&lt; shownValue &lt;&lt; std::endl;
+</a>         }
+         else
+         {
+<a href="#h1-0-42" id="h1-0-42" class="d">-            outputStream &lt;&lt; &#39; &#39; &lt;&lt; value &lt;&lt; std::endl;
+</a><a href="#h1-0-43" id="h1-0-43" class="i">+            outputStream &lt;&lt; &#39; &#39; &lt;&lt; shownValue &lt;&lt; std::endl;
+</a><a href="#h1-0-44" id="h1-0-44" class="i">+        }
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+    }
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+    template &lt;typename Enumerable&gt;
+</a><a href="#h1-0-48" id="h1-0-48" class="i">+    void ShowMultiValueField(Execution::OutputStream outputStream, AppInstaller::StringResource::StringId label, const Enumerable&amp; values)
+</a><a href="#h1-0-49" id="h1-0-49" class="i">+    {
+</a><a href="#h1-0-50" id="h1-0-50" class="i">+        if (values.empty())
+</a><a href="#h1-0-51" id="h1-0-51" class="i">+        {
+</a><a href="#h1-0-52" id="h1-0-52" class="i">+            return;
+</a><a href="#h1-0-53" id="h1-0-53" class="i">+        }
+</a><a href="#h1-0-54" id="h1-0-54" class="i">+        outputStream &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; label &lt;&lt; std::endl;
+</a><a href="#h1-0-55" id="h1-0-55" class="i">+        for (const auto&amp; value : values)
+</a><a href="#h1-0-56" id="h1-0-56" class="i">+        {
+</a><a href="#h1-0-57" id="h1-0-57" class="i">+            outputStream &lt;&lt; &quot;  &quot;_liv &lt;&lt; value &lt;&lt; std::endl;
+</a>         }
+     }
+ }
+<a href="#h1-1" id="h1-1" class="h">@@ -38,80 +78,27 @@ namespace AppInstaller::CLI::Workflow
+</a>     {
+         const auto&amp; manifest = context.Get&lt;Execution::Data::Manifest&gt;();
+         auto info = context.Reporter.Info();
+<a href="#h1-1-3" id="h1-1-3" class="i">+        // Get description from manifest so we can see if it is empty later
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        auto description = manifest.CurrentLocalization.Get&lt;Manifest::Localization::Description&gt;();
+</a> 
+         // TODO: Come up with a prettier format
+<a href="#h1-1-7" id="h1-1-7" class="d">-        info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelVersion &lt;&lt; &#39; &#39; &lt;&lt; manifest.Version &lt;&lt; std::endl;
+</a><a href="#h1-1-8" id="h1-1-8" class="d">-        info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelPublisher &lt;&lt; &#39; &#39; &lt;&lt; manifest.CurrentLocalization.Get&lt;Manifest::Localization::Publisher&gt;() &lt;&lt; std::endl;
+</a><a href="#h1-1-9" id="h1-1-9" class="d">-        auto publisherUrl = manifest.CurrentLocalization.Get&lt;Manifest::Localization::PublisherUrl&gt;();
+</a><a href="#h1-1-10" id="h1-1-10" class="d">-        if (!publisherUrl.empty())
+</a><a href="#h1-1-11" id="h1-1-11" class="d">-        {
+</a><a href="#h1-1-12" id="h1-1-12" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelPublisherUrl &lt;&lt; &#39; &#39; &lt;&lt; publisherUrl &lt;&lt; std::endl;
+</a><a href="#h1-1-13" id="h1-1-13" class="d">-        }
+</a><a href="#h1-1-14" id="h1-1-14" class="d">-        auto publisherSupportUrl = manifest.CurrentLocalization.Get&lt;Manifest::Localization::PublisherSupportUrl&gt;();
+</a><a href="#h1-1-15" id="h1-1-15" class="d">-        if (!publisherSupportUrl.empty())
+</a><a href="#h1-1-16" id="h1-1-16" class="d">-        {
+</a><a href="#h1-1-17" id="h1-1-17" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelPublisherSupportUrl &lt;&lt; &#39; &#39; &lt;&lt; publisherSupportUrl &lt;&lt; std::endl;
+</a><a href="#h1-1-18" id="h1-1-18" class="d">-        }
+</a><a href="#h1-1-19" id="h1-1-19" class="d">-        auto author = manifest.CurrentLocalization.Get&lt;Manifest::Localization::Author&gt;();
+</a><a href="#h1-1-20" id="h1-1-20" class="d">-        if (!author.empty())
+</a><a href="#h1-1-21" id="h1-1-21" class="d">-        {
+</a><a href="#h1-1-22" id="h1-1-22" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelAuthor &lt;&lt; &#39; &#39; &lt;&lt; author &lt;&lt; std::endl;
+</a><a href="#h1-1-23" id="h1-1-23" class="d">-        }
+</a><a href="#h1-1-24" id="h1-1-24" class="d">-        if (!manifest.Moniker.empty())
+</a><a href="#h1-1-25" id="h1-1-25" class="d">-        {
+</a><a href="#h1-1-26" id="h1-1-26" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelMoniker &lt;&lt; &#39; &#39; &lt;&lt; manifest.Moniker &lt;&lt; std::endl;
+</a><a href="#h1-1-27" id="h1-1-27" class="d">-        }
+</a><a href="#h1-1-28" id="h1-1-28" class="d">-        auto description = manifest.CurrentLocalization.Get&lt;Manifest::Localization::Description&gt;();
+</a><a href="#h1-1-29" id="h1-1-29" class="d">-        if (description.empty())
+</a><a href="#h1-1-30" id="h1-1-30" class="d">-        {
+</a><a href="#h1-1-31" id="h1-1-31" class="d">-            // Fall back to short description
+</a><a href="#h1-1-32" id="h1-1-32" class="d">-            description = manifest.CurrentLocalization.Get&lt;Manifest::Localization::ShortDescription&gt;();
+</a><a href="#h1-1-33" id="h1-1-33" class="d">-        }
+</a><a href="#h1-1-34" id="h1-1-34" class="d">-        if (!description.empty())
+</a><a href="#h1-1-35" id="h1-1-35" class="d">-        {
+</a><a href="#h1-1-36" id="h1-1-36" class="d">-            ShowMultiLineField(info, Resource::String::ShowLabelDescription, description);
+</a><a href="#h1-1-37" id="h1-1-37" class="d">-        }
+</a><a href="#h1-1-38" id="h1-1-38" class="d">-        auto homepage = manifest.CurrentLocalization.Get&lt;Manifest::Localization::PackageUrl&gt;();
+</a><a href="#h1-1-39" id="h1-1-39" class="d">-        if (!homepage.empty())
+</a><a href="#h1-1-40" id="h1-1-40" class="d">-        {
+</a><a href="#h1-1-41" id="h1-1-41" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelPackageUrl &lt;&lt; &#39; &#39; &lt;&lt; homepage &lt;&lt; std::endl;
+</a><a href="#h1-1-42" id="h1-1-42" class="d">-        }
+</a><a href="#h1-1-43" id="h1-1-43" class="d">-        info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelLicense &lt;&lt; &#39; &#39; &lt;&lt; manifest.CurrentLocalization.Get&lt;Manifest::Localization::License&gt;() &lt;&lt; std::endl;
+</a><a href="#h1-1-44" id="h1-1-44" class="d">-        auto licenseUrl = manifest.CurrentLocalization.Get&lt;Manifest::Localization::LicenseUrl&gt;();
+</a><a href="#h1-1-45" id="h1-1-45" class="d">-        if (!licenseUrl.empty())
+</a><a href="#h1-1-46" id="h1-1-46" class="d">-        {
+</a><a href="#h1-1-47" id="h1-1-47" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelLicenseUrl &lt;&lt; &#39; &#39; &lt;&lt; licenseUrl &lt;&lt; std::endl;
+</a><a href="#h1-1-48" id="h1-1-48" class="d">-        }
+</a><a href="#h1-1-49" id="h1-1-49" class="d">-        auto privacyUrl = manifest.CurrentLocalization.Get&lt;Manifest::Localization::PrivacyUrl&gt;();
+</a><a href="#h1-1-50" id="h1-1-50" class="d">-        if (!privacyUrl.empty())
+</a><a href="#h1-1-51" id="h1-1-51" class="d">-        {
+</a><a href="#h1-1-52" id="h1-1-52" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelPrivacyUrl &lt;&lt; &#39; &#39; &lt;&lt; privacyUrl &lt;&lt; std::endl;
+</a><a href="#h1-1-53" id="h1-1-53" class="d">-        }
+</a><a href="#h1-1-54" id="h1-1-54" class="d">-        auto copyright = manifest.CurrentLocalization.Get&lt;Manifest::Localization::Copyright&gt;();
+</a><a href="#h1-1-55" id="h1-1-55" class="d">-        if (!copyright.empty())
+</a><a href="#h1-1-56" id="h1-1-56" class="d">-        {
+</a><a href="#h1-1-57" id="h1-1-57" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelCopyright &lt;&lt; &#39; &#39; &lt;&lt; copyright &lt;&lt; std::endl;
+</a><a href="#h1-1-58" id="h1-1-58" class="d">-        }
+</a><a href="#h1-1-59" id="h1-1-59" class="d">-        auto copyrightUrl = manifest.CurrentLocalization.Get&lt;Manifest::Localization::CopyrightUrl&gt;();
+</a><a href="#h1-1-60" id="h1-1-60" class="d">-        if (!copyrightUrl.empty())
+</a><a href="#h1-1-61" id="h1-1-61" class="d">-        {
+</a><a href="#h1-1-62" id="h1-1-62" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelCopyrightUrl &lt;&lt; &#39; &#39; &lt;&lt; copyrightUrl &lt;&lt; std::endl;
+</a><a href="#h1-1-63" id="h1-1-63" class="d">-        }
+</a><a href="#h1-1-64" id="h1-1-64" class="d">-        auto releaseNotes = manifest.CurrentLocalization.Get&lt;Manifest::Localization::ReleaseNotes&gt;();
+</a><a href="#h1-1-65" id="h1-1-65" class="d">-        if (!releaseNotes.empty())
+</a><a href="#h1-1-66" id="h1-1-66" class="d">-        {
+</a><a href="#h1-1-67" id="h1-1-67" class="d">-            ShowMultiLineField(info, Resource::String::ShowLabelReleaseNotes, releaseNotes);
+</a><a href="#h1-1-68" id="h1-1-68" class="d">-        }
+</a><a href="#h1-1-69" id="h1-1-69" class="d">-        auto releaseNotesUrl = manifest.CurrentLocalization.Get&lt;Manifest::Localization::ReleaseNotesUrl&gt;();
+</a><a href="#h1-1-70" id="h1-1-70" class="d">-        if (!releaseNotesUrl.empty())
+</a><a href="#h1-1-71" id="h1-1-71" class="d">-        {
+</a><a href="#h1-1-72" id="h1-1-72" class="d">-            info &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelReleaseNotesUrl &lt;&lt; &#39; &#39; &lt;&lt; releaseNotesUrl &lt;&lt; std::endl;
+</a><a href="#h1-1-73" id="h1-1-73" class="d">-        }
+</a><a href="#h1-1-74" id="h1-1-74" class="d">-        auto installationNotes = manifest.CurrentLocalization.Get&lt;Manifest::Localization::InstallationNotes&gt;();
+</a><a href="#h1-1-75" id="h1-1-75" class="d">-        if (!installationNotes.empty())
+</a><a href="#h1-1-76" id="h1-1-76" class="d">-        {
+</a><a href="#h1-1-77" id="h1-1-77" class="d">-            ShowMultiLineField(info, Resource::String::ShowLabelInstallationNotes, installationNotes);
+</a><a href="#h1-1-78" id="h1-1-78" class="d">-        }
+</a><a href="#h1-1-79" id="h1-1-79" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelVersion, manifest.Version);
+</a><a href="#h1-1-80" id="h1-1-80" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelPublisher, manifest.CurrentLocalization.Get&lt;Manifest::Localization::Publisher&gt;());
+</a><a href="#h1-1-81" id="h1-1-81" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelPublisherUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::PublisherUrl&gt;());
+</a><a href="#h1-1-82" id="h1-1-82" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelPublisherSupportUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::PublisherSupportUrl&gt;());
+</a><a href="#h1-1-83" id="h1-1-83" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelAuthor, manifest.CurrentLocalization.Get&lt;Manifest::Localization::Author&gt;());
+</a><a href="#h1-1-84" id="h1-1-84" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelMoniker, manifest.Moniker);
+</a><a href="#h1-1-85" id="h1-1-85" class="i">+        ShowMultiLineField(info,  Resource::String::ShowLabelDescription, description.empty() ? manifest.CurrentLocalization.Get&lt;Manifest::Localization::ShortDescription&gt;() : description);
+</a><a href="#h1-1-86" id="h1-1-86" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelPackageUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::PackageUrl&gt;());
+</a><a href="#h1-1-87" id="h1-1-87" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelLicense, manifest.CurrentLocalization.Get&lt;Manifest::Localization::License&gt;());
+</a><a href="#h1-1-88" id="h1-1-88" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelLicenseUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::LicenseUrl&gt;());
+</a><a href="#h1-1-89" id="h1-1-89" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelPrivacyUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::PrivacyUrl&gt;());
+</a><a href="#h1-1-90" id="h1-1-90" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelCopyright, manifest.CurrentLocalization.Get&lt;Manifest::Localization::Copyright&gt;());
+</a><a href="#h1-1-91" id="h1-1-91" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelCopyrightUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::CopyrightUrl&gt;());
+</a><a href="#h1-1-92" id="h1-1-92" class="i">+        ShowMultiLineField(info,  Resource::String::ShowLabelReleaseNotes, manifest.CurrentLocalization.Get&lt;Manifest::Localization::ReleaseNotes&gt;());
+</a><a href="#h1-1-93" id="h1-1-93" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelReleaseNotesUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::ReleaseNotesUrl&gt;());
+</a><a href="#h1-1-94" id="h1-1-94" class="i">+        ShowSingleLineField(info, Resource::String::ShowLabelPurchaseUrl, manifest.CurrentLocalization.Get&lt;Manifest::Localization::PurchaseUrl&gt;());
+</a><a href="#h1-1-95" id="h1-1-95" class="i">+        ShowMultiLineField(info, Resource::String::ShowLabelInstallationNotes, manifest.CurrentLocalization.Get&lt;Manifest::Localization::InstallationNotes&gt;());
+</a>         const auto&amp; documentations = manifest.CurrentLocalization.Get&lt;Manifest::Localization::Documentations&gt;();
+         if (!documentations.empty())
+         {
+<a href="#h1-2" id="h1-2" class="h">@@ -130,15 +117,7 @@ namespace AppInstaller::CLI::Workflow
+</a>                 }
+             }
+         }
+<a href="#h1-2-3" id="h1-2-3" class="d">-        const auto&amp; tags = manifest.CurrentLocalization.Get&lt;Manifest::Localization::Tags&gt;();
+</a><a href="#h1-2-4" id="h1-2-4" class="d">-        if (!tags.empty())
+</a><a href="#h1-2-5" id="h1-2-5" class="d">-        {
+</a><a href="#h1-2-6" id="h1-2-6" class="d">-            context.Reporter.Info() &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelTags &lt;&lt; std::endl;
+</a><a href="#h1-2-7" id="h1-2-7" class="d">-            for (const auto&amp; tag : tags)
+</a><a href="#h1-2-8" id="h1-2-8" class="d">-            {
+</a><a href="#h1-2-9" id="h1-2-9" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; tag &lt;&lt; std::endl;
+</a><a href="#h1-2-10" id="h1-2-10" class="d">-            }
+</a><a href="#h1-2-11" id="h1-2-11" class="d">-        }
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+        ShowMultiValueField(info, Resource::String::ShowLabelTags, manifest.CurrentLocalization.Get&lt;Manifest::Localization::Tags&gt;());
+</a>         const auto&amp; agreements = manifest.CurrentLocalization.Get&lt;Manifest::Localization::Agreements&gt;();
+         if (!agreements.empty())
+         {
+<a href="#h1-3" id="h1-3" class="h">@@ -175,36 +154,20 @@ namespace AppInstaller::CLI::Workflow
+</a>         {
+             Manifest::InstallerTypeEnum effectiveInstallerType = installer-&gt;EffectiveInstallerType();
+             Manifest::InstallerTypeEnum baseInstallerType = installer-&gt;BaseInstallerType;
+<a href="#h1-3-3" id="h1-3-3" class="d">-            if (effectiveInstallerType == baseInstallerType)
+</a><a href="#h1-3-4" id="h1-3-4" class="d">-            {
+</a><a href="#h1-3-5" id="h1-3-5" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelInstallerType &lt;&lt; &#39; &#39; &lt;&lt; Manifest::InstallerTypeToString(effectiveInstallerType) &lt;&lt; std::endl;
+</a><a href="#h1-3-6" id="h1-3-6" class="d">-            }
+</a><a href="#h1-3-7" id="h1-3-7" class="d">-            else
+</a><a href="#h1-3-8" id="h1-3-8" class="d">-            {
+</a><a href="#h1-3-9" id="h1-3-9" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelInstallerType &lt;&lt; &#39; &#39; &lt;&lt; Manifest::InstallerTypeToString(effectiveInstallerType) &lt;&lt; &quot; (&quot; &lt;&lt;
+</a><a href="#h1-3-10" id="h1-3-10" class="d">-                    Manifest::InstallerTypeToString(baseInstallerType) &lt;&lt; &#39;)&#39; &lt;&lt; std::endl;
+</a><a href="#h1-3-11" id="h1-3-11" class="d">-            }
+</a><a href="#h1-3-12" id="h1-3-12" class="d">-
+</a><a href="#h1-3-13" id="h1-3-13" class="d">-            if (!installer-&gt;Locale.empty())
+</a><a href="#h1-3-14" id="h1-3-14" class="d">-            {
+</a><a href="#h1-3-15" id="h1-3-15" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelInstallerLocale &lt;&lt; &#39; &#39; &lt;&lt; installer-&gt;Locale &lt;&lt; std::endl;
+</a><a href="#h1-3-16" id="h1-3-16" class="d">-            }
+</a><a href="#h1-3-17" id="h1-3-17" class="d">-            if (!installer-&gt;Url.empty())
+</a><a href="#h1-3-18" id="h1-3-18" class="d">-            {
+</a><a href="#h1-3-19" id="h1-3-19" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelInstallerUrl &lt;&lt; &#39; &#39; &lt;&lt; installer-&gt;Url &lt;&lt; std::endl;
+</a><a href="#h1-3-20" id="h1-3-20" class="d">-            }
+</a><a href="#h1-3-21" id="h1-3-21" class="d">-            if (!installer-&gt;Sha256.empty())
+</a><a href="#h1-3-22" id="h1-3-22" class="d">-            {
+</a><a href="#h1-3-23" id="h1-3-23" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelInstallerSha256 &lt;&lt; &#39; &#39; &lt;&lt; Utility::SHA256::ConvertToString(installer-&gt;Sha256) &lt;&lt; std::endl;
+</a><a href="#h1-3-24" id="h1-3-24" class="d">-            }
+</a><a href="#h1-3-25" id="h1-3-25" class="d">-            if (!installer-&gt;ProductId.empty())
+</a><a href="#h1-3-26" id="h1-3-26" class="d">-            {
+</a><a href="#h1-3-27" id="h1-3-27" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelInstallerProductId &lt;&lt; &#39; &#39; &lt;&lt; installer-&gt;ProductId &lt;&lt; std::endl;
+</a><a href="#h1-3-28" id="h1-3-28" class="d">-            }
+</a><a href="#h1-3-29" id="h1-3-29" class="d">-            if (!installer-&gt;ReleaseDate.empty())
+</a><a href="#h1-3-30" id="h1-3-30" class="i">+            std::string shownInstallerType;
+</a><a href="#h1-3-31" id="h1-3-31" class="i">+            shownInstallerType = Manifest::InstallerTypeToString(effectiveInstallerType);
+</a><a href="#h1-3-32" id="h1-3-32" class="i">+            if (effectiveInstallerType != baseInstallerType)
+</a>             {
+<a href="#h1-3-34" id="h1-3-34" class="d">-                info &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::ManifestInfoEmphasis &lt;&lt; Resource::String::ShowLabelInstallerReleaseDate &lt;&lt; &#39; &#39; &lt;&lt; installer-&gt;ReleaseDate &lt;&lt; std::endl;
+</a><a href="#h1-3-35" id="h1-3-35" class="i">+                shownInstallerType += &quot; (&quot;_liv;
+</a><a href="#h1-3-36" id="h1-3-36" class="i">+                shownInstallerType += Manifest::InstallerTypeToString(baseInstallerType);
+</a><a href="#h1-3-37" id="h1-3-37" class="i">+                shownInstallerType += &#39;)&#39;;
+</a>             }
+<a href="#h1-3-39" id="h1-3-39" class="i">+            ShowSingleLineField(info, Resource::String::ShowLabelInstallerType, shownInstallerType, true);
+</a><a href="#h1-3-40" id="h1-3-40" class="i">+            ShowSingleLineField(info, Resource::String::ShowLabelInstallerLocale, installer-&gt;Locale, true);
+</a><a href="#h1-3-41" id="h1-3-41" class="i">+            ShowSingleLineField(info, Resource::String::ShowLabelInstallerUrl, installer-&gt;Url, true);
+</a><a href="#h1-3-42" id="h1-3-42" class="i">+            ShowSingleLineField(info, Resource::String::ShowLabelInstallerSha256, (installer-&gt;Sha256.empty()) ? &quot;&quot; : Utility::SHA256::ConvertToString(installer-&gt;Sha256), true);
+</a><a href="#h1-3-43" id="h1-3-43" class="i">+            ShowSingleLineField(info, Resource::String::ShowLabelInstallerProductId, installer-&gt;ProductId, true);
+</a><a href="#h1-3-44" id="h1-3-44" class="i">+            ShowSingleLineField(info, Resource::String::ShowLabelInstallerReleaseDate, installer-&gt;ReleaseDate, true);
+</a> 
+             if (Settings::ExperimentalFeature::IsEnabled(Settings::ExperimentalFeature::Feature::Dependencies))
+             {
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -1127,6 +1127,9 @@ Do you agree to the terms?&lt;/value&gt;
+</a>   &lt;data name=&quot;ShowLabelPublisherUrl&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Publisher Url:&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+  &lt;data name=&quot;ShowLabelPurchaseUrl&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    &lt;value&gt;Purchase Url:&lt;/value&gt;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+  &lt;/data&gt;
+</a>   &lt;data name=&quot;ShowLabelPublisherSupportUrl&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Publisher Support Url:&lt;/value&gt;
+   &lt;/data&gt;
+</pre>
+</div>
+</body>
+</html>

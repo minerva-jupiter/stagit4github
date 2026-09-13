@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix for attempted use of capability API before it was introduced (#4620) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/43425fe97d237e03026fca4530dbc422ab445595.html">43425fe97d237e03026fca4530dbc422ab445595</a>
+<b>parent</b> <a href="../commit/c00ea884520808ca58d9e74f62cd14ac66e0494c.html">c00ea884520808ca58d9e74f62cd14ac66e0494c</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Mon,  8 Jul 2024 14:53:36 -0700
+
+Fix for attempted use of capability API before it was introduced (#4620)
+
+## Change
+Check for the existence of
+`Windows::Security::Authorization::AppCapabilityAccess::AppCapability`,
+and if it is not present, simply force the caller to be at least medium
+integrity level.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerSharedLib/Public/winget/Security.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerSharedLib/Security.cpp</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Deployment/Helpers.cpp</a></td><td> | </td><td class="num">36</td><td><span class="i">++++++++++++++++++++++++++++</span><span class="d">--------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Deployment/pch.h</a></td><td> | </td><td class="num">6</td><td><span class="i">+++</span><span class="d">---</span></td></tr>
+</table></pre><pre>4 files changed, 56 insertions(+), 11 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerSharedLib/Public/winget/Security.h.html">src/AppInstallerSharedLib/Public/winget/Security.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/Security.h.html">src/AppInstallerSharedLib/Public/winget/Security.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -27,6 +27,12 @@ namespace AppInstaller::Security
+</a>     // and is at least equal integrity level (higher will also be allowed).
+     bool IsCOMCallerSameUserAndIntegrityLevel();
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+    // Determines if the current COM caller is at least the minimum integrity level provided.
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+    bool IsCOMCallerIntegrityLevelAtLeast(IntegrityLevel minimumLevel);
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+    // Determines if the current integrity level is at least the minimum integrity level provided.
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+    bool IsCurrentIntegrityLevelAtLeast(IntegrityLevel minimumLevel);
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+
+</a>     // Gets the string representation of the given SID.
+     std::string ToString(PSID sid);
+ }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerSharedLib/Security.cpp.html">src/AppInstallerSharedLib/Security.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/Security.cpp.html">src/AppInstallerSharedLib/Security.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -112,6 +112,25 @@ namespace AppInstaller::Security
+</a>         return true;
+     }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+    bool IsCOMCallerIntegrityLevelAtLeast(IntegrityLevel minimumLevel)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    {
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        auto impersonation = ImpersonateCOMorRPCCaller::BeginImpersonation();
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        return IsCurrentIntegrityLevelAtLeast(minimumLevel);
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    }
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    bool IsCurrentIntegrityLevelAtLeast(IntegrityLevel minimumLevel)
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    {
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+        IntegrityLevel callingIntegrityLevel = GetEffectiveIntegrityLevel();
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+        if (ToIntegral(callingIntegrityLevel) &lt; ToIntegral(minimumLevel))
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+        {
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+            AICLI_LOG(Core, Crit, &lt;&lt; &quot;Attempt to access by a lower integrity process than required: &quot; &lt;&lt; callingIntegrityLevel &lt;&lt; &quot; &lt; &quot; &lt;&lt; minimumLevel);
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+            return false;
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+        }
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+        return true;
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+    }
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+
+</a>     std::string ToString(PSID sid)
+     {
+         wil::unique_hlocal_ansistring result;
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Deployment/Helpers.cpp.html">src/Microsoft.Management.Deployment/Helpers.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/Helpers.cpp.html">src/Microsoft.Management.Deployment/Helpers.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -1,4 +1,3 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="d">-
+</a> // Copyright (c) Microsoft Corporation.
+ // Licensed under the MIT License.
+ #include &quot;pch.h&quot;
+<a href="#h2-1" id="h2-1" class="h">@@ -7,6 +6,7 @@
+</a> #include &lt;winrt/Windows.Security.Authorization.AppCapabilityAccess.h&gt;
+ #include &lt;appmodel.h&gt;
+ #include &lt;Helpers.h&gt;
+<a href="#h2-1-3" id="h2-1-3" class="i">+#include &lt;winget/Security.h&gt;
+</a> 
+ using namespace std::string_literals;
+ using namespace std::string_view_literals;
+<a href="#h2-2" id="h2-2" class="h">@@ -71,13 +71,34 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a> 
+     HRESULT EnsureProcessHasCapability(Capability requiredCapability, DWORD callerProcessId)
+     {
+<a href="#h2-2-3" id="h2-2-3" class="d">-        // Get the caller process id and use it to check if the caller has permissions to access the feature.
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-        winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus status = winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus::DeniedBySystem;
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+        bool allowed = false;
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+        if (winrt::Windows::Foundation::Metadata::ApiInformation::IsTypePresent(winrt::name_of&lt;winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapability&gt;()))
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+        {
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+            // Get the caller process id and use it to check if the caller has permissions to access the feature.
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+            winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus status = winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus::DeniedBySystem;
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+
+</a><a href="#h2-2-12" id="h2-2-12" class="i">+            auto capability = winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapability::CreateWithProcessIdForUser(nullptr, GetStringForCapability(requiredCapability), callerProcessId);
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+            status = capability.CheckAccess();
+</a> 
+<a href="#h2-2-15" id="h2-2-15" class="d">-        auto capability = winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapability::CreateWithProcessIdForUser(nullptr, GetStringForCapability(requiredCapability), callerProcessId);
+</a><a href="#h2-2-16" id="h2-2-16" class="d">-        status = capability.CheckAccess();
+</a><a href="#h2-2-17" id="h2-2-17" class="i">+            allowed = (status == winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus::Allowed);
+</a><a href="#h2-2-18" id="h2-2-18" class="i">+        }
+</a><a href="#h2-2-19" id="h2-2-19" class="i">+        else
+</a><a href="#h2-2-20" id="h2-2-20" class="i">+        {
+</a><a href="#h2-2-21" id="h2-2-21" class="i">+            // If AppCapability is not present, require at least medium IL callers
+</a><a href="#h2-2-22" id="h2-2-22" class="i">+            auto requiredIntegrityLevel = AppInstaller::Security::IntegrityLevel::Medium;
+</a><a href="#h2-2-23" id="h2-2-23" class="i">+
+</a><a href="#h2-2-24" id="h2-2-24" class="i">+            if (callerProcessId != GetCurrentProcessId())
+</a><a href="#h2-2-25" id="h2-2-25" class="i">+            {
+</a><a href="#h2-2-26" id="h2-2-26" class="i">+                allowed = AppInstaller::Security::IsCOMCallerIntegrityLevelAtLeast(requiredIntegrityLevel);
+</a><a href="#h2-2-27" id="h2-2-27" class="i">+            }
+</a><a href="#h2-2-28" id="h2-2-28" class="i">+            else
+</a><a href="#h2-2-29" id="h2-2-29" class="i">+            {
+</a><a href="#h2-2-30" id="h2-2-30" class="i">+                allowed = AppInstaller::Security::IsCurrentIntegrityLevelAtLeast(requiredIntegrityLevel);
+</a><a href="#h2-2-31" id="h2-2-31" class="i">+            }
+</a><a href="#h2-2-32" id="h2-2-32" class="i">+        }
+</a> 
+<a href="#h2-2-34" id="h2-2-34" class="d">-        return (status != winrt::Windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus::Allowed ? E_ACCESSDENIED : S_OK);
+</a><a href="#h2-2-35" id="h2-2-35" class="i">+        return (allowed ? S_OK : E_ACCESSDENIED);
+</a>     }
+ 
+     HRESULT EnsureComCallerHasCapability(Capability requiredCapability)
+<a href="#h2-3" id="h2-3" class="h">@@ -168,4 +189,4 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a> 
+         return isBackgroundProcessForPolicy;
+     }
+<a href="#h2-3-3" id="h2-3-3" class="d">-}</a><a href="#h2-3-4" id="h2-3-4" class="d">-
+\ No newline at end of file
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+}
+</a><b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Deployment/pch.h.html">src/Microsoft.Management.Deployment/pch.h</a> b/<a href="../file/src/Microsoft.Management.Deployment/pch.h.html">src/Microsoft.Management.Deployment/pch.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -1,12 +1,13 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="d">-﻿// Copyright (c) Microsoft Corporation.
+</a><a href="#h3-0-1" id="h3-0-1" class="i">+// Copyright (c) Microsoft Corporation.
+</a> // Licensed under the MIT License.
+ #pragma once
+ #include &lt;unknwn.h&gt;
+ #include &lt;winrt/Windows.Foundation.h&gt;
+ #include &lt;winrt/Windows.Foundation.Collections.h&gt;
+<a href="#h3-0-7" id="h3-0-7" class="i">+#include &lt;winrt/Windows.Foundation.Metadata.h&gt;
+</a> #include &lt;winrt/Windows.Web.Http.h&gt;
+ 
+ #include &lt;ostream&gt;
+ #include &lt;string&gt;
+ #include &lt;mutex&gt;
+<a href="#h3-0-13" id="h3-0-13" class="d">-#include &lt;random&gt;</a><a href="#h3-0-14" id="h3-0-14" class="d">-
+\ No newline at end of file
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+#include &lt;random&gt;
+</a></pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Handle access denied error when setting owner if already owner (#5282) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/9171097d6790628cc2226456729026657ed91b60.html">9171097d6790628cc2226456729026657ed91b60</a>
+<b>parent</b> <a href="../commit/bdb5faac4f1a5cb32baed8103c33ad55ecc8c151.html">bdb5faac4f1a5cb32baed8103c33ad55ecc8c151</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 12 Mar 2025 16:50:31 -0700
+
+Handle access denied error when setting owner if already owner (#5282)
+
+If we get `ERROR_ACCESS_DENIED` when attempting to set the owner, check
+if the owner is already correct. If it is, attempt to set just the DACL.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerSharedLib/Filesystem.cpp</a></td><td> | </td><td class="num">18</td><td><span class="i">+++++++++++++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>1 file changed, 17 insertions(+), 1 deletion(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerSharedLib/Filesystem.cpp.html">src/AppInstallerSharedLib/Filesystem.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/Filesystem.cpp.html">src/AppInstallerSharedLib/Filesystem.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -417,7 +417,23 @@ namespace AppInstaller::Filesystem
+</a>             securityInformation |= OWNER_SECURITY_INFORMATION;
+         }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-        THROW_IF_WIN32_ERROR(SetNamedSecurityInfoW(&amp;path[0], SE_FILE_OBJECT, securityInformation, ownerSID, nullptr, acl.get(), nullptr));
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        DWORD result = SetNamedSecurityInfoW(&amp;path[0], SE_FILE_OBJECT, securityInformation, ownerSID, nullptr, acl.get(), nullptr);
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+        // We can be denied access attempting to set the owner when the owner is already correct.
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+        // Determine if the owner is correct; if so, try again without attempting to set the owner.
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        if (result == ERROR_ACCESS_DENIED &amp;&amp; ownerSID)
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+        {
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+            wil::unique_hlocal_security_descriptor securityDescriptor;
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+            PSID currentOwnerSID = nullptr;
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            DWORD getResult = GetNamedSecurityInfoW(&amp;path[0], SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, &amp;currentOwnerSID, nullptr, nullptr, nullptr, &amp;securityDescriptor);
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+            if (SUCCEEDED_WIN32_LOG(getResult) &amp;&amp; currentOwnerSID &amp;&amp; EqualSid(currentOwnerSID, ownerSID))
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+            {
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                result = SetNamedSecurityInfoW(&amp;path[0], SE_FILE_OBJECT, securityInformation &amp; ~OWNER_SECURITY_INFORMATION, nullptr, nullptr, acl.get(), nullptr);
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+            }
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+        }
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+        THROW_IF_WIN32_ERROR(result);
+</a>     }
+ 
+     std::filesystem::path InitializeAndGetPathTo(PathDetails&amp;&amp; details)
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>SQLiteWrapper.h - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../../"><img src="../../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../../log.html">Log</a> | <a href="../../../../../files.html">Files</a> | <a href="../../../../../refs.html">Refs</a> | <a href="../../../../../file/README.md.html">README</a> | <a href="../../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> SQLiteWrapper.h (16582B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #pragma once
+<a href="#l4" class="line" id="l4">      4</a> #include &lt;wil/result_macros.h&gt;
+<a href="#l5" class="line" id="l5">      5</a> #include &lt;wil/resource.h&gt;
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;winsqlite/winsqlite3.h&gt;
+<a href="#l7" class="line" id="l7">      7</a> 
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;AppInstallerLogging.h&gt;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;AppInstallerLanguageUtilities.h&gt;
+<a href="#l10" class="line" id="l10">     10</a> 
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;memory&gt;
+<a href="#l12" class="line" id="l12">     12</a> #include &lt;optional&gt;
+<a href="#l13" class="line" id="l13">     13</a> #include &lt;sstream&gt;
+<a href="#l14" class="line" id="l14">     14</a> #include &lt;string&gt;
+<a href="#l15" class="line" id="l15">     15</a> #include &lt;string_view&gt;
+<a href="#l16" class="line" id="l16">     16</a> #include &lt;tuple&gt;
+<a href="#l17" class="line" id="l17">     17</a> #include &lt;type_traits&gt;
+<a href="#l18" class="line" id="l18">     18</a> #include &lt;utility&gt;
+<a href="#l19" class="line" id="l19">     19</a> #include &lt;vector&gt;
+<a href="#l20" class="line" id="l20">     20</a> 
+<a href="#l21" class="line" id="l21">     21</a> #define SQLITE_MEMORY_DB_CONNECTION_TARGET &quot;:memory:&quot;
+<a href="#l22" class="line" id="l22">     22</a> 
+<a href="#l23" class="line" id="l23">     23</a> using namespace std::string_view_literals;
+<a href="#l24" class="line" id="l24">     24</a> 
+<a href="#l25" class="line" id="l25">     25</a> namespace AppInstaller::SQLite
+<a href="#l26" class="line" id="l26">     26</a> {
+<a href="#l27" class="line" id="l27">     27</a>     // The name of the rowid column in SQLite.
+<a href="#l28" class="line" id="l28">     28</a>     extern std::string_view RowIDName;
+<a href="#l29" class="line" id="l29">     29</a> 
+<a href="#l30" class="line" id="l30">     30</a>     // The type of a rowid column in code.
+<a href="#l31" class="line" id="l31">     31</a>     using rowid_t = int64_t;
+<a href="#l32" class="line" id="l32">     32</a> 
+<a href="#l33" class="line" id="l33">     33</a>     // The type to use for blob data.
+<a href="#l34" class="line" id="l34">     34</a>     using blob_t = std::vector&lt;uint8_t&gt;;
+<a href="#l35" class="line" id="l35">     35</a> 
+<a href="#l36" class="line" id="l36">     36</a>     namespace details
+<a href="#l37" class="line" id="l37">     37</a>     {
+<a href="#l38" class="line" id="l38">     38</a>         template&lt;typename&gt;
+<a href="#l39" class="line" id="l39">     39</a>         constexpr bool dependent_false = false;
+<a href="#l40" class="line" id="l40">     40</a> 
+<a href="#l41" class="line" id="l41">     41</a>         template &lt;typename T, typename = void&gt;
+<a href="#l42" class="line" id="l42">     42</a>         struct ParameterSpecificsImpl
+<a href="#l43" class="line" id="l43">     43</a>         {
+<a href="#l44" class="line" id="l44">     44</a>             static T&amp; ToLog(T&amp;&amp;)
+<a href="#l45" class="line" id="l45">     45</a>             {
+<a href="#l46" class="line" id="l46">     46</a>                 static_assert(dependent_false&lt;T&gt;, &quot;No type specific override has been supplied&quot;);
+<a href="#l47" class="line" id="l47">     47</a>             }
+<a href="#l48" class="line" id="l48">     48</a>             static void Bind(sqlite3_stmt*, int, T&amp;&amp;)
+<a href="#l49" class="line" id="l49">     49</a>             {
+<a href="#l50" class="line" id="l50">     50</a>                 static_assert(dependent_false&lt;T&gt;, &quot;No type specific override has been supplied&quot;);
+<a href="#l51" class="line" id="l51">     51</a>             }
+<a href="#l52" class="line" id="l52">     52</a>             static T GetColumn(sqlite3_stmt*, int)
+<a href="#l53" class="line" id="l53">     53</a>             {
+<a href="#l54" class="line" id="l54">     54</a>                 static_assert(dependent_false&lt;T&gt;, &quot;No type specific override has been supplied&quot;);
+<a href="#l55" class="line" id="l55">     55</a>             }
+<a href="#l56" class="line" id="l56">     56</a>         };
+<a href="#l57" class="line" id="l57">     57</a> 
+<a href="#l58" class="line" id="l58">     58</a>         template &lt;&gt;
+<a href="#l59" class="line" id="l59">     59</a>         struct ParameterSpecificsImpl&lt;nullptr_t&gt;
+<a href="#l60" class="line" id="l60">     60</a>         {
+<a href="#l61" class="line" id="l61">     61</a>             inline static std::string_view ToLog(nullptr_t) { return &quot;null&quot;sv; }
+<a href="#l62" class="line" id="l62">     62</a>             static void Bind(sqlite3_stmt* stmt, int index, nullptr_t);
+<a href="#l63" class="line" id="l63">     63</a>         };
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a>         template &lt;&gt;
+<a href="#l66" class="line" id="l66">     66</a>         struct ParameterSpecificsImpl&lt;std::string&gt;
+<a href="#l67" class="line" id="l67">     67</a>         {
+<a href="#l68" class="line" id="l68">     68</a>             inline static const std::string&amp; ToLog(const std::string&amp; v) { return v; }
+<a href="#l69" class="line" id="l69">     69</a>             static void Bind(sqlite3_stmt* stmt, int index, const std::string&amp; v);
+<a href="#l70" class="line" id="l70">     70</a>             static std::string GetColumn(sqlite3_stmt* stmt, int column);
+<a href="#l71" class="line" id="l71">     71</a>         };
+<a href="#l72" class="line" id="l72">     72</a> 
+<a href="#l73" class="line" id="l73">     73</a>         template &lt;&gt;
+<a href="#l74" class="line" id="l74">     74</a>         struct ParameterSpecificsImpl&lt;std::string_view&gt;
+<a href="#l75" class="line" id="l75">     75</a>         {
+<a href="#l76" class="line" id="l76">     76</a>             inline static const std::string_view&amp; ToLog(const std::string_view&amp; v) { return v; }
+<a href="#l77" class="line" id="l77">     77</a>             static void Bind(sqlite3_stmt* stmt, int index, std::string_view v);
+<a href="#l78" class="line" id="l78">     78</a>         };
+<a href="#l79" class="line" id="l79">     79</a> 
+<a href="#l80" class="line" id="l80">     80</a>         template &lt;&gt;
+<a href="#l81" class="line" id="l81">     81</a>         struct ParameterSpecificsImpl&lt;int&gt;
+<a href="#l82" class="line" id="l82">     82</a>         {
+<a href="#l83" class="line" id="l83">     83</a>             inline static int ToLog(int v) { return v; }
+<a href="#l84" class="line" id="l84">     84</a>             static void Bind(sqlite3_stmt* stmt, int index, int v);
+<a href="#l85" class="line" id="l85">     85</a>             static int GetColumn(sqlite3_stmt* stmt, int column);
+<a href="#l86" class="line" id="l86">     86</a>         };
+<a href="#l87" class="line" id="l87">     87</a> 
+<a href="#l88" class="line" id="l88">     88</a>         template &lt;&gt;
+<a href="#l89" class="line" id="l89">     89</a>         struct ParameterSpecificsImpl&lt;int64_t&gt;
+<a href="#l90" class="line" id="l90">     90</a>         {
+<a href="#l91" class="line" id="l91">     91</a>             inline static int64_t ToLog(int64_t v) { return v; }
+<a href="#l92" class="line" id="l92">     92</a>             static void Bind(sqlite3_stmt* stmt, int index, int64_t v);
+<a href="#l93" class="line" id="l93">     93</a>             static int64_t GetColumn(sqlite3_stmt* stmt, int column);
+<a href="#l94" class="line" id="l94">     94</a>         };
+<a href="#l95" class="line" id="l95">     95</a> 
+<a href="#l96" class="line" id="l96">     96</a>         template &lt;&gt;
+<a href="#l97" class="line" id="l97">     97</a>         struct ParameterSpecificsImpl&lt;bool&gt;
+<a href="#l98" class="line" id="l98">     98</a>         {
+<a href="#l99" class="line" id="l99">     99</a>             inline static bool ToLog(bool v) { return v; }
+<a href="#l100" class="line" id="l100">    100</a>             static void Bind(sqlite3_stmt* stmt, int index, bool v);
+<a href="#l101" class="line" id="l101">    101</a>             static bool GetColumn(sqlite3_stmt* stmt, int column);
+<a href="#l102" class="line" id="l102">    102</a>         };
+<a href="#l103" class="line" id="l103">    103</a> 
+<a href="#l104" class="line" id="l104">    104</a>         template &lt;&gt;
+<a href="#l105" class="line" id="l105">    105</a>         struct ParameterSpecificsImpl&lt;blob_t&gt;
+<a href="#l106" class="line" id="l106">    106</a>         {
+<a href="#l107" class="line" id="l107">    107</a>             static std::string ToLog(const blob_t&amp; v);
+<a href="#l108" class="line" id="l108">    108</a>             static void Bind(sqlite3_stmt* stmt, int index, const blob_t&amp; v);
+<a href="#l109" class="line" id="l109">    109</a>             static blob_t GetColumn(sqlite3_stmt* stmt, int column);
+<a href="#l110" class="line" id="l110">    110</a>         };
+<a href="#l111" class="line" id="l111">    111</a> 
+<a href="#l112" class="line" id="l112">    112</a>         template &lt;&gt;
+<a href="#l113" class="line" id="l113">    113</a>         struct ParameterSpecificsImpl&lt;GUID&gt;
+<a href="#l114" class="line" id="l114">    114</a>         {
+<a href="#l115" class="line" id="l115">    115</a>             static std::string ToLog(const GUID&amp; v);
+<a href="#l116" class="line" id="l116">    116</a>             static void Bind(sqlite3_stmt* stmt, int index, const GUID&amp; v);
+<a href="#l117" class="line" id="l117">    117</a>             static GUID GetColumn(sqlite3_stmt* stmt, int column);
+<a href="#l118" class="line" id="l118">    118</a>         };
+<a href="#l119" class="line" id="l119">    119</a> 
+<a href="#l120" class="line" id="l120">    120</a>         template &lt;typename E&gt;
+<a href="#l121" class="line" id="l121">    121</a>         struct ParameterSpecificsImpl&lt;E, typename std::enable_if_t&lt;std::is_enum_v&lt;E&gt;&gt;&gt;
+<a href="#l122" class="line" id="l122">    122</a>         {
+<a href="#l123" class="line" id="l123">    123</a>             static auto ToLog(E v)
+<a href="#l124" class="line" id="l124">    124</a>             {
+<a href="#l125" class="line" id="l125">    125</a>                 return ToIntegral(v);
+<a href="#l126" class="line" id="l126">    126</a>             }
+<a href="#l127" class="line" id="l127">    127</a>             static void Bind(sqlite3_stmt* stmt, int index, E v)
+<a href="#l128" class="line" id="l128">    128</a>             {
+<a href="#l129" class="line" id="l129">    129</a>                 ParameterSpecificsImpl&lt;std::underlying_type_t&lt;E&gt;&gt;::Bind(stmt, index, ToIntegral(v));
+<a href="#l130" class="line" id="l130">    130</a>             }
+<a href="#l131" class="line" id="l131">    131</a>             static E GetColumn(sqlite3_stmt* stmt, int column)
+<a href="#l132" class="line" id="l132">    132</a>             {
+<a href="#l133" class="line" id="l133">    133</a>                 return ToEnum&lt;E&gt;(ParameterSpecificsImpl&lt;std::underlying_type_t&lt;E&gt;&gt;::GetColumn(stmt, column));
+<a href="#l134" class="line" id="l134">    134</a>             }
+<a href="#l135" class="line" id="l135">    135</a>         };
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>         template &lt;typename Opt&gt;
+<a href="#l138" class="line" id="l138">    138</a>         struct ParameterSpecificsImpl&lt;std::optional&lt;Opt&gt;&gt;
+<a href="#l139" class="line" id="l139">    139</a>         {
+<a href="#l140" class="line" id="l140">    140</a>             using Optional = std::optional&lt;Opt&gt;;
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>             static auto ToLog(const Optional&amp; v)
+<a href="#l143" class="line" id="l143">    143</a>             {
+<a href="#l144" class="line" id="l144">    144</a>                 std::ostringstream result;
+<a href="#l145" class="line" id="l145">    145</a>                 if (v)
+<a href="#l146" class="line" id="l146">    146</a>                 {
+<a href="#l147" class="line" id="l147">    147</a>                     result &lt;&lt; ParameterSpecificsImpl&lt;Opt&gt;::ToLog(v.value());
+<a href="#l148" class="line" id="l148">    148</a>                 }
+<a href="#l149" class="line" id="l149">    149</a>                 else
+<a href="#l150" class="line" id="l150">    150</a>                 {
+<a href="#l151" class="line" id="l151">    151</a>                     result &lt;&lt; &quot;{null}&quot;;
+<a href="#l152" class="line" id="l152">    152</a>                 }
+<a href="#l153" class="line" id="l153">    153</a>                 return std::move(result).str();
+<a href="#l154" class="line" id="l154">    154</a>             }
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a>             static void Bind(sqlite3_stmt* stmt, int index, const Optional&amp; v)
+<a href="#l157" class="line" id="l157">    157</a>             {
+<a href="#l158" class="line" id="l158">    158</a>                 if (v)
+<a href="#l159" class="line" id="l159">    159</a>                 {
+<a href="#l160" class="line" id="l160">    160</a>                     ParameterSpecificsImpl&lt;Opt&gt;::Bind(stmt, index, v.value());
+<a href="#l161" class="line" id="l161">    161</a>                 }
+<a href="#l162" class="line" id="l162">    162</a>                 else
+<a href="#l163" class="line" id="l163">    163</a>                 {
+<a href="#l164" class="line" id="l164">    164</a>                     ParameterSpecificsImpl&lt;nullptr_t&gt;::Bind(stmt, index, nullptr);
+<a href="#l165" class="line" id="l165">    165</a>                 }
+<a href="#l166" class="line" id="l166">    166</a>             }
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a>             static Optional GetColumn(sqlite3_stmt* stmt, int column)
+<a href="#l169" class="line" id="l169">    169</a>             {
+<a href="#l170" class="line" id="l170">    170</a>                 if (sqlite3_column_type(stmt, column) == SQLITE_NULL)
+<a href="#l171" class="line" id="l171">    171</a>                 {
+<a href="#l172" class="line" id="l172">    172</a>                     return std::nullopt;
+<a href="#l173" class="line" id="l173">    173</a>                 }
+<a href="#l174" class="line" id="l174">    174</a>                 else
+<a href="#l175" class="line" id="l175">    175</a>                 {
+<a href="#l176" class="line" id="l176">    176</a>                     return ParameterSpecificsImpl&lt;Opt&gt;::GetColumn(stmt, column);
+<a href="#l177" class="line" id="l177">    177</a>                 }
+<a href="#l178" class="line" id="l178">    178</a>             }
+<a href="#l179" class="line" id="l179">    179</a>         };
+<a href="#l180" class="line" id="l180">    180</a> 
+<a href="#l181" class="line" id="l181">    181</a>         template &lt;typename T&gt;
+<a href="#l182" class="line" id="l182">    182</a>         using ParameterSpecifics = ParameterSpecificsImpl&lt;std::decay_t&lt;T&gt;&gt;;
+<a href="#l183" class="line" id="l183">    183</a> 
+<a href="#l184" class="line" id="l184">    184</a>         // Allows the connection to be shared so that it can be closed in some circumstances.
+<a href="#l185" class="line" id="l185">    185</a>         struct SharedConnection
+<a href="#l186" class="line" id="l186">    186</a>         {
+<a href="#l187" class="line" id="l187">    187</a>             // Disables the connection, causing an exception to be thrown by `get`.
+<a href="#l188" class="line" id="l188">    188</a>             void Disable();
+<a href="#l189" class="line" id="l189">    189</a> 
+<a href="#l190" class="line" id="l190">    190</a>             // Gets the connection object if active.
+<a href="#l191" class="line" id="l191">    191</a>             sqlite3* Get() const;
+<a href="#l192" class="line" id="l192">    192</a> 
+<a href="#l193" class="line" id="l193">    193</a>             // Gets the connection object for creation.
+<a href="#l194" class="line" id="l194">    194</a>             sqlite3** GetPtr();
+<a href="#l195" class="line" id="l195">    195</a> 
+<a href="#l196" class="line" id="l196">    196</a>         private:
+<a href="#l197" class="line" id="l197">    197</a>             std::atomic_bool m_active = true;
+<a href="#l198" class="line" id="l198">    198</a>             wil::unique_any&lt;sqlite3*, decltype(sqlite3_close_v2), sqlite3_close_v2&gt; m_dbconn;
+<a href="#l199" class="line" id="l199">    199</a>         };
+<a href="#l200" class="line" id="l200">    200</a>     }
+<a href="#l201" class="line" id="l201">    201</a> 
+<a href="#l202" class="line" id="l202">    202</a>     // A SQLite exception.
+<a href="#l203" class="line" id="l203">    203</a>     struct SQLiteException : public wil::ResultException
+<a href="#l204" class="line" id="l204">    204</a>     {
+<a href="#l205" class="line" id="l205">    205</a>         SQLiteException(int error) : wil::ResultException(MAKE_HRESULT(SEVERITY_ERROR, FACILITY_SQLITE, error)) {}
+<a href="#l206" class="line" id="l206">    206</a>     };
+<a href="#l207" class="line" id="l207">    207</a> 
+<a href="#l208" class="line" id="l208">    208</a>     struct Statement;
+<a href="#l209" class="line" id="l209">    209</a> 
+<a href="#l210" class="line" id="l210">    210</a>     // The connection to a database.
+<a href="#l211" class="line" id="l211">    211</a>     struct Connection
+<a href="#l212" class="line" id="l212">    212</a>     {
+<a href="#l213" class="line" id="l213">    213</a>         friend Statement;
+<a href="#l214" class="line" id="l214">    214</a> 
+<a href="#l215" class="line" id="l215">    215</a>         // The disposition for opening a database connection.
+<a href="#l216" class="line" id="l216">    216</a>         enum class OpenDisposition : int
+<a href="#l217" class="line" id="l217">    217</a>         {
+<a href="#l218" class="line" id="l218">    218</a>             // Open existing database for reading.
+<a href="#l219" class="line" id="l219">    219</a>             ReadOnly = SQLITE_OPEN_READONLY,
+<a href="#l220" class="line" id="l220">    220</a>             // Open existing database for reading and writing.
+<a href="#l221" class="line" id="l221">    221</a>             ReadWrite = SQLITE_OPEN_READWRITE,
+<a href="#l222" class="line" id="l222">    222</a>             // Create new database for reading and writing.
+<a href="#l223" class="line" id="l223">    223</a>             Create = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+<a href="#l224" class="line" id="l224">    224</a>         };
+<a href="#l225" class="line" id="l225">    225</a> 
+<a href="#l226" class="line" id="l226">    226</a>         // Flags for opening a database connection.
+<a href="#l227" class="line" id="l227">    227</a>         enum class OpenFlags : int
+<a href="#l228" class="line" id="l228">    228</a>         {
+<a href="#l229" class="line" id="l229">    229</a>             // No flags specified.
+<a href="#l230" class="line" id="l230">    230</a>             None = 0,
+<a href="#l231" class="line" id="l231">    231</a>             // Indicate that the target can be a URI.
+<a href="#l232" class="line" id="l232">    232</a>             Uri = SQLITE_OPEN_URI,
+<a href="#l233" class="line" id="l233">    233</a>         };
+<a href="#l234" class="line" id="l234">    234</a> 
+<a href="#l235" class="line" id="l235">    235</a>         static Connection Create(const std::string&amp; target, OpenDisposition disposition, OpenFlags flags = OpenFlags::None);
+<a href="#l236" class="line" id="l236">    236</a> 
+<a href="#l237" class="line" id="l237">    237</a>         Connection() = default;
+<a href="#l238" class="line" id="l238">    238</a> 
+<a href="#l239" class="line" id="l239">    239</a>         Connection(const Connection&amp;) = delete;
+<a href="#l240" class="line" id="l240">    240</a>         Connection&amp; operator=(const Connection&amp;) = delete;
+<a href="#l241" class="line" id="l241">    241</a> 
+<a href="#l242" class="line" id="l242">    242</a>         Connection(Connection&amp;&amp; other) = default;
+<a href="#l243" class="line" id="l243">    243</a>         Connection&amp; operator=(Connection&amp;&amp; other) = default;
+<a href="#l244" class="line" id="l244">    244</a> 
+<a href="#l245" class="line" id="l245">    245</a>         ~Connection() = default;
+<a href="#l246" class="line" id="l246">    246</a> 
+<a href="#l247" class="line" id="l247">    247</a>         // Enables the ICU integrations on this connection.
+<a href="#l248" class="line" id="l248">    248</a>         void EnableICU();
+<a href="#l249" class="line" id="l249">    249</a> 
+<a href="#l250" class="line" id="l250">    250</a>         // Gets the last inserted rowid to the database.
+<a href="#l251" class="line" id="l251">    251</a>         rowid_t GetLastInsertRowID();
+<a href="#l252" class="line" id="l252">    252</a> 
+<a href="#l253" class="line" id="l253">    253</a>         // Gets the count of changed rows for the last executed statement.
+<a href="#l254" class="line" id="l254">    254</a>         int GetChanges() const;
+<a href="#l255" class="line" id="l255">    255</a> 
+<a href="#l256" class="line" id="l256">    256</a>         //. Gets the (fixed but arbitrary) identifier for this connection.
+<a href="#l257" class="line" id="l257">    257</a>         size_t GetID() const;
+<a href="#l258" class="line" id="l258">    258</a> 
+<a href="#l259" class="line" id="l259">    259</a>         // Sets the busy timeout for the connection.
+<a href="#l260" class="line" id="l260">    260</a>         void SetBusyTimeout(std::chrono::milliseconds timeout);
+<a href="#l261" class="line" id="l261">    261</a> 
+<a href="#l262" class="line" id="l262">    262</a>         // Sets the journal mode.
+<a href="#l263" class="line" id="l263">    263</a>         // Returns true if successful, false if not.
+<a href="#l264" class="line" id="l264">    264</a>         // Must be performed outside of a transaction.
+<a href="#l265" class="line" id="l265">    265</a>         bool SetJournalMode(std::string_view mode);
+<a href="#l266" class="line" id="l266">    266</a> 
+<a href="#l267" class="line" id="l267">    267</a>         operator sqlite3* () const { return m_dbconn-&gt;Get(); }
+<a href="#l268" class="line" id="l268">    268</a> 
+<a href="#l269" class="line" id="l269">    269</a>     protected:
+<a href="#l270" class="line" id="l270">    270</a>         // Gets the shared connection.
+<a href="#l271" class="line" id="l271">    271</a>         std::shared_ptr&lt;details::SharedConnection&gt; GetSharedConnection() const;
+<a href="#l272" class="line" id="l272">    272</a> 
+<a href="#l273" class="line" id="l273">    273</a>     private:
+<a href="#l274" class="line" id="l274">    274</a>         Connection(const std::string&amp; target, OpenDisposition disposition, OpenFlags flags);
+<a href="#l275" class="line" id="l275">    275</a> 
+<a href="#l276" class="line" id="l276">    276</a>         size_t m_id = 0;
+<a href="#l277" class="line" id="l277">    277</a>         std::shared_ptr&lt;details::SharedConnection&gt; m_dbconn;
+<a href="#l278" class="line" id="l278">    278</a>     };
+<a href="#l279" class="line" id="l279">    279</a> 
+<a href="#l280" class="line" id="l280">    280</a>     // A SQL statement.
+<a href="#l281" class="line" id="l281">    281</a>     struct Statement
+<a href="#l282" class="line" id="l282">    282</a>     {
+<a href="#l283" class="line" id="l283">    283</a>         static Statement Create(const Connection&amp; connection, const std::string&amp; sql);
+<a href="#l284" class="line" id="l284">    284</a>         static Statement Create(const Connection&amp; connection, std::string_view sql);
+<a href="#l285" class="line" id="l285">    285</a>         static Statement Create(const Connection&amp; connection, char const* const sql);
+<a href="#l286" class="line" id="l286">    286</a> 
+<a href="#l287" class="line" id="l287">    287</a>         Statement() = default;
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>         Statement(const Statement&amp;) = delete;
+<a href="#l290" class="line" id="l290">    290</a>         Statement&amp; operator=(const Statement&amp;) = delete;
+<a href="#l291" class="line" id="l291">    291</a> 
+<a href="#l292" class="line" id="l292">    292</a>         Statement(Statement&amp;&amp; other) = default;
+<a href="#l293" class="line" id="l293">    293</a>         Statement&amp; operator=(Statement&amp;&amp; other) = default;
+<a href="#l294" class="line" id="l294">    294</a> 
+<a href="#l295" class="line" id="l295">    295</a>         operator sqlite3_stmt* () const { return m_stmt.get(); }
+<a href="#l296" class="line" id="l296">    296</a> 
+<a href="#l297" class="line" id="l297">    297</a>         // The state of the statement.
+<a href="#l298" class="line" id="l298">    298</a>         enum class State
+<a href="#l299" class="line" id="l299">    299</a>         {
+<a href="#l300" class="line" id="l300">    300</a>             // The statement has been prepared, but not evaluated.
+<a href="#l301" class="line" id="l301">    301</a>             Prepared = 0,
+<a href="#l302" class="line" id="l302">    302</a>             // The statement has a row available for reading.
+<a href="#l303" class="line" id="l303">    303</a>             HasRow = 1,
+<a href="#l304" class="line" id="l304">    304</a>             // The statement has been completed.
+<a href="#l305" class="line" id="l305">    305</a>             Completed = 2,
+<a href="#l306" class="line" id="l306">    306</a>             // The statement has resulted in an error.
+<a href="#l307" class="line" id="l307">    307</a>             Error = 3,
+<a href="#l308" class="line" id="l308">    308</a>         };
+<a href="#l309" class="line" id="l309">    309</a> 
+<a href="#l310" class="line" id="l310">    310</a>         // Gets the current state of the statement.
+<a href="#l311" class="line" id="l311">    311</a>         State GetState() const { return m_state; }
+<a href="#l312" class="line" id="l312">    312</a> 
+<a href="#l313" class="line" id="l313">    313</a>         // Bind parameters to the statement.
+<a href="#l314" class="line" id="l314">    314</a>         // The index is 1 based.
+<a href="#l315" class="line" id="l315">    315</a>         template &lt;typename Value&gt;
+<a href="#l316" class="line" id="l316">    316</a>         void Bind(int index, Value&amp;&amp; v)
+<a href="#l317" class="line" id="l317">    317</a>         {
+<a href="#l318" class="line" id="l318">    318</a>             AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Binding statement #&quot; &lt;&lt; m_connectionId &lt;&lt; &#39;-&#39; &lt;&lt; m_id &lt;&lt; &quot;: &quot; &lt;&lt; index &lt;&lt; &quot; =&gt; &quot; &lt;&lt; details::ParameterSpecifics&lt;Value&gt;::ToLog(std::forward&lt;Value&gt;(v)));
+<a href="#l319" class="line" id="l319">    319</a>             details::ParameterSpecifics&lt;Value&gt;::Bind(m_stmt.get(), index, std::forward&lt;Value&gt;(v));
+<a href="#l320" class="line" id="l320">    320</a>         }
+<a href="#l321" class="line" id="l321">    321</a> 
+<a href="#l322" class="line" id="l322">    322</a>         // Evaluate the statement; either retrieving the next row or executing some action.
+<a href="#l323" class="line" id="l323">    323</a>         // Returns true if there is a row of data, or false if there is none.
+<a href="#l324" class="line" id="l324">    324</a>         // This return value is the equivalent of &#39;GetState() == State::HasRow&#39; after calling Step.
+<a href="#l325" class="line" id="l325">    325</a>         bool Step(bool closeConnectionOnError = false);
+<a href="#l326" class="line" id="l326">    326</a> 
+<a href="#l327" class="line" id="l327">    327</a>         // Equivalent to Step, but does not ever expect a result, throwing if one is retrieved.
+<a href="#l328" class="line" id="l328">    328</a>         void Execute(bool closeConnectionOnError = false);
+<a href="#l329" class="line" id="l329">    329</a> 
+<a href="#l330" class="line" id="l330">    330</a>         // Gets a boolean value that indicates whether the specified column value is null in the current row.
+<a href="#l331" class="line" id="l331">    331</a>         // The index is 0 based.
+<a href="#l332" class="line" id="l332">    332</a>         bool GetColumnIsNull(int column);
+<a href="#l333" class="line" id="l333">    333</a> 
+<a href="#l334" class="line" id="l334">    334</a>         // Gets the value of the specified column from the current row.
+<a href="#l335" class="line" id="l335">    335</a>         // The index is 0 based.
+<a href="#l336" class="line" id="l336">    336</a>         template &lt;typename Value&gt;
+<a href="#l337" class="line" id="l337">    337</a>         Value GetColumn(int column)
+<a href="#l338" class="line" id="l338">    338</a>         {
+<a href="#l339" class="line" id="l339">    339</a>             THROW_HR_IF(E_BOUNDS, m_state != State::HasRow);
+<a href="#l340" class="line" id="l340">    340</a>             return details::ParameterSpecifics&lt;Value&gt;::GetColumn(m_stmt.get(), column);
+<a href="#l341" class="line" id="l341">    341</a>         }
+<a href="#l342" class="line" id="l342">    342</a> 
+<a href="#l343" class="line" id="l343">    343</a>         // Gets the entire row of values from the current row.
+<a href="#l344" class="line" id="l344">    344</a>         // The values requested *must* be those available starting from the first column, but trailing columns can be omitted.
+<a href="#l345" class="line" id="l345">    345</a>         template &lt;typename... Values&gt;
+<a href="#l346" class="line" id="l346">    346</a>         std::tuple&lt;Values...&gt; GetRow()
+<a href="#l347" class="line" id="l347">    347</a>         {
+<a href="#l348" class="line" id="l348">    348</a>             return GetRowImpl&lt;Values...&gt;(std::make_integer_sequence&lt;int, sizeof...(Values)&gt;{});
+<a href="#l349" class="line" id="l349">    349</a>         }
+<a href="#l350" class="line" id="l350">    350</a> 
+<a href="#l351" class="line" id="l351">    351</a>         // Resets the statement state, allowing it to be evaluated again.
+<a href="#l352" class="line" id="l352">    352</a>         // Note that this does not clear data bindings.
+<a href="#l353" class="line" id="l353">    353</a>         void Reset();
+<a href="#l354" class="line" id="l354">    354</a> 
+<a href="#l355" class="line" id="l355">    355</a>         // Determines if the statement owns an underlying object.
+<a href="#l356" class="line" id="l356">    356</a>         operator bool() const { return static_cast&lt;bool&gt;(m_stmt); }
+<a href="#l357" class="line" id="l357">    357</a> 
+<a href="#l358" class="line" id="l358">    358</a>     private:
+<a href="#l359" class="line" id="l359">    359</a>         Statement(const Connection&amp; connection, std::string_view sql);
+<a href="#l360" class="line" id="l360">    360</a> 
+<a href="#l361" class="line" id="l361">    361</a>         // Helper to receive the integer sequence from the public function.
+<a href="#l362" class="line" id="l362">    362</a>         // This is equivalent to calling:
+<a href="#l363" class="line" id="l363">    363</a>         //  for (i = 0 .. count of Values types)
+<a href="#l364" class="line" id="l364">    364</a>         //      GetColumn&lt;current Value type&gt;(i)
+<a href="#l365" class="line" id="l365">    365</a>         // Then putting them all into a tuple.
+<a href="#l366" class="line" id="l366">    366</a>         template &lt;typename... Values, int... I&gt;
+<a href="#l367" class="line" id="l367">    367</a>         std::tuple&lt;Values...&gt; GetRowImpl(std::integer_sequence&lt;int, I...&gt;)
+<a href="#l368" class="line" id="l368">    368</a>         {
+<a href="#l369" class="line" id="l369">    369</a>             THROW_HR_IF(E_BOUNDS, m_state != State::HasRow);
+<a href="#l370" class="line" id="l370">    370</a>             return std::make_tuple(details::ParameterSpecifics&lt;Values&gt;::GetColumn(m_stmt.get(), I)...);
+<a href="#l371" class="line" id="l371">    371</a>         }
+<a href="#l372" class="line" id="l372">    372</a> 
+<a href="#l373" class="line" id="l373">    373</a>         std::shared_ptr&lt;details::SharedConnection&gt; m_dbconn;
+<a href="#l374" class="line" id="l374">    374</a>         size_t m_connectionId = 0;
+<a href="#l375" class="line" id="l375">    375</a>         size_t m_id = 0;
+<a href="#l376" class="line" id="l376">    376</a>         wil::unique_any&lt;sqlite3_stmt*, decltype(sqlite3_finalize), sqlite3_finalize&gt; m_stmt;
+<a href="#l377" class="line" id="l377">    377</a>         State m_state = State::Prepared;
+<a href="#l378" class="line" id="l378">    378</a>     };
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>     // A SQLite transaction.
+<a href="#l381" class="line" id="l381">    381</a>     // Use as the beginning of a transaction stack, specifically when the transaction will write
+<a href="#l382" class="line" id="l382">    382</a>     // and the database is in WAL mode.
+<a href="#l383" class="line" id="l383">    383</a>     struct Transaction
+<a href="#l384" class="line" id="l384">    384</a>     {
+<a href="#l385" class="line" id="l385">    385</a>         // Creates a transaction, beginning it.
+<a href="#l386" class="line" id="l386">    386</a>         static Transaction Create(Connection&amp; connection, std::string name, bool immediateWrite);
+<a href="#l387" class="line" id="l387">    387</a> 
+<a href="#l388" class="line" id="l388">    388</a>         Transaction();
+<a href="#l389" class="line" id="l389">    389</a> 
+<a href="#l390" class="line" id="l390">    390</a>         Transaction(const Transaction&amp;) = delete;
+<a href="#l391" class="line" id="l391">    391</a>         Transaction&amp; operator=(const Transaction&amp;) = delete;
+<a href="#l392" class="line" id="l392">    392</a> 
+<a href="#l393" class="line" id="l393">    393</a>         Transaction(Transaction&amp;&amp;) = default;
+<a href="#l394" class="line" id="l394">    394</a>         Transaction&amp; operator=(Transaction&amp;&amp;) = default;
+<a href="#l395" class="line" id="l395">    395</a> 
+<a href="#l396" class="line" id="l396">    396</a>         ~Transaction();
+<a href="#l397" class="line" id="l397">    397</a> 
+<a href="#l398" class="line" id="l398">    398</a>         // Rolls back the Transaction.
+<a href="#l399" class="line" id="l399">    399</a>         void Rollback(bool throwOnError = true);
+<a href="#l400" class="line" id="l400">    400</a> 
+<a href="#l401" class="line" id="l401">    401</a>         // Commits the Transaction.
+<a href="#l402" class="line" id="l402">    402</a>         void Commit();
+<a href="#l403" class="line" id="l403">    403</a> 
+<a href="#l404" class="line" id="l404">    404</a>     private:
+<a href="#l405" class="line" id="l405">    405</a>         Transaction(Connection&amp; connection, std::string&amp;&amp; name, bool immediateWrite);
+<a href="#l406" class="line" id="l406">    406</a> 
+<a href="#l407" class="line" id="l407">    407</a>         std::string m_name;
+<a href="#l408" class="line" id="l408">    408</a>         DestructionToken m_inProgress = true;
+<a href="#l409" class="line" id="l409">    409</a>         Statement m_rollback;
+<a href="#l410" class="line" id="l410">    410</a>         Statement m_commit;
+<a href="#l411" class="line" id="l411">    411</a>     };
+<a href="#l412" class="line" id="l412">    412</a> 
+<a href="#l413" class="line" id="l413">    413</a>     // A SQLite savepoint.
+<a href="#l414" class="line" id="l414">    414</a>     struct Savepoint
+<a href="#l415" class="line" id="l415">    415</a>     {
+<a href="#l416" class="line" id="l416">    416</a>         // Creates a savepoint, beginning it.
+<a href="#l417" class="line" id="l417">    417</a>         static Savepoint Create(Connection&amp; connection, std::string name);
+<a href="#l418" class="line" id="l418">    418</a> 
+<a href="#l419" class="line" id="l419">    419</a>         Savepoint();
+<a href="#l420" class="line" id="l420">    420</a> 
+<a href="#l421" class="line" id="l421">    421</a>         Savepoint(const Savepoint&amp;) = delete;
+<a href="#l422" class="line" id="l422">    422</a>         Savepoint&amp; operator=(const Savepoint&amp;) = delete;
+<a href="#l423" class="line" id="l423">    423</a> 
+<a href="#l424" class="line" id="l424">    424</a>         Savepoint(Savepoint&amp;&amp;) = default;
+<a href="#l425" class="line" id="l425">    425</a>         Savepoint&amp; operator=(Savepoint&amp;&amp;) = default;
+<a href="#l426" class="line" id="l426">    426</a> 
+<a href="#l427" class="line" id="l427">    427</a>         ~Savepoint();
+<a href="#l428" class="line" id="l428">    428</a> 
+<a href="#l429" class="line" id="l429">    429</a>         // Rolls back the Savepoint.
+<a href="#l430" class="line" id="l430">    430</a>         void Rollback(bool throwOnError = true);
+<a href="#l431" class="line" id="l431">    431</a> 
+<a href="#l432" class="line" id="l432">    432</a>         // Commits the Savepoint.
+<a href="#l433" class="line" id="l433">    433</a>         void Commit();
+<a href="#l434" class="line" id="l434">    434</a> 
+<a href="#l435" class="line" id="l435">    435</a>     private:
+<a href="#l436" class="line" id="l436">    436</a>         Savepoint(Connection&amp; connection, std::string&amp;&amp; name);
+<a href="#l437" class="line" id="l437">    437</a> 
+<a href="#l438" class="line" id="l438">    438</a>         std::string m_name;
+<a href="#l439" class="line" id="l439">    439</a>         DestructionToken m_inProgress = true;
+<a href="#l440" class="line" id="l440">    440</a>         Statement m_rollbackTo;
+<a href="#l441" class="line" id="l441">    441</a>         Statement m_release;
+<a href="#l442" class="line" id="l442">    442</a>     };
+<a href="#l443" class="line" id="l443">    443</a> 
+<a href="#l444" class="line" id="l444">    444</a>     // A SQLite backup operation.
+<a href="#l445" class="line" id="l445">    445</a>     struct Backup
+<a href="#l446" class="line" id="l446">    446</a>     {
+<a href="#l447" class="line" id="l447">    447</a>         // Creates a backup.
+<a href="#l448" class="line" id="l448">    448</a>         static Backup Create(Connection&amp; destination, const std::string&amp; destinationName, Connection&amp; source, const std::string&amp; sourceName);
+<a href="#l449" class="line" id="l449">    449</a> 
+<a href="#l450" class="line" id="l450">    450</a>         Backup(const Backup&amp;) = delete;
+<a href="#l451" class="line" id="l451">    451</a>         Backup&amp; operator=(const Backup&amp;) = delete;
+<a href="#l452" class="line" id="l452">    452</a> 
+<a href="#l453" class="line" id="l453">    453</a>         Backup(Backup&amp;&amp;) = default;
+<a href="#l454" class="line" id="l454">    454</a>         Backup&amp; operator=(Backup&amp;&amp;) = default;
+<a href="#l455" class="line" id="l455">    455</a> 
+<a href="#l456" class="line" id="l456">    456</a>         // Performs some or all of the backup.
+<a href="#l457" class="line" id="l457">    457</a>         // Returns true if the backup is completed, false if not.
+<a href="#l458" class="line" id="l458">    458</a>         bool Step(int pages = -1);
+<a href="#l459" class="line" id="l459">    459</a> 
+<a href="#l460" class="line" id="l460">    460</a>     private:
+<a href="#l461" class="line" id="l461">    461</a>         Backup(Connection&amp; destination, const std::string&amp; destinationName, Connection&amp; source, const std::string&amp; sourceName);
+<a href="#l462" class="line" id="l462">    462</a> 
+<a href="#l463" class="line" id="l463">    463</a>         wil::unique_any&lt;sqlite3_backup*, decltype(sqlite3_backup_finish), sqlite3_backup_finish&gt; m_backup;
+<a href="#l464" class="line" id="l464">    464</a>     };
+<a href="#l465" class="line" id="l465">    465</a> 
+<a href="#l466" class="line" id="l466">    466</a>     // The escape character used in the EscapeStringForLike function.
+<a href="#l467" class="line" id="l467">    467</a>     extern std::string_view EscapeCharForLike;
+<a href="#l468" class="line" id="l468">    468</a> 
+<a href="#l469" class="line" id="l469">    469</a>     // Escapes the given input string for passing to a like operation.
+<a href="#l470" class="line" id="l470">    470</a>     std::string EscapeStringForLike(std::string_view value);
+<a href="#l471" class="line" id="l471">    471</a> }
+</pre>
+</div>
+</body>
+</html>

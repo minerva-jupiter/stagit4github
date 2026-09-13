@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Make SQLite wrapper more resilient (#4196) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/22fba89b98c218f81bfeeedf29e38dc3afba6734.html">22fba89b98c218f81bfeeedf29e38dc3afba6734</a>
+<b>parent</b> <a href="../commit/101f68be6793513e9f868e75640461f5cdd4dcf9.html">101f68be6793513e9f868e75640461f5cdd4dcf9</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Mon, 26 Feb 2024 10:02:54 -0800
+
+Make SQLite wrapper more resilient (#4196)
+
+We are seeing some errors from the SQLite usage that appear to largely
+be related to contention and the `FAIL_FAST` behavior for savepoint
+errors. This change is attempting to address the issue by making
+contention less impactful and moving away from `FAIL_FAST`.
+
+## Change
+- Adds a busy timeout to SQLite connections by default and provides a
+method to change the value if callers desire. This should prevent small
+contentions from causing errors.
+- Moves from using `FAIL_FAST` on critical errors to simply &quot;closing&quot;
+the connection, making it non-functional for standard use.
+- No longer requests this failure behavior for savepoint commit errors;
+the rollback can handle that if needed.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/SQLiteWrapper.cpp</a></td><td> | </td><td class="num">84</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerSharedLib/Errors.cpp</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h</a></td><td> | </td><td class="num">40</td><td><span class="i">+++++++++++++++++++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerSharedLib/SQLiteWrapper.cpp</a></td><td> | </td><td class="num">97</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------</span></td></tr>
+</table></pre><pre>6 files changed, 198 insertions(+), 32 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -2804,14 +2804,17 @@ Please specify one of them using the --source option to proceed.&lt;/value&gt;
+</a>   &lt;data name=&quot;RepairOperationNotSupported&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;The installer technology in use does not support repair.&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h0-0-3" id="h0-0-3" class="d">-    &lt;data name=&quot;NoAdminRepairForUserScopePackage&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+  &lt;data name=&quot;NoAdminRepairForUserScopePackage&quot; xml:space=&quot;preserve&quot;&gt;
+</a>     &lt;value&gt;The package installed for user scope cannot be repaired when running with administrator privileges.&lt;/value&gt;
+   &lt;/data&gt;
+   &lt;data name=&quot;APPINSTALLER_CLI_ERROR_ADMIN_CONTEXT_REPAIR_PROHIBITED&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Repair operations involving administrator privileges are not permitted on packages installed within the user scope.&lt;/value&gt;
+<a href="#h0-0-9" id="h0-0-9" class="d">-  &lt;/data&gt;  
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+  &lt;/data&gt;
+</a>   &lt;data name=&quot;RepairFailedWithCode&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Repair failed with exit code: {0}&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;{0}&quot;} Error message displayed when an attempt to repair an application package fails. {0} is a placeholder replaced by an error code.&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h0-0-15" id="h0-0-15" class="i">+  &lt;data name=&quot;APPINSTALLER_CLI_ERROR_SQLITE_CONNECTION_TERMINATED&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+    &lt;value&gt;The SQLite connection was terminated to prevent corruption.&lt;/value&gt;
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/SQLiteWrapper.cpp.html">src/AppInstallerCLITests/SQLiteWrapper.cpp</a> b/<a href="../file/src/AppInstallerCLITests/SQLiteWrapper.cpp.html">src/AppInstallerCLITests/SQLiteWrapper.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -312,6 +312,90 @@ TEST_CASE(&quot;SQLiteWrapper_PrepareFailure&quot;, &quot;[sqlitewrapper]&quot;)
+</a>     REQUIRE_THROWS_HR(builder.Prepare(connection), MAKE_HRESULT(SEVERITY_ERROR, FACILITY_SQLITE, SQLITE_ERROR));
+ }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+TEST_CASE(&quot;SQLiteWrapper_BusyTimeout_None&quot;, &quot;[sqlitewrapper]&quot;)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+{
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    TestCommon::TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+    wil::unique_event busy, done;
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    busy.create();
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    done.create();
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+    std::thread busyThread([&amp;]()
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+        {
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+            Connection threadConnection = Connection::Create(tempFile, Connection::OpenDisposition::Create);
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+            Statement threadStatement = Statement::Create(threadConnection, &quot;BEGIN EXCLUSIVE TRANSACTION&quot;);
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+            threadStatement.Execute();
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+            busy.SetEvent();
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+            done.wait(500);
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+        });
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+    busyThread.detach();
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+    busy.wait(500);
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+    Connection testConnection = Connection::Create(tempFile, Connection::OpenDisposition::ReadWrite);
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+    testConnection.SetBusyTimeout(0ms);
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+    Statement testStatement = Statement::Create(testConnection, &quot;BEGIN EXCLUSIVE TRANSACTION&quot;);
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+    REQUIRE_THROWS_HR(testStatement.Execute(), MAKE_HRESULT(SEVERITY_ERROR, FACILITY_SQLITE, SQLITE_BUSY));
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+    done.SetEvent();
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+}
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+TEST_CASE(&quot;SQLiteWrapper_BusyTimeout_Some&quot;, &quot;[sqlitewrapper]&quot;)
+</a><a href="#h1-0-33" id="h1-0-33" class="i">+{
+</a><a href="#h1-0-34" id="h1-0-34" class="i">+    TestCommon::TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+</a><a href="#h1-0-35" id="h1-0-35" class="i">+    INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+</a><a href="#h1-0-36" id="h1-0-36" class="i">+
+</a><a href="#h1-0-37" id="h1-0-37" class="i">+    wil::unique_event busy, ready, done;
+</a><a href="#h1-0-38" id="h1-0-38" class="i">+    busy.create();
+</a><a href="#h1-0-39" id="h1-0-39" class="i">+    ready.create();
+</a><a href="#h1-0-40" id="h1-0-40" class="i">+    done.create();
+</a><a href="#h1-0-41" id="h1-0-41" class="i">+
+</a><a href="#h1-0-42" id="h1-0-42" class="i">+    std::thread busyThread([&amp;]()
+</a><a href="#h1-0-43" id="h1-0-43" class="i">+        {
+</a><a href="#h1-0-44" id="h1-0-44" class="i">+            Connection threadConnection = Connection::Create(tempFile, Connection::OpenDisposition::Create);
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+            Statement threadBeginStatement = Statement::Create(threadConnection, &quot;BEGIN EXCLUSIVE TRANSACTION&quot;);
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+            Statement threadCommitStatement = Statement::Create(threadConnection, &quot;COMMIT&quot;);
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+            threadBeginStatement.Execute();
+</a><a href="#h1-0-48" id="h1-0-48" class="i">+            busy.SetEvent();
+</a><a href="#h1-0-49" id="h1-0-49" class="i">+            ready.wait(500);
+</a><a href="#h1-0-50" id="h1-0-50" class="i">+            done.wait(100);
+</a><a href="#h1-0-51" id="h1-0-51" class="i">+            threadCommitStatement.Execute();
+</a><a href="#h1-0-52" id="h1-0-52" class="i">+        });
+</a><a href="#h1-0-53" id="h1-0-53" class="i">+    busyThread.detach();
+</a><a href="#h1-0-54" id="h1-0-54" class="i">+
+</a><a href="#h1-0-55" id="h1-0-55" class="i">+    busy.wait(500);
+</a><a href="#h1-0-56" id="h1-0-56" class="i">+
+</a><a href="#h1-0-57" id="h1-0-57" class="i">+    Connection testConnection = Connection::Create(tempFile, Connection::OpenDisposition::ReadWrite);
+</a><a href="#h1-0-58" id="h1-0-58" class="i">+    testConnection.SetBusyTimeout(500ms);
+</a><a href="#h1-0-59" id="h1-0-59" class="i">+    Statement testStatement = Statement::Create(testConnection, &quot;BEGIN EXCLUSIVE TRANSACTION&quot;);
+</a><a href="#h1-0-60" id="h1-0-60" class="i">+    ready.SetEvent();
+</a><a href="#h1-0-61" id="h1-0-61" class="i">+    testStatement.Execute();
+</a><a href="#h1-0-62" id="h1-0-62" class="i">+
+</a><a href="#h1-0-63" id="h1-0-63" class="i">+    done.SetEvent();
+</a><a href="#h1-0-64" id="h1-0-64" class="i">+}
+</a><a href="#h1-0-65" id="h1-0-65" class="i">+
+</a><a href="#h1-0-66" id="h1-0-66" class="i">+TEST_CASE(&quot;SQLiteWrapper_CloseConnectionOnError&quot;, &quot;[sqlitewrapper]&quot;)
+</a><a href="#h1-0-67" id="h1-0-67" class="i">+{
+</a><a href="#h1-0-68" id="h1-0-68" class="i">+    Connection connection = Connection::Create(SQLITE_MEMORY_DB_CONNECTION_TARGET, Connection::OpenDisposition::Create);
+</a><a href="#h1-0-69" id="h1-0-69" class="i">+
+</a><a href="#h1-0-70" id="h1-0-70" class="i">+    Builder::StatementBuilder builder;
+</a><a href="#h1-0-71" id="h1-0-71" class="i">+    builder.CreateTable(s_tableName).Columns({
+</a><a href="#h1-0-72" id="h1-0-72" class="i">+        Builder::ColumnBuilder(s_firstColumn, Builder::Type::Int),
+</a><a href="#h1-0-73" id="h1-0-73" class="i">+        Builder::ColumnBuilder(s_secondColumn, Builder::Type::Text),
+</a><a href="#h1-0-74" id="h1-0-74" class="i">+        });
+</a><a href="#h1-0-75" id="h1-0-75" class="i">+
+</a><a href="#h1-0-76" id="h1-0-76" class="i">+    Statement createTable = builder.Prepare(connection);
+</a><a href="#h1-0-77" id="h1-0-77" class="i">+    REQUIRE_FALSE(createTable.Step());
+</a><a href="#h1-0-78" id="h1-0-78" class="i">+    REQUIRE(createTable.GetState() == Statement::State::Completed);
+</a><a href="#h1-0-79" id="h1-0-79" class="i">+
+</a><a href="#h1-0-80" id="h1-0-80" class="i">+    createTable.Reset();
+</a><a href="#h1-0-81" id="h1-0-81" class="i">+    REQUIRE_THROWS(createTable.Step(true));
+</a><a href="#h1-0-82" id="h1-0-82" class="i">+
+</a><a href="#h1-0-83" id="h1-0-83" class="i">+    // Do anything that needs the connection
+</a><a href="#h1-0-84" id="h1-0-84" class="i">+    REQUIRE_THROWS_HR(connection.GetLastInsertRowID(), APPINSTALLER_CLI_ERROR_SQLITE_CONNECTION_TERMINATED);
+</a><a href="#h1-0-85" id="h1-0-85" class="i">+}
+</a><a href="#h1-0-86" id="h1-0-86" class="i">+
+</a> TEST_CASE(&quot;SQLBuilder_SimpleSelectBind&quot;, &quot;[sqlbuilder]&quot;)
+ {
+     Connection connection = Connection::Create(SQLITE_MEMORY_DB_CONNECTION_TARGET, Connection::OpenDisposition::Create);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerSharedLib/Errors.cpp.html">src/AppInstallerSharedLib/Errors.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/Errors.cpp.html">src/AppInstallerSharedLib/Errors.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -213,6 +213,7 @@ namespace AppInstaller
+</a>             WINGET_HRESULT_INFO(APPINSTALLER_CLI_ERROR_EXEC_REPAIR_FAILED, &quot;Repair operation failed.&quot;),
+             WINGET_HRESULT_INFO(APPINSTALLER_CLI_ERROR_REPAIR_NOT_SUPPORTED, &quot;The installer technology in use doesn&#39;t support repair.&quot;),
+             WINGET_HRESULT_INFO(APPINSTALLER_CLI_ERROR_ADMIN_CONTEXT_REPAIR_PROHIBITED, &quot;Repair operations involving administrator privileges are not permitted on packages installed within the user scope.&quot;),
+<a href="#h2-0-3" id="h2-0-3" class="i">+            WINGET_HRESULT_INFO(APPINSTALLER_CLI_ERROR_SQLITE_CONNECTION_TERMINATED, &quot;The SQLite connection was terminated to prevent corruption.&quot;),
+</a> 
+             // Install errors.
+             WINGET_HRESULT_INFO(APPINSTALLER_CLI_ERROR_INSTALL_PACKAGE_IN_USE, &quot;Application is currently running. Exit the application then try again.&quot;),
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerSharedLib/Public/AppInstallerErrors.h.html">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/AppInstallerErrors.h.html">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -143,6 +143,7 @@
+</a> #define APPINSTALLER_CLI_ERROR_EXEC_REPAIR_FAILED                   ((HRESULT)0x8A15007B)
+ #define APPINSTALLER_CLI_ERROR_REPAIR_NOT_SUPPORTED                 ((HRESULT)0x8A15007C)
+ #define APPINSTALLER_CLI_ERROR_ADMIN_CONTEXT_REPAIR_PROHIBITED      ((HRESULT)0x8A15007D)
+<a href="#h3-0-3" id="h3-0-3" class="i">+#define APPINSTALLER_CLI_ERROR_SQLITE_CONNECTION_TERMINATED         ((HRESULT)0x8A15007E)
+</a> 
+ // Install errors.
+ #define APPINSTALLER_CLI_ERROR_INSTALL_PACKAGE_IN_USE                   ((HRESULT)0x8A150101)
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h.html">src/AppInstallerSharedLib/Public/winget/SQLiteWrapper.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -8,6 +8,7 @@
+</a> #include &lt;AppInstallerLogging.h&gt;
+ #include &lt;AppInstallerLanguageUtilities.h&gt;
+ 
+<a href="#h4-0-3" id="h4-0-3" class="i">+#include &lt;memory&gt;
+</a> #include &lt;string&gt;
+ #include &lt;string_view&gt;
+ #include &lt;tuple&gt;
+<a href="#h4-1" id="h4-1" class="h">@@ -125,6 +126,23 @@ namespace AppInstaller::SQLite
+</a> 
+         template &lt;typename T&gt;
+         using ParameterSpecifics = ParameterSpecificsImpl&lt;std::decay_t&lt;T&gt;&gt;;
+<a href="#h4-1-3" id="h4-1-3" class="i">+
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+        // Allows the connection to be shared so that it can be closed in some circumstances.
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+        struct SharedConnection
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+        {
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+            // Disables the connection, causing an exception to be thrown by `get`.
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+            void Disable();
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+
+</a><a href="#h4-1-10" id="h4-1-10" class="i">+            // Gets the connection object if active.
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+            sqlite3* Get() const;
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+
+</a><a href="#h4-1-13" id="h4-1-13" class="i">+            // Gets the connection object for creation.
+</a><a href="#h4-1-14" id="h4-1-14" class="i">+            sqlite3** GetPtr();
+</a><a href="#h4-1-15" id="h4-1-15" class="i">+
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+        private:
+</a><a href="#h4-1-17" id="h4-1-17" class="i">+            std::atomic_bool m_active = true;
+</a><a href="#h4-1-18" id="h4-1-18" class="i">+            wil::unique_any&lt;sqlite3*, decltype(sqlite3_close_v2), sqlite3_close_v2&gt; m_dbconn;
+</a><a href="#h4-1-19" id="h4-1-19" class="i">+        };
+</a>     }
+ 
+     // A SQLite exception.
+<a href="#h4-2" id="h4-2" class="h">@@ -133,9 +151,13 @@ namespace AppInstaller::SQLite
+</a>         SQLiteException(int error) : wil::ResultException(MAKE_HRESULT(SEVERITY_ERROR, FACILITY_SQLITE, error)) {}
+     };
+ 
+<a href="#h4-2-3" id="h4-2-3" class="i">+    struct Statement;
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+
+</a>     // The connection to a database.
+     struct Connection
+     {
+<a href="#h4-2-8" id="h4-2-8" class="i">+        friend Statement;
+</a><a href="#h4-2-9" id="h4-2-9" class="i">+
+</a>         // The disposition for opening a database connection.
+         enum class OpenDisposition : int
+         {
+<a href="#h4-3" id="h4-3" class="h">@@ -180,13 +202,20 @@ namespace AppInstaller::SQLite
+</a>         //. Gets the (fixed but arbitrary) identifier for this connection.
+         size_t GetID() const;
+ 
+<a href="#h4-3-3" id="h4-3-3" class="d">-        operator sqlite3* () const { return m_dbconn.get(); }
+</a><a href="#h4-3-4" id="h4-3-4" class="i">+        // Sets the busy timeout for the connection.
+</a><a href="#h4-3-5" id="h4-3-5" class="i">+        void SetBusyTimeout(std::chrono::milliseconds timeout);
+</a><a href="#h4-3-6" id="h4-3-6" class="i">+
+</a><a href="#h4-3-7" id="h4-3-7" class="i">+        operator sqlite3* () const { return m_dbconn-&gt;Get(); }
+</a><a href="#h4-3-8" id="h4-3-8" class="i">+
+</a><a href="#h4-3-9" id="h4-3-9" class="i">+    protected:
+</a><a href="#h4-3-10" id="h4-3-10" class="i">+        // Gets the shared connection.
+</a><a href="#h4-3-11" id="h4-3-11" class="i">+        std::shared_ptr&lt;details::SharedConnection&gt; GetSharedConnection() const;
+</a> 
+     private:
+         Connection(const std::string&amp; target, OpenDisposition disposition, OpenFlags flags);
+ 
+         size_t m_id = 0;
+<a href="#h4-3-17" id="h4-3-17" class="d">-        wil::unique_any&lt;sqlite3*, decltype(sqlite3_close_v2), sqlite3_close_v2&gt; m_dbconn;
+</a><a href="#h4-3-18" id="h4-3-18" class="i">+        std::shared_ptr&lt;details::SharedConnection&gt; m_dbconn;
+</a>     };
+ 
+     // A SQL statement.
+<a href="#h4-4" id="h4-4" class="h">@@ -234,10 +263,10 @@ namespace AppInstaller::SQLite
+</a>         // Evaluate the statement; either retrieving the next row or executing some action.
+         // Returns true if there is a row of data, or false if there is none.
+         // This return value is the equivalent of &#39;GetState() == State::HasRow&#39; after calling Step.
+<a href="#h4-4-3" id="h4-4-3" class="d">-        bool Step(bool failFastOnError = false);
+</a><a href="#h4-4-4" id="h4-4-4" class="i">+        bool Step(bool closeConnectionOnError = false);
+</a> 
+         // Equivalent to Step, but does not ever expect a result, throwing if one is retrieved.
+<a href="#h4-4-7" id="h4-4-7" class="d">-        void Execute(bool failFastOnError = false);
+</a><a href="#h4-4-8" id="h4-4-8" class="i">+        void Execute(bool closeConnectionOnError = false);
+</a> 
+         // Gets a boolean value that indicates whether the specified column value is null in the current row.
+         // The index is 0 based.
+<a href="#h4-5" id="h4-5" class="h">@@ -282,6 +311,7 @@ namespace AppInstaller::SQLite
+</a>             return std::make_tuple(details::ParameterSpecifics&lt;Values&gt;::GetColumn(m_stmt.get(), I)...);
+         }
+ 
+<a href="#h4-5-3" id="h4-5-3" class="i">+        std::shared_ptr&lt;details::SharedConnection&gt; m_dbconn;
+</a>         size_t m_connectionId = 0;
+         size_t m_id = 0;
+         wil::unique_any&lt;sqlite3_stmt*, decltype(sqlite3_finalize), sqlite3_finalize&gt; m_stmt;
+<a href="#h4-6" id="h4-6" class="h">@@ -303,7 +333,7 @@ namespace AppInstaller::SQLite
+</a>         ~Savepoint();
+ 
+         // Rolls back the Savepoint.
+<a href="#h4-6-3" id="h4-6-3" class="d">-        void Rollback();
+</a><a href="#h4-6-4" id="h4-6-4" class="i">+        void Rollback(bool throwOnError = true);
+</a> 
+         // Commits the Savepoint.
+         void Commit();
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerSharedLib/SQLiteWrapper.cpp.html">src/AppInstallerSharedLib/SQLiteWrapper.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/SQLiteWrapper.cpp.html">src/AppInstallerSharedLib/SQLiteWrapper.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -7,6 +7,7 @@
+</a> 
+ #include &lt;wil/result_macros.h&gt;
+ 
+<a href="#h5-0-3" id="h5-0-3" class="i">+using namespace std::chrono_literals;
+</a> using namespace std::string_view_literals;
+ 
+ // Enable this to have all Statement constructions output the associated query plan.
+<a href="#h5-1" id="h5-1" class="h">@@ -16,11 +17,14 @@ using namespace std::string_view_literals;
+</a> #include &lt;stack&gt;
+ #endif
+ 
+<a href="#h5-1-3" id="h5-1-3" class="i">+// Connection is used twice
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+#define SQLITE_ERROR_MSG(_error_,_connection_) (_connection_ ? sqlite3_errmsg(_connection_) : sqlite3_errstr(_error_))
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+
+</a> #define THROW_SQLITE(_error_,_connection_) \
+     do { \
+         int _ts_sqliteReturnValue = (_error_); \
+         sqlite3* _ts_sqliteConnection = (_connection_); \
+<a href="#h5-1-10" id="h5-1-10" class="d">-        THROW_EXCEPTION_MSG(SQLiteException(_ts_sqliteReturnValue), &quot;%hs&quot;, _ts_sqliteConnection ? sqlite3_errmsg(_ts_sqliteConnection) : sqlite3_errstr(_ts_sqliteReturnValue)); \
+</a><a href="#h5-1-11" id="h5-1-11" class="i">+        THROW_EXCEPTION_MSG(SQLiteException(_ts_sqliteReturnValue), &quot;%hs&quot;, SQLITE_ERROR_MSG(_ts_sqliteReturnValue, _ts_sqliteConnection)); \
+</a>     } while (0,0)
+ 
+ #define THROW_IF_SQLITE_FAILED(_statement_,_connection_) \
+<a href="#h5-2" id="h5-2" class="h">@@ -144,22 +148,40 @@ namespace AppInstaller::SQLite
+</a>                 return {};
+             }
+         }
+<a href="#h5-2-3" id="h5-2-3" class="i">+
+</a><a href="#h5-2-4" id="h5-2-4" class="i">+        void SharedConnection::Disable()
+</a><a href="#h5-2-5" id="h5-2-5" class="i">+        {
+</a><a href="#h5-2-6" id="h5-2-6" class="i">+            m_active = false;
+</a><a href="#h5-2-7" id="h5-2-7" class="i">+        }
+</a><a href="#h5-2-8" id="h5-2-8" class="i">+
+</a><a href="#h5-2-9" id="h5-2-9" class="i">+        sqlite3* SharedConnection::Get() const
+</a><a href="#h5-2-10" id="h5-2-10" class="i">+        {
+</a><a href="#h5-2-11" id="h5-2-11" class="i">+            THROW_HR_IF(APPINSTALLER_CLI_ERROR_SQLITE_CONNECTION_TERMINATED, !m_active.load());
+</a><a href="#h5-2-12" id="h5-2-12" class="i">+            return m_dbconn.get();
+</a><a href="#h5-2-13" id="h5-2-13" class="i">+        }
+</a><a href="#h5-2-14" id="h5-2-14" class="i">+
+</a><a href="#h5-2-15" id="h5-2-15" class="i">+        sqlite3** SharedConnection::GetPtr()
+</a><a href="#h5-2-16" id="h5-2-16" class="i">+        {
+</a><a href="#h5-2-17" id="h5-2-17" class="i">+            return &amp;m_dbconn;
+</a><a href="#h5-2-18" id="h5-2-18" class="i">+        }
+</a>     }
+ 
+     Connection::Connection(const std::string&amp; target, OpenDisposition disposition, OpenFlags flags)
+     {
+<a href="#h5-2-23" id="h5-2-23" class="i">+        m_dbconn = std::make_shared&lt;details::SharedConnection&gt;();
+</a>         m_id = GetNextConnectionId();
+         AICLI_LOG(SQL, Info, &lt;&lt; &quot;Opening SQLite connection #&quot; &lt;&lt; m_id &lt;&lt; &quot;: &#39;&quot; &lt;&lt; target &lt;&lt; &quot;&#39; [&quot; &lt;&lt; std::hex &lt;&lt; static_cast&lt;int&gt;(disposition) &lt;&lt; &quot;, &quot; &lt;&lt; std::hex &lt;&lt; static_cast&lt;int&gt;(flags) &lt;&lt; &quot;]&quot;);
+         // Always force connection serialization until we determine that there are situations where it is not needed
+         int resultingFlags = static_cast&lt;int&gt;(disposition) | static_cast&lt;int&gt;(flags) | SQLITE_OPEN_FULLMUTEX;
+<a href="#h5-2-28" id="h5-2-28" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3_open_v2(target.c_str(), &amp;m_dbconn, resultingFlags, nullptr), nullptr);
+</a><a href="#h5-2-29" id="h5-2-29" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3_open_v2(target.c_str(), m_dbconn-&gt;GetPtr(), resultingFlags, nullptr), nullptr);
+</a>     }
+ 
+     Connection Connection::Create(const std::string&amp; target, OpenDisposition disposition, OpenFlags flags)
+     {
+         Connection result{ target, disposition, flags };
+<a href="#h5-2-35" id="h5-2-35" class="d">-        
+</a><a href="#h5-2-36" id="h5-2-36" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3_extended_result_codes(result.m_dbconn.get(), 1), result.m_dbconn.get());
+</a><a href="#h5-2-37" id="h5-2-37" class="i">+
+</a><a href="#h5-2-38" id="h5-2-38" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3_extended_result_codes(result.m_dbconn-&gt;Get(), 1), result.m_dbconn-&gt;Get());
+</a><a href="#h5-2-39" id="h5-2-39" class="i">+        result.SetBusyTimeout(250ms);
+</a> 
+         return result;
+     }
+<a href="#h5-3" id="h5-3" class="h">@@ -167,17 +189,17 @@ namespace AppInstaller::SQLite
+</a>     void Connection::EnableICU()
+     {
+         AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Enabling ICU&quot;);
+<a href="#h5-3-3" id="h5-3-3" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3IcuInit(m_dbconn.get()), m_dbconn.get());
+</a><a href="#h5-3-4" id="h5-3-4" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3IcuInit(m_dbconn-&gt;Get()), m_dbconn-&gt;Get());
+</a>     }
+ 
+     rowid_t Connection::GetLastInsertRowID()
+     {
+<a href="#h5-3-9" id="h5-3-9" class="d">-        return sqlite3_last_insert_rowid(m_dbconn.get());
+</a><a href="#h5-3-10" id="h5-3-10" class="i">+        return sqlite3_last_insert_rowid(m_dbconn-&gt;Get());
+</a>     }
+ 
+     int Connection::GetChanges() const
+     {
+<a href="#h5-3-15" id="h5-3-15" class="d">-        return sqlite3_changes(m_dbconn.get());
+</a><a href="#h5-3-16" id="h5-3-16" class="i">+        return sqlite3_changes(m_dbconn-&gt;Get());
+</a>     }
+ 
+     size_t Connection::GetID() const
+<a href="#h5-4" id="h5-4" class="h">@@ -185,8 +207,19 @@ namespace AppInstaller::SQLite
+</a>         return m_id;
+     }
+ 
+<a href="#h5-4-3" id="h5-4-3" class="i">+    void Connection::SetBusyTimeout(std::chrono::milliseconds timeout)
+</a><a href="#h5-4-4" id="h5-4-4" class="i">+    {
+</a><a href="#h5-4-5" id="h5-4-5" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3_busy_timeout(m_dbconn-&gt;Get(), static_cast&lt;int&gt;(timeout.count())), m_dbconn-&gt;Get());
+</a><a href="#h5-4-6" id="h5-4-6" class="i">+    }
+</a><a href="#h5-4-7" id="h5-4-7" class="i">+
+</a><a href="#h5-4-8" id="h5-4-8" class="i">+    std::shared_ptr&lt;details::SharedConnection&gt; Connection::GetSharedConnection() const
+</a><a href="#h5-4-9" id="h5-4-9" class="i">+    {
+</a><a href="#h5-4-10" id="h5-4-10" class="i">+        return m_dbconn;
+</a><a href="#h5-4-11" id="h5-4-11" class="i">+    }
+</a><a href="#h5-4-12" id="h5-4-12" class="i">+
+</a>     Statement::Statement(const Connection&amp; connection, std::string_view sql)
+     {
+<a href="#h5-4-15" id="h5-4-15" class="i">+        m_dbconn = connection.GetSharedConnection();
+</a>         m_connectionId = connection.GetID();
+         m_id = GetNextStatementId();
+         AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Preparing statement #&quot; &lt;&lt; m_connectionId &lt;&lt; &#39;-&#39; &lt;&lt; m_id &lt;&lt; &quot;: &quot; &lt;&lt; sql);
+<a href="#h5-5" id="h5-5" class="h">@@ -253,7 +286,7 @@ namespace AppInstaller::SQLite
+</a>         return { connection, sql };
+     }
+ 
+<a href="#h5-5-3" id="h5-5-3" class="d">-    bool Statement::Step(bool failFastOnError)
+</a><a href="#h5-5-4" id="h5-5-4" class="i">+    bool Statement::Step(bool closeConnectionOnError)
+</a>     {
+         AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Stepping statement #&quot; &lt;&lt; m_connectionId &lt;&lt; &#39;-&#39; &lt;&lt; m_id);
+         int result = sqlite3_step(m_stmt.get());
+<a href="#h5-6" id="h5-6" class="h">@@ -273,20 +306,19 @@ namespace AppInstaller::SQLite
+</a>         else
+         {
+             m_state = State::Error;
+<a href="#h5-6-3" id="h5-6-3" class="d">-            if (failFastOnError)
+</a><a href="#h5-6-4" id="h5-6-4" class="d">-            {
+</a><a href="#h5-6-5" id="h5-6-5" class="d">-                FAIL_FAST_MSG(&quot;Critical SQL statement failed&quot;);
+</a><a href="#h5-6-6" id="h5-6-6" class="d">-            }
+</a><a href="#h5-6-7" id="h5-6-7" class="d">-            else
+</a><a href="#h5-6-8" id="h5-6-8" class="i">+
+</a><a href="#h5-6-9" id="h5-6-9" class="i">+            if (closeConnectionOnError)
+</a>             {
+<a href="#h5-6-11" id="h5-6-11" class="d">-                THROW_SQLITE(result, sqlite3_db_handle(m_stmt.get()));
+</a><a href="#h5-6-12" id="h5-6-12" class="i">+                m_dbconn-&gt;Disable();
+</a>             }
+<a href="#h5-6-14" id="h5-6-14" class="i">+
+</a><a href="#h5-6-15" id="h5-6-15" class="i">+            THROW_SQLITE(result, sqlite3_db_handle(m_stmt.get()));
+</a>         }
+     }
+ 
+<a href="#h5-6-19" id="h5-6-19" class="d">-    void Statement::Execute(bool failFastOnError)
+</a><a href="#h5-6-20" id="h5-6-20" class="i">+    void Statement::Execute(bool closeConnectionOnError)
+</a>     {
+<a href="#h5-6-22" id="h5-6-22" class="d">-        THROW_HR_IF(E_UNEXPECTED, Step(failFastOnError));
+</a><a href="#h5-6-23" id="h5-6-23" class="i">+        THROW_HR_IF(E_UNEXPECTED, Step(closeConnectionOnError));
+</a>     }
+ 
+     bool Statement::GetColumnIsNull(int column)
+<a href="#h5-7" id="h5-7" class="h">@@ -323,20 +355,35 @@ namespace AppInstaller::SQLite
+</a> 
+     Savepoint::~Savepoint()
+     {
+<a href="#h5-7-3" id="h5-7-3" class="d">-        Rollback();
+</a><a href="#h5-7-4" id="h5-7-4" class="i">+        // Prevent a termination by not throwing on errors here
+</a><a href="#h5-7-5" id="h5-7-5" class="i">+        Rollback(false);
+</a>     }
+ 
+<a href="#h5-7-8" id="h5-7-8" class="d">-    void Savepoint::Rollback()
+</a><a href="#h5-7-9" id="h5-7-9" class="i">+    void Savepoint::Rollback(bool throwOnError)
+</a>     {
+         if (m_inProgress)
+         {
+<a href="#h5-7-13" id="h5-7-13" class="d">-            AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Roll back savepoint: &quot; &lt;&lt; m_name);
+</a><a href="#h5-7-14" id="h5-7-14" class="d">-            m_rollbackTo.Step(true);
+</a><a href="#h5-7-15" id="h5-7-15" class="d">-            // &#39;ROLLBACK TO&#39; *DOES NOT* remove the savepoint from the transaction stack.
+</a><a href="#h5-7-16" id="h5-7-16" class="d">-            // In order to remove it, we must RELEASE. Since we just invoked a ROLLBACK TO
+</a><a href="#h5-7-17" id="h5-7-17" class="d">-            // this should have the effect of &#39;committing&#39; nothing.
+</a><a href="#h5-7-18" id="h5-7-18" class="d">-            m_release.Step(true);
+</a><a href="#h5-7-19" id="h5-7-19" class="i">+            // Only try rollback once
+</a>             m_inProgress = false;
+<a href="#h5-7-21" id="h5-7-21" class="i">+
+</a><a href="#h5-7-22" id="h5-7-22" class="i">+            try
+</a><a href="#h5-7-23" id="h5-7-23" class="i">+            {
+</a><a href="#h5-7-24" id="h5-7-24" class="i">+                AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Roll back savepoint: &quot; &lt;&lt; m_name);
+</a><a href="#h5-7-25" id="h5-7-25" class="i">+                m_rollbackTo.Step(true);
+</a><a href="#h5-7-26" id="h5-7-26" class="i">+                // &#39;ROLLBACK TO&#39; *DOES NOT* remove the savepoint from the transaction stack.
+</a><a href="#h5-7-27" id="h5-7-27" class="i">+                // In order to remove it, we must RELEASE. Since we just invoked a ROLLBACK TO
+</a><a href="#h5-7-28" id="h5-7-28" class="i">+                // this should have the effect of &#39;committing&#39; nothing.
+</a><a href="#h5-7-29" id="h5-7-29" class="i">+                m_release.Step(true);
+</a><a href="#h5-7-30" id="h5-7-30" class="i">+            }
+</a><a href="#h5-7-31" id="h5-7-31" class="i">+            catch (...)
+</a><a href="#h5-7-32" id="h5-7-32" class="i">+            {
+</a><a href="#h5-7-33" id="h5-7-33" class="i">+                if (throwOnError)
+</a><a href="#h5-7-34" id="h5-7-34" class="i">+                {
+</a><a href="#h5-7-35" id="h5-7-35" class="i">+                    throw;
+</a><a href="#h5-7-36" id="h5-7-36" class="i">+                }
+</a><a href="#h5-7-37" id="h5-7-37" class="i">+
+</a><a href="#h5-7-38" id="h5-7-38" class="i">+                LOG_CAUGHT_EXCEPTION();
+</a><a href="#h5-7-39" id="h5-7-39" class="i">+            }
+</a>         }
+     }
+ 
+<a href="#h5-8" id="h5-8" class="h">@@ -345,7 +392,7 @@ namespace AppInstaller::SQLite
+</a>         if (m_inProgress)
+         {
+             AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Commit savepoint: &quot; &lt;&lt; m_name);
+<a href="#h5-8-3" id="h5-8-3" class="d">-            m_release.Step(true);
+</a><a href="#h5-8-4" id="h5-8-4" class="i">+            m_release.Step();
+</a>             m_inProgress = false;
+         }
+     }
+</pre>
+</div>
+</body>
+</html>

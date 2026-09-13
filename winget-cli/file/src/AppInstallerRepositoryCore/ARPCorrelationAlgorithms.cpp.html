@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>ARPCorrelationAlgorithms.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> ARPCorrelationAlgorithms.cpp (9261B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;winget/ARPCorrelationAlgorithms.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> using namespace AppInstaller::Manifest;
+<a href="#l7" class="line" id="l7">      7</a> using namespace AppInstaller::Repository;
+<a href="#l8" class="line" id="l8">      8</a> using namespace AppInstaller::Utility;
+<a href="#l9" class="line" id="l9">      9</a> 
+<a href="#l10" class="line" id="l10">     10</a> namespace AppInstaller::Repository::Correlation
+<a href="#l11" class="line" id="l11">     11</a> {
+<a href="#l12" class="line" id="l12">     12</a>     using WordSequence = WordsEditDistanceMatchConfidenceAlgorithm::WordSequence;
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a>     namespace
+<a href="#l15" class="line" id="l15">     15</a>     {
+<a href="#l16" class="line" id="l16">     16</a>         // A simple matrix class to hold score tables without having to allocate multiple arrays.
+<a href="#l17" class="line" id="l17">     17</a>         struct Matrix
+<a href="#l18" class="line" id="l18">     18</a>         {
+<a href="#l19" class="line" id="l19">     19</a>             Matrix(size_t rows, size_t columns) : m_rows(rows), m_columns(columns), m_data(rows* columns) {}
+<a href="#l20" class="line" id="l20">     20</a> 
+<a href="#l21" class="line" id="l21">     21</a>             double&amp; At(size_t i, size_t j)
+<a href="#l22" class="line" id="l22">     22</a>             {
+<a href="#l23" class="line" id="l23">     23</a>                 return m_data[i * m_columns + j];
+<a href="#l24" class="line" id="l24">     24</a>             }
+<a href="#l25" class="line" id="l25">     25</a> 
+<a href="#l26" class="line" id="l26">     26</a>         private:
+<a href="#l27" class="line" id="l27">     27</a>             size_t m_rows;
+<a href="#l28" class="line" id="l28">     28</a>             size_t m_columns;
+<a href="#l29" class="line" id="l29">     29</a>             std::vector&lt;double&gt; m_data;
+<a href="#l30" class="line" id="l30">     30</a>         };
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a>         double EditDistanceScore(const std::vector&lt;std::string&gt;&amp; s1, const std::vector&lt;std::string&gt;&amp; s2)
+<a href="#l33" class="line" id="l33">     33</a>         {
+<a href="#l34" class="line" id="l34">     34</a>             // Naive implementation of edit distance (scaled over the sequence size).
+<a href="#l35" class="line" id="l35">     35</a>             // This considers only the operations of adding and removing elements.
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a>             if (s1.empty() || s2.empty())
+<a href="#l38" class="line" id="l38">     38</a>             {
+<a href="#l39" class="line" id="l39">     39</a>                 return 0;
+<a href="#l40" class="line" id="l40">     40</a>             }
+<a href="#l41" class="line" id="l41">     41</a> 
+<a href="#l42" class="line" id="l42">     42</a>             // distance[i, j] = distance between s1[0:i] and s2[0:j]
+<a href="#l43" class="line" id="l43">     43</a>             // We don&#39;t need to hold more than two rows at a time, but it&#39;s simpler to keep the whole table.
+<a href="#l44" class="line" id="l44">     44</a>             Matrix distance(s1.size() + 1, s2.size() + 1);
+<a href="#l45" class="line" id="l45">     45</a> 
+<a href="#l46" class="line" id="l46">     46</a>             for (size_t i = 0; i &lt; s1.size(); ++i)
+<a href="#l47" class="line" id="l47">     47</a>             {
+<a href="#l48" class="line" id="l48">     48</a>                 for (size_t j = 0; j &lt; s2.size(); ++j)
+<a href="#l49" class="line" id="l49">     49</a>                 {
+<a href="#l50" class="line" id="l50">     50</a>                     double&amp; d = distance.At(i, j);
+<a href="#l51" class="line" id="l51">     51</a>                     if (s1[i] == s2[j])
+<a href="#l52" class="line" id="l52">     52</a>                     {
+<a href="#l53" class="line" id="l53">     53</a>                         // If the two elements are equal, the distance is the same as from one element before.
+<a href="#l54" class="line" id="l54">     54</a>                         // In case we are on the first element of one of the two sequences, the distance is
+<a href="#l55" class="line" id="l55">     55</a>                         // equal to the cost of adding all the previous elements in the other
+<a href="#l56" class="line" id="l56">     56</a>                         if (i == 0)
+<a href="#l57" class="line" id="l57">     57</a>                         {
+<a href="#l58" class="line" id="l58">     58</a>                             d = static_cast&lt;double&gt;(j);
+<a href="#l59" class="line" id="l59">     59</a>                         }
+<a href="#l60" class="line" id="l60">     60</a>                         else if (j == 0)
+<a href="#l61" class="line" id="l61">     61</a>                         {
+<a href="#l62" class="line" id="l62">     62</a>                             d = static_cast&lt;double&gt;(i);
+<a href="#l63" class="line" id="l63">     63</a>                         }
+<a href="#l64" class="line" id="l64">     64</a>                         else
+<a href="#l65" class="line" id="l65">     65</a>                         {
+<a href="#l66" class="line" id="l66">     66</a>                             d = distance.At(i - 1, j - 1);
+<a href="#l67" class="line" id="l67">     67</a>                         }
+<a href="#l68" class="line" id="l68">     68</a>                     }
+<a href="#l69" class="line" id="l69">     69</a>                     else
+<a href="#l70" class="line" id="l70">     70</a>                     {
+<a href="#l71" class="line" id="l71">     71</a>                         // If the two elements are distinct, the score is the cost of removing the last element
+<a href="#l72" class="line" id="l72">     72</a>                         // in one sequence plus the cost of editing the remainder of both.
+<a href="#l73" class="line" id="l73">     73</a>                         if (i &gt; 0 &amp;&amp; j &gt; 0)
+<a href="#l74" class="line" id="l74">     74</a>                         {
+<a href="#l75" class="line" id="l75">     75</a>                             d = 1 + std::min(distance.At(i - 1, j), distance.At(i, j - 1));
+<a href="#l76" class="line" id="l76">     76</a>                         }
+<a href="#l77" class="line" id="l77">     77</a>                         else if (i &gt; 0)
+<a href="#l78" class="line" id="l78">     78</a>                         {
+<a href="#l79" class="line" id="l79">     79</a>                             d = 1 + distance.At(i - 1, j);
+<a href="#l80" class="line" id="l80">     80</a>                         }
+<a href="#l81" class="line" id="l81">     81</a>                         else if (j &gt; 0)
+<a href="#l82" class="line" id="l82">     82</a>                         {
+<a href="#l83" class="line" id="l83">     83</a>                             d = 1 + distance.At(i, j - 1);
+<a href="#l84" class="line" id="l84">     84</a>                         }
+<a href="#l85" class="line" id="l85">     85</a>                         else
+<a href="#l86" class="line" id="l86">     86</a>                         {
+<a href="#l87" class="line" id="l87">     87</a>                             // Remove one and add the other
+<a href="#l88" class="line" id="l88">     88</a>                             d = 2;
+<a href="#l89" class="line" id="l89">     89</a>                         }
+<a href="#l90" class="line" id="l90">     90</a>                     }
+<a href="#l91" class="line" id="l91">     91</a>                 }
+<a href="#l92" class="line" id="l92">     92</a>             }
+<a href="#l93" class="line" id="l93">     93</a> 
+<a href="#l94" class="line" id="l94">     94</a>             // Maximum distance is equal to the sum of both lengths (removing all elements from one and adding all the elements from the other).
+<a href="#l95" class="line" id="l95">     95</a>             // We use that to scale to [0,1].
+<a href="#l96" class="line" id="l96">     96</a>             // A smaller distance represents a higher match, so we subtract from 1 for the final score
+<a href="#l97" class="line" id="l97">     97</a>             double editDistance = distance.At(s1.size() - 1, s2.size() - 1);
+<a href="#l98" class="line" id="l98">     98</a>             return 1 - editDistance / (static_cast&lt;uint64_t&gt;(s1.size()) + static_cast&lt;uint64_t&gt;(s2.size()));
+<a href="#l99" class="line" id="l99">     99</a>         }
+<a href="#l100" class="line" id="l100">    100</a>     }
+<a href="#l101" class="line" id="l101">    101</a> 
+<a href="#l102" class="line" id="l102">    102</a>     WordsEditDistanceMatchConfidenceAlgorithm::NameAndPublisher::NameAndPublisher(const WordSequence&amp; name, const WordSequence&amp; publisher) : Name(name), Publisher(publisher)
+<a href="#l103" class="line" id="l103">    103</a>     {
+<a href="#l104" class="line" id="l104">    104</a>         NamePublisher.insert(NamePublisher.end(), publisher.begin(), publisher.end());
+<a href="#l105" class="line" id="l105">    105</a>         NamePublisher.insert(NamePublisher.end(), name.begin(), name.end());
+<a href="#l106" class="line" id="l106">    106</a>     }
+<a href="#l107" class="line" id="l107">    107</a> 
+<a href="#l108" class="line" id="l108">    108</a>     WordsEditDistanceMatchConfidenceAlgorithm::NameAndPublisher::NameAndPublisher(WordSequence&amp;&amp; name, WordSequence&amp;&amp; publisher) : Name(std::move(name)), Publisher(std::move(publisher))
+<a href="#l109" class="line" id="l109">    109</a>     {
+<a href="#l110" class="line" id="l110">    110</a>         NamePublisher.insert(NamePublisher.end(), publisher.begin(), publisher.end());
+<a href="#l111" class="line" id="l111">    111</a>         NamePublisher.insert(NamePublisher.end(), name.begin(), name.end());
+<a href="#l112" class="line" id="l112">    112</a> 
+<a href="#l113" class="line" id="l113">    113</a>     }
+<a href="#l114" class="line" id="l114">    114</a> 
+<a href="#l115" class="line" id="l115">    115</a>     void WordsEditDistanceMatchConfidenceAlgorithm::Init(const AppInstaller::Manifest::Manifest&amp; manifest)
+<a href="#l116" class="line" id="l116">    116</a>     {
+<a href="#l117" class="line" id="l117">    117</a>         // We will use the name and publisher from each localization.
+<a href="#l118" class="line" id="l118">    118</a>         m_namesAndPublishers.clear();
+<a href="#l119" class="line" id="l119">    119</a> 
+<a href="#l120" class="line" id="l120">    120</a>         WordSequence defaultPublisher;
+<a href="#l121" class="line" id="l121">    121</a>         if (manifest.DefaultLocalization.Contains(Manifest::Localization::Publisher))
+<a href="#l122" class="line" id="l122">    122</a>         {
+<a href="#l123" class="line" id="l123">    123</a>             defaultPublisher = NormalizeAndPreparePublisher(manifest.DefaultLocalization.Get&lt;Manifest::Localization::Publisher&gt;());
+<a href="#l124" class="line" id="l124">    124</a>         }
+<a href="#l125" class="line" id="l125">    125</a> 
+<a href="#l126" class="line" id="l126">    126</a>         if (manifest.DefaultLocalization.Contains(Manifest::Localization::PackageName))
+<a href="#l127" class="line" id="l127">    127</a>         {
+<a href="#l128" class="line" id="l128">    128</a>             WordSequence defaultName = NormalizeAndPrepareName(manifest.DefaultLocalization.Get&lt;Manifest::Localization::PackageName&gt;());
+<a href="#l129" class="line" id="l129">    129</a>             m_namesAndPublishers.emplace_back(defaultName, defaultPublisher);
+<a href="#l130" class="line" id="l130">    130</a> 
+<a href="#l131" class="line" id="l131">    131</a>             for (const auto&amp; loc : manifest.Localizations)
+<a href="#l132" class="line" id="l132">    132</a>             {
+<a href="#l133" class="line" id="l133">    133</a>                 if (loc.Contains(Manifest::Localization::PackageName) || loc.Contains(Manifest::Localization::Publisher))
+<a href="#l134" class="line" id="l134">    134</a>                 {
+<a href="#l135" class="line" id="l135">    135</a>                     auto name = loc.Contains(Manifest::Localization::PackageName) ? NormalizeAndPrepareName(loc.Get&lt;Manifest::Localization::PackageName&gt;()) : defaultName;
+<a href="#l136" class="line" id="l136">    136</a>                     auto publisher = loc.Contains(Manifest::Localization::Publisher) ? NormalizeAndPreparePublisher(loc.Get&lt;Manifest::Localization::Publisher&gt;()) : defaultPublisher;
+<a href="#l137" class="line" id="l137">    137</a> 
+<a href="#l138" class="line" id="l138">    138</a>                     m_namesAndPublishers.emplace_back(std::move(name), std::move(publisher));
+<a href="#l139" class="line" id="l139">    139</a>                 }
+<a href="#l140" class="line" id="l140">    140</a>             }
+<a href="#l141" class="line" id="l141">    141</a>         }
+<a href="#l142" class="line" id="l142">    142</a>     }
+<a href="#l143" class="line" id="l143">    143</a> 
+<a href="#l144" class="line" id="l144">    144</a>     double WordsEditDistanceMatchConfidenceAlgorithm::ComputeConfidence(const ARPEntry&amp; arpEntry) const
+<a href="#l145" class="line" id="l145">    145</a>     {
+<a href="#l146" class="line" id="l146">    146</a>         // Name and Publisher are available as multi properties, but for ARP entries there will only be 0 or 1 values.
+<a href="#l147" class="line" id="l147">    147</a>         NameAndPublisher arpNameAndPublisher(
+<a href="#l148" class="line" id="l148">    148</a>             NormalizeAndPrepareName(arpEntry.Entry-&gt;GetLatestVersion()-&gt;GetProperty(PackageVersionProperty::Name).get()),
+<a href="#l149" class="line" id="l149">    149</a>             NormalizeAndPreparePublisher(arpEntry.Entry-&gt;GetLatestVersion()-&gt;GetProperty(PackageVersionProperty::Publisher).get()));
+<a href="#l150" class="line" id="l150">    150</a> 
+<a href="#l151" class="line" id="l151">    151</a>         // Get the best score across all localizations
+<a href="#l152" class="line" id="l152">    152</a>         double bestMatchingScore = 0;
+<a href="#l153" class="line" id="l153">    153</a>         for (const auto&amp; manifestNameAndPublisher : m_namesAndPublishers)
+<a href="#l154" class="line" id="l154">    154</a>         {
+<a href="#l155" class="line" id="l155">    155</a>             // Sometimes the publisher may be included in the name, for example Microsoft PowerToys as opposed to simply PowerToys.
+<a href="#l156" class="line" id="l156">    156</a>             // This may happen both in the ARP entry and the manifest. We try adding it in case it is in one but not in both.
+<a href="#l157" class="line" id="l157">    157</a>             auto nameScore = EditDistanceScore(manifestNameAndPublisher.Name, arpNameAndPublisher.Name);
+<a href="#l158" class="line" id="l158">    158</a> 
+<a href="#l159" class="line" id="l159">    159</a>             // Ignore cases where the name is not at all similar to avoid matching due to publisher only
+<a href="#l160" class="line" id="l160">    160</a>             if (nameScore &lt; m_nameMatchingScoreMinThreshold)
+<a href="#l161" class="line" id="l161">    161</a>             {
+<a href="#l162" class="line" id="l162">    162</a>                 continue;
+<a href="#l163" class="line" id="l163">    163</a>             }
+<a href="#l164" class="line" id="l164">    164</a> 
+<a href="#l165" class="line" id="l165">    165</a>             auto publisherScore = EditDistanceScore(manifestNameAndPublisher.Publisher, arpNameAndPublisher.Publisher);
+<a href="#l166" class="line" id="l166">    166</a>             auto namePublisherScore = std::max(
+<a href="#l167" class="line" id="l167">    167</a>                 EditDistanceScore(manifestNameAndPublisher.NamePublisher, arpNameAndPublisher.Name),
+<a href="#l168" class="line" id="l168">    168</a>                 EditDistanceScore(manifestNameAndPublisher.Name, arpNameAndPublisher.NamePublisher));
+<a href="#l169" class="line" id="l169">    169</a> 
+<a href="#l170" class="line" id="l170">    170</a>             // Use the best between considering name and publisher as a single string or separately.
+<a href="#l171" class="line" id="l171">    171</a>             auto score = std::max(
+<a href="#l172" class="line" id="l172">    172</a>                 nameScore * m_nameMatchingScoreWeight + publisherScore * (1 - m_nameMatchingScoreWeight),
+<a href="#l173" class="line" id="l173">    173</a>                 namePublisherScore);
+<a href="#l174" class="line" id="l174">    174</a>             bestMatchingScore = std::max(bestMatchingScore, score);
+<a href="#l175" class="line" id="l175">    175</a>         }
+<a href="#l176" class="line" id="l176">    176</a> 
+<a href="#l177" class="line" id="l177">    177</a>         // Factor in whether this entry is new
+<a href="#l178" class="line" id="l178">    178</a>         auto result = bestMatchingScore * m_stringMatchingWeight + (arpEntry.IsNewOrUpdated ? 1 : 0) * (1 - m_stringMatchingWeight);
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>         return result;
+<a href="#l181" class="line" id="l181">    181</a>     }
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a>     WordSequence WordsEditDistanceMatchConfidenceAlgorithm::PrepareString(std::string_view s) const
+<a href="#l184" class="line" id="l184">    184</a>     {
+<a href="#l185" class="line" id="l185">    185</a>         return Utility::SplitIntoWords(Utility::FoldCase(s));
+<a href="#l186" class="line" id="l186">    186</a>     }
+<a href="#l187" class="line" id="l187">    187</a> 
+<a href="#l188" class="line" id="l188">    188</a>     WordSequence WordsEditDistanceMatchConfidenceAlgorithm::NormalizeAndPrepareName(std::string_view name) const
+<a href="#l189" class="line" id="l189">    189</a>     {
+<a href="#l190" class="line" id="l190">    190</a>         return PrepareString(m_normalizer.NormalizeName(name).Name());
+<a href="#l191" class="line" id="l191">    191</a>     }
+<a href="#l192" class="line" id="l192">    192</a> 
+<a href="#l193" class="line" id="l193">    193</a>     WordSequence WordsEditDistanceMatchConfidenceAlgorithm::NormalizeAndPreparePublisher(std::string_view publisher) const
+<a href="#l194" class="line" id="l194">    194</a>     {
+<a href="#l195" class="line" id="l195">    195</a>         return PrepareString(m_normalizer.NormalizePublisher(publisher));
+<a href="#l196" class="line" id="l196">    196</a>     }
+<a href="#l197" class="line" id="l197">    197</a> }
+</pre>
+</div>
+</body>
+</html>

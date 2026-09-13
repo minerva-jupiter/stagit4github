@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Remove cancel optimization for packageQuery caller (#1472) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/7fb08ffd9f867631c5bde45635092e924494723e.html">7fb08ffd9f867631c5bde45635092e924494723e</a>
+<b>parent</b> <a href="../commit/2a9d1c66a32af0f44f6dd9b6ad76e88d427efc11.html">2a9d1c66a32af0f44f6dd9b6ad76e88d427efc11</a>
+<b>Author:</b> sreadingMSFT &lt;<a href="mailto:74242768+sreadingMSFT@users.noreply.github.com">74242768+sreadingMSFT@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Thu, 16 Sep 2021 02:10:50 -0700
+
+Remove cancel optimization for packageQuery caller (#1472)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/Microsoft.Management.Deployment/PackageManager.cpp</a></td><td> | </td><td class="num">18</td><td><span class="i">+++</span><span class="d">---------------</span></td></tr>
+</table></pre><pre>1 file changed, 3 insertions(+), 15 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -427,7 +427,6 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             }
+ 
+             wil::unique_event progressEvent{ wil::EventOptions::None };
+<a href="#h0-0-3" id="h0-0-3" class="d">-            wil::unique_event cancelWaitEvent{ wil::EventOptions::None };
+</a> 
+             std::atomic&lt;winrt::Microsoft::Management::Deployment::InstallProgress&gt; installProgress;
+             queueItem-&gt;GetContext().AddProgressCallbackFunction([&amp;installProgress, &amp;progressEvent](
+<a href="#h0-1" id="h0-1" class="h">@@ -448,7 +447,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             );
+ 
+             std::weak_ptr&lt;Execution::OrchestratorQueueItem&gt; weakQueueItem(queueItem);
+<a href="#h0-1-3" id="h0-1-3" class="d">-            cancellationToken.callback([weakQueueItem, &amp;canCancelQueueItem, &amp;cancelWaitEvent]
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+            cancellationToken.callback([weakQueueItem, &amp;canCancelQueueItem]
+</a>                 {
+                     if (canCancelQueueItem)
+                     {
+<a href="#h0-2" id="h0-2" class="h">@@ -458,21 +457,15 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>                             Execution::ContextOrchestrator::Instance().CancelQueueItem(*strongQueueItem);
+                         }
+                     }
+<a href="#h0-2-3" id="h0-2-3" class="d">-                    else
+</a><a href="#h0-2-4" id="h0-2-4" class="d">-                    {
+</a><a href="#h0-2-5" id="h0-2-5" class="d">-                        cancelWaitEvent.SetEvent();
+</a><a href="#h0-2-6" id="h0-2-6" class="d">-                    }
+</a>                 });
+ 
+             // Wait for completion or progress events.
+             // Waiting for both on the same thread ensures that progress is never reported after the async operation itself has completed.
+             bool completionEventFired = false;
+<a href="#h0-2-12" id="h0-2-12" class="d">-            bool cancelWaitEventFired = false;
+</a><a href="#h0-2-13" id="h0-2-13" class="d">-            HANDLE operationEvents[3];
+</a><a href="#h0-2-14" id="h0-2-14" class="i">+            HANDLE operationEvents[2];
+</a>             operationEvents[0] = progressEvent.get();
+             operationEvents[1] = queueItem-&gt;GetCompletedEvent().get();
+<a href="#h0-2-17" id="h0-2-17" class="d">-            operationEvents[2] = cancelWaitEvent.get();
+</a><a href="#h0-2-18" id="h0-2-18" class="d">-            while (!completionEventFired &amp;&amp; !cancelWaitEventFired)
+</a><a href="#h0-2-19" id="h0-2-19" class="i">+            while (!completionEventFired)
+</a>             {
+                 DWORD dwEvent = WaitForMultipleObjects(
+                     _countof(operationEvents) /* number of events */,
+<a href="#h0-3" id="h0-3" class="h">@@ -497,11 +490,6 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>                     completionEventFired = true;
+                     break;
+ 
+<a href="#h0-3-3" id="h0-3-3" class="d">-                    // operationEvents[2] was signaled, operation is cancelled
+</a><a href="#h0-3-4" id="h0-3-4" class="d">-                case WAIT_OBJECT_0 + 2:
+</a><a href="#h0-3-5" id="h0-3-5" class="d">-                    cancelWaitEventFired = true;
+</a><a href="#h0-3-6" id="h0-3-6" class="d">-                    break;
+</a><a href="#h0-3-7" id="h0-3-7" class="d">-
+</a>                     // Return value is invalid.
+                 default:
+                     THROW_LAST_ERROR();
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Skip uninstall attempt when installed package version is not present (#4685) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/32e3bf9d5292e20fd93ca01c70f3785c39199042.html">32e3bf9d5292e20fd93ca01c70f3785c39199042</a>
+<b>parent</b> <a href="../commit/e8e5f502d6eaa5c4771d0f0f374632fd679decba.html">e8e5f502d6eaa5c4771d0f0f374632fd679decba</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 30 Jul 2024 15:23:49 -0700
+
+Skip uninstall attempt when installed package version is not present (#4685)
+
+## Issue
+We are seeing crashes from the installed package version being null, but
+only during upgrades with a dependency when attempting to uninstall said
+dependency (either due to user request or manifest).
+
+## Change
+Simply exit the two workflow tasks involved with the uninstall if the
+installed package version is not present.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></td><td> | </td><td class="num">17</td><td><span class="i">++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLIE2ETests/AppInstallerCLIE2ETests.csproj</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h2">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.1.0.yaml</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h3">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.2.0.yaml</a></td><td> | </td><td class="num">21</td><td><span class="i">+++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h4">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependencyDependent.1.0.yaml</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLIE2ETests/UpgradeCommand.cs</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>6 files changed, 90 insertions(+), 1 deletion(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -206,6 +206,13 @@ namespace AppInstaller::CLI::Workflow
+</a>     void GetUninstallInfo(Execution::Context&amp; context)
+     {
+         auto installedPackageVersion = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;();
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        if (!installedPackageVersion)
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        {
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+            AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;No installed package version; cannot get uninstall information.&quot;);
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+            return;
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        }
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+
+</a>         const std::string installedTypeString = installedPackageVersion-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+         switch (ConvertToInstallerTypeEnum(installedTypeString))
+         {
+<a href="#h0-1" id="h0-1" class="h">@@ -290,7 +297,15 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+     void ExecuteUninstaller(Execution::Context&amp; context)
+     {
+<a href="#h0-1-3" id="h0-1-3" class="d">-        const std::string installedTypeString = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;()-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        auto installedPackageVersion = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;();
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+        if (!installedPackageVersion)
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+        {
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+            AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;No installed package version; cannot uninstall.&quot;);
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+            return;
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+        }
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+
+</a><a href="#h0-1-12" id="h0-1-12" class="i">+        const std::string installedTypeString = installedPackageVersion-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a>         InstallerTypeEnum installerType = ConvertToInstallerTypeEnum(installedTypeString);
+ 
+         Synchronization::CrossProcessInstallLock lock;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLIE2ETests/AppInstallerCLIE2ETests.csproj.html">src/AppInstallerCLIE2ETests/AppInstallerCLIE2ETests.csproj</a> b/<a href="../file/src/AppInstallerCLIE2ETests/AppInstallerCLIE2ETests.csproj.html">src/AppInstallerCLIE2ETests/AppInstallerCLIE2ETests.csproj</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -52,6 +52,9 @@
+</a>   &lt;ItemGroup&gt;
+     &lt;None Remove=&quot;TestData\Configuration\ShowDetails_TestRepo_0_3.yml&quot; /&gt;
+     &lt;None Remove=&quot;TestData\Configuration\WithParameters_0_3.yml&quot; /&gt;
+<a href="#h1-0-3" id="h1-0-3" class="i">+    &lt;None Remove=&quot;TestData\Manifests\TestUpgradeAddsDependency.1.0.yaml&quot; /&gt;
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    &lt;None Remove=&quot;TestData\Manifests\TestUpgradeAddsDependency.2.0.yaml&quot; /&gt;
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    &lt;None Remove=&quot;TestData\Manifests\TestUpgradeAddsDependencyDependent.1.0.yaml&quot; /&gt;
+</a>     &lt;Content Include=&quot;..\..\doc\admx\DesktopAppInstaller.admx&quot; Link=&quot;TestData\DesktopAppInstaller.admx&quot;&gt;
+       &lt;CopyToOutputDirectory&gt;PreserveNewest&lt;/CopyToOutputDirectory&gt;
+     &lt;/Content&gt;
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.1.0.yaml.html">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.1.0.yaml</a> b/<a href="../file/src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.1.0.yaml.html">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.1.0.yaml</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -0,0 +1,18 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="i">+PackageIdentifier: AppInstallerTest.TestUpgradeAddsDependency
+</a><a href="#h2-0-1" id="h2-0-1" class="i">+PackageVersion: 1.0
+</a><a href="#h2-0-2" id="h2-0-2" class="i">+PackageName: TestUpgradeAddsDependency
+</a><a href="#h2-0-3" id="h2-0-3" class="i">+PackageLocale: en-US
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+Publisher: Microsoft
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+License: Test
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+ShortDescription: E2E test for adding a new package dependency during an upgrade.
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+Installers:
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+  - Architecture: x86
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+    InstallerUrl: https://localhost:5001/TestKit/AppInstallerTestExeInstaller/AppInstallerTestExeInstaller.exe
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+    InstallerType: exe
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+    InstallerSha256: &lt;EXEHASH&gt;
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+    ProductCode: &#39;{fda6c0e2-0977-482f-bda1-9bd025457b81}&#39;
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+    InstallerSwitches:
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+      Custom: &#39;/ProductID {fda6c0e2-0977-482f-bda1-9bd025457b81}&#39;
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+      InstallLocation: /InstallDir &lt;INSTALLPATH&gt;
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+ManifestType: singleton
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+ManifestVersion: 1.4.0
+</a><b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.2.0.yaml.html">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.2.0.yaml</a> b/<a href="../file/src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.2.0.yaml.html">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependency.2.0.yaml</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -0,0 +1,21 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="i">+PackageIdentifier: AppInstallerTest.TestUpgradeAddsDependency
+</a><a href="#h3-0-1" id="h3-0-1" class="i">+PackageVersion: 2.0
+</a><a href="#h3-0-2" id="h3-0-2" class="i">+PackageName: TestUpgradeAddsDependency
+</a><a href="#h3-0-3" id="h3-0-3" class="i">+PackageLocale: en-US
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+Publisher: Microsoft
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+License: Test
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+ShortDescription: E2E test for adding a new package dependency during an upgrade.
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+Installers:
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+  - Architecture: x86
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+    InstallerUrl: https://localhost:5001/TestKit/AppInstallerTestExeInstaller/AppInstallerTestExeInstaller.exe
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+    InstallerType: exe
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+    InstallerSha256: &lt;EXEHASH&gt;
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+    ProductCode: &#39;{fda6c0e2-0977-482f-bda1-9bd025457b81}&#39;
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+    InstallerSwitches:
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+      Custom: &#39;/ProductID {fda6c0e2-0977-482f-bda1-9bd025457b81}&#39;
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+      InstallLocation: /InstallDir &lt;INSTALLPATH&gt;
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+    Dependencies:
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+      PackageDependencies:
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+      - PackageIdentifier: AppInstallerTest.TestUpgradeAddsDependencyDependent
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+ManifestType: singleton
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+ManifestVersion: 1.4.0
+</a><b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependencyDependent.1.0.yaml.html">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependencyDependent.1.0.yaml</a> b/<a href="../file/src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependencyDependent.1.0.yaml.html">src/AppInstallerCLIE2ETests/TestData/Manifests/TestUpgradeAddsDependencyDependent.1.0.yaml</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -0,0 +1,19 @@
+</a><a href="#h4-0-0" id="h4-0-0" class="i">+PackageIdentifier: AppInstallerTest.TestUpgradeAddsDependencyDependent
+</a><a href="#h4-0-1" id="h4-0-1" class="i">+PackageVersion: 1.0
+</a><a href="#h4-0-2" id="h4-0-2" class="i">+PackageName: TestUpgradeAddsDependencyDependent
+</a><a href="#h4-0-3" id="h4-0-3" class="i">+PackageLocale: en-US
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+Publisher: Microsoft
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+License: Test
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+ShortDescription: E2E test for adding a new package dependency during an upgrade.
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+Installers:
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+  - Architecture: x86
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+    InstallerUrl: https://localhost:5001/TestKit/AppInstallerTestExeInstaller/AppInstallerTestExeInstaller.exe
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+    InstallerType: exe
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+    InstallerSha256: &lt;EXEHASH&gt;
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+    UpgradeBehavior: uninstallPrevious
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+    ProductCode: &#39;{648274a3-17aa-4731-8bf1-5854ca61e475}&#39;
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+    InstallerSwitches:
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+      Custom: &#39;/ProductID {648274a3-17aa-4731-8bf1-5854ca61e475}&#39;
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+      InstallLocation: /InstallDir &lt;INSTALLPATH&gt;
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+ManifestType: singleton
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+ManifestVersion: 1.4.0
+</a><b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIE2ETests/UpgradeCommand.cs.html">src/AppInstallerCLIE2ETests/UpgradeCommand.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/UpgradeCommand.cs.html">src/AppInstallerCLIE2ETests/UpgradeCommand.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -187,5 +187,18 @@ namespace AppInstallerCLIE2ETests
+</a>             Assert.True(result2.StdOut.Contains(&quot;Successfully installed&quot;));
+             TestCommon.VerifyPortablePackage(Path.Combine(installDir, packageDirName), commandAlias, fileName, productCode, true, TestCommon.Scope.User);
+         }
+<a href="#h5-0-3" id="h5-0-3" class="i">+
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+        /// &lt;summary&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+        /// Test upgrade when a new dependency is added that is not installed.
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+        [Test]
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+        public void UpgradeAddsDependency()
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+        {
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+            var result = TestCommon.RunAICLICommand(&quot;install&quot;, $&quot;AppInstallerTest.TestUpgradeAddsDependency -v 1.0 --verbose&quot;);
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+            Assert.AreEqual(Constants.ErrorCode.S_OK, result.ExitCode);
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+            result = TestCommon.RunAICLICommand(&quot;upgrade&quot;, $&quot;AppInstallerTest.TestUpgradeAddsDependency&quot;);
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+            Assert.AreEqual(Constants.ErrorCode.S_OK, result.ExitCode);
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+        }
+</a>     }
+ }
+</pre>
+</div>
+</body>
+</html>

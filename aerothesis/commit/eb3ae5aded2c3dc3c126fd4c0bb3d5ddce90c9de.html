@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat: refactor oscillation physics and internal state management - aerothesis - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>aerothesis</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/eb3ae5aded2c3dc3c126fd4c0bb3d5ddce90c9de.html">eb3ae5aded2c3dc3c126fd4c0bb3d5ddce90c9de</a>
+<b>parent</b> <a href="../commit/fb561e985a9da9517946ce8531eb8d9db9e6f308.html">fb561e985a9da9517946ce8531eb8d9db9e6f308</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Wed,  1 Jul 2026 20:49:28 +0900
+
+feat: refactor oscillation physics and internal state management
+
+- Introduced explicit state fields for velocity, acceleration, and resonance tracking in the Aerothesis struct.
+- Refactored core simulation methods, renaming `step` to `osc` and `x` to `osc_x` for clarity.
+- Updated pressure calculation logic to integrate resonance and feedback gain.
+- Adjusted parameter ranges and default values for feedback gain.
+- Added a binary target to Cargo.toml and updated analysis logic in main.rs to support frequency spectrum reporting.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">Cargo.toml</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/lib.rs</a></td><td> | </td><td class="num">65</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/main.rs</a></td><td> | </td><td class="num">15</td><td><span class="i">+++++++++++</span><span class="d">----</span></td></tr>
+</table></pre><pre>3 files changed, 56 insertions(+), 28 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/Cargo.toml.html">Cargo.toml</a> b/<a href="../file/Cargo.toml.html">Cargo.toml</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -13,6 +13,10 @@ members = [&quot;xtask&quot;]
+</a> [lib]
+ crate-type = [&quot;cdylib&quot;, &quot;rlib&quot;]
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+[[bin]]
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+name = &quot;aerothesis-bin&quot;
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+path = &quot;src/main.rs&quot;
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+
+</a> [dependencies]
+ # Remove the `assert_process_allocs` feature to allow allocations on the audio
+ # thread in debug builds.
+<b>diff --git a/<a id="h1" href="../file/src/lib.rs.html">src/lib.rs</a> b/<a href="../file/src/lib.rs.html">src/lib.rs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -27,6 +27,11 @@ pub struct Aerothesis {
+</a>     pub note_frequency: f32,
+ 
+     pub displacement_prev: f32,
+<a href="#h1-0-3" id="h1-0-3" class="i">+    pub velocity_prev: f32,
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    pub displacement_prev2: f32,
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    pub accel_prev: f32,
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    pub f: f32,
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    pub resonance: f32,
+</a> }
+ 
+ #[derive(Enum, PartialEq, Clone, Copy)]
+<a href="#h1-1" id="h1-1" class="h">@@ -111,6 +116,11 @@ impl Default for Aerothesis {
+</a>             note_frequency: 0.0,
+ 
+             displacement_prev: 0.0,
+<a href="#h1-1-3" id="h1-1-3" class="i">+            velocity_prev: 0.0,
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+            displacement_prev2: 0.0,
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+            accel_prev: 0.0,
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+            f: 0.0,
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+            resonance: 0.0,
+</a>         }
+     }
+ }
+<a href="#h1-2" id="h1-2" class="h">@@ -217,8 +227,11 @@ impl Default for AerothesisParams {
+</a>             ),
+             feedback_gain: FloatParam::new(
+                 &quot;Feedback Gain&quot;,
+<a href="#h1-2-3" id="h1-2-3" class="d">-                0.1,
+</a><a href="#h1-2-4" id="h1-2-4" class="d">-                FloatRange::Linear { min: 0.0, max: 1.0 },
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+                5.0,
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+                FloatRange::Linear {
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+                    min: 0.0,
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+                    max: 10.0,
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+                },
+</a>             ),
+ 
+             breath_cc: IntParam::new(&quot;Breath CC&quot;, 2, IntRange::Linear { min: 0, max: 127 }),
+<a href="#h1-3" id="h1-3" class="h">@@ -239,15 +252,15 @@ impl Default for AerothesisParams {
+</a> }
+ 
+ impl Aerothesis {
+<a href="#h1-3-3" id="h1-3-3" class="d">-    pub fn step(&amp;mut self) -&gt; f32 {
+</a><a href="#h1-3-4" id="h1-3-4" class="d">-        let x_n = self.x();
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+    pub fn osc(&amp;mut self) -&gt; f32 {
+</a><a href="#h1-3-6" id="h1-3-6" class="i">+        let x_n = self.osc_x();
+</a>         let v_n = self.v(x_n);
+ 
+         self.x_prev2 = self.x_prev;
+         self.x_prev = x_n;
+ 
+         self.f_prev2 = self.f_prev;
+<a href="#h1-3-13" id="h1-3-13" class="d">-        self.f_prev = self.f();
+</a><a href="#h1-3-14" id="h1-3-14" class="i">+        self.f_prev = self.f;
+</a> 
+         self.v_prev = v_n;
+         self.v_fluid_prev = self.vf();
+<a href="#h1-4" id="h1-4" class="h">@@ -277,7 +290,9 @@ impl Aerothesis {
+</a> 
+         let gap_prev = (2.0 - self.x_prev).clamp(EPS, 2.0);
+         let b_prev = RHO / (4.0 * (gap_prev * gap_prev));
+<a href="#h1-4-3" id="h1-4-3" class="d">-        let c_prev = self.v_breath - b_prev * (self.v_fluid_prev * self.v_fluid_prev);
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+        let pressure = self.params.base_damping.value()
+</a><a href="#h1-4-5" id="h1-4-5" class="i">+            * (self.v_breath + self.resonance * 100.0 * self.params.feedback_gain.value());
+</a><a href="#h1-4-6" id="h1-4-6" class="i">+        let c_prev = pressure - b_prev * (self.v_fluid_prev * self.v_fluid_prev);
+</a> 
+         // Current gap is also based on x_prev in this discrete model for stability
+         let gap_curr = (2.0 - self.x_prev).clamp(EPS, 2.0);
+<a href="#h1-5" id="h1-5" class="h">@@ -306,14 +321,15 @@ impl Aerothesis {
+</a>         } else {
+             0.5 * RHO * (v_fluid_current * v_fluid_current) * gap_curr
+         };
+<a href="#h1-5-3" id="h1-5-3" class="i">+
+</a>         f_current
+     }
+<a href="#h1-5-6" id="h1-5-6" class="d">-    pub fn x(&amp;self) -&gt; f32 {
+</a><a href="#h1-5-7" id="h1-5-7" class="i">+    pub fn osc_x(&amp;mut self) -&gt; f32 {
+</a>         let m = self.m();
+         let r = self.r();
+         let k = self.k();
+         let t = 1.0 / self.sample_rate;
+<a href="#h1-5-12" id="h1-5-12" class="d">-        let f_current = self.f();
+</a><a href="#h1-5-13" id="h1-5-13" class="i">+        let f_current = self.f;
+</a> 
+         let b0 = t * t;
+         let b1 = 2.0 * t * t;
+<a href="#h1-6" id="h1-6" class="h">@@ -352,28 +368,29 @@ impl Aerothesis {
+</a>             decay * x_delay
+         }
+     }
+<a href="#h1-6-3" id="h1-6-3" class="d">-
+</a>     pub fn displacement(&amp;mut self) -&gt; f32 {
+<a href="#h1-6-5" id="h1-6-5" class="d">-        let x_n = self.step();
+</a><a href="#h1-6-6" id="h1-6-6" class="d">-        let x_oscillator = x_n - self.equilibrium_offset();
+</a><a href="#h1-6-7" id="h1-6-7" class="d">-
+</a><a href="#h1-6-8" id="h1-6-8" class="d">-        let resonance = self.resonance();
+</a><a href="#h1-6-9" id="h1-6-9" class="d">-
+</a><a href="#h1-6-10" id="h1-6-10" class="d">-        let x_current = x_oscillator + resonance;
+</a><a href="#h1-6-11" id="h1-6-11" class="i">+        self.resonance = self.resonance();
+</a><a href="#h1-6-12" id="h1-6-12" class="i">+        self.f = self.f();
+</a><a href="#h1-6-13" id="h1-6-13" class="i">+        let x_n = self.osc();
+</a><a href="#h1-6-14" id="h1-6-14" class="i">+        let x_current = x_n - self.equilibrium_offset();
+</a><a href="#h1-6-15" id="h1-6-15" class="i">+
+</a><a href="#h1-6-16" id="h1-6-16" class="i">+        // let displacement = x_current
+</a><a href="#h1-6-17" id="h1-6-17" class="i">+        //     * (self.params.resonance_decay.value()
+</a><a href="#h1-6-18" id="h1-6-18" class="i">+        //         * (x_current - self.displacement_prev)
+</a><a href="#h1-6-19" id="h1-6-19" class="i">+        //         * (x_current - self.displacement_prev))
+</a><a href="#h1-6-20" id="h1-6-20" class="i">+        //         .clamp(0.0, 1.0);
+</a><a href="#h1-6-21" id="h1-6-21" class="i">+        let displacement = x_current;
+</a> 
+<a href="#h1-6-23" id="h1-6-23" class="d">-        let displacement = x_current
+</a><a href="#h1-6-24" id="h1-6-24" class="d">-            * (self.params.resonance_decay.value()
+</a><a href="#h1-6-25" id="h1-6-25" class="d">-                * (x_current - self.displacement_prev)
+</a><a href="#h1-6-26" id="h1-6-26" class="d">-                * (x_current - self.displacement_prev))
+</a><a href="#h1-6-27" id="h1-6-27" class="d">-                .clamp(0.0, 1.0);
+</a>         self.displacement_prev = displacement;
+ 
+         self.x_history.push_front(displacement);
+<a href="#h1-6-31" id="h1-6-31" class="d">-        x_oscillator
+</a><a href="#h1-6-32" id="h1-6-32" class="i">+        // displacement + self.resonance
+</a><a href="#h1-6-33" id="h1-6-33" class="i">+        displacement
+</a><a href="#h1-6-34" id="h1-6-34" class="i">+        // self.resonance
+</a>     }
+ 
+     fn equilibrium_offset(&amp;self) -&gt; f32 {
+<a href="#h1-6-38" id="h1-6-38" class="d">-        let f = self.f();
+</a><a href="#h1-6-39" id="h1-6-39" class="i">+        let f = self.f;
+</a>         let k = self.k();
+         if k &gt; 0.0 {
+             (f / k).clamp(0.0, 1.8)
+<a href="#h1-7" id="h1-7" class="h">@@ -465,7 +482,7 @@ impl Plugin for Aerothesis {
+</a>                     value,
+                 } =&gt; {
+                     if cc as i32 == self.params.breath_cc.value() {
+<a href="#h1-7-3" id="h1-7-3" class="d">-                        self.v_breath = value * self.params.pressure_scale.value();
+</a><a href="#h1-7-4" id="h1-7-4" class="i">+                        self.v_breath = value;
+</a>                     } else if cc as i32 == self.params.bite_cc.value() {
+                         self.v_bite = value;
+                     }
+<a href="#h1-8" id="h1-8" class="h">@@ -486,7 +503,7 @@ impl Plugin for Aerothesis {
+</a> 
+         for channel_samples in buffer.iter_samples() {
+             let gain = self.params.gain.smoothed.next();
+<a href="#h1-8-3" id="h1-8-3" class="d">-            let x_current = self.displacement() - self.avg_x_history();
+</a><a href="#h1-8-4" id="h1-8-4" class="i">+            let x_current = self.displacement();
+</a> 
+             for sample in channel_samples {
+                 if self.note_frequency == 0.0 {
+<b>diff --git a/<a id="h2" href="../file/src/main.rs.html">src/main.rs</a> b/<a href="../file/src/main.rs.html">src/main.rs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -10,8 +10,8 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>     let num_samples = (sample_rate * seconds) as usize;
+ 
+     plugin.sample_rate = sample_rate;
+<a href="#h2-0-3" id="h2-0-3" class="d">-    // plugin.note_frequency = util::midi_note_to_freq(48); // C3 (u8)
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-    plugin.note_frequency = util::midi_note_to_freq(54); // C4 (u8)
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    plugin.note_frequency = util::midi_note_to_freq(60); // C4 (u8)
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+                                                         // plugin.note_frequency = util::midi_note_to_freq(54); // F#3 (u8)
+</a> 
+     // For simulation in main.rs, we use the default parameters from AerothesisParams::default()
+     // because nih-plug parameters are designed to be managed by a host and don&#39;t have
+<a href="#h2-1" id="h2-1" class="h">@@ -19,7 +19,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>     // Default resonance: OpenPipe, Decay: 0.9
+ 
+     let mut displacements = Vec::with_capacity(num_samples);
+<a href="#h2-1-3" id="h2-1-3" class="d">-    let mut resonances = Vec::with_capacity(num_samples);
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+    let mut osc = Vec::with_capacity(num_samples);
+</a> 
+     for i in 0..num_samples {
+         // let x_current = self.resonance() - self.avg_x_history();
+<a href="#h2-2" id="h2-2" class="h">@@ -36,8 +36,8 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>         };
+ 
+         let sample = plugin.displacement() - plugin.avg_x_history();
+<a href="#h2-2-3" id="h2-2-3" class="i">+        osc.push(plugin.osc_x());
+</a>         displacements.push(sample);
+<a href="#h2-2-5" id="h2-2-5" class="d">-        resonances.push(plugin.resonance());
+</a>     }
+ 
+     let len = (sample_rate * 0.05) as usize;
+<a href="#h2-3" id="h2-3" class="h">@@ -71,6 +71,13 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>         }
+         spectrum_data.push((freq, complex.norm()));
+     }
+<a href="#h2-3-3" id="h2-3-3" class="i">+    if let Some(max) = spectrum_data
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+        .iter()
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+        .enumerate()
+</a><a href="#h2-3-6" id="h2-3-6" class="i">+        .max_by(|(_, a), (_, b)| a.1.partial_cmp(&amp;b.1).unwrap())
+</a><a href="#h2-3-7" id="h2-3-7" class="i">+    {
+</a><a href="#h2-3-8" id="h2-3-8" class="i">+        println!(&quot;max freq is {} Hz&quot;, max.0);
+</a><a href="#h2-3-9" id="h2-3-9" class="i">+    }
+</a> 
+     println!(&quot;\n--- Spectrum (0 - 2000Hz) ---&quot;);
+     Chart::new(180, 60, 0.0, 2000.0)
+</pre>
+</div>
+</body>
+</html>

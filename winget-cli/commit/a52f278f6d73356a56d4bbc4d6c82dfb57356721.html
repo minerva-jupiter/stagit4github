@@ -1,0 +1,1752 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Move Microsoft.WinGet.Client E2E test to Pester framework (#3503) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/a52f278f6d73356a56d4bbc4d6c82dfb57356721.html">a52f278f6d73356a56d4bbc4d6c82dfb57356721</a>
+<b>parent</b> <a href="../commit/b1c432ff8e249941a164ea53dd30052c2d4dd5e7.html">b1c432ff8e249941a164ea53dd30052c2d4dd5e7</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Fri, 11 Aug 2023 21:39:09 -0700
+
+Move Microsoft.WinGet.Client E2E test to Pester framework (#3503)
+
+This PR finally uses all the refactor to run the Microsoft.WinGet.Client PowerShell module in Pester. The tests are done in the BuildPowerShellModule phase.
+
+The E2E Test Source is built in the build phases, then it will be get published as artifacts under E2ETests\TestLocalIndex&#39;. Other artifacts that are required as published in E2ETests` as well. Having the test source as a build artifacts will make it easier to perform repros without building the source all over again.
+
+The BuildPowerShellModule phase will download the artifacts, move necessary files to around, install the dev package (and dependencies), start the localhost web server and run the Pester tests. Then it will publish the modules as it used to as well as the test results.
+
+It is important to remember the modules published as artifacts target the dev package, so one cannot just download it and use it without it.
+
+I port all the E2E tests to Pester tests except the ones dealing with the server shutdown.
+
+Eventually we will run tests for Microsoft.WinGet.DSC and Microsoft.WinGet.Configuration.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">azure-pipelines.yml</a></td><td> | </td><td class="num">51</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLIE2ETests/PowerShell/WinGetClientModule.cs</a></td><td> | </td><td class="num">986</td><td><span class="i"></span><span class="d">-------------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a></td><td> | </td><td class="num">13</td><td><span class="i">++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/PowerShell/tests/Microsoft.WinGet.Client.Tests.ps1</a></td><td> | </td><td class="num">341</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h5">src/PowerShell/tests/RunTests.ps1</a></td><td> | </td><td class="num">44</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">templates/e2e-setup.yml</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++</span><span class="d">------</span></td></tr>
+</table></pre><pre>7 files changed, 435 insertions(+), 1015 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -120,11 +120,13 @@ EFGH
+</a> EFile
+ endregion
+ ENDSESSION
+<a href="#h0-0-3" id="h0-0-3" class="i">+epth
+</a> EQU
+ errmsg
+ ERRORONEXIT
+ ESource
+ ESRB
+<a href="#h0-0-9" id="h0-0-9" class="i">+ests
+</a> etest
+ etl
+ execustom
+<a href="#h0-1" id="h0-1" class="h">@@ -173,6 +175,7 @@ hmodule
+</a> Howto
+ hre
+ hresults
+<a href="#h0-1-3" id="h0-1-3" class="i">+hrow
+</a> hwnd
+ IARP
+ IAttachment
+<b>diff --git a/<a id="h1" href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a> b/<a href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -56,6 +56,7 @@ jobs:
+</a>   variables:
+     BuildVer: $[counter(dependencies.GetReleaseTag.outputs[&#39;GetTag.tag&#39;], 1)]
+     buildOutDir: $(Build.SourcesDirectory)\src\$(buildPlatform)\$(buildConfiguration)
+<a href="#h1-0-3" id="h1-0-3" class="i">+    buildOutDirAnyCpu: $(Build.SourcesDirectory)\src\AnyCPU\$(buildConfiguration)
+</a>     artifactsDir: $(Build.ArtifactStagingDirectory)\$(buildPlatform)
+     packageLayoutDir: $(Build.BinariesDirectory)\WingetPackageLayout
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -218,8 +219,8 @@ jobs:
+</a> 
+   - template: templates/e2e-setup.yml
+     parameters:
+<a href="#h1-1-3" id="h1-1-3" class="d">-      source: $(Build.SourcesDirectory)
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-      buildOutDir: $(buildOutDir)
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+      sourceDir: $(Build.SourcesDirectory)
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+      localhostWebServerArgs: &#39;-BuildRoot $(buildOutDir)\LocalhostWebServer -StaticFileRoot $(Agent.TempDirectory)\TestLocalIndex -LocalSourceJson $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\localsource.json -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer&#39;
+</a> 
+   - template: templates/e2e-test.template.yml
+     parameters:
+<a href="#h1-2" id="h1-2" class="h">@@ -261,6 +262,20 @@ jobs:
+</a>     condition: succeededOrFailed()
+ 
+   - task: CopyFiles@2
+<a href="#h1-2-3" id="h1-2-3" class="i">+    displayName: &#39;Copy LocalhostWebServer&#39;
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+    inputs:
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+      SourceFolder: &#39;$(buildOutDir)\LocalhostWebServer&#39;
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+      TargetFolder: &#39;$(artifactsDir)\E2ETests\LocalhostWebServer&#39;
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+    condition: succeededOrFailed()
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+  - task: CopyFiles@2
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+    displayName: &#39;Copy Dev Package Dependencies&#39;
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+    inputs:
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+      SourceFolder: &#39;$(appxPackageDir)\AppInstallerCLIPackage_0.0.2.0_Test\Dependencies\$(buildPlatform)\&#39;
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+      TargetFolder: &#39;$(artifactsDir)\E2ETests\DevPackageDependencies&#39;
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+    condition: succeededOrFailed()
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+  - task: CopyFiles@2
+</a>     displayName: &#39;Copy Files: WinGetUtilInterop.UnitTests&#39;
+     inputs:
+       SourceFolder: &#39;$(Build.SourcesDirectory)\src\WinGetUtilInterop.UnitTests\bin\$(BuildConfiguration)\net6.0&#39;
+<a href="#h1-3" id="h1-3" class="h">@@ -336,6 +351,13 @@ jobs:
+</a>     condition: succeededOrFailed()
+ 
+   - task: CopyFiles@2
+<a href="#h1-3-3" id="h1-3-3" class="i">+    displayName: &#39;Copy PowerShell AnyCPU Module Files&#39;
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+    inputs:
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+      SourceFolder: &#39;$(buildOutDirAnyCpu)\PowerShell&#39;
+</a><a href="#h1-3-6" id="h1-3-6" class="i">+      TargetFolder: &#39;$(artifactsDir)\PowerShell&#39;
+</a><a href="#h1-3-7" id="h1-3-7" class="i">+    condition: succeededOrFailed()
+</a><a href="#h1-3-8" id="h1-3-8" class="i">+
+</a><a href="#h1-3-9" id="h1-3-9" class="i">+  - task: CopyFiles@2
+</a>     displayName: &#39;Copy Dev Package (Loose Files)&#39;
+     inputs:
+       SourceFolder: &#39;$(packageLayoutDir)&#39;
+<a href="#h1-4" id="h1-4" class="h">@@ -407,7 +429,32 @@ jobs:
+</a>       Contents: &#39;**\*&#39;
+       TargetFolder: &#39;$(Build.ArtifactStagingDirectory)&#39;
+ 
+<a href="#h1-4-3" id="h1-4-3" class="i">+  - task: PowerShell@2
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+    displayName: Install Tests Dependencies
+</a><a href="#h1-4-5" id="h1-4-5" class="i">+    inputs:
+</a><a href="#h1-4-6" id="h1-4-6" class="i">+      targetType: &#39;inline&#39;
+</a><a href="#h1-4-7" id="h1-4-7" class="i">+      script: |
+</a><a href="#h1-4-8" id="h1-4-8" class="i">+        Get-ChildItem E2ETests\DevPackageDependencies -Filter *.appx | %{ Add-AppxPackage $_.FullName }
+</a><a href="#h1-4-9" id="h1-4-9" class="i">+      workingDirectory: $(Pipeline.Workspace)\Build.x64release\
+</a><a href="#h1-4-10" id="h1-4-10" class="i">+
+</a><a href="#h1-4-11" id="h1-4-11" class="i">+  - template: templates/e2e-setup.yml
+</a><a href="#h1-4-12" id="h1-4-12" class="i">+    parameters:
+</a><a href="#h1-4-13" id="h1-4-13" class="i">+      sourceDir: $(Build.SourcesDirectory)
+</a><a href="#h1-4-14" id="h1-4-14" class="i">+      localhostWebServerArgs: &#39;-BuildRoot $(Pipeline.Workspace)\Build.x64release\E2ETests\LocalhostWebServer -StaticFileRoot $(Pipeline.Workspace)\Build.x64release\E2ETests\TestLocalIndex -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer&#39;
+</a><a href="#h1-4-15" id="h1-4-15" class="i">+
+</a><a href="#h1-4-16" id="h1-4-16" class="i">+  - pwsh: .\RunTests.ps1 -testModulesPath $(Build.ArtifactStagingDirectory) -outputPath $(Pipeline.Workspace)\PesterTest -packageLayoutPath $(Pipeline.Workspace)\Build.x64release\DevPackage
+</a><a href="#h1-4-17" id="h1-4-17" class="i">+    workingDirectory: $(Build.SourcesDirectory)\src\PowerShell\tests\
+</a><a href="#h1-4-18" id="h1-4-18" class="i">+    displayName: Run Tests
+</a><a href="#h1-4-19" id="h1-4-19" class="i">+
+</a><a href="#h1-4-20" id="h1-4-20" class="i">+  - task: PublishTestResults@2
+</a><a href="#h1-4-21" id="h1-4-21" class="i">+    displayName: Publish Pester Test Results
+</a><a href="#h1-4-22" id="h1-4-22" class="i">+    inputs:
+</a><a href="#h1-4-23" id="h1-4-23" class="i">+      testResultsFormat: &#39;NUnit&#39;
+</a><a href="#h1-4-24" id="h1-4-24" class="i">+      testResultsFiles: &#39;$(Pipeline.Workspace)\PesterTest\Test*.xml&#39;
+</a><a href="#h1-4-25" id="h1-4-25" class="i">+      failTaskOnFailedTests: true
+</a><a href="#h1-4-26" id="h1-4-26" class="i">+
+</a>   - task: PublishPipelineArtifact@1
+     displayName: Publish PowerShell Module Artifacts
+     inputs:
+       targetPath: &#39;$(Build.ArtifactStagingDirectory)&#39;
+<a href="#h1-4-31" id="h1-4-31" class="i">+    condition: succeededOrFailed()
+</a><b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLIE2ETests/PowerShell/WinGetClientModule.cs.html">src/AppInstallerCLIE2ETests/PowerShell/WinGetClientModule.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/PowerShell/WinGetClientModule.cs.html">src/AppInstallerCLIE2ETests/PowerShell/WinGetClientModule.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -7,10 +7,8 @@
+</a> namespace AppInstallerCLIE2ETests.PowerShell
+ {
+     using System;
+<a href="#h2-0-3" id="h2-0-3" class="d">-    using System.Collections;
+</a>     using System.Diagnostics;
+     using System.Linq;
+<a href="#h2-0-6" id="h2-0-6" class="d">-    using System.Management.Automation;
+</a>     using AppInstallerCLIE2ETests.Helpers;
+     using NUnit.Framework;
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -22,8 +20,6 @@ namespace AppInstallerCLIE2ETests.PowerShell
+</a>     [Category(&quot;PowerShell&quot;)]
+     public class WinGetClientModule
+     {
+<a href="#h2-1-3" id="h2-1-3" class="d">-        // TODO: Consider using Pester framework for conducting more extensive PowerShell module tests or move to Powershell Host.
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-
+</a>         /// &lt;summary&gt;
+         /// Set setup.
+         /// &lt;/summary&gt;
+<a href="#h2-2" id="h2-2" class="h">@@ -75,62 +71,6 @@ namespace AppInstallerCLIE2ETests.PowerShell
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-2-3" id="h2-2-3" class="d">-        /// Test Get-WinGetSource.
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-2-5" id="h2-2-5" class="d">-        [Test]
+</a><a href="#h2-2-6" id="h2-2-6" class="d">-        public void GetWinGetSource()
+</a><a href="#h2-2-7" id="h2-2-7" class="d">-        {
+</a><a href="#h2-2-8" id="h2-2-8" class="d">-            if (!Environment.Is64BitProcess)
+</a><a href="#h2-2-9" id="h2-2-9" class="d">-            {
+</a><a href="#h2-2-10" id="h2-2-10" class="d">-                return;
+</a><a href="#h2-2-11" id="h2-2-11" class="d">-            }
+</a><a href="#h2-2-12" id="h2-2-12" class="d">-
+</a><a href="#h2-2-13" id="h2-2-13" class="d">-            var getSourceResult = TestCommon.RunPowerShellCoreCommandWithResult(Constants.GetSourceCmdlet, $&quot;-Name {Constants.TestSourceName}&quot;);
+</a><a href="#h2-2-14" id="h2-2-14" class="d">-            Assert.AreEqual(Constants.ErrorCode.S_OK, getSourceResult.ExitCode, $&quot;ExitCode: {getSourceResult.ExitCode} Failed with the following output: {getSourceResult.StdOut}, {getSourceResult.StdErr}&quot;);
+</a><a href="#h2-2-15" id="h2-2-15" class="d">-            Assert.IsTrue(getSourceResult.StdOut.Contains($&quot;{Constants.TestSourceName}&quot;));
+</a><a href="#h2-2-16" id="h2-2-16" class="d">-        }
+</a><a href="#h2-2-17" id="h2-2-17" class="d">-
+</a><a href="#h2-2-18" id="h2-2-18" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-2-19" id="h2-2-19" class="d">-        /// Tests WinGetPackage cmdlets.
+</a><a href="#h2-2-20" id="h2-2-20" class="d">-        /// Find-WinGetPackage.
+</a><a href="#h2-2-21" id="h2-2-21" class="d">-        /// Install-WinGetPackage.
+</a><a href="#h2-2-22" id="h2-2-22" class="d">-        /// Get-WinGetPackage.
+</a><a href="#h2-2-23" id="h2-2-23" class="d">-        /// Update-WinGetPackage.
+</a><a href="#h2-2-24" id="h2-2-24" class="d">-        /// Uninstall-WinGetPackage.
+</a><a href="#h2-2-25" id="h2-2-25" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-2-26" id="h2-2-26" class="d">-        [Test]
+</a><a href="#h2-2-27" id="h2-2-27" class="d">-        public void WinGetPackageCmdlets()
+</a><a href="#h2-2-28" id="h2-2-28" class="d">-        {
+</a><a href="#h2-2-29" id="h2-2-29" class="d">-            if (!Environment.Is64BitProcess)
+</a><a href="#h2-2-30" id="h2-2-30" class="d">-            {
+</a><a href="#h2-2-31" id="h2-2-31" class="d">-                return;
+</a><a href="#h2-2-32" id="h2-2-32" class="d">-            }
+</a><a href="#h2-2-33" id="h2-2-33" class="d">-
+</a><a href="#h2-2-34" id="h2-2-34" class="d">-            // TODO: It would be nice to add an installer to be use ONLY by the PowerShell cmdlets for E2E to avoid conflicts and bad
+</a><a href="#h2-2-35" id="h2-2-35" class="d">-            // cleanups in other tests.
+</a><a href="#h2-2-36" id="h2-2-36" class="d">-            var result = TestCommon.RunPowerShellCoreCommandWithResult(Constants.FindCmdlet, $&quot;-Id {Constants.ExeInstallerPackageId}&quot;);
+</a><a href="#h2-2-37" id="h2-2-37" class="d">-            Assert.AreEqual(Constants.ErrorCode.S_OK, result.ExitCode, $&quot;ExitCode: {result.ExitCode} Failed with the following output: {result.StdOut}; {result.StdErr}&quot;);
+</a><a href="#h2-2-38" id="h2-2-38" class="d">-            Assert.IsTrue(result.StdOut.Contains(&quot;TestExeInstaller&quot;));
+</a><a href="#h2-2-39" id="h2-2-39" class="d">-
+</a><a href="#h2-2-40" id="h2-2-40" class="d">-            var installResult = TestCommon.RunPowerShellCoreCommandWithResult(Constants.InstallCmdlet, $&quot;-Id {Constants.ExeInstallerPackageId} -Version 1.0.0.0&quot;);
+</a><a href="#h2-2-41" id="h2-2-41" class="d">-            Assert.AreEqual(Constants.ErrorCode.S_OK, installResult.ExitCode, $&quot;Failed with the following output: {installResult.StdOut}&quot;);
+</a><a href="#h2-2-42" id="h2-2-42" class="d">-
+</a><a href="#h2-2-43" id="h2-2-43" class="d">-            var updateResult = TestCommon.RunPowerShellCoreCommandWithResult(Constants.UpdateCmdlet, $&quot;-Id {Constants.ExeInstallerPackageId}&quot;);
+</a><a href="#h2-2-44" id="h2-2-44" class="d">-            Assert.AreEqual(Constants.ErrorCode.S_OK, updateResult.ExitCode, $&quot;Failed with the following output: {updateResult.StdOut}&quot;);
+</a><a href="#h2-2-45" id="h2-2-45" class="d">-
+</a><a href="#h2-2-46" id="h2-2-46" class="d">-            var getResult = TestCommon.RunPowerShellCoreCommandWithResult(Constants.GetCmdlet, $&quot;-Id {Constants.ExeInstallerPackageId}&quot;);
+</a><a href="#h2-2-47" id="h2-2-47" class="d">-            Assert.AreEqual(Constants.ErrorCode.S_OK, getResult.ExitCode, $&quot;Failed with the following output: {getResult.StdOut}&quot;);
+</a><a href="#h2-2-48" id="h2-2-48" class="d">-
+</a><a href="#h2-2-49" id="h2-2-49" class="d">-            var uninstallResult = TestCommon.RunPowerShellCoreCommandWithResult(Constants.UninstallCmdlet, $&quot;-Id {Constants.ExeInstallerPackageId}&quot;);
+</a><a href="#h2-2-50" id="h2-2-50" class="d">-            Assert.AreEqual(Constants.ErrorCode.S_OK, uninstallResult.ExitCode, $&quot;Failed with the following output: {uninstallResult.StdOut}&quot;);
+</a><a href="#h2-2-51" id="h2-2-51" class="d">-
+</a><a href="#h2-2-52" id="h2-2-52" class="d">-            Assert.IsTrue(!string.IsNullOrEmpty(installResult.StdOut));
+</a><a href="#h2-2-53" id="h2-2-53" class="d">-            Assert.IsTrue(!string.IsNullOrEmpty(updateResult.StdOut));
+</a><a href="#h2-2-54" id="h2-2-54" class="d">-            Assert.IsTrue(getResult.StdOut.Contains(&quot;2.0.0.0&quot;));
+</a><a href="#h2-2-55" id="h2-2-55" class="d">-            Assert.IsTrue(!string.IsNullOrEmpty(uninstallResult.StdOut));
+</a><a href="#h2-2-56" id="h2-2-56" class="d">-        }
+</a><a href="#h2-2-57" id="h2-2-57" class="d">-
+</a><a href="#h2-2-58" id="h2-2-58" class="d">-        /// &lt;summary&gt;
+</a>         /// There is a known issue where the server takes an abnormally long time to terminate after the E2E test pwsh processes finish execution.
+         /// This test verifies that the server does indeed terminate within 5 minutes after running all of the cmdlets.
+         /// Commented out to reduce the overall duration of the build pipeline.
+<a href="#h2-3" id="h2-3" class="h">@@ -154,932 +94,6 @@ namespace AppInstallerCLIE2ETests.PowerShell
+</a>             Assert.IsTrue(serverProcessExit, $&quot;{Constants.WindowsPackageManagerServer} failed to terminate after creating COM object.&quot;);
+         }
+ 
+<a href="#h2-3-3" id="h2-3-3" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-4" id="h2-3-4" class="d">-        /// Test Get-WinGetUserSettings.
+</a><a href="#h2-3-5" id="h2-3-5" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-6" id="h2-3-6" class="d">-        [Test]
+</a><a href="#h2-3-7" id="h2-3-7" class="d">-        public void GetWinGetUserSettings()
+</a><a href="#h2-3-8" id="h2-3-8" class="d">-        {
+</a><a href="#h2-3-9" id="h2-3-9" class="d">-            var ogSettings = @&quot;{
+</a><a href="#h2-3-10" id="h2-3-10" class="d">-  &quot;&quot;visual&quot;&quot;: {
+</a><a href="#h2-3-11" id="h2-3-11" class="d">-    &quot;&quot;progressBar&quot;&quot;: &quot;&quot;rainbow&quot;&quot;
+</a><a href="#h2-3-12" id="h2-3-12" class="d">-  },
+</a><a href="#h2-3-13" id="h2-3-13" class="d">-  &quot;&quot;experimentalFeatures&quot;&quot;: {
+</a><a href="#h2-3-14" id="h2-3-14" class="d">-    &quot;&quot;experimentalArg&quot;&quot;: false,
+</a><a href="#h2-3-15" id="h2-3-15" class="d">-    &quot;&quot;experimentalCmd&quot;&quot;: true
+</a><a href="#h2-3-16" id="h2-3-16" class="d">-  }
+</a><a href="#h2-3-17" id="h2-3-17" class="d">-}&quot;;
+</a><a href="#h2-3-18" id="h2-3-18" class="d">-
+</a><a href="#h2-3-19" id="h2-3-19" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-20" id="h2-3-20" class="d">-
+</a><a href="#h2-3-21" id="h2-3-21" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-22" id="h2-3-22" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-23" id="h2-3-23" class="d">-                .AddCommand(&quot;Get-WinGetUserSettings&quot;)
+</a><a href="#h2-3-24" id="h2-3-24" class="d">-                .Invoke();
+</a><a href="#h2-3-25" id="h2-3-25" class="d">-
+</a><a href="#h2-3-26" id="h2-3-26" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-27" id="h2-3-27" class="d">-            Assert.IsInstanceOf&lt;Hashtable&gt;(result[0].BaseObject);
+</a><a href="#h2-3-28" id="h2-3-28" class="d">-        }
+</a><a href="#h2-3-29" id="h2-3-29" class="d">-
+</a><a href="#h2-3-30" id="h2-3-30" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-31" id="h2-3-31" class="d">-        /// Test Get-WinGetUserSettings when the local settings file is not a json.
+</a><a href="#h2-3-32" id="h2-3-32" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-33" id="h2-3-33" class="d">-        [Test]
+</a><a href="#h2-3-34" id="h2-3-34" class="d">-        public void GetWinGetUserSettings_BadJsonFile()
+</a><a href="#h2-3-35" id="h2-3-35" class="d">-        {
+</a><a href="#h2-3-36" id="h2-3-36" class="d">-            WinGetSettingsHelper.SetWingetSettings(&quot;Hi, im not a json. Thank you, Test.&quot;);
+</a><a href="#h2-3-37" id="h2-3-37" class="d">-
+</a><a href="#h2-3-38" id="h2-3-38" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-39" id="h2-3-39" class="d">-            {
+</a><a href="#h2-3-40" id="h2-3-40" class="d">-                {
+</a><a href="#h2-3-41" id="h2-3-41" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-42" id="h2-3-42" class="d">-                    new Hashtable()
+</a><a href="#h2-3-43" id="h2-3-43" class="d">-                    {
+</a><a href="#h2-3-44" id="h2-3-44" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-45" id="h2-3-45" class="d">-                    }
+</a><a href="#h2-3-46" id="h2-3-46" class="d">-                },
+</a><a href="#h2-3-47" id="h2-3-47" class="d">-            };
+</a><a href="#h2-3-48" id="h2-3-48" class="d">-
+</a><a href="#h2-3-49" id="h2-3-49" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-50" id="h2-3-50" class="d">-
+</a><a href="#h2-3-51" id="h2-3-51" class="d">-            var cmdletException = Assert.Throws&lt;CmdletInvocationException&gt;(
+</a><a href="#h2-3-52" id="h2-3-52" class="d">-                () =&gt; powerShellHost.PowerShell
+</a><a href="#h2-3-53" id="h2-3-53" class="d">-                .AddCommand(&quot;Get-WinGetUserSettings&quot;)
+</a><a href="#h2-3-54" id="h2-3-54" class="d">-                .Invoke());
+</a><a href="#h2-3-55" id="h2-3-55" class="d">-
+</a><a href="#h2-3-56" id="h2-3-56" class="d">-            // If we reference Microsoft.WinGet.Client to this project PowerShell host fails with
+</a><a href="#h2-3-57" id="h2-3-57" class="d">-            //   System.Management.Automation.CmdletInvocationException : Operation is not supported on this platform. (0x80131539)
+</a><a href="#h2-3-58" id="h2-3-58" class="d">-            //   System.PlatformNotSupportedException : Operation is not supported on this platform. (0x80131539)
+</a><a href="#h2-3-59" id="h2-3-59" class="d">-            // trying to load the runspace. This is most probably because the same dll is already loaded.
+</a><a href="#h2-3-60" id="h2-3-60" class="d">-            // Check the type the long way.
+</a><a href="#h2-3-61" id="h2-3-61" class="d">-            dynamic exception = cmdletException.InnerException;
+</a><a href="#h2-3-62" id="h2-3-62" class="d">-            Assert.AreEqual(exception.GetType().ToString(), &quot;Newtonsoft.Json.JsonReaderException&quot;);
+</a><a href="#h2-3-63" id="h2-3-63" class="d">-        }
+</a><a href="#h2-3-64" id="h2-3-64" class="d">-
+</a><a href="#h2-3-65" id="h2-3-65" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-66" id="h2-3-66" class="d">-        /// Test Test-WinGetUserSettings. Settings are equal.
+</a><a href="#h2-3-67" id="h2-3-67" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-68" id="h2-3-68" class="d">-        [Test]
+</a><a href="#h2-3-69" id="h2-3-69" class="d">-        public void TestWinGetUserSettings_Equal()
+</a><a href="#h2-3-70" id="h2-3-70" class="d">-        {
+</a><a href="#h2-3-71" id="h2-3-71" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-72" id="h2-3-72" class="d">-            {
+</a><a href="#h2-3-73" id="h2-3-73" class="d">-                {
+</a><a href="#h2-3-74" id="h2-3-74" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-75" id="h2-3-75" class="d">-                    new Hashtable()
+</a><a href="#h2-3-76" id="h2-3-76" class="d">-                    {
+</a><a href="#h2-3-77" id="h2-3-77" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-78" id="h2-3-78" class="d">-                    }
+</a><a href="#h2-3-79" id="h2-3-79" class="d">-                },
+</a><a href="#h2-3-80" id="h2-3-80" class="d">-                {
+</a><a href="#h2-3-81" id="h2-3-81" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-82" id="h2-3-82" class="d">-                    new Hashtable()
+</a><a href="#h2-3-83" id="h2-3-83" class="d">-                    {
+</a><a href="#h2-3-84" id="h2-3-84" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-85" id="h2-3-85" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-86" id="h2-3-86" class="d">-                    }
+</a><a href="#h2-3-87" id="h2-3-87" class="d">-                },
+</a><a href="#h2-3-88" id="h2-3-88" class="d">-            };
+</a><a href="#h2-3-89" id="h2-3-89" class="d">-
+</a><a href="#h2-3-90" id="h2-3-90" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-91" id="h2-3-91" class="d">-
+</a><a href="#h2-3-92" id="h2-3-92" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-93" id="h2-3-93" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-94" id="h2-3-94" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-95" id="h2-3-95" class="d">-                .AddParameter(&quot;UserSettings&quot;, ogSettings)
+</a><a href="#h2-3-96" id="h2-3-96" class="d">-                .Invoke();
+</a><a href="#h2-3-97" id="h2-3-97" class="d">-
+</a><a href="#h2-3-98" id="h2-3-98" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-99" id="h2-3-99" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-100" id="h2-3-100" class="d">-            Assert.IsTrue((bool)result[0].BaseObject);
+</a><a href="#h2-3-101" id="h2-3-101" class="d">-        }
+</a><a href="#h2-3-102" id="h2-3-102" class="d">-
+</a><a href="#h2-3-103" id="h2-3-103" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-104" id="h2-3-104" class="d">-        /// Test Test-WinGetUserSettings. Settings are equal. Ignore schema.
+</a><a href="#h2-3-105" id="h2-3-105" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-106" id="h2-3-106" class="d">-        [Test]
+</a><a href="#h2-3-107" id="h2-3-107" class="d">-        public void TestWinGetUserSettings_Equal_Schema()
+</a><a href="#h2-3-108" id="h2-3-108" class="d">-        {
+</a><a href="#h2-3-109" id="h2-3-109" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-110" id="h2-3-110" class="d">-            {
+</a><a href="#h2-3-111" id="h2-3-111" class="d">-                {
+</a><a href="#h2-3-112" id="h2-3-112" class="d">-                    &quot;$schema&quot;,
+</a><a href="#h2-3-113" id="h2-3-113" class="d">-                    &quot;https://aka.ms/winget-settings.schema.json&quot;
+</a><a href="#h2-3-114" id="h2-3-114" class="d">-                },
+</a><a href="#h2-3-115" id="h2-3-115" class="d">-                {
+</a><a href="#h2-3-116" id="h2-3-116" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-117" id="h2-3-117" class="d">-                    new Hashtable()
+</a><a href="#h2-3-118" id="h2-3-118" class="d">-                    {
+</a><a href="#h2-3-119" id="h2-3-119" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-120" id="h2-3-120" class="d">-                    }
+</a><a href="#h2-3-121" id="h2-3-121" class="d">-                },
+</a><a href="#h2-3-122" id="h2-3-122" class="d">-                {
+</a><a href="#h2-3-123" id="h2-3-123" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-124" id="h2-3-124" class="d">-                    new Hashtable()
+</a><a href="#h2-3-125" id="h2-3-125" class="d">-                    {
+</a><a href="#h2-3-126" id="h2-3-126" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-127" id="h2-3-127" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-128" id="h2-3-128" class="d">-                    }
+</a><a href="#h2-3-129" id="h2-3-129" class="d">-                },
+</a><a href="#h2-3-130" id="h2-3-130" class="d">-            };
+</a><a href="#h2-3-131" id="h2-3-131" class="d">-
+</a><a href="#h2-3-132" id="h2-3-132" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-133" id="h2-3-133" class="d">-
+</a><a href="#h2-3-134" id="h2-3-134" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-135" id="h2-3-135" class="d">-            {
+</a><a href="#h2-3-136" id="h2-3-136" class="d">-                {
+</a><a href="#h2-3-137" id="h2-3-137" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-138" id="h2-3-138" class="d">-                    new Hashtable()
+</a><a href="#h2-3-139" id="h2-3-139" class="d">-                    {
+</a><a href="#h2-3-140" id="h2-3-140" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-141" id="h2-3-141" class="d">-                    }
+</a><a href="#h2-3-142" id="h2-3-142" class="d">-                },
+</a><a href="#h2-3-143" id="h2-3-143" class="d">-                {
+</a><a href="#h2-3-144" id="h2-3-144" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-145" id="h2-3-145" class="d">-                    new Hashtable()
+</a><a href="#h2-3-146" id="h2-3-146" class="d">-                    {
+</a><a href="#h2-3-147" id="h2-3-147" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-148" id="h2-3-148" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-149" id="h2-3-149" class="d">-                    }
+</a><a href="#h2-3-150" id="h2-3-150" class="d">-                },
+</a><a href="#h2-3-151" id="h2-3-151" class="d">-            };
+</a><a href="#h2-3-152" id="h2-3-152" class="d">-
+</a><a href="#h2-3-153" id="h2-3-153" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-154" id="h2-3-154" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-155" id="h2-3-155" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-156" id="h2-3-156" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-157" id="h2-3-157" class="d">-                .Invoke();
+</a><a href="#h2-3-158" id="h2-3-158" class="d">-
+</a><a href="#h2-3-159" id="h2-3-159" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-160" id="h2-3-160" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-161" id="h2-3-161" class="d">-            Assert.IsTrue((bool)result[0].BaseObject);
+</a><a href="#h2-3-162" id="h2-3-162" class="d">-        }
+</a><a href="#h2-3-163" id="h2-3-163" class="d">-
+</a><a href="#h2-3-164" id="h2-3-164" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-165" id="h2-3-165" class="d">-        /// Test Test-WinGetUserSettings. Settings are not equal.
+</a><a href="#h2-3-166" id="h2-3-166" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-167" id="h2-3-167" class="d">-        [Test]
+</a><a href="#h2-3-168" id="h2-3-168" class="d">-        public void TestWinGetUserSettings_NotEqual()
+</a><a href="#h2-3-169" id="h2-3-169" class="d">-        {
+</a><a href="#h2-3-170" id="h2-3-170" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-171" id="h2-3-171" class="d">-            {
+</a><a href="#h2-3-172" id="h2-3-172" class="d">-                {
+</a><a href="#h2-3-173" id="h2-3-173" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-174" id="h2-3-174" class="d">-                    new Hashtable()
+</a><a href="#h2-3-175" id="h2-3-175" class="d">-                    {
+</a><a href="#h2-3-176" id="h2-3-176" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-177" id="h2-3-177" class="d">-                    }
+</a><a href="#h2-3-178" id="h2-3-178" class="d">-                },
+</a><a href="#h2-3-179" id="h2-3-179" class="d">-                {
+</a><a href="#h2-3-180" id="h2-3-180" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-181" id="h2-3-181" class="d">-                    new Hashtable()
+</a><a href="#h2-3-182" id="h2-3-182" class="d">-                    {
+</a><a href="#h2-3-183" id="h2-3-183" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-184" id="h2-3-184" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-185" id="h2-3-185" class="d">-                    }
+</a><a href="#h2-3-186" id="h2-3-186" class="d">-                },
+</a><a href="#h2-3-187" id="h2-3-187" class="d">-            };
+</a><a href="#h2-3-188" id="h2-3-188" class="d">-
+</a><a href="#h2-3-189" id="h2-3-189" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-190" id="h2-3-190" class="d">-
+</a><a href="#h2-3-191" id="h2-3-191" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-192" id="h2-3-192" class="d">-            {
+</a><a href="#h2-3-193" id="h2-3-193" class="d">-                {
+</a><a href="#h2-3-194" id="h2-3-194" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-195" id="h2-3-195" class="d">-                    new Hashtable()
+</a><a href="#h2-3-196" id="h2-3-196" class="d">-                    {
+</a><a href="#h2-3-197" id="h2-3-197" class="d">-                        { &quot;progressBar&quot;, &quot;rainbow&quot; },
+</a><a href="#h2-3-198" id="h2-3-198" class="d">-                    }
+</a><a href="#h2-3-199" id="h2-3-199" class="d">-                },
+</a><a href="#h2-3-200" id="h2-3-200" class="d">-                {
+</a><a href="#h2-3-201" id="h2-3-201" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-202" id="h2-3-202" class="d">-                    new Hashtable()
+</a><a href="#h2-3-203" id="h2-3-203" class="d">-                    {
+</a><a href="#h2-3-204" id="h2-3-204" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-205" id="h2-3-205" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-206" id="h2-3-206" class="d">-                    }
+</a><a href="#h2-3-207" id="h2-3-207" class="d">-                },
+</a><a href="#h2-3-208" id="h2-3-208" class="d">-            };
+</a><a href="#h2-3-209" id="h2-3-209" class="d">-
+</a><a href="#h2-3-210" id="h2-3-210" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-211" id="h2-3-211" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-212" id="h2-3-212" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-213" id="h2-3-213" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-214" id="h2-3-214" class="d">-                .Invoke();
+</a><a href="#h2-3-215" id="h2-3-215" class="d">-
+</a><a href="#h2-3-216" id="h2-3-216" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-217" id="h2-3-217" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-218" id="h2-3-218" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-219" id="h2-3-219" class="d">-        }
+</a><a href="#h2-3-220" id="h2-3-220" class="d">-
+</a><a href="#h2-3-221" id="h2-3-221" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-222" id="h2-3-222" class="d">-        /// Test Test-WinGetUserSettings. Local settings has more properties.
+</a><a href="#h2-3-223" id="h2-3-223" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-224" id="h2-3-224" class="d">-        [Test]
+</a><a href="#h2-3-225" id="h2-3-225" class="d">-        public void TestWinGetUserSettings_MoreSettingsLocal()
+</a><a href="#h2-3-226" id="h2-3-226" class="d">-        {
+</a><a href="#h2-3-227" id="h2-3-227" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-228" id="h2-3-228" class="d">-            {
+</a><a href="#h2-3-229" id="h2-3-229" class="d">-                {
+</a><a href="#h2-3-230" id="h2-3-230" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-231" id="h2-3-231" class="d">-                    new Hashtable()
+</a><a href="#h2-3-232" id="h2-3-232" class="d">-                    {
+</a><a href="#h2-3-233" id="h2-3-233" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-234" id="h2-3-234" class="d">-                    }
+</a><a href="#h2-3-235" id="h2-3-235" class="d">-                },
+</a><a href="#h2-3-236" id="h2-3-236" class="d">-                {
+</a><a href="#h2-3-237" id="h2-3-237" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-238" id="h2-3-238" class="d">-                    new Hashtable()
+</a><a href="#h2-3-239" id="h2-3-239" class="d">-                    {
+</a><a href="#h2-3-240" id="h2-3-240" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-241" id="h2-3-241" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-242" id="h2-3-242" class="d">-                    }
+</a><a href="#h2-3-243" id="h2-3-243" class="d">-                },
+</a><a href="#h2-3-244" id="h2-3-244" class="d">-            };
+</a><a href="#h2-3-245" id="h2-3-245" class="d">-
+</a><a href="#h2-3-246" id="h2-3-246" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-247" id="h2-3-247" class="d">-
+</a><a href="#h2-3-248" id="h2-3-248" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-249" id="h2-3-249" class="d">-            {
+</a><a href="#h2-3-250" id="h2-3-250" class="d">-                {
+</a><a href="#h2-3-251" id="h2-3-251" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-252" id="h2-3-252" class="d">-                    new Hashtable()
+</a><a href="#h2-3-253" id="h2-3-253" class="d">-                    {
+</a><a href="#h2-3-254" id="h2-3-254" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-255" id="h2-3-255" class="d">-                    }
+</a><a href="#h2-3-256" id="h2-3-256" class="d">-                },
+</a><a href="#h2-3-257" id="h2-3-257" class="d">-                {
+</a><a href="#h2-3-258" id="h2-3-258" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-259" id="h2-3-259" class="d">-                    new Hashtable()
+</a><a href="#h2-3-260" id="h2-3-260" class="d">-                    {
+</a><a href="#h2-3-261" id="h2-3-261" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-262" id="h2-3-262" class="d">-                    }
+</a><a href="#h2-3-263" id="h2-3-263" class="d">-                },
+</a><a href="#h2-3-264" id="h2-3-264" class="d">-            };
+</a><a href="#h2-3-265" id="h2-3-265" class="d">-
+</a><a href="#h2-3-266" id="h2-3-266" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-267" id="h2-3-267" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-268" id="h2-3-268" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-269" id="h2-3-269" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-270" id="h2-3-270" class="d">-                .Invoke();
+</a><a href="#h2-3-271" id="h2-3-271" class="d">-
+</a><a href="#h2-3-272" id="h2-3-272" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-273" id="h2-3-273" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-274" id="h2-3-274" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-275" id="h2-3-275" class="d">-        }
+</a><a href="#h2-3-276" id="h2-3-276" class="d">-
+</a><a href="#h2-3-277" id="h2-3-277" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-278" id="h2-3-278" class="d">-        /// Test Test-WinGetUserSettings. Input has more properties.
+</a><a href="#h2-3-279" id="h2-3-279" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-280" id="h2-3-280" class="d">-        [Test]
+</a><a href="#h2-3-281" id="h2-3-281" class="d">-        public void TestWinGetUserSettings_MoreSettingsInput()
+</a><a href="#h2-3-282" id="h2-3-282" class="d">-        {
+</a><a href="#h2-3-283" id="h2-3-283" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-284" id="h2-3-284" class="d">-            {
+</a><a href="#h2-3-285" id="h2-3-285" class="d">-                {
+</a><a href="#h2-3-286" id="h2-3-286" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-287" id="h2-3-287" class="d">-                    new Hashtable()
+</a><a href="#h2-3-288" id="h2-3-288" class="d">-                    {
+</a><a href="#h2-3-289" id="h2-3-289" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-290" id="h2-3-290" class="d">-                    }
+</a><a href="#h2-3-291" id="h2-3-291" class="d">-                },
+</a><a href="#h2-3-292" id="h2-3-292" class="d">-                {
+</a><a href="#h2-3-293" id="h2-3-293" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-294" id="h2-3-294" class="d">-                    new Hashtable()
+</a><a href="#h2-3-295" id="h2-3-295" class="d">-                    {
+</a><a href="#h2-3-296" id="h2-3-296" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-297" id="h2-3-297" class="d">-                    }
+</a><a href="#h2-3-298" id="h2-3-298" class="d">-                },
+</a><a href="#h2-3-299" id="h2-3-299" class="d">-            };
+</a><a href="#h2-3-300" id="h2-3-300" class="d">-
+</a><a href="#h2-3-301" id="h2-3-301" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-302" id="h2-3-302" class="d">-
+</a><a href="#h2-3-303" id="h2-3-303" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-304" id="h2-3-304" class="d">-            {
+</a><a href="#h2-3-305" id="h2-3-305" class="d">-                {
+</a><a href="#h2-3-306" id="h2-3-306" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-307" id="h2-3-307" class="d">-                    new Hashtable()
+</a><a href="#h2-3-308" id="h2-3-308" class="d">-                    {
+</a><a href="#h2-3-309" id="h2-3-309" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-310" id="h2-3-310" class="d">-                    }
+</a><a href="#h2-3-311" id="h2-3-311" class="d">-                },
+</a><a href="#h2-3-312" id="h2-3-312" class="d">-                {
+</a><a href="#h2-3-313" id="h2-3-313" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-314" id="h2-3-314" class="d">-                    new Hashtable()
+</a><a href="#h2-3-315" id="h2-3-315" class="d">-                    {
+</a><a href="#h2-3-316" id="h2-3-316" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-317" id="h2-3-317" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-318" id="h2-3-318" class="d">-                    }
+</a><a href="#h2-3-319" id="h2-3-319" class="d">-                },
+</a><a href="#h2-3-320" id="h2-3-320" class="d">-            };
+</a><a href="#h2-3-321" id="h2-3-321" class="d">-
+</a><a href="#h2-3-322" id="h2-3-322" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-323" id="h2-3-323" class="d">-            var result = powerShellHost.PowerShell.AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-324" id="h2-3-324" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-325" id="h2-3-325" class="d">-                .Invoke();
+</a><a href="#h2-3-326" id="h2-3-326" class="d">-
+</a><a href="#h2-3-327" id="h2-3-327" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-328" id="h2-3-328" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-329" id="h2-3-329" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-330" id="h2-3-330" class="d">-        }
+</a><a href="#h2-3-331" id="h2-3-331" class="d">-
+</a><a href="#h2-3-332" id="h2-3-332" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-333" id="h2-3-333" class="d">-        /// Test Test-WinGetUserSettings. IgnoreNotSet.
+</a><a href="#h2-3-334" id="h2-3-334" class="d">-        /// They are equal.
+</a><a href="#h2-3-335" id="h2-3-335" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-336" id="h2-3-336" class="d">-        [Test]
+</a><a href="#h2-3-337" id="h2-3-337" class="d">-        public void TestWinGetUserSettings_Equal_IgnoreNotSet()
+</a><a href="#h2-3-338" id="h2-3-338" class="d">-        {
+</a><a href="#h2-3-339" id="h2-3-339" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-340" id="h2-3-340" class="d">-            {
+</a><a href="#h2-3-341" id="h2-3-341" class="d">-                {
+</a><a href="#h2-3-342" id="h2-3-342" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-343" id="h2-3-343" class="d">-                    new Hashtable()
+</a><a href="#h2-3-344" id="h2-3-344" class="d">-                    {
+</a><a href="#h2-3-345" id="h2-3-345" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-346" id="h2-3-346" class="d">-                    }
+</a><a href="#h2-3-347" id="h2-3-347" class="d">-                },
+</a><a href="#h2-3-348" id="h2-3-348" class="d">-                {
+</a><a href="#h2-3-349" id="h2-3-349" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-350" id="h2-3-350" class="d">-                    new Hashtable()
+</a><a href="#h2-3-351" id="h2-3-351" class="d">-                    {
+</a><a href="#h2-3-352" id="h2-3-352" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-353" id="h2-3-353" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-354" id="h2-3-354" class="d">-                    }
+</a><a href="#h2-3-355" id="h2-3-355" class="d">-                },
+</a><a href="#h2-3-356" id="h2-3-356" class="d">-            };
+</a><a href="#h2-3-357" id="h2-3-357" class="d">-
+</a><a href="#h2-3-358" id="h2-3-358" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-359" id="h2-3-359" class="d">-
+</a><a href="#h2-3-360" id="h2-3-360" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-361" id="h2-3-361" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-362" id="h2-3-362" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-363" id="h2-3-363" class="d">-                .AddParameter(&quot;UserSettings&quot;, ogSettings)
+</a><a href="#h2-3-364" id="h2-3-364" class="d">-                .AddParameter(&quot;IgnoreNotSet&quot;)
+</a><a href="#h2-3-365" id="h2-3-365" class="d">-                .Invoke();
+</a><a href="#h2-3-366" id="h2-3-366" class="d">-
+</a><a href="#h2-3-367" id="h2-3-367" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-368" id="h2-3-368" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-369" id="h2-3-369" class="d">-            Assert.IsTrue((bool)result[0].BaseObject);
+</a><a href="#h2-3-370" id="h2-3-370" class="d">-        }
+</a><a href="#h2-3-371" id="h2-3-371" class="d">-
+</a><a href="#h2-3-372" id="h2-3-372" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-373" id="h2-3-373" class="d">-        /// Test Test-WinGetUserSettings IgnoreNotSet.
+</a><a href="#h2-3-374" id="h2-3-374" class="d">-        /// Ignore comparing properties that are not set in the input.
+</a><a href="#h2-3-375" id="h2-3-375" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-376" id="h2-3-376" class="d">-        [Test]
+</a><a href="#h2-3-377" id="h2-3-377" class="d">-        public void TestWinGetUserSettings_MoreSettingsLocal_IgnoreNotSet()
+</a><a href="#h2-3-378" id="h2-3-378" class="d">-        {
+</a><a href="#h2-3-379" id="h2-3-379" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-380" id="h2-3-380" class="d">-            {
+</a><a href="#h2-3-381" id="h2-3-381" class="d">-                {
+</a><a href="#h2-3-382" id="h2-3-382" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-383" id="h2-3-383" class="d">-                    new Hashtable()
+</a><a href="#h2-3-384" id="h2-3-384" class="d">-                    {
+</a><a href="#h2-3-385" id="h2-3-385" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-386" id="h2-3-386" class="d">-                    }
+</a><a href="#h2-3-387" id="h2-3-387" class="d">-                },
+</a><a href="#h2-3-388" id="h2-3-388" class="d">-                {
+</a><a href="#h2-3-389" id="h2-3-389" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-390" id="h2-3-390" class="d">-                    new Hashtable()
+</a><a href="#h2-3-391" id="h2-3-391" class="d">-                    {
+</a><a href="#h2-3-392" id="h2-3-392" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-393" id="h2-3-393" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-394" id="h2-3-394" class="d">-                    }
+</a><a href="#h2-3-395" id="h2-3-395" class="d">-                },
+</a><a href="#h2-3-396" id="h2-3-396" class="d">-            };
+</a><a href="#h2-3-397" id="h2-3-397" class="d">-
+</a><a href="#h2-3-398" id="h2-3-398" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-399" id="h2-3-399" class="d">-
+</a><a href="#h2-3-400" id="h2-3-400" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-401" id="h2-3-401" class="d">-            {
+</a><a href="#h2-3-402" id="h2-3-402" class="d">-                {
+</a><a href="#h2-3-403" id="h2-3-403" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-404" id="h2-3-404" class="d">-                    new Hashtable()
+</a><a href="#h2-3-405" id="h2-3-405" class="d">-                    {
+</a><a href="#h2-3-406" id="h2-3-406" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-407" id="h2-3-407" class="d">-                    }
+</a><a href="#h2-3-408" id="h2-3-408" class="d">-                },
+</a><a href="#h2-3-409" id="h2-3-409" class="d">-                {
+</a><a href="#h2-3-410" id="h2-3-410" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-411" id="h2-3-411" class="d">-                    new Hashtable()
+</a><a href="#h2-3-412" id="h2-3-412" class="d">-                    {
+</a><a href="#h2-3-413" id="h2-3-413" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-414" id="h2-3-414" class="d">-                    }
+</a><a href="#h2-3-415" id="h2-3-415" class="d">-                },
+</a><a href="#h2-3-416" id="h2-3-416" class="d">-            };
+</a><a href="#h2-3-417" id="h2-3-417" class="d">-
+</a><a href="#h2-3-418" id="h2-3-418" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-419" id="h2-3-419" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-420" id="h2-3-420" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-421" id="h2-3-421" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-422" id="h2-3-422" class="d">-                .AddParameter(&quot;IgnoreNotSet&quot;)
+</a><a href="#h2-3-423" id="h2-3-423" class="d">-                .Invoke();
+</a><a href="#h2-3-424" id="h2-3-424" class="d">-
+</a><a href="#h2-3-425" id="h2-3-425" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-426" id="h2-3-426" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-427" id="h2-3-427" class="d">-            Assert.IsTrue((bool)result[0].BaseObject);
+</a><a href="#h2-3-428" id="h2-3-428" class="d">-        }
+</a><a href="#h2-3-429" id="h2-3-429" class="d">-
+</a><a href="#h2-3-430" id="h2-3-430" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-431" id="h2-3-431" class="d">-        /// Test Test-WinGetUserSettings IgnoreNotSet.
+</a><a href="#h2-3-432" id="h2-3-432" class="d">-        /// Local settings doesnt have some properties.
+</a><a href="#h2-3-433" id="h2-3-433" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-434" id="h2-3-434" class="d">-        [Test]
+</a><a href="#h2-3-435" id="h2-3-435" class="d">-        public void TestWinGetUserSettings_MoreSettingsInput_IgnoreNotSet()
+</a><a href="#h2-3-436" id="h2-3-436" class="d">-        {
+</a><a href="#h2-3-437" id="h2-3-437" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-438" id="h2-3-438" class="d">-            {
+</a><a href="#h2-3-439" id="h2-3-439" class="d">-                {
+</a><a href="#h2-3-440" id="h2-3-440" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-441" id="h2-3-441" class="d">-                    new Hashtable()
+</a><a href="#h2-3-442" id="h2-3-442" class="d">-                    {
+</a><a href="#h2-3-443" id="h2-3-443" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-444" id="h2-3-444" class="d">-                    }
+</a><a href="#h2-3-445" id="h2-3-445" class="d">-                },
+</a><a href="#h2-3-446" id="h2-3-446" class="d">-                {
+</a><a href="#h2-3-447" id="h2-3-447" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-448" id="h2-3-448" class="d">-                    new Hashtable()
+</a><a href="#h2-3-449" id="h2-3-449" class="d">-                    {
+</a><a href="#h2-3-450" id="h2-3-450" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-451" id="h2-3-451" class="d">-                    }
+</a><a href="#h2-3-452" id="h2-3-452" class="d">-                },
+</a><a href="#h2-3-453" id="h2-3-453" class="d">-            };
+</a><a href="#h2-3-454" id="h2-3-454" class="d">-
+</a><a href="#h2-3-455" id="h2-3-455" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-456" id="h2-3-456" class="d">-
+</a><a href="#h2-3-457" id="h2-3-457" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-458" id="h2-3-458" class="d">-            {
+</a><a href="#h2-3-459" id="h2-3-459" class="d">-                {
+</a><a href="#h2-3-460" id="h2-3-460" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-461" id="h2-3-461" class="d">-                    new Hashtable()
+</a><a href="#h2-3-462" id="h2-3-462" class="d">-                    {
+</a><a href="#h2-3-463" id="h2-3-463" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-464" id="h2-3-464" class="d">-                    }
+</a><a href="#h2-3-465" id="h2-3-465" class="d">-                },
+</a><a href="#h2-3-466" id="h2-3-466" class="d">-                {
+</a><a href="#h2-3-467" id="h2-3-467" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-468" id="h2-3-468" class="d">-                    new Hashtable()
+</a><a href="#h2-3-469" id="h2-3-469" class="d">-                    {
+</a><a href="#h2-3-470" id="h2-3-470" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-471" id="h2-3-471" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-472" id="h2-3-472" class="d">-                    }
+</a><a href="#h2-3-473" id="h2-3-473" class="d">-                },
+</a><a href="#h2-3-474" id="h2-3-474" class="d">-            };
+</a><a href="#h2-3-475" id="h2-3-475" class="d">-
+</a><a href="#h2-3-476" id="h2-3-476" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-477" id="h2-3-477" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-478" id="h2-3-478" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-479" id="h2-3-479" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-480" id="h2-3-480" class="d">-                .AddParameter(&quot;IgnoreNotSet&quot;)
+</a><a href="#h2-3-481" id="h2-3-481" class="d">-                .Invoke();
+</a><a href="#h2-3-482" id="h2-3-482" class="d">-
+</a><a href="#h2-3-483" id="h2-3-483" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-484" id="h2-3-484" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-485" id="h2-3-485" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-486" id="h2-3-486" class="d">-        }
+</a><a href="#h2-3-487" id="h2-3-487" class="d">-
+</a><a href="#h2-3-488" id="h2-3-488" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-489" id="h2-3-489" class="d">-        /// Test Test-WinGetUserSettings IgnoreNotSet.
+</a><a href="#h2-3-490" id="h2-3-490" class="d">-        /// DeepEquals fails, but we should still fail at experimentalArg.
+</a><a href="#h2-3-491" id="h2-3-491" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-492" id="h2-3-492" class="d">-        [Test]
+</a><a href="#h2-3-493" id="h2-3-493" class="d">-        public void TestWinGetUserSettings_DifferentValue_IgnoreNotSet()
+</a><a href="#h2-3-494" id="h2-3-494" class="d">-        {
+</a><a href="#h2-3-495" id="h2-3-495" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-496" id="h2-3-496" class="d">-            {
+</a><a href="#h2-3-497" id="h2-3-497" class="d">-                {
+</a><a href="#h2-3-498" id="h2-3-498" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-499" id="h2-3-499" class="d">-                    new Hashtable()
+</a><a href="#h2-3-500" id="h2-3-500" class="d">-                    {
+</a><a href="#h2-3-501" id="h2-3-501" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-502" id="h2-3-502" class="d">-                    }
+</a><a href="#h2-3-503" id="h2-3-503" class="d">-                },
+</a><a href="#h2-3-504" id="h2-3-504" class="d">-                {
+</a><a href="#h2-3-505" id="h2-3-505" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-506" id="h2-3-506" class="d">-                    new Hashtable()
+</a><a href="#h2-3-507" id="h2-3-507" class="d">-                    {
+</a><a href="#h2-3-508" id="h2-3-508" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-509" id="h2-3-509" class="d">-                    }
+</a><a href="#h2-3-510" id="h2-3-510" class="d">-                },
+</a><a href="#h2-3-511" id="h2-3-511" class="d">-            };
+</a><a href="#h2-3-512" id="h2-3-512" class="d">-
+</a><a href="#h2-3-513" id="h2-3-513" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-514" id="h2-3-514" class="d">-
+</a><a href="#h2-3-515" id="h2-3-515" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-516" id="h2-3-516" class="d">-            {
+</a><a href="#h2-3-517" id="h2-3-517" class="d">-                {
+</a><a href="#h2-3-518" id="h2-3-518" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-519" id="h2-3-519" class="d">-                    new Hashtable()
+</a><a href="#h2-3-520" id="h2-3-520" class="d">-                    {
+</a><a href="#h2-3-521" id="h2-3-521" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-522" id="h2-3-522" class="d">-                    }
+</a><a href="#h2-3-523" id="h2-3-523" class="d">-                },
+</a><a href="#h2-3-524" id="h2-3-524" class="d">-                {
+</a><a href="#h2-3-525" id="h2-3-525" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-526" id="h2-3-526" class="d">-                    new Hashtable()
+</a><a href="#h2-3-527" id="h2-3-527" class="d">-                    {
+</a><a href="#h2-3-528" id="h2-3-528" class="d">-                        { &quot;experimentalArg&quot;, true },
+</a><a href="#h2-3-529" id="h2-3-529" class="d">-                    }
+</a><a href="#h2-3-530" id="h2-3-530" class="d">-                },
+</a><a href="#h2-3-531" id="h2-3-531" class="d">-            };
+</a><a href="#h2-3-532" id="h2-3-532" class="d">-
+</a><a href="#h2-3-533" id="h2-3-533" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-534" id="h2-3-534" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-535" id="h2-3-535" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-536" id="h2-3-536" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-537" id="h2-3-537" class="d">-                .AddParameter(&quot;IgnoreNotSet&quot;)
+</a><a href="#h2-3-538" id="h2-3-538" class="d">-                .Invoke();
+</a><a href="#h2-3-539" id="h2-3-539" class="d">-
+</a><a href="#h2-3-540" id="h2-3-540" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-541" id="h2-3-541" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-542" id="h2-3-542" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-543" id="h2-3-543" class="d">-        }
+</a><a href="#h2-3-544" id="h2-3-544" class="d">-
+</a><a href="#h2-3-545" id="h2-3-545" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-546" id="h2-3-546" class="d">-        /// Test Test-WinGetUserSettings IgnoreNotSet.
+</a><a href="#h2-3-547" id="h2-3-547" class="d">-        /// DeepEquals fails, but we should still fail at comparing the array.
+</a><a href="#h2-3-548" id="h2-3-548" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-549" id="h2-3-549" class="d">-        [Test]
+</a><a href="#h2-3-550" id="h2-3-550" class="d">-        public void TestWinGetUserSettings_ArrayDifferent_IgnoreNotSet()
+</a><a href="#h2-3-551" id="h2-3-551" class="d">-        {
+</a><a href="#h2-3-552" id="h2-3-552" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-553" id="h2-3-553" class="d">-            {
+</a><a href="#h2-3-554" id="h2-3-554" class="d">-                {
+</a><a href="#h2-3-555" id="h2-3-555" class="d">-                    &quot;installBehavior&quot;,
+</a><a href="#h2-3-556" id="h2-3-556" class="d">-                    new Hashtable()
+</a><a href="#h2-3-557" id="h2-3-557" class="d">-                    {
+</a><a href="#h2-3-558" id="h2-3-558" class="d">-                        {
+</a><a href="#h2-3-559" id="h2-3-559" class="d">-                            &quot;preferences&quot;,
+</a><a href="#h2-3-560" id="h2-3-560" class="d">-                            new Hashtable()
+</a><a href="#h2-3-561" id="h2-3-561" class="d">-                            {
+</a><a href="#h2-3-562" id="h2-3-562" class="d">-                                { &quot;architectures&quot;, new string[] { &quot;x64&quot;, &quot;x86&quot; } },
+</a><a href="#h2-3-563" id="h2-3-563" class="d">-                            }
+</a><a href="#h2-3-564" id="h2-3-564" class="d">-                        },
+</a><a href="#h2-3-565" id="h2-3-565" class="d">-                    }
+</a><a href="#h2-3-566" id="h2-3-566" class="d">-                },
+</a><a href="#h2-3-567" id="h2-3-567" class="d">-            };
+</a><a href="#h2-3-568" id="h2-3-568" class="d">-
+</a><a href="#h2-3-569" id="h2-3-569" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-570" id="h2-3-570" class="d">-
+</a><a href="#h2-3-571" id="h2-3-571" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-572" id="h2-3-572" class="d">-            {
+</a><a href="#h2-3-573" id="h2-3-573" class="d">-                {
+</a><a href="#h2-3-574" id="h2-3-574" class="d">-                    &quot;installBehavior&quot;,
+</a><a href="#h2-3-575" id="h2-3-575" class="d">-                    new Hashtable()
+</a><a href="#h2-3-576" id="h2-3-576" class="d">-                    {
+</a><a href="#h2-3-577" id="h2-3-577" class="d">-                        {
+</a><a href="#h2-3-578" id="h2-3-578" class="d">-                            &quot;preferences&quot;,
+</a><a href="#h2-3-579" id="h2-3-579" class="d">-                            new Hashtable()
+</a><a href="#h2-3-580" id="h2-3-580" class="d">-                            {
+</a><a href="#h2-3-581" id="h2-3-581" class="d">-                                { &quot;architectures&quot;, new string[] { &quot;x64&quot;, &quot;arm64&quot; } },
+</a><a href="#h2-3-582" id="h2-3-582" class="d">-                            }
+</a><a href="#h2-3-583" id="h2-3-583" class="d">-                        },
+</a><a href="#h2-3-584" id="h2-3-584" class="d">-                    }
+</a><a href="#h2-3-585" id="h2-3-585" class="d">-                },
+</a><a href="#h2-3-586" id="h2-3-586" class="d">-            };
+</a><a href="#h2-3-587" id="h2-3-587" class="d">-
+</a><a href="#h2-3-588" id="h2-3-588" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-589" id="h2-3-589" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-590" id="h2-3-590" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-591" id="h2-3-591" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-592" id="h2-3-592" class="d">-                .AddParameter(&quot;IgnoreNotSet&quot;)
+</a><a href="#h2-3-593" id="h2-3-593" class="d">-                .Invoke();
+</a><a href="#h2-3-594" id="h2-3-594" class="d">-
+</a><a href="#h2-3-595" id="h2-3-595" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-596" id="h2-3-596" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-597" id="h2-3-597" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-598" id="h2-3-598" class="d">-        }
+</a><a href="#h2-3-599" id="h2-3-599" class="d">-
+</a><a href="#h2-3-600" id="h2-3-600" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-601" id="h2-3-601" class="d">-        /// Test Test-WinGetUserSettings IgnoreNotSet.
+</a><a href="#h2-3-602" id="h2-3-602" class="d">-        /// DeepEquals fails, but we should still fail at experimentalArg because is an int.
+</a><a href="#h2-3-603" id="h2-3-603" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-604" id="h2-3-604" class="d">-        [Test]
+</a><a href="#h2-3-605" id="h2-3-605" class="d">-        public void TestWinGetUserSettings_DifferentValueType_IgnoreNotSet()
+</a><a href="#h2-3-606" id="h2-3-606" class="d">-        {
+</a><a href="#h2-3-607" id="h2-3-607" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-608" id="h2-3-608" class="d">-            {
+</a><a href="#h2-3-609" id="h2-3-609" class="d">-                {
+</a><a href="#h2-3-610" id="h2-3-610" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-611" id="h2-3-611" class="d">-                    new Hashtable()
+</a><a href="#h2-3-612" id="h2-3-612" class="d">-                    {
+</a><a href="#h2-3-613" id="h2-3-613" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-614" id="h2-3-614" class="d">-                    }
+</a><a href="#h2-3-615" id="h2-3-615" class="d">-                },
+</a><a href="#h2-3-616" id="h2-3-616" class="d">-                {
+</a><a href="#h2-3-617" id="h2-3-617" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-618" id="h2-3-618" class="d">-                    new Hashtable()
+</a><a href="#h2-3-619" id="h2-3-619" class="d">-                    {
+</a><a href="#h2-3-620" id="h2-3-620" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-621" id="h2-3-621" class="d">-                    }
+</a><a href="#h2-3-622" id="h2-3-622" class="d">-                },
+</a><a href="#h2-3-623" id="h2-3-623" class="d">-            };
+</a><a href="#h2-3-624" id="h2-3-624" class="d">-
+</a><a href="#h2-3-625" id="h2-3-625" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-626" id="h2-3-626" class="d">-
+</a><a href="#h2-3-627" id="h2-3-627" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-628" id="h2-3-628" class="d">-            {
+</a><a href="#h2-3-629" id="h2-3-629" class="d">-                {
+</a><a href="#h2-3-630" id="h2-3-630" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-631" id="h2-3-631" class="d">-                    new Hashtable()
+</a><a href="#h2-3-632" id="h2-3-632" class="d">-                    {
+</a><a href="#h2-3-633" id="h2-3-633" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-634" id="h2-3-634" class="d">-                    }
+</a><a href="#h2-3-635" id="h2-3-635" class="d">-                },
+</a><a href="#h2-3-636" id="h2-3-636" class="d">-                {
+</a><a href="#h2-3-637" id="h2-3-637" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-638" id="h2-3-638" class="d">-                    new Hashtable()
+</a><a href="#h2-3-639" id="h2-3-639" class="d">-                    {
+</a><a href="#h2-3-640" id="h2-3-640" class="d">-                        { &quot;experimentalArg&quot;, 4 },
+</a><a href="#h2-3-641" id="h2-3-641" class="d">-                    }
+</a><a href="#h2-3-642" id="h2-3-642" class="d">-                },
+</a><a href="#h2-3-643" id="h2-3-643" class="d">-            };
+</a><a href="#h2-3-644" id="h2-3-644" class="d">-
+</a><a href="#h2-3-645" id="h2-3-645" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-646" id="h2-3-646" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-647" id="h2-3-647" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-648" id="h2-3-648" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-649" id="h2-3-649" class="d">-                .AddParameter(&quot;IgnoreNotSet&quot;)
+</a><a href="#h2-3-650" id="h2-3-650" class="d">-                .Invoke();
+</a><a href="#h2-3-651" id="h2-3-651" class="d">-
+</a><a href="#h2-3-652" id="h2-3-652" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-653" id="h2-3-653" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-654" id="h2-3-654" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-655" id="h2-3-655" class="d">-        }
+</a><a href="#h2-3-656" id="h2-3-656" class="d">-
+</a><a href="#h2-3-657" id="h2-3-657" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-658" id="h2-3-658" class="d">-        /// Test Test-WinGetUserSettings.
+</a><a href="#h2-3-659" id="h2-3-659" class="d">-        /// Settings file is not a json.
+</a><a href="#h2-3-660" id="h2-3-660" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-661" id="h2-3-661" class="d">-        [Test]
+</a><a href="#h2-3-662" id="h2-3-662" class="d">-        public void TestWinGetUserSettings_BadJsonFile()
+</a><a href="#h2-3-663" id="h2-3-663" class="d">-        {
+</a><a href="#h2-3-664" id="h2-3-664" class="d">-            WinGetSettingsHelper.SetWingetSettings(&quot;Hi, im not a json. Thank you, Test.&quot;);
+</a><a href="#h2-3-665" id="h2-3-665" class="d">-
+</a><a href="#h2-3-666" id="h2-3-666" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-667" id="h2-3-667" class="d">-            {
+</a><a href="#h2-3-668" id="h2-3-668" class="d">-                {
+</a><a href="#h2-3-669" id="h2-3-669" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-670" id="h2-3-670" class="d">-                    new Hashtable()
+</a><a href="#h2-3-671" id="h2-3-671" class="d">-                    {
+</a><a href="#h2-3-672" id="h2-3-672" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-673" id="h2-3-673" class="d">-                    }
+</a><a href="#h2-3-674" id="h2-3-674" class="d">-                },
+</a><a href="#h2-3-675" id="h2-3-675" class="d">-            };
+</a><a href="#h2-3-676" id="h2-3-676" class="d">-
+</a><a href="#h2-3-677" id="h2-3-677" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-678" id="h2-3-678" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-679" id="h2-3-679" class="d">-                .AddCommand(&quot;Test-WinGetUserSettings&quot;)
+</a><a href="#h2-3-680" id="h2-3-680" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-681" id="h2-3-681" class="d">-                .Invoke();
+</a><a href="#h2-3-682" id="h2-3-682" class="d">-
+</a><a href="#h2-3-683" id="h2-3-683" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-684" id="h2-3-684" class="d">-            Assert.IsInstanceOf&lt;bool&gt;(result[0].BaseObject);
+</a><a href="#h2-3-685" id="h2-3-685" class="d">-            Assert.IsFalse((bool)result[0].BaseObject);
+</a><a href="#h2-3-686" id="h2-3-686" class="d">-        }
+</a><a href="#h2-3-687" id="h2-3-687" class="d">-
+</a><a href="#h2-3-688" id="h2-3-688" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-689" id="h2-3-689" class="d">-        /// Test Set-WinGetUserSettings.
+</a><a href="#h2-3-690" id="h2-3-690" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-691" id="h2-3-691" class="d">-        [Test]
+</a><a href="#h2-3-692" id="h2-3-692" class="d">-        public void SetWinGetUserSettings_Overwrite()
+</a><a href="#h2-3-693" id="h2-3-693" class="d">-        {
+</a><a href="#h2-3-694" id="h2-3-694" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-695" id="h2-3-695" class="d">-            {
+</a><a href="#h2-3-696" id="h2-3-696" class="d">-                {
+</a><a href="#h2-3-697" id="h2-3-697" class="d">-                    &quot;$schema&quot;,
+</a><a href="#h2-3-698" id="h2-3-698" class="d">-                    &quot;https://aka.ms/winget-settings.schema.json&quot;
+</a><a href="#h2-3-699" id="h2-3-699" class="d">-                },
+</a><a href="#h2-3-700" id="h2-3-700" class="d">-                {
+</a><a href="#h2-3-701" id="h2-3-701" class="d">-                    &quot;source&quot;,
+</a><a href="#h2-3-702" id="h2-3-702" class="d">-                    new Hashtable()
+</a><a href="#h2-3-703" id="h2-3-703" class="d">-                    {
+</a><a href="#h2-3-704" id="h2-3-704" class="d">-                        { &quot;autoUpdateIntervalInMinutes&quot;, 3 },
+</a><a href="#h2-3-705" id="h2-3-705" class="d">-                    }
+</a><a href="#h2-3-706" id="h2-3-706" class="d">-                },
+</a><a href="#h2-3-707" id="h2-3-707" class="d">-            };
+</a><a href="#h2-3-708" id="h2-3-708" class="d">-
+</a><a href="#h2-3-709" id="h2-3-709" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-710" id="h2-3-710" class="d">-
+</a><a href="#h2-3-711" id="h2-3-711" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-712" id="h2-3-712" class="d">-            {
+</a><a href="#h2-3-713" id="h2-3-713" class="d">-                {
+</a><a href="#h2-3-714" id="h2-3-714" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-715" id="h2-3-715" class="d">-                    new Hashtable()
+</a><a href="#h2-3-716" id="h2-3-716" class="d">-                    {
+</a><a href="#h2-3-717" id="h2-3-717" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-718" id="h2-3-718" class="d">-                    }
+</a><a href="#h2-3-719" id="h2-3-719" class="d">-                },
+</a><a href="#h2-3-720" id="h2-3-720" class="d">-                {
+</a><a href="#h2-3-721" id="h2-3-721" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-722" id="h2-3-722" class="d">-                    new Hashtable()
+</a><a href="#h2-3-723" id="h2-3-723" class="d">-                    {
+</a><a href="#h2-3-724" id="h2-3-724" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-725" id="h2-3-725" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-726" id="h2-3-726" class="d">-                    }
+</a><a href="#h2-3-727" id="h2-3-727" class="d">-                },
+</a><a href="#h2-3-728" id="h2-3-728" class="d">-            };
+</a><a href="#h2-3-729" id="h2-3-729" class="d">-
+</a><a href="#h2-3-730" id="h2-3-730" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-731" id="h2-3-731" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-732" id="h2-3-732" class="d">-                .AddCommand(&quot;Set-WinGetUserSettings&quot;)
+</a><a href="#h2-3-733" id="h2-3-733" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-734" id="h2-3-734" class="d">-                .Invoke();
+</a><a href="#h2-3-735" id="h2-3-735" class="d">-
+</a><a href="#h2-3-736" id="h2-3-736" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-737" id="h2-3-737" class="d">-            Assert.IsInstanceOf&lt;Hashtable&gt;(result[0].BaseObject);
+</a><a href="#h2-3-738" id="h2-3-738" class="d">-            var settingsResult = result[0].BaseObject as Hashtable;
+</a><a href="#h2-3-739" id="h2-3-739" class="d">-
+</a><a href="#h2-3-740" id="h2-3-740" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;$schema&quot;));
+</a><a href="#h2-3-741" id="h2-3-741" class="d">-            Assert.False(settingsResult.ContainsKey(&quot;source&quot;));
+</a><a href="#h2-3-742" id="h2-3-742" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;experimentalFeatures&quot;));
+</a><a href="#h2-3-743" id="h2-3-743" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;visual&quot;));
+</a><a href="#h2-3-744" id="h2-3-744" class="d">-        }
+</a><a href="#h2-3-745" id="h2-3-745" class="d">-
+</a><a href="#h2-3-746" id="h2-3-746" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-747" id="h2-3-747" class="d">-        /// Test Set-WinGetUserSettings. Merge local settings with input.
+</a><a href="#h2-3-748" id="h2-3-748" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-749" id="h2-3-749" class="d">-        [Test]
+</a><a href="#h2-3-750" id="h2-3-750" class="d">-        public void SetWinGetUserSettings_Merge()
+</a><a href="#h2-3-751" id="h2-3-751" class="d">-        {
+</a><a href="#h2-3-752" id="h2-3-752" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-753" id="h2-3-753" class="d">-            {
+</a><a href="#h2-3-754" id="h2-3-754" class="d">-                {
+</a><a href="#h2-3-755" id="h2-3-755" class="d">-                    &quot;source&quot;,
+</a><a href="#h2-3-756" id="h2-3-756" class="d">-                    new Hashtable()
+</a><a href="#h2-3-757" id="h2-3-757" class="d">-                    {
+</a><a href="#h2-3-758" id="h2-3-758" class="d">-                        { &quot;autoUpdateIntervalInMinutes&quot;, 3 },
+</a><a href="#h2-3-759" id="h2-3-759" class="d">-                    }
+</a><a href="#h2-3-760" id="h2-3-760" class="d">-                },
+</a><a href="#h2-3-761" id="h2-3-761" class="d">-            };
+</a><a href="#h2-3-762" id="h2-3-762" class="d">-
+</a><a href="#h2-3-763" id="h2-3-763" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-764" id="h2-3-764" class="d">-
+</a><a href="#h2-3-765" id="h2-3-765" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-766" id="h2-3-766" class="d">-            {
+</a><a href="#h2-3-767" id="h2-3-767" class="d">-                {
+</a><a href="#h2-3-768" id="h2-3-768" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-769" id="h2-3-769" class="d">-                    new Hashtable()
+</a><a href="#h2-3-770" id="h2-3-770" class="d">-                    {
+</a><a href="#h2-3-771" id="h2-3-771" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-772" id="h2-3-772" class="d">-                    }
+</a><a href="#h2-3-773" id="h2-3-773" class="d">-                },
+</a><a href="#h2-3-774" id="h2-3-774" class="d">-                {
+</a><a href="#h2-3-775" id="h2-3-775" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-776" id="h2-3-776" class="d">-                    new Hashtable()
+</a><a href="#h2-3-777" id="h2-3-777" class="d">-                    {
+</a><a href="#h2-3-778" id="h2-3-778" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-779" id="h2-3-779" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-780" id="h2-3-780" class="d">-                    }
+</a><a href="#h2-3-781" id="h2-3-781" class="d">-                },
+</a><a href="#h2-3-782" id="h2-3-782" class="d">-            };
+</a><a href="#h2-3-783" id="h2-3-783" class="d">-
+</a><a href="#h2-3-784" id="h2-3-784" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-785" id="h2-3-785" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-786" id="h2-3-786" class="d">-                .AddCommand(&quot;Set-WinGetUserSettings&quot;)
+</a><a href="#h2-3-787" id="h2-3-787" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-788" id="h2-3-788" class="d">-                .AddParameter(&quot;Merge&quot;)
+</a><a href="#h2-3-789" id="h2-3-789" class="d">-                .Invoke();
+</a><a href="#h2-3-790" id="h2-3-790" class="d">-
+</a><a href="#h2-3-791" id="h2-3-791" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-792" id="h2-3-792" class="d">-            Assert.IsInstanceOf&lt;Hashtable&gt;(result[0].BaseObject);
+</a><a href="#h2-3-793" id="h2-3-793" class="d">-            var settingsResult = result[0].BaseObject as Hashtable;
+</a><a href="#h2-3-794" id="h2-3-794" class="d">-
+</a><a href="#h2-3-795" id="h2-3-795" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;$schema&quot;));
+</a><a href="#h2-3-796" id="h2-3-796" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;source&quot;));
+</a><a href="#h2-3-797" id="h2-3-797" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;experimentalFeatures&quot;));
+</a><a href="#h2-3-798" id="h2-3-798" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;visual&quot;));
+</a><a href="#h2-3-799" id="h2-3-799" class="d">-        }
+</a><a href="#h2-3-800" id="h2-3-800" class="d">-
+</a><a href="#h2-3-801" id="h2-3-801" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-802" id="h2-3-802" class="d">-        /// Test Set-WinGetUserSettings when the local settings file already have the schema property. It shouldn&#39;t
+</a><a href="#h2-3-803" id="h2-3-803" class="d">-        /// be added twice.
+</a><a href="#h2-3-804" id="h2-3-804" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-805" id="h2-3-805" class="d">-        [Test]
+</a><a href="#h2-3-806" id="h2-3-806" class="d">-        public void SetWinGetUserSettings_Schema()
+</a><a href="#h2-3-807" id="h2-3-807" class="d">-        {
+</a><a href="#h2-3-808" id="h2-3-808" class="d">-            var ogSettings = new Hashtable()
+</a><a href="#h2-3-809" id="h2-3-809" class="d">-            {
+</a><a href="#h2-3-810" id="h2-3-810" class="d">-                {
+</a><a href="#h2-3-811" id="h2-3-811" class="d">-                    &quot;$schema&quot;,
+</a><a href="#h2-3-812" id="h2-3-812" class="d">-                    &quot;https://aka.ms/winget-settings.schema.json&quot;
+</a><a href="#h2-3-813" id="h2-3-813" class="d">-                },
+</a><a href="#h2-3-814" id="h2-3-814" class="d">-                {
+</a><a href="#h2-3-815" id="h2-3-815" class="d">-                    &quot;source&quot;,
+</a><a href="#h2-3-816" id="h2-3-816" class="d">-                    new Hashtable()
+</a><a href="#h2-3-817" id="h2-3-817" class="d">-                    {
+</a><a href="#h2-3-818" id="h2-3-818" class="d">-                        { &quot;autoUpdateIntervalInMinutes&quot;, 3 },
+</a><a href="#h2-3-819" id="h2-3-819" class="d">-                    }
+</a><a href="#h2-3-820" id="h2-3-820" class="d">-                },
+</a><a href="#h2-3-821" id="h2-3-821" class="d">-            };
+</a><a href="#h2-3-822" id="h2-3-822" class="d">-
+</a><a href="#h2-3-823" id="h2-3-823" class="d">-            WinGetSettingsHelper.SetWingetSettings(ogSettings);
+</a><a href="#h2-3-824" id="h2-3-824" class="d">-
+</a><a href="#h2-3-825" id="h2-3-825" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-826" id="h2-3-826" class="d">-            {
+</a><a href="#h2-3-827" id="h2-3-827" class="d">-                {
+</a><a href="#h2-3-828" id="h2-3-828" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-829" id="h2-3-829" class="d">-                    new Hashtable()
+</a><a href="#h2-3-830" id="h2-3-830" class="d">-                    {
+</a><a href="#h2-3-831" id="h2-3-831" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-832" id="h2-3-832" class="d">-                    }
+</a><a href="#h2-3-833" id="h2-3-833" class="d">-                },
+</a><a href="#h2-3-834" id="h2-3-834" class="d">-                {
+</a><a href="#h2-3-835" id="h2-3-835" class="d">-                    &quot;experimentalFeatures&quot;,
+</a><a href="#h2-3-836" id="h2-3-836" class="d">-                    new Hashtable()
+</a><a href="#h2-3-837" id="h2-3-837" class="d">-                    {
+</a><a href="#h2-3-838" id="h2-3-838" class="d">-                        { &quot;experimentalArg&quot;, false },
+</a><a href="#h2-3-839" id="h2-3-839" class="d">-                        { &quot;experimentalCmd&quot;, true },
+</a><a href="#h2-3-840" id="h2-3-840" class="d">-                    }
+</a><a href="#h2-3-841" id="h2-3-841" class="d">-                },
+</a><a href="#h2-3-842" id="h2-3-842" class="d">-            };
+</a><a href="#h2-3-843" id="h2-3-843" class="d">-
+</a><a href="#h2-3-844" id="h2-3-844" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-845" id="h2-3-845" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-846" id="h2-3-846" class="d">-                .AddCommand(&quot;Set-WinGetUserSettings&quot;)
+</a><a href="#h2-3-847" id="h2-3-847" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-848" id="h2-3-848" class="d">-                .Invoke();
+</a><a href="#h2-3-849" id="h2-3-849" class="d">-
+</a><a href="#h2-3-850" id="h2-3-850" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-851" id="h2-3-851" class="d">-            Assert.IsInstanceOf&lt;Hashtable&gt;(result[0].BaseObject);
+</a><a href="#h2-3-852" id="h2-3-852" class="d">-            var settingsResult = result[0].BaseObject as Hashtable;
+</a><a href="#h2-3-853" id="h2-3-853" class="d">-
+</a><a href="#h2-3-854" id="h2-3-854" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;$schema&quot;));
+</a><a href="#h2-3-855" id="h2-3-855" class="d">-            Assert.False(settingsResult.ContainsKey(&quot;source&quot;));
+</a><a href="#h2-3-856" id="h2-3-856" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;experimentalFeatures&quot;));
+</a><a href="#h2-3-857" id="h2-3-857" class="d">-        }
+</a><a href="#h2-3-858" id="h2-3-858" class="d">-
+</a><a href="#h2-3-859" id="h2-3-859" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-860" id="h2-3-860" class="d">-        /// Test Set-WinGetUserSettings when the local settings file is not a json.
+</a><a href="#h2-3-861" id="h2-3-861" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-862" id="h2-3-862" class="d">-        [Test]
+</a><a href="#h2-3-863" id="h2-3-863" class="d">-        public void SetWinGetUserSettings_BadJsonFile()
+</a><a href="#h2-3-864" id="h2-3-864" class="d">-        {
+</a><a href="#h2-3-865" id="h2-3-865" class="d">-            WinGetSettingsHelper.SetWingetSettings(&quot;Hi, im not a json. Thank you, Test.&quot;);
+</a><a href="#h2-3-866" id="h2-3-866" class="d">-
+</a><a href="#h2-3-867" id="h2-3-867" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-868" id="h2-3-868" class="d">-            {
+</a><a href="#h2-3-869" id="h2-3-869" class="d">-                {
+</a><a href="#h2-3-870" id="h2-3-870" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-871" id="h2-3-871" class="d">-                    new Hashtable()
+</a><a href="#h2-3-872" id="h2-3-872" class="d">-                    {
+</a><a href="#h2-3-873" id="h2-3-873" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-874" id="h2-3-874" class="d">-                    }
+</a><a href="#h2-3-875" id="h2-3-875" class="d">-                },
+</a><a href="#h2-3-876" id="h2-3-876" class="d">-            };
+</a><a href="#h2-3-877" id="h2-3-877" class="d">-
+</a><a href="#h2-3-878" id="h2-3-878" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-879" id="h2-3-879" class="d">-            var result = powerShellHost.PowerShell
+</a><a href="#h2-3-880" id="h2-3-880" class="d">-                .AddCommand(&quot;Set-WinGetUserSettings&quot;)
+</a><a href="#h2-3-881" id="h2-3-881" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-882" id="h2-3-882" class="d">-                .Invoke();
+</a><a href="#h2-3-883" id="h2-3-883" class="d">-
+</a><a href="#h2-3-884" id="h2-3-884" class="d">-            Assert.That(result, Has.Exactly(1).Items);
+</a><a href="#h2-3-885" id="h2-3-885" class="d">-            Assert.IsInstanceOf&lt;Hashtable&gt;(result[0].BaseObject);
+</a><a href="#h2-3-886" id="h2-3-886" class="d">-            var settingsResult = result[0].BaseObject as Hashtable;
+</a><a href="#h2-3-887" id="h2-3-887" class="d">-
+</a><a href="#h2-3-888" id="h2-3-888" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;$schema&quot;));
+</a><a href="#h2-3-889" id="h2-3-889" class="d">-            Assert.True(settingsResult.ContainsKey(&quot;visual&quot;));
+</a><a href="#h2-3-890" id="h2-3-890" class="d">-        }
+</a><a href="#h2-3-891" id="h2-3-891" class="d">-
+</a><a href="#h2-3-892" id="h2-3-892" class="d">-        /// &lt;summary&gt;
+</a><a href="#h2-3-893" id="h2-3-893" class="d">-        /// Test Set-WinGetUserSettings when the local settings file is not a json.
+</a><a href="#h2-3-894" id="h2-3-894" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h2-3-895" id="h2-3-895" class="d">-        [Test]
+</a><a href="#h2-3-896" id="h2-3-896" class="d">-        public void SetWinGetUserSettings_BadJsonFile_Merge()
+</a><a href="#h2-3-897" id="h2-3-897" class="d">-        {
+</a><a href="#h2-3-898" id="h2-3-898" class="d">-            WinGetSettingsHelper.SetWingetSettings(&quot;Hi, im not a json. Thank you, Test.&quot;);
+</a><a href="#h2-3-899" id="h2-3-899" class="d">-
+</a><a href="#h2-3-900" id="h2-3-900" class="d">-            var inputSettings = new Hashtable()
+</a><a href="#h2-3-901" id="h2-3-901" class="d">-            {
+</a><a href="#h2-3-902" id="h2-3-902" class="d">-                {
+</a><a href="#h2-3-903" id="h2-3-903" class="d">-                    &quot;visual&quot;,
+</a><a href="#h2-3-904" id="h2-3-904" class="d">-                    new Hashtable()
+</a><a href="#h2-3-905" id="h2-3-905" class="d">-                    {
+</a><a href="#h2-3-906" id="h2-3-906" class="d">-                        { &quot;progressBar&quot;, &quot;retro&quot; },
+</a><a href="#h2-3-907" id="h2-3-907" class="d">-                    }
+</a><a href="#h2-3-908" id="h2-3-908" class="d">-                },
+</a><a href="#h2-3-909" id="h2-3-909" class="d">-            };
+</a><a href="#h2-3-910" id="h2-3-910" class="d">-
+</a><a href="#h2-3-911" id="h2-3-911" class="d">-            using var powerShellHost = new PowerShellHost();
+</a><a href="#h2-3-912" id="h2-3-912" class="d">-
+</a><a href="#h2-3-913" id="h2-3-913" class="d">-            var cmdletException = Assert.Throws&lt;CmdletInvocationException&gt;(
+</a><a href="#h2-3-914" id="h2-3-914" class="d">-                () =&gt; powerShellHost.PowerShell
+</a><a href="#h2-3-915" id="h2-3-915" class="d">-                .AddCommand(&quot;Set-WinGetUserSettings&quot;)
+</a><a href="#h2-3-916" id="h2-3-916" class="d">-                .AddParameter(&quot;UserSettings&quot;, inputSettings)
+</a><a href="#h2-3-917" id="h2-3-917" class="d">-                .AddParameter(&quot;Merge&quot;)
+</a><a href="#h2-3-918" id="h2-3-918" class="d">-                .Invoke());
+</a><a href="#h2-3-919" id="h2-3-919" class="d">-
+</a><a href="#h2-3-920" id="h2-3-920" class="d">-            // If we reference Microsoft.WinGet.Client to this project PowerShell host fails with
+</a><a href="#h2-3-921" id="h2-3-921" class="d">-            //   System.Management.Automation.CmdletInvocationException : Operation is not supported on this platform. (0x80131539)
+</a><a href="#h2-3-922" id="h2-3-922" class="d">-            //   System.PlatformNotSupportedException : Operation is not supported on this platform. (0x80131539)
+</a><a href="#h2-3-923" id="h2-3-923" class="d">-            // trying to load the runspace. This is most probably because the same dll is already loaded.
+</a><a href="#h2-3-924" id="h2-3-924" class="d">-            // Check the type the long way.
+</a><a href="#h2-3-925" id="h2-3-925" class="d">-            dynamic exception = cmdletException.InnerException;
+</a><a href="#h2-3-926" id="h2-3-926" class="d">-            Assert.AreEqual(exception.GetType().ToString(), &quot;Microsoft.WinGet.Client.Engine.Exceptions.UserSettingsReadException&quot;);
+</a><a href="#h2-3-927" id="h2-3-927" class="d">-        }
+</a><a href="#h2-3-928" id="h2-3-928" class="d">-
+</a>         private bool IsRunning(string processName)
+         {
+             return Process.GetProcessesByName(processName).Length &gt; 0;
+<b>diff --git a/<a id="h3" href="../file/src/LocalhostWebServer/Run-LocalhostWebServer.ps1.html">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a> b/<a href="../file/src/LocalhostWebServer/Run-LocalhostWebServer.ps1.html">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -13,6 +13,8 @@
+</a>     Export cert location.
+ .PARAMETER LocalSourceJson
+     Local source json definition
+<a href="#h3-0-3" id="h3-0-3" class="i">+.PARAMETER SourceCert
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    The certificate of the source package.
+</a> #&gt;
+ 
+ param(
+<a href="#h3-1" id="h3-1" class="h">@@ -32,9 +34,18 @@ param(
+</a>     [string]$OutCertFile,
+ 
+     [Parameter()]
+<a href="#h3-1-3" id="h3-1-3" class="d">-    [string]$LocalSourceJson
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+    [string]$LocalSourceJson,
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+    [Parameter()]
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+    [string]$SourceCert
+</a> )
+ 
+<a href="#h3-1-10" id="h3-1-10" class="i">+if (-not [System.String]::IsNullOrEmpty($sourceCert))
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+{
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+    # Requires admin
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+    &amp; certutil.exe -addstore -f &quot;TRUSTEDPEOPLE&quot; $sourceCert
+</a><a href="#h3-1-14" id="h3-1-14" class="i">+}
+</a><a href="#h3-1-15" id="h3-1-15" class="i">+
+</a> cd $BuildRoot
+ 
+ Start-Process -FilePath &quot;LocalhostWebServer.exe&quot; -ArgumentList &quot;StaticFileRoot=$StaticFileRoot CertPath=$CertPath CertPassword=$CertPassword OutCertFile=$OutCertFile LocalSourceJson=$LocalSourceJson&quot;
+<b>diff --git a/<a id="h4" href="../file/src/PowerShell/tests/Microsoft.WinGet.Client.Tests.ps1.html">src/PowerShell/tests/Microsoft.WinGet.Client.Tests.ps1</a> b/<a href="../file/src/PowerShell/tests/Microsoft.WinGet.Client.Tests.ps1.html">src/PowerShell/tests/Microsoft.WinGet.Client.Tests.ps1</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -5,37 +5,93 @@
+</a> .Synopsis
+    Pester tests related to the Microsoft.WinGet.Client PowerShell module.
+    The tests require the localhost web server to be running and serving the test data.
+<a href="#h4-0-3" id="h4-0-3" class="d">-   &#39;Invoke-Pester&#39; should be called in an admin powershell window with the &#39;Microsoft.WinGet.Client&#39; PowerShell module already imported.
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+   &#39;Invoke-Pester&#39; should be called in an admin PowerShell window.
+</a> #&gt;
+ 
+ BeforeAll {
+<a href="#h4-0-8" id="h4-0-8" class="i">+    $settingsFilePath = (ConvertFrom-Json (wingetdev.exe settings export)).userSettingsFile
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+    Import-Module Microsoft.WinGet.Client
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+    function SetWinGetSettingsHelper($settings) {
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+        $content = ConvertTo-Json $settings -Depth 4
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+        Set-Content -Path $settingsFilePath -Value $content
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+    }
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+
+</a>     # Source Add requires admin privileges, this will only execute successfully in an elevated PowerShell.
+<a href="#h4-0-18" id="h4-0-18" class="d">-    wingetdev source add &#39;TestSource&#39; &#39;https://localhost:5001/TestKit/&#39;
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+    function AddTestSource {
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+        try {
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+            Get-WinGetSource -Name &#39;TestSource&#39;
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+        }
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+        catch {
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+            Add-WinGetSource -Name &#39;TestSource&#39; -Arg &#39;https://localhost:5001/TestKit/&#39;
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+        }
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+    }
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+    function RemoveTestSource {
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+        try {
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+            Get-WinGetSource -Name &#39;TestSource&#39;
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+        }
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+        catch {
+</a><a href="#h4-0-33" id="h4-0-33" class="i">+            # Source Remove requires admin privileges, this will only execute successfully in an elevated PowerShell.
+</a><a href="#h4-0-34" id="h4-0-34" class="i">+            # This is a workaround to an issue where the server takes longer than expected to terminate when
+</a><a href="#h4-0-35" id="h4-0-35" class="i">+            # running from PowerShell. This can cause other E2E tests to fail when attempting to reset the test source.
+</a><a href="#h4-0-36" id="h4-0-36" class="i">+            Start-Process -FilePath &quot;wingetdev&quot; -ArgumentList &quot;source remove TestSource&quot;
+</a><a href="#h4-0-37" id="h4-0-37" class="i">+        }
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+    }
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+}
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+Describe &#39;Get-WinGetVersion&#39; {
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+
+</a><a href="#h4-0-43" id="h4-0-43" class="i">+    It &#39;Get-WinGetVersion&#39; {
+</a><a href="#h4-0-44" id="h4-0-44" class="i">+        $version = Get-WinGetVersion
+</a><a href="#h4-0-45" id="h4-0-45" class="i">+        $version | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-0-46" id="h4-0-46" class="i">+    }
+</a> }
+ 
+<a href="#h4-0-49" id="h4-0-49" class="d">-Describe &#39;Get-WinGetSource&#39; {
+</a><a href="#h4-0-50" id="h4-0-50" class="d">-    
+</a><a href="#h4-0-51" id="h4-0-51" class="d">-    It &#39;Get Test Source&#39; {
+</a><a href="#h4-0-52" id="h4-0-52" class="i">+Describe &#39;Get|Add|Reset-WinGetSource&#39; {
+</a><a href="#h4-0-53" id="h4-0-53" class="i">+
+</a><a href="#h4-0-54" id="h4-0-54" class="i">+    BeforeAll {
+</a><a href="#h4-0-55" id="h4-0-55" class="i">+        AddTestSource
+</a><a href="#h4-0-56" id="h4-0-56" class="i">+    }
+</a><a href="#h4-0-57" id="h4-0-57" class="i">+
+</a><a href="#h4-0-58" id="h4-0-58" class="i">+    It &#39;Get Test source&#39; {
+</a>         $source = Get-WinGetSource -Name &#39;TestSource&#39;
+<a href="#h4-0-60" id="h4-0-60" class="i">+
+</a><a href="#h4-0-61" id="h4-0-61" class="i">+        $source | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $source.Name | Should -Be &#39;TestSource&#39;
+         $source.Argument | Should -Be &#39;https://localhost:5001/TestKit/&#39;
+         $source.Type | Should -Be &#39;Microsoft.PreIndexed.Package&#39;
+     }
+<a href="#h4-0-66" id="h4-0-66" class="i">+
+</a><a href="#h4-0-67" id="h4-0-67" class="i">+    It &#39;Get fake source&#39; {
+</a><a href="#h4-0-68" id="h4-0-68" class="i">+        { Get-WinGetSource -Name &#39;Fake&#39; } | Should -Throw
+</a><a href="#h4-0-69" id="h4-0-69" class="i">+    }
+</a><a href="#h4-0-70" id="h4-0-70" class="i">+
+</a><a href="#h4-0-71" id="h4-0-71" class="i">+    # This tests require admin
+</a><a href="#h4-0-72" id="h4-0-72" class="i">+    It &#39;Reset Test source&#39; {
+</a><a href="#h4-0-73" id="h4-0-73" class="i">+        Reset-WinGetSource -Name TestSource
+</a><a href="#h4-0-74" id="h4-0-74" class="i">+    }
+</a> }
+ 
+ Describe &#39;Find-WinGetPackage&#39; {
+<a href="#h4-0-78" id="h4-0-78" class="i">+
+</a><a href="#h4-0-79" id="h4-0-79" class="i">+    BeforeAll {
+</a><a href="#h4-0-80" id="h4-0-80" class="i">+        AddTestSource
+</a><a href="#h4-0-81" id="h4-0-81" class="i">+    }
+</a><a href="#h4-0-82" id="h4-0-82" class="i">+
+</a>     It &#39;Given no parameters, lists all available packages&#39; {
+         $allPackages = Find-WinGetPackage -Source TestSource
+         $allPackages.Count | Should -BeGreaterThan 0
+     }
+ 
+     It &#39;Find by Id&#39; {
+<a href="#h4-0-89" id="h4-0-89" class="d">-        $package = Find-WinGetPackage -Source &#39;TestSource&#39; -Id &#39;AppInstallerTest.TestExeInstaller&#39;
+</a><a href="#h4-0-90" id="h4-0-90" class="i">+        $package = Find-WinGetPackage -Source &#39;TestSource&#39; -Id &#39;AppInstallerTest.TestExampleInstaller&#39;
+</a> 
+         $package | Should -Not -BeNullOrEmpty -ErrorAction Stop
+<a href="#h4-0-93" id="h4-0-93" class="d">-        $package.Name | Should -Be &#39;TestExeInstaller&#39;
+</a><a href="#h4-0-94" id="h4-0-94" class="d">-        $package.Id | Should -Be &#39;AppInstallerTest.TestExeInstaller&#39;
+</a><a href="#h4-0-95" id="h4-0-95" class="d">-        $package.Version | Should -Be &#39;2.0.0.0&#39;
+</a><a href="#h4-0-96" id="h4-0-96" class="i">+        $package.Name | Should -Be &#39;TestExampleInstaller&#39;
+</a><a href="#h4-0-97" id="h4-0-97" class="i">+        $package.Id | Should -Be &#39;AppInstallerTest.TestExampleInstaller&#39;
+</a><a href="#h4-0-98" id="h4-0-98" class="i">+        $package.Version | Should -Be &#39;1.2.3.4&#39;
+</a>         $package.Source | Should -Be &#39;TestSource&#39;
+     }
+ 
+<a href="#h4-1" id="h4-1" class="h">@@ -56,7 +112,7 @@ Describe &#39;Find-WinGetPackage&#39; {
+</a>     }
+ 
+     It &#39;Find package and verify PackageVersionInfo&#39; {
+<a href="#h4-1-3" id="h4-1-3" class="d">-        $package = Find-WinGetPackage -Source &#39;TestSource&#39; -Id &#39;AppInstallerTest.TestPortableExe&#39; -Exact   
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+        $package = Find-WinGetPackage -Source &#39;TestSource&#39; -Id &#39;AppInstallerTest.TestPortableExe&#39; -MatchOption Equals
+</a> 
+         $package | Should -Not -BeNullOrEmpty -ErrorAction Stop
+         $package.AvailableVersions[0] | Should -Be &#39;3.0.0.0&#39;
+<a href="#h4-2" id="h4-2" class="h">@@ -73,17 +129,23 @@ Describe &#39;Find-WinGetPackage&#39; {
+</a> 
+ Describe &#39;Install|Update|Uninstall-WinGetPackage&#39; {
+ 
+<a href="#h4-2-3" id="h4-2-3" class="i">+    BeforeAll {
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+        AddTestSource
+</a><a href="#h4-2-5" id="h4-2-5" class="i">+    }
+</a><a href="#h4-2-6" id="h4-2-6" class="i">+
+</a>     It &#39;Install by Id&#39; {
+         $result = Install-WinGetPackage -Id AppInstallerTest.TestExeInstaller -Version &#39;1.0.0.0&#39;
+ 
+<a href="#h4-2-10" id="h4-2-10" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $result.InstallerErrorCode | Should -Be 0
+         $result.Status | Should -Be &#39;Ok&#39;
+         $result.RebootRequired | Should -Be &#39;False&#39;
+     }
+ 
+     It &#39;Install by exact Name and Version&#39; {
+<a href="#h4-2-17" id="h4-2-17" class="d">-        $result = Install-WinGetPackage -Name TestPortableExe -Version &#39;2.0.0.0&#39; -Exact
+</a><a href="#h4-2-18" id="h4-2-18" class="i">+        $result = Install-WinGetPackage -Name TestPortableExe -Version &#39;2.0.0.0&#39; -MatchOption Equals
+</a> 
+<a href="#h4-2-20" id="h4-2-20" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $result.InstallerErrorCode | Should -Be 0
+         $result.Status | Should -Be &#39;Ok&#39;
+         $result.RebootRequired | Should -Be &#39;False&#39;
+<a href="#h4-3" id="h4-3" class="h">@@ -92,14 +154,16 @@ Describe &#39;Install|Update|Uninstall-WinGetPackage&#39; {
+</a>     It &#39;Update by Id&#39; {
+         $result = Update-WinGetPackage -Id AppInstallerTest.TestExeInstaller
+ 
+<a href="#h4-3-3" id="h4-3-3" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $result.InstallerErrorCode | Should -Be 0
+         $result.Status | Should -Be &#39;Ok&#39;
+         $result.RebootRequired | Should -Be &#39;False&#39;
+     }
+ 
+<a href="#h4-3-9" id="h4-3-9" class="d">-    It &#39;Update by Name and Version&#39; {
+</a><a href="#h4-3-10" id="h4-3-10" class="i">+    It &#39;Update by Name&#39; {
+</a>         $result = Update-WinGetPackage -Name TestPortableExe
+ 
+<a href="#h4-3-13" id="h4-3-13" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $result.InstallerErrorCode | Should -Be 0
+         $result.Status | Should -Be &#39;Ok&#39;
+         $result.RebootRequired | Should -Be &#39;False&#39;
+<a href="#h4-4" id="h4-4" class="h">@@ -108,6 +172,7 @@ Describe &#39;Install|Update|Uninstall-WinGetPackage&#39; {
+</a>     It &#39;Uninstall by Id&#39; {
+         $result = Uninstall-WinGetPackage -Id AppInstallerTest.TestExeInstaller
+ 
+<a href="#h4-4-3" id="h4-4-3" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $result.UninstallerErrorCode | Should -Be 0
+         $result.Status | Should -Be &#39;Ok&#39;
+         $result.RebootRequired | Should -Be &#39;False&#39;
+<a href="#h4-5" id="h4-5" class="h">@@ -116,6 +181,7 @@ Describe &#39;Install|Update|Uninstall-WinGetPackage&#39; {
+</a>     It &#39;Uninstall by Name&#39; {
+         $result = Uninstall-WinGetPackage -Name TestPortableExe
+ 
+<a href="#h4-5-3" id="h4-5-3" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $result.UninstallerErrorCode | Should -Be 0
+         $result.Status | Should -Be &#39;Ok&#39;
+         $result.RebootRequired | Should -Be &#39;False&#39;
+<a href="#h4-6" id="h4-6" class="h">@@ -123,13 +189,13 @@ Describe &#39;Install|Update|Uninstall-WinGetPackage&#39; {
+</a> 
+     AfterAll {
+         # Uninstall all test packages after each  for proper cleanup.
+<a href="#h4-6-3" id="h4-6-3" class="d">-        $testExe = Get-WinGetPackage -Id AppInstallerTest.TestExeInstaller
+</a><a href="#h4-6-4" id="h4-6-4" class="i">+        $testExe = Get-WinGetPackage -Id AppInstallerTest.TestExeInstaller -MatchOption Equals
+</a>         if ($testExe.Count -gt 0)
+         {
+             Uninstall-WinGetPackage -Id AppInstallerTest.TestExeInstaller 
+<a href="#h4-6-8" id="h4-6-8" class="d">-        } 
+</a><a href="#h4-6-9" id="h4-6-9" class="i">+        }
+</a> 
+<a href="#h4-6-11" id="h4-6-11" class="d">-        $testPortable = Get-WinGetPackage -Id AppInstallerTest.TestPortableExe
+</a><a href="#h4-6-12" id="h4-6-12" class="i">+        $testPortable = Get-WinGetPackage -Id AppInstallerTest.TestPortableExe -MatchOption Equals
+</a>         if ($testPortable.Count -gt 0)
+         {
+             Uninstall-WinGetPackage -Id AppInstallerTest.TestPortableExe
+<a href="#h4-7" id="h4-7" class="h">@@ -138,10 +204,15 @@ Describe &#39;Install|Update|Uninstall-WinGetPackage&#39; {
+</a> }
+ 
+ Describe &#39;Get-WinGetPackage&#39; {
+<a href="#h4-7-3" id="h4-7-3" class="d">-    
+</a><a href="#h4-7-4" id="h4-7-4" class="i">+
+</a><a href="#h4-7-5" id="h4-7-5" class="i">+    BeforeAll {
+</a><a href="#h4-7-6" id="h4-7-6" class="i">+        AddTestSource
+</a><a href="#h4-7-7" id="h4-7-7" class="i">+    }
+</a><a href="#h4-7-8" id="h4-7-8" class="i">+
+</a>     It &#39;Install by Id&#39; {
+         $result = Install-WinGetPackage -Id AppInstallerTest.TestExeInstaller -Version &#39;1.0.0.0&#39;
+ 
+<a href="#h4-7-12" id="h4-7-12" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a>         $result.InstallerErrorCode | Should -Be 0
+         $result.Status | Should -Be &#39;Ok&#39;
+         $result.RebootRequired | Should -Be &#39;False&#39;
+<a href="#h4-8" id="h4-8" class="h">@@ -153,7 +224,7 @@ Describe &#39;Get-WinGetPackage&#39; {
+</a>         $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+         $result.Name | Should -Be &#39;TestExeInstaller&#39;
+         $result.Id | Should -Be &#39;AppInstallerTest.TestExeInstaller&#39;
+<a href="#h4-8-3" id="h4-8-3" class="d">-        $result.Version | Should -Be &#39;1.0.0.0&#39;
+</a><a href="#h4-8-4" id="h4-8-4" class="i">+        $result.InstalledVersion | Should -Be &#39;1.0.0.0&#39;
+</a>         $result.Source | Should -Be &#39;TestSource&#39;
+         $result.AvailableVersions[0] | Should -Be &#39;2.0.0.0&#39;
+     }
+<a href="#h4-9" id="h4-9" class="h">@@ -164,7 +235,7 @@ Describe &#39;Get-WinGetPackage&#39; {
+</a>         $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+         $result.Name | Should -Be &#39;TestExeInstaller&#39;
+         $result.Id | Should -Be &#39;AppInstallerTest.TestExeInstaller&#39;
+<a href="#h4-9-3" id="h4-9-3" class="d">-        $result.Version | Should -Be &#39;1.0.0.0&#39;
+</a><a href="#h4-9-4" id="h4-9-4" class="i">+        $result.InstalledVersion | Should -Be &#39;1.0.0.0&#39;
+</a>         $result.Source | Should -Be &#39;TestSource&#39;
+         $result.AvailableVersions[0] | Should -Be &#39;2.0.0.0&#39;
+     }
+<a href="#h4-10" id="h4-10" class="h">@@ -179,7 +250,237 @@ Describe &#39;Get-WinGetPackage&#39; {
+</a>    }
+ }
+ 
+<a href="#h4-10-3" id="h4-10-3" class="i">+Describe &#39;Get-WinGetUserSettings&#39; {
+</a><a href="#h4-10-4" id="h4-10-4" class="i">+
+</a><a href="#h4-10-5" id="h4-10-5" class="i">+    It &#39;Get settings&#39; {
+</a><a href="#h4-10-6" id="h4-10-6" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-7" id="h4-10-7" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-8" id="h4-10-8" class="i">+
+</a><a href="#h4-10-9" id="h4-10-9" class="i">+        $userSettings = Get-WinGetUserSettings
+</a><a href="#h4-10-10" id="h4-10-10" class="i">+        $userSettings | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-11" id="h4-10-11" class="i">+        $userSettings.Count | Should -Be 2
+</a><a href="#h4-10-12" id="h4-10-12" class="i">+        $userSettings.visual.progressBar | Should -Be &#39;rainbow&#39;
+</a><a href="#h4-10-13" id="h4-10-13" class="i">+        $userSettings.experimentalFeatures.experimentalArg | Should -Be $false
+</a><a href="#h4-10-14" id="h4-10-14" class="i">+        $userSettings.experimentalFeatures.experimentalCmd | Should -Be $true
+</a><a href="#h4-10-15" id="h4-10-15" class="i">+    }
+</a><a href="#h4-10-16" id="h4-10-16" class="i">+
+</a><a href="#h4-10-17" id="h4-10-17" class="i">+    It &#39;Get settings. Bad json file&#39; {
+</a><a href="#h4-10-18" id="h4-10-18" class="i">+        Set-Content -Path $settingsFilePath -Value &quot;Hi, im not a json. Thank you, Test.&quot;
+</a><a href="#h4-10-19" id="h4-10-19" class="i">+        { Get-WinGetUserSettings } | Should -Throw
+</a><a href="#h4-10-20" id="h4-10-20" class="i">+    }
+</a><a href="#h4-10-21" id="h4-10-21" class="i">+}
+</a><a href="#h4-10-22" id="h4-10-22" class="i">+
+</a><a href="#h4-10-23" id="h4-10-23" class="i">+Describe &#39;Test-WinGetUserSettings&#39; {
+</a><a href="#h4-10-24" id="h4-10-24" class="i">+
+</a><a href="#h4-10-25" id="h4-10-25" class="i">+    It &#39;Bad json file&#39; {
+</a><a href="#h4-10-26" id="h4-10-26" class="i">+        Set-Content -Path $settingsFilePath -Value &quot;Hi, im not a json. Thank you, Test.&quot;
+</a><a href="#h4-10-27" id="h4-10-27" class="i">+
+</a><a href="#h4-10-28" id="h4-10-28" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;retro&quot;} }
+</a><a href="#h4-10-29" id="h4-10-29" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings | Should -Be $false
+</a><a href="#h4-10-30" id="h4-10-30" class="i">+    }
+</a><a href="#h4-10-31" id="h4-10-31" class="i">+
+</a><a href="#h4-10-32" id="h4-10-32" class="i">+    It &#39;Equal&#39; {
+</a><a href="#h4-10-33" id="h4-10-33" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;retro&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-34" id="h4-10-34" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-35" id="h4-10-35" class="i">+
+</a><a href="#h4-10-36" id="h4-10-36" class="i">+        Test-WinGetUserSettings -UserSettings $ogSettings | Should -Be $true
+</a><a href="#h4-10-37" id="h4-10-37" class="i">+    }
+</a><a href="#h4-10-38" id="h4-10-38" class="i">+
+</a><a href="#h4-10-39" id="h4-10-39" class="i">+    It &#39;Equal. Ignore schema&#39; {
+</a><a href="#h4-10-40" id="h4-10-40" class="i">+        Set-Content -Path $settingsFilePath -Value &#39;{ &quot;$schema&quot;: &quot;https://aka.ms/winget-settings.schema.json&quot;, &quot;visual&quot;: { &quot;progressBar&quot;: &quot;retro&quot; } }&#39;
+</a><a href="#h4-10-41" id="h4-10-41" class="i">+
+</a><a href="#h4-10-42" id="h4-10-42" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;retro&quot;} }
+</a><a href="#h4-10-43" id="h4-10-43" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings | Should -Be $true
+</a><a href="#h4-10-44" id="h4-10-44" class="i">+    }
+</a><a href="#h4-10-45" id="h4-10-45" class="i">+
+</a><a href="#h4-10-46" id="h4-10-46" class="i">+    It &#39;Not Equal string&#39; {
+</a><a href="#h4-10-47" id="h4-10-47" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-48" id="h4-10-48" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-49" id="h4-10-49" class="i">+
+</a><a href="#h4-10-50" id="h4-10-50" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;retro&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-51" id="h4-10-51" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings | Should -Be $false
+</a><a href="#h4-10-52" id="h4-10-52" class="i">+    }
+</a><a href="#h4-10-53" id="h4-10-53" class="i">+
+</a><a href="#h4-10-54" id="h4-10-54" class="i">+    It &#39;Not Equal bool&#39; {
+</a><a href="#h4-10-55" id="h4-10-55" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$true ; experimentalCmd=$true}}
+</a><a href="#h4-10-56" id="h4-10-56" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-57" id="h4-10-57" class="i">+
+</a><a href="#h4-10-58" id="h4-10-58" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-59" id="h4-10-59" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings | Should -Be $false
+</a><a href="#h4-10-60" id="h4-10-60" class="i">+    }
+</a><a href="#h4-10-61" id="h4-10-61" class="i">+
+</a><a href="#h4-10-62" id="h4-10-62" class="i">+    It &#39;Not Equal. More settings&#39; {
+</a><a href="#h4-10-63" id="h4-10-63" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true }}
+</a><a href="#h4-10-64" id="h4-10-64" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-65" id="h4-10-65" class="i">+
+</a><a href="#h4-10-66" id="h4-10-66" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false }}
+</a><a href="#h4-10-67" id="h4-10-67" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings | Should -Be $false
+</a><a href="#h4-10-68" id="h4-10-68" class="i">+    }
+</a><a href="#h4-10-69" id="h4-10-69" class="i">+
+</a><a href="#h4-10-70" id="h4-10-70" class="i">+    It &#39;Not Equal. More settings input&#39; {
+</a><a href="#h4-10-71" id="h4-10-71" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; }}
+</a><a href="#h4-10-72" id="h4-10-72" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-73" id="h4-10-73" class="i">+
+</a><a href="#h4-10-74" id="h4-10-74" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-75" id="h4-10-75" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings | Should -Be $false
+</a><a href="#h4-10-76" id="h4-10-76" class="i">+    }
+</a><a href="#h4-10-77" id="h4-10-77" class="i">+
+</a><a href="#h4-10-78" id="h4-10-78" class="i">+    It &#39;Equal IgnoreNotSet&#39; {
+</a><a href="#h4-10-79" id="h4-10-79" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;retro&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-80" id="h4-10-80" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-81" id="h4-10-81" class="i">+
+</a><a href="#h4-10-82" id="h4-10-82" class="i">+        Test-WinGetUserSettings -UserSettings $ogSettings -IgnoreNotSet | Should -Be $true
+</a><a href="#h4-10-83" id="h4-10-83" class="i">+    }
+</a><a href="#h4-10-84" id="h4-10-84" class="i">+
+</a><a href="#h4-10-85" id="h4-10-85" class="i">+    It &#39;Equal IgnoreNotSet. More settings&#39; {
+</a><a href="#h4-10-86" id="h4-10-86" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true }}
+</a><a href="#h4-10-87" id="h4-10-87" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-88" id="h4-10-88" class="i">+
+</a><a href="#h4-10-89" id="h4-10-89" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false }}
+</a><a href="#h4-10-90" id="h4-10-90" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings -IgnoreNotSet | Should -Be $true
+</a><a href="#h4-10-91" id="h4-10-91" class="i">+    }
+</a><a href="#h4-10-92" id="h4-10-92" class="i">+
+</a><a href="#h4-10-93" id="h4-10-93" class="i">+    It &#39;Not Equal IgnoreNotSet. More settings input&#39; {
+</a><a href="#h4-10-94" id="h4-10-94" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; }}
+</a><a href="#h4-10-95" id="h4-10-95" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-96" id="h4-10-96" class="i">+
+</a><a href="#h4-10-97" id="h4-10-97" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-98" id="h4-10-98" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings -IgnoreNotSet | Should -Be $false
+</a><a href="#h4-10-99" id="h4-10-99" class="i">+    }
+</a><a href="#h4-10-100" id="h4-10-100" class="i">+
+</a><a href="#h4-10-101" id="h4-10-101" class="i">+    It &#39;Not Equal bool IgnoreNotSet&#39; {
+</a><a href="#h4-10-102" id="h4-10-102" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$true ; experimentalCmd=$true}}
+</a><a href="#h4-10-103" id="h4-10-103" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-104" id="h4-10-104" class="i">+
+</a><a href="#h4-10-105" id="h4-10-105" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$false ; experimentalCmd=$true}}
+</a><a href="#h4-10-106" id="h4-10-106" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings -IgnoreNotSet | Should -Be $false
+</a><a href="#h4-10-107" id="h4-10-107" class="i">+    }
+</a><a href="#h4-10-108" id="h4-10-108" class="i">+
+</a><a href="#h4-10-109" id="h4-10-109" class="i">+    It &#39;Not Equal array IgnoreNotSet&#39; {
+</a><a href="#h4-10-110" id="h4-10-110" class="i">+        $ogSettings = @{ installBehavior= @{ preferences= @{ architectures = @(&quot;x86&quot;, &quot;x64&quot;)} }}
+</a><a href="#h4-10-111" id="h4-10-111" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-112" id="h4-10-112" class="i">+
+</a><a href="#h4-10-113" id="h4-10-113" class="i">+        $inputSettings = @{ installBehavior= @{ preferences= @{ architectures = @(&quot;x86&quot;, &quot;arm64&quot;)} }}
+</a><a href="#h4-10-114" id="h4-10-114" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings -IgnoreNotSet | Should -Be $false
+</a><a href="#h4-10-115" id="h4-10-115" class="i">+    }
+</a><a href="#h4-10-116" id="h4-10-116" class="i">+
+</a><a href="#h4-10-117" id="h4-10-117" class="i">+    It &#39;Not Equal wrong type IgnoreNotSet&#39; {
+</a><a href="#h4-10-118" id="h4-10-118" class="i">+        $ogSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$true ; experimentalCmd=$true}}
+</a><a href="#h4-10-119" id="h4-10-119" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-120" id="h4-10-120" class="i">+
+</a><a href="#h4-10-121" id="h4-10-121" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=4 ; experimentalCmd=$true}}
+</a><a href="#h4-10-122" id="h4-10-122" class="i">+        Test-WinGetUserSettings -UserSettings $inputSettings -IgnoreNotSet | Should -Be $false
+</a><a href="#h4-10-123" id="h4-10-123" class="i">+    }
+</a><a href="#h4-10-124" id="h4-10-124" class="i">+
+</a><a href="#h4-10-125" id="h4-10-125" class="i">+    AfterAll {
+</a><a href="#h4-10-126" id="h4-10-126" class="i">+        SetWinGetSettingsHelper @{ debugging= @{ enableSelfInitiatedMinidump=$true ; keepAllLogFiles=$true } }
+</a><a href="#h4-10-127" id="h4-10-127" class="i">+    }
+</a><a href="#h4-10-128" id="h4-10-128" class="i">+}
+</a><a href="#h4-10-129" id="h4-10-129" class="i">+
+</a><a href="#h4-10-130" id="h4-10-130" class="i">+Describe &#39;Set-WinGetUserSettings&#39; {
+</a><a href="#h4-10-131" id="h4-10-131" class="i">+
+</a><a href="#h4-10-132" id="h4-10-132" class="i">+    It &#39;Overwrites&#39; {
+</a><a href="#h4-10-133" id="h4-10-133" class="i">+        $ogSettings = @{ source= @{ autoUpdateIntervalInMinutes=3}}
+</a><a href="#h4-10-134" id="h4-10-134" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-135" id="h4-10-135" class="i">+
+</a><a href="#h4-10-136" id="h4-10-136" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$true ; experimentalCmd=$false}}
+</a><a href="#h4-10-137" id="h4-10-137" class="i">+        $result = Set-WinGetUserSettings -UserSettings $inputSettings
+</a><a href="#h4-10-138" id="h4-10-138" class="i">+
+</a><a href="#h4-10-139" id="h4-10-139" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-140" id="h4-10-140" class="i">+        $result.&#39;$schema&#39; | Should -Not -BeNullOrEmpty 
+</a><a href="#h4-10-141" id="h4-10-141" class="i">+        $result.visual | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-142" id="h4-10-142" class="i">+        $result.visual.progressBar | Should -Be &quot;rainbow&quot;
+</a><a href="#h4-10-143" id="h4-10-143" class="i">+        $result.experimentalFeatures | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-144" id="h4-10-144" class="i">+        $result.experimentalFeatures.experimentalArg | Should -Be $true
+</a><a href="#h4-10-145" id="h4-10-145" class="i">+        $result.experimentalFeatures.experimentalCmd | Should -Be $false
+</a><a href="#h4-10-146" id="h4-10-146" class="i">+        $result.source | Should -BeNullOrEmpty
+</a><a href="#h4-10-147" id="h4-10-147" class="i">+    }
+</a><a href="#h4-10-148" id="h4-10-148" class="i">+
+</a><a href="#h4-10-149" id="h4-10-149" class="i">+    It &#39;Merge&#39; {
+</a><a href="#h4-10-150" id="h4-10-150" class="i">+        $ogSettings = @{ source= @{ autoUpdateIntervalInMinutes=3}}
+</a><a href="#h4-10-151" id="h4-10-151" class="i">+        SetWinGetSettingsHelper $ogSettings
+</a><a href="#h4-10-152" id="h4-10-152" class="i">+
+</a><a href="#h4-10-153" id="h4-10-153" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;rainbow&quot;} ; experimentalFeatures= @{experimentalArg=$true ; experimentalCmd=$false}}
+</a><a href="#h4-10-154" id="h4-10-154" class="i">+        $result = Set-WinGetUserSettings -UserSettings $inputSettings -Merge
+</a><a href="#h4-10-155" id="h4-10-155" class="i">+
+</a><a href="#h4-10-156" id="h4-10-156" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-157" id="h4-10-157" class="i">+        $result.&#39;$schema&#39; | Should -Not -BeNullOrEmpty 
+</a><a href="#h4-10-158" id="h4-10-158" class="i">+        $result.visual | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-159" id="h4-10-159" class="i">+        $result.visual.progressBar | Should -Be &quot;rainbow&quot;
+</a><a href="#h4-10-160" id="h4-10-160" class="i">+        $result.experimentalFeatures | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-161" id="h4-10-161" class="i">+        $result.experimentalFeatures.experimentalArg | Should -Be $true
+</a><a href="#h4-10-162" id="h4-10-162" class="i">+        $result.experimentalFeatures.experimentalCmd | Should -Be $false
+</a><a href="#h4-10-163" id="h4-10-163" class="i">+        $result.source | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-164" id="h4-10-164" class="i">+        $result.source.autoUpdateIntervalInMinutes | Should -Be 3
+</a><a href="#h4-10-165" id="h4-10-165" class="i">+    }
+</a><a href="#h4-10-166" id="h4-10-166" class="i">+
+</a><a href="#h4-10-167" id="h4-10-167" class="i">+    It &#39;Schema.&#39; {
+</a><a href="#h4-10-168" id="h4-10-168" class="i">+        Set-Content -Path $settingsFilePath -Value &#39;{ &quot;$schema&quot;: &quot;https://aka.ms/winget-settings.schema.json&quot;, &quot;visual&quot;: { &quot;progressBar&quot;: &quot;retro&quot; } }&#39;
+</a><a href="#h4-10-169" id="h4-10-169" class="i">+
+</a><a href="#h4-10-170" id="h4-10-170" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;retro&quot;} }
+</a><a href="#h4-10-171" id="h4-10-171" class="i">+        $result = Set-WinGetUserSettings -UserSettings $inputSettings
+</a><a href="#h4-10-172" id="h4-10-172" class="i">+
+</a><a href="#h4-10-173" id="h4-10-173" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-174" id="h4-10-174" class="i">+        $result.&#39;$schema&#39; | Should -Not -BeNullOrEmpty 
+</a><a href="#h4-10-175" id="h4-10-175" class="i">+        $result.visual.progressBar | Should -Be &quot;retro&quot;
+</a><a href="#h4-10-176" id="h4-10-176" class="i">+    }
+</a><a href="#h4-10-177" id="h4-10-177" class="i">+
+</a><a href="#h4-10-178" id="h4-10-178" class="i">+    It &#39;Overwrites Bad json file&#39; {
+</a><a href="#h4-10-179" id="h4-10-179" class="i">+        Set-Content -Path $settingsFilePath -Value &quot;Hi, im not a json. Thank you, Test.&quot;
+</a><a href="#h4-10-180" id="h4-10-180" class="i">+
+</a><a href="#h4-10-181" id="h4-10-181" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;retro&quot;} }
+</a><a href="#h4-10-182" id="h4-10-182" class="i">+        $result = Set-WinGetUserSettings -UserSettings $inputSettings
+</a><a href="#h4-10-183" id="h4-10-183" class="i">+
+</a><a href="#h4-10-184" id="h4-10-184" class="i">+        $result | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-185" id="h4-10-185" class="i">+        $result.&#39;$schema&#39; | Should -Not -BeNullOrEmpty 
+</a><a href="#h4-10-186" id="h4-10-186" class="i">+        $result.visual.progressBar | Should -Be &quot;retro&quot;
+</a><a href="#h4-10-187" id="h4-10-187" class="i">+    }
+</a><a href="#h4-10-188" id="h4-10-188" class="i">+
+</a><a href="#h4-10-189" id="h4-10-189" class="i">+    It &#39;Overwrites Bad json file&#39; {
+</a><a href="#h4-10-190" id="h4-10-190" class="i">+        Set-Content -Path $settingsFilePath -Value &quot;Hi, im not a json. Thank you, Test.&quot;
+</a><a href="#h4-10-191" id="h4-10-191" class="i">+
+</a><a href="#h4-10-192" id="h4-10-192" class="i">+        $inputSettings = @{ visual= @{ progressBar=&quot;retro&quot;} }
+</a><a href="#h4-10-193" id="h4-10-193" class="i">+        { Set-WinGetUserSettings -UserSettings $inputSettings -Merge } | Should -Throw
+</a><a href="#h4-10-194" id="h4-10-194" class="i">+    }
+</a><a href="#h4-10-195" id="h4-10-195" class="i">+
+</a><a href="#h4-10-196" id="h4-10-196" class="i">+    AfterAll {
+</a><a href="#h4-10-197" id="h4-10-197" class="i">+        SetWinGetSettingsHelper @{ debugging= @{ enableSelfInitiatedMinidump=$true ; keepAllLogFiles=$true } }
+</a><a href="#h4-10-198" id="h4-10-198" class="i">+    }
+</a><a href="#h4-10-199" id="h4-10-199" class="i">+}
+</a><a href="#h4-10-200" id="h4-10-200" class="i">+
+</a><a href="#h4-10-201" id="h4-10-201" class="i">+Describe &#39;Get|Enable|Disable-WinGetSetting&#39; {
+</a><a href="#h4-10-202" id="h4-10-202" class="i">+
+</a><a href="#h4-10-203" id="h4-10-203" class="i">+    It &#39;Get-WinGetSetting&#39; {
+</a><a href="#h4-10-204" id="h4-10-204" class="i">+        $settings = Get-WinGetSettings
+</a><a href="#h4-10-205" id="h4-10-205" class="i">+        $settings | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-206" id="h4-10-206" class="i">+        $settings.&#39;$schema&#39; | Should -Not -BeNullOrEmpty 
+</a><a href="#h4-10-207" id="h4-10-207" class="i">+        $settings.adminSettings | Should -Not -BeNullOrEmpty
+</a><a href="#h4-10-208" id="h4-10-208" class="i">+        $settings.userSettingsFile | Should -Be $settingsFilePath
+</a><a href="#h4-10-209" id="h4-10-209" class="i">+    }
+</a><a href="#h4-10-210" id="h4-10-210" class="i">+
+</a><a href="#h4-10-211" id="h4-10-211" class="i">+    # This tests require admin
+</a><a href="#h4-10-212" id="h4-10-212" class="i">+    It &#39;Enable|Disable&#39; {
+</a><a href="#h4-10-213" id="h4-10-213" class="i">+        $settings = Get-WinGetSettings
+</a><a href="#h4-10-214" id="h4-10-214" class="i">+        $settings | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-215" id="h4-10-215" class="i">+        $settings.adminSettings | Should -Not -BeNullOrEmpty
+</a><a href="#h4-10-216" id="h4-10-216" class="i">+        $settings.adminSettings.LocalManifestFiles | Should -Be $false
+</a><a href="#h4-10-217" id="h4-10-217" class="i">+
+</a><a href="#h4-10-218" id="h4-10-218" class="i">+        Enable-WinGetSetting -Name LocalManifestFiles
+</a><a href="#h4-10-219" id="h4-10-219" class="i">+
+</a><a href="#h4-10-220" id="h4-10-220" class="i">+        $afterEnable = Get-WinGetSettings
+</a><a href="#h4-10-221" id="h4-10-221" class="i">+        $afterEnable | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-222" id="h4-10-222" class="i">+        $afterEnable.adminSettings | Should -Not -BeNullOrEmpty
+</a><a href="#h4-10-223" id="h4-10-223" class="i">+        $afterEnable.adminSettings.LocalManifestFiles | Should -Be $true
+</a><a href="#h4-10-224" id="h4-10-224" class="i">+
+</a><a href="#h4-10-225" id="h4-10-225" class="i">+        Disable-WingetSetting -Name LocalManifestFiles
+</a><a href="#h4-10-226" id="h4-10-226" class="i">+
+</a><a href="#h4-10-227" id="h4-10-227" class="i">+        $afterDisable = Get-WinGetSettings
+</a><a href="#h4-10-228" id="h4-10-228" class="i">+        $afterDisable | Should -Not -BeNullOrEmpty -ErrorAction Stop
+</a><a href="#h4-10-229" id="h4-10-229" class="i">+        $afterDisable.adminSettings | Should -Not -BeNullOrEmpty
+</a><a href="#h4-10-230" id="h4-10-230" class="i">+        $afterDisable.adminSettings.LocalManifestFiles | Should -Be $false
+</a><a href="#h4-10-231" id="h4-10-231" class="i">+    }
+</a><a href="#h4-10-232" id="h4-10-232" class="i">+}
+</a><a href="#h4-10-233" id="h4-10-233" class="i">+
+</a> AfterAll {
+<a href="#h4-10-235" id="h4-10-235" class="d">-     # Source Remove requires admin privileges, this will only execute successfully in an elevated PowerShell.
+</a><a href="#h4-10-236" id="h4-10-236" class="d">-     wingetdev source remove &#39;TestSource&#39;   
+</a><a href="#h4-10-237" id="h4-10-237" class="i">+    RemoveTestSource
+</a> } 
+\ No newline at end of file
+<b>diff --git a/<a id="h5" href="../file/src/PowerShell/tests/RunTests.ps1.html">src/PowerShell/tests/RunTests.ps1</a> b/<a href="../file/src/PowerShell/tests/RunTests.ps1.html">src/PowerShell/tests/RunTests.ps1</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -0,0 +1,44 @@
+</a><a href="#h5-0-0" id="h5-0-0" class="i">+# Copyright (c) Microsoft Corporation.
+</a><a href="#h5-0-1" id="h5-0-1" class="i">+# Licensed under the MIT License.
+</a><a href="#h5-0-2" id="h5-0-2" class="i">+[CmdletBinding()]
+</a><a href="#h5-0-3" id="h5-0-3" class="i">+param(
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    [string]$testModulesPath,
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+    [string]$outputPath,
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+    [string]$packageLayoutPath
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+)
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+# This updates pester not always necessary but worth noting
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+Install-Module -Name Pester -Force -SkipPublisherCheck
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+Import-Module Pester
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+if (-not [System.String]::IsNullOrEmpty($testModulesPath))
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+{
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+    $env:PSModulePath += &quot;;$testModulesPath&quot;
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+}
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+
+</a><a href="#h5-0-18" id="h5-0-18" class="i">+if (-not (Test-Path $outputPath))
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+{
+</a><a href="#h5-0-20" id="h5-0-20" class="i">+    New-Item -Path $outputPath -ItemType Directory
+</a><a href="#h5-0-21" id="h5-0-21" class="i">+}
+</a><a href="#h5-0-22" id="h5-0-22" class="i">+else
+</a><a href="#h5-0-23" id="h5-0-23" class="i">+{
+</a><a href="#h5-0-24" id="h5-0-24" class="i">+    Remove-Item $outputPath\* -Recurse -Force
+</a><a href="#h5-0-25" id="h5-0-25" class="i">+}
+</a><a href="#h5-0-26" id="h5-0-26" class="i">+
+</a><a href="#h5-0-27" id="h5-0-27" class="i">+# Register the package
+</a><a href="#h5-0-28" id="h5-0-28" class="i">+if (-not [System.String]::IsNullOrEmpty($packageLayoutPath))
+</a><a href="#h5-0-29" id="h5-0-29" class="i">+{
+</a><a href="#h5-0-30" id="h5-0-30" class="i">+    $local:packageManifestPath = Join-Path $packageLayoutPath &quot;AppxManifest.xml&quot;
+</a><a href="#h5-0-31" id="h5-0-31" class="i">+
+</a><a href="#h5-0-32" id="h5-0-32" class="i">+    Import-Module Appx -UseWindowsPowerShell
+</a><a href="#h5-0-33" id="h5-0-33" class="i">+    Add-AppxPackage -Register $local:packageManifestPath
+</a><a href="#h5-0-34" id="h5-0-34" class="i">+
+</a><a href="#h5-0-35" id="h5-0-35" class="i">+    # Configure crash dump and log file settings
+</a><a href="#h5-0-36" id="h5-0-36" class="i">+    $local:settingsExport = ConvertFrom-Json (wingetdev.exe settings export)
+</a><a href="#h5-0-37" id="h5-0-37" class="i">+    $local:settingsFilePath = $local:settingsExport.userSettingsFile
+</a><a href="#h5-0-38" id="h5-0-38" class="i">+    $local:settingsFileContent = ConvertTo-Json @{ debugging= @{ enableSelfInitiatedMinidump=$true ; keepAllLogFiles=$true } }
+</a><a href="#h5-0-39" id="h5-0-39" class="i">+
+</a><a href="#h5-0-40" id="h5-0-40" class="i">+    Set-Content -Path $local:settingsFilePath -Value $local:settingsFileContent
+</a><a href="#h5-0-41" id="h5-0-41" class="i">+}
+</a><a href="#h5-0-42" id="h5-0-42" class="i">+
+</a><a href="#h5-0-43" id="h5-0-43" class="i">+Invoke-Pester -Script $PSScriptRoot\Microsoft.WinGet.Client.Tests.ps1 -OutputFile $outputPath\Tests-WinGetClient.XML -OutputFormat NUnitXML
+</a><b>diff --git a/<a id="h6" href="../file/templates/e2e-setup.yml.html">templates/e2e-setup.yml</a> b/<a href="../file/templates/e2e-setup.yml.html">templates/e2e-setup.yml</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -1,8 +1,8 @@
+</a> # Configures local test source and local PowerShell repository.
+ parameters:
+<a href="#h6-0-2" id="h6-0-2" class="d">-- name: source
+</a><a href="#h6-0-3" id="h6-0-3" class="i">+- name: sourceDir
+</a>   type: string
+<a href="#h6-0-5" id="h6-0-5" class="d">-- name: buildOutDir
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+- name: localhostWebServerArgs
+</a>   type: string
+ 
+ steps:
+<a href="#h6-1" id="h6-1" class="h">@@ -21,18 +21,18 @@ steps:
+</a>   - task: PowerShell@2
+     displayName: Install Root Certificate
+     inputs:
+<a href="#h6-1-3" id="h6-1-3" class="d">-      filePath: &#39;${{ parameters.source }}\src\LocalhostWebServer\InstallDevCert.ps1&#39;
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+      filePath: &#39;${{ parameters.sourceDir }}\src\LocalhostWebServer\InstallDevCert.ps1&#39;
+</a>       arguments: &#39;-pfxpath $(HTTPSDevCert.secureFilePath) -password microsoft&#39;
+ 
+   - task: PowerShell@2
+     displayName: Launch LocalhostWebServer
+     inputs:
+<a href="#h6-1-10" id="h6-1-10" class="d">-      filePath: &#39;${{ parameters.source }}\src\LocalhostWebServer\Run-LocalhostWebServer.ps1&#39;
+</a><a href="#h6-1-11" id="h6-1-11" class="d">-      arguments: &#39;-BuildRoot ${{ parameters.buildOutDir }}\LocalhostWebServer -StaticFileRoot $(Agent.TempDirectory)\TestLocalIndex -CertPath $(HTTPSDevCert.secureFilePath) -CertPassword microsoft -OutCertFile $(Agent.TempDirectory)\servercert.cer -LocalSourceJson ${{ parameters.source }}\src\AppInstallerCLIE2ETests\TestData\localsource.json&#39;
+</a><a href="#h6-1-12" id="h6-1-12" class="i">+      filePath: &#39;${{ parameters.sourceDir }}\src\LocalhostWebServer\Run-LocalhostWebServer.ps1&#39;
+</a><a href="#h6-1-13" id="h6-1-13" class="i">+      arguments: &#39;-CertPath $(HTTPSDevCert.secureFilePath) -CertPassword microsoft -OutCertFile $(Agent.TempDirectory)\servercert.cer ${{ parameters.localhostWebServerArgs }}&#39;
+</a> 
+   - task: PowerShell@2
+     displayName: Setup Local PS Repository
+     inputs:
+<a href="#h6-1-18" id="h6-1-18" class="d">-      filePath: &#39;${{ parameters.source }}\src\AppInstallerCLIE2ETests\TestData\Configuration\Init-TestRepository.ps1&#39;
+</a><a href="#h6-1-19" id="h6-1-19" class="i">+      filePath: &#39;${{ parameters.sourceDir }}\src\AppInstallerCLIE2ETests\TestData\Configuration\Init-TestRepository.ps1&#39;
+</a>       arguments: &#39;-Force&#39;
+       pwsh: true
+</pre>
+</div>
+</body>
+</html>

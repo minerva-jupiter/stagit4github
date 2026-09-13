@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Improve packaged source updating (#3657) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/88ff15d2dead16aa6e4953560e94cd6e05e9c4ae.html">88ff15d2dead16aa6e4953560e94cd6e05e9c4ae</a>
+<b>parent</b> <a href="../commit/db16cfb8f7d6c40f6fb06d1c7866e2dd0dc12f5b.html">db16cfb8f7d6c40f6fb06d1c7866e2dd0dc12f5b</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Sat, 23 Sep 2023 21:26:45 -0700
+
+Improve packaged source updating (#3657)
+
+This change refactors the index package updating to enable an optimization; using an HTTP header to determine the available version rather than reading the package contents remotely.  If the header is present, containing a valid package version string, it will be used as the available version.  If not, the existing package content examination will be used.
+
+The refactoring was required to do all package inspection steps after downloading the package, rather than before.  This enables the single version value to be sufficient until we decide to update, and then in the very unlikely event of the package not meeting criteria we will delete it after having downloaded it.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Downloader.cpp</a></td><td> | </td><td class="num">35</td><td><span class="i">++++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Public/AppInstallerDownloader.h</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></td><td> | </td><td class="num">301</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerSharedLib/Public/AppInstallerVersions.h</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerSharedLib/Versions.cpp</a></td><td> | </td><td class="num">20</td><td><span class="i">+++++++++++++++</span><span class="d">-----</span></td></tr>
+</table></pre><pre>6 files changed, 256 insertions(+), 107 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -429,6 +429,7 @@ SMTO
+</a> sortof
+ sourceforge
+ SOURCESDIRECTORY
+<a href="#h0-0-3" id="h0-0-3" class="i">+sourceversion
+</a> spamming
+ SPAPI
+ Srinivasan
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Downloader.cpp.html">src/AppInstallerCommonCore/Downloader.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Downloader.cpp.html">src/AppInstallerCommonCore/Downloader.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,6 +1,5 @@
+</a> // Copyright (c) Microsoft Corporation.
+ // Licensed under the MIT License.
+<a href="#h1-0-2" id="h1-0-2" class="d">-
+</a> #include &quot;pch.h&quot;
+ #include &quot;Public/AppInstallerErrors.h&quot;
+ #include &quot;Public/AppInstallerRuntime.h&quot;
+<a href="#h1-1" id="h1-1" class="h">@@ -17,6 +16,9 @@
+</a> using namespace AppInstaller::Runtime;
+ using namespace AppInstaller::Settings;
+ using namespace AppInstaller::Filesystem;
+<a href="#h1-1-3" id="h1-1-3" class="i">+using namespace winrt::Windows::Web::Http;
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+using namespace winrt::Windows::Web::Http::Headers;
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+using namespace winrt::Windows::Web::Http::Filters;
+</a> 
+ namespace AppInstaller::Utility
+ {
+<a href="#h1-2" id="h1-2" class="h">@@ -141,6 +143,37 @@ namespace AppInstaller::Utility
+</a>         return result;
+     }
+ 
+<a href="#h1-2-3" id="h1-2-3" class="i">+    std::map&lt;std::string, std::string&gt; GetHeaders(std::string_view url)
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+    {
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+        AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Retrieving headers from url: &quot; &lt;&lt; url);
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+        HttpBaseProtocolFilter filter;
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        filter.CacheControl().ReadBehavior(HttpCacheReadBehavior::MostRecent);
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+        HttpClient client(filter);
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+        client.DefaultRequestHeaders().Connection().Clear();
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+        client.DefaultRequestHeaders().Append(L&quot;Connection&quot;, L&quot;close&quot;);
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+        client.DefaultRequestHeaders().UserAgent().ParseAdd(Utility::ConvertToUTF16(Runtime::GetDefaultUserAgent().get()));
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+        winrt::Windows::Foundation::Uri uri{ Utility::ConvertToUTF16(url) };
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+        HttpRequestMessage request(HttpMethod::Head(), uri);
+</a><a href="#h1-2-17" id="h1-2-17" class="i">+
+</a><a href="#h1-2-18" id="h1-2-18" class="i">+        HttpResponseMessage response = client.SendRequestAsync(request, HttpCompletionOption::ResponseHeadersRead).get();
+</a><a href="#h1-2-19" id="h1-2-19" class="i">+
+</a><a href="#h1-2-20" id="h1-2-20" class="i">+        THROW_HR_IF(
+</a><a href="#h1-2-21" id="h1-2-21" class="i">+            MAKE_HRESULT(SEVERITY_ERROR, FACILITY_HTTP, response.StatusCode()),
+</a><a href="#h1-2-22" id="h1-2-22" class="i">+            response.StatusCode() != HttpStatusCode::Ok);
+</a><a href="#h1-2-23" id="h1-2-23" class="i">+
+</a><a href="#h1-2-24" id="h1-2-24" class="i">+        std::map&lt;std::string, std::string&gt; result;
+</a><a href="#h1-2-25" id="h1-2-25" class="i">+
+</a><a href="#h1-2-26" id="h1-2-26" class="i">+        for (const auto&amp; header : response.Headers())
+</a><a href="#h1-2-27" id="h1-2-27" class="i">+        {
+</a><a href="#h1-2-28" id="h1-2-28" class="i">+            result.emplace(Utility::ConvertToUTF8(header.Key()), Utility::ConvertToUTF8(header.Value()));
+</a><a href="#h1-2-29" id="h1-2-29" class="i">+        }
+</a><a href="#h1-2-30" id="h1-2-30" class="i">+
+</a><a href="#h1-2-31" id="h1-2-31" class="i">+        return result;
+</a><a href="#h1-2-32" id="h1-2-32" class="i">+    }
+</a><a href="#h1-2-33" id="h1-2-33" class="i">+
+</a>     std::optional&lt;std::vector&lt;BYTE&gt;&gt; DownloadToStream(
+         const std::string&amp; url,
+         std::ostream&amp; dest,
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Public/AppInstallerDownloader.h.html">src/AppInstallerCommonCore/Public/AppInstallerDownloader.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerDownloader.h.html">src/AppInstallerCommonCore/Public/AppInstallerDownloader.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -7,6 +7,7 @@
+</a> #include &lt;wrl/client.h&gt;
+ 
+ #include &lt;filesystem&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+#include &lt;map&gt;
+</a> #include &lt;optional&gt;
+ #include &lt;ostream&gt;
+ #include &lt;string&gt;
+<a href="#h2-1" id="h2-1" class="h">@@ -59,6 +60,9 @@ namespace AppInstaller::Utility
+</a>         bool computeHash = false,
+         std::optional&lt;DownloadInfo&gt; info = {});
+ 
+<a href="#h2-1-3" id="h2-1-3" class="i">+    // Gets the headers for the given URL.
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+    std::map&lt;std::string, std::string&gt; GetHeaders(std::string_view url);
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+
+</a>     // Determines if the given url is a remote location.
+     bool IsUrlRemote(std::string_view url);
+ 
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -6,6 +6,7 @@
+</a> #include &quot;Microsoft/SQLiteIndexSource.h&quot;
+ 
+ #include &lt;AppInstallerDeployment.h&gt;
+<a href="#h3-0-3" id="h3-0-3" class="i">+#include &lt;AppInstallerDownloader.h&gt;
+</a> #include &lt;AppInstallerMsixInfo.h&gt;
+ #include &lt;winget/ManagedFile.h&gt;
+ 
+<a href="#h3-1" id="h3-1" class="h">@@ -17,20 +18,48 @@ namespace AppInstaller::Repository::Microsoft
+</a>     namespace
+     {
+         static constexpr std::string_view s_PreIndexedPackageSourceFactory_PackageFileName = &quot;source.msix&quot;sv;
+<a href="#h3-1-3" id="h3-1-3" class="i">+        static constexpr std::string_view s_PreIndexedPackageSourceFactory_PackageVersionHeader = &quot;x-ms-meta-sourceversion&quot;sv;
+</a>         static constexpr std::string_view s_PreIndexedPackageSourceFactory_IndexFileName = &quot;index.db&quot;sv;
+         // TODO: This being hard coded to force using the Public directory name is not ideal.
+         static constexpr std::string_view s_PreIndexedPackageSourceFactory_IndexFilePath = &quot;Public\\index.db&quot;sv;
+ 
+<a href="#h3-1-8" id="h3-1-8" class="i">+        // Construct the package location from the given details.
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+        // Currently expects that the arg is an https uri pointing to the root of the data.
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+        std::string GetPackageLocation(const std::string&amp; basePath, std::string_view fileName)
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+        {
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+            std::string result = basePath;
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+            if (result.back() != &#39;/&#39;)
+</a><a href="#h3-1-14" id="h3-1-14" class="i">+            {
+</a><a href="#h3-1-15" id="h3-1-15" class="i">+                result += &#39;/&#39;;
+</a><a href="#h3-1-16" id="h3-1-16" class="i">+            }
+</a><a href="#h3-1-17" id="h3-1-17" class="i">+            result += fileName;
+</a><a href="#h3-1-18" id="h3-1-18" class="i">+            return result;
+</a><a href="#h3-1-19" id="h3-1-19" class="i">+        }
+</a><a href="#h3-1-20" id="h3-1-20" class="i">+
+</a><a href="#h3-1-21" id="h3-1-21" class="i">+        std::string GetPrimaryPackageLocation(const SourceDetails&amp; details, std::string_view fileName)
+</a><a href="#h3-1-22" id="h3-1-22" class="i">+        {
+</a><a href="#h3-1-23" id="h3-1-23" class="i">+            THROW_HR_IF(E_INVALIDARG, details.Arg.empty());
+</a><a href="#h3-1-24" id="h3-1-24" class="i">+            return GetPackageLocation(details.Arg, fileName);
+</a><a href="#h3-1-25" id="h3-1-25" class="i">+        }
+</a><a href="#h3-1-26" id="h3-1-26" class="i">+
+</a><a href="#h3-1-27" id="h3-1-27" class="i">+        std::string GetAlternatePackageLocation(const SourceDetails&amp; details, std::string_view fileName)
+</a><a href="#h3-1-28" id="h3-1-28" class="i">+        {
+</a><a href="#h3-1-29" id="h3-1-29" class="i">+            return (details.AlternateArg.empty() ?
+</a><a href="#h3-1-30" id="h3-1-30" class="i">+                std::string{} :
+</a><a href="#h3-1-31" id="h3-1-31" class="i">+                GetPackageLocation(details.AlternateArg, fileName));
+</a><a href="#h3-1-32" id="h3-1-32" class="i">+        }
+</a><a href="#h3-1-33" id="h3-1-33" class="i">+
+</a><a href="#h3-1-34" id="h3-1-34" class="i">+        // Abstracts the fallback for package location when the MsixInfo is needed.
+</a>         struct PreIndexedPackageInfo
+         {
+             template &lt;typename LocationCheck&gt;
+             PreIndexedPackageInfo(const SourceDetails&amp; details, LocationCheck&amp;&amp; locationCheck)
+             {
+                 // Get both locations to force the alternate location check
+<a href="#h3-1-41" id="h3-1-41" class="d">-                m_packageLocation = GetPrimaryPackageLocation(details);
+</a><a href="#h3-1-42" id="h3-1-42" class="i">+                m_packageLocation = GetPrimaryPackageLocation(details, s_PreIndexedPackageSourceFactory_PackageFileName);
+</a>                 locationCheck(m_packageLocation);
+ 
+<a href="#h3-1-45" id="h3-1-45" class="d">-                std::string alternateLocation = GetAlternatePackageLocation(details);
+</a><a href="#h3-1-46" id="h3-1-46" class="i">+                std::string alternateLocation = GetAlternatePackageLocation(details, s_PreIndexedPackageSourceFactory_PackageFileName);
+</a>                 if (!alternateLocation.empty())
+                 {
+                     locationCheck(alternateLocation);
+<a href="#h3-2" id="h3-2" class="h">@@ -72,29 +101,78 @@ namespace AppInstaller::Repository::Microsoft
+</a>         private:
+             std::string m_packageLocation;
+             std::unique_ptr&lt;Msix::MsixInfo&gt; m_msixInfo;
+<a href="#h3-2-3" id="h3-2-3" class="i">+        };
+</a> 
+<a href="#h3-2-5" id="h3-2-5" class="d">-            std::string GetPrimaryPackageLocation(const SourceDetails&amp; details)
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+        // Abstracts the fallback for package location when an update is being done.
+</a><a href="#h3-2-7" id="h3-2-7" class="i">+        struct PreIndexedPackageUpdateCheck
+</a><a href="#h3-2-8" id="h3-2-8" class="i">+        {
+</a><a href="#h3-2-9" id="h3-2-9" class="i">+            PreIndexedPackageUpdateCheck(const SourceDetails&amp; details)
+</a>             {
+<a href="#h3-2-11" id="h3-2-11" class="d">-                THROW_HR_IF(E_INVALIDARG, details.Arg.empty());
+</a><a href="#h3-2-12" id="h3-2-12" class="d">-                return GetPackageLocation(details.Arg);
+</a><a href="#h3-2-13" id="h3-2-13" class="d">-            }
+</a><a href="#h3-2-14" id="h3-2-14" class="i">+                m_packageLocation = GetPrimaryPackageLocation(details, s_PreIndexedPackageSourceFactory_PackageFileName);
+</a><a href="#h3-2-15" id="h3-2-15" class="i">+                std::string alternateLocation = GetAlternatePackageLocation(details, s_PreIndexedPackageSourceFactory_PackageFileName);
+</a> 
+<a href="#h3-2-17" id="h3-2-17" class="d">-            std::string GetAlternatePackageLocation(const SourceDetails&amp; details)
+</a><a href="#h3-2-18" id="h3-2-18" class="d">-            {
+</a><a href="#h3-2-19" id="h3-2-19" class="d">-                return (details.AlternateArg.empty() ? std::string{} : GetPackageLocation(details.AlternateArg));
+</a><a href="#h3-2-20" id="h3-2-20" class="i">+                // Try getting the primary location&#39;s info
+</a><a href="#h3-2-21" id="h3-2-21" class="i">+                HRESULT primaryHR = S_OK;
+</a><a href="#h3-2-22" id="h3-2-22" class="i">+
+</a><a href="#h3-2-23" id="h3-2-23" class="i">+                try
+</a><a href="#h3-2-24" id="h3-2-24" class="i">+                {
+</a><a href="#h3-2-25" id="h3-2-25" class="i">+                    m_availableVersion = GetAvailableVersionFrom(m_packageLocation);
+</a><a href="#h3-2-26" id="h3-2-26" class="i">+                    return;
+</a><a href="#h3-2-27" id="h3-2-27" class="i">+                }
+</a><a href="#h3-2-28" id="h3-2-28" class="i">+                catch (...)
+</a><a href="#h3-2-29" id="h3-2-29" class="i">+                {
+</a><a href="#h3-2-30" id="h3-2-30" class="i">+                    if (alternateLocation.empty())
+</a><a href="#h3-2-31" id="h3-2-31" class="i">+                    {
+</a><a href="#h3-2-32" id="h3-2-32" class="i">+                        throw;
+</a><a href="#h3-2-33" id="h3-2-33" class="i">+                    }
+</a><a href="#h3-2-34" id="h3-2-34" class="i">+                    primaryHR = LOG_CAUGHT_EXCEPTION_MSG(&quot;PreIndexedPackageUpdateCheck failed on primary location&quot;);
+</a><a href="#h3-2-35" id="h3-2-35" class="i">+                }
+</a><a href="#h3-2-36" id="h3-2-36" class="i">+
+</a><a href="#h3-2-37" id="h3-2-37" class="i">+                // Try alternate location
+</a><a href="#h3-2-38" id="h3-2-38" class="i">+                m_packageLocation = std::move(alternateLocation);
+</a><a href="#h3-2-39" id="h3-2-39" class="i">+
+</a><a href="#h3-2-40" id="h3-2-40" class="i">+                try
+</a><a href="#h3-2-41" id="h3-2-41" class="i">+                {
+</a><a href="#h3-2-42" id="h3-2-42" class="i">+                    m_availableVersion = GetAvailableVersionFrom(m_packageLocation);
+</a><a href="#h3-2-43" id="h3-2-43" class="i">+                    return;
+</a><a href="#h3-2-44" id="h3-2-44" class="i">+                }
+</a><a href="#h3-2-45" id="h3-2-45" class="i">+                CATCH_LOG_MSG(&quot;PreIndexedPackageUpdateCheck failed on alternate location&quot;);
+</a><a href="#h3-2-46" id="h3-2-46" class="i">+
+</a><a href="#h3-2-47" id="h3-2-47" class="i">+                THROW_HR(primaryHR);
+</a>             }
+ 
+<a href="#h3-2-50" id="h3-2-50" class="d">-            // Construct the package location from the given details.
+</a><a href="#h3-2-51" id="h3-2-51" class="d">-            // Currently expects that the arg is an https uri pointing to the root of the data.
+</a><a href="#h3-2-52" id="h3-2-52" class="d">-            std::string GetPackageLocation(const std::string&amp; basePath)
+</a><a href="#h3-2-53" id="h3-2-53" class="i">+            const std::string&amp; PackageLocation() const { return m_packageLocation; }
+</a><a href="#h3-2-54" id="h3-2-54" class="i">+            const Msix::PackageVersion&amp; AvailableVersion() const { return m_availableVersion; }
+</a><a href="#h3-2-55" id="h3-2-55" class="i">+
+</a><a href="#h3-2-56" id="h3-2-56" class="i">+        private:
+</a><a href="#h3-2-57" id="h3-2-57" class="i">+            std::string m_packageLocation;
+</a><a href="#h3-2-58" id="h3-2-58" class="i">+            Msix::PackageVersion m_availableVersion;
+</a><a href="#h3-2-59" id="h3-2-59" class="i">+
+</a><a href="#h3-2-60" id="h3-2-60" class="i">+            Msix::PackageVersion GetAvailableVersionFrom(const std::string&amp; packageLocation)
+</a>             {
+<a href="#h3-2-62" id="h3-2-62" class="d">-                std::string result = basePath;
+</a><a href="#h3-2-63" id="h3-2-63" class="d">-                if (result.back() != &#39;/&#39;)
+</a><a href="#h3-2-64" id="h3-2-64" class="i">+                if (Utility::IsUrlRemote(packageLocation))
+</a>                 {
+<a href="#h3-2-66" id="h3-2-66" class="d">-                    result += &#39;/&#39;;
+</a><a href="#h3-2-67" id="h3-2-67" class="i">+                    try
+</a><a href="#h3-2-68" id="h3-2-68" class="i">+                    {
+</a><a href="#h3-2-69" id="h3-2-69" class="i">+                        std::map&lt;std::string, std::string&gt; headers = Utility::GetHeaders(packageLocation);
+</a><a href="#h3-2-70" id="h3-2-70" class="i">+                        auto itr = headers.find(std::string{ s_PreIndexedPackageSourceFactory_PackageVersionHeader });
+</a><a href="#h3-2-71" id="h3-2-71" class="i">+                        if (itr != headers.end())
+</a><a href="#h3-2-72" id="h3-2-72" class="i">+                        {
+</a><a href="#h3-2-73" id="h3-2-73" class="i">+                            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Header indicates version is: &quot; &lt;&lt; itr-&gt;second);
+</a><a href="#h3-2-74" id="h3-2-74" class="i">+                            return { itr-&gt;second };
+</a><a href="#h3-2-75" id="h3-2-75" class="i">+                        }
+</a><a href="#h3-2-76" id="h3-2-76" class="i">+                    }
+</a><a href="#h3-2-77" id="h3-2-77" class="i">+                    CATCH_LOG();
+</a>                 }
+<a href="#h3-2-79" id="h3-2-79" class="d">-                result += s_PreIndexedPackageSourceFactory_PackageFileName;
+</a><a href="#h3-2-80" id="h3-2-80" class="d">-                return result;
+</a><a href="#h3-2-81" id="h3-2-81" class="i">+
+</a><a href="#h3-2-82" id="h3-2-82" class="i">+                AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;No version header, falling back to reading the package data&quot;);
+</a><a href="#h3-2-83" id="h3-2-83" class="i">+                Msix::MsixInfo info{ packageLocation };
+</a><a href="#h3-2-84" id="h3-2-84" class="i">+                auto manifest = info.GetAppPackageManifests();
+</a><a href="#h3-2-85" id="h3-2-85" class="i">+
+</a><a href="#h3-2-86" id="h3-2-86" class="i">+                THROW_HR_IF(APPINSTALLER_CLI_ERROR_PACKAGE_IS_BUNDLE, manifest.size() &gt; 1);
+</a><a href="#h3-2-87" id="h3-2-87" class="i">+                THROW_HR_IF(E_UNEXPECTED, manifest.size() == 0);
+</a><a href="#h3-2-88" id="h3-2-88" class="i">+
+</a><a href="#h3-2-89" id="h3-2-89" class="i">+                return manifest[0].GetIdentity().GetVersion();
+</a>             }
+         };
+ 
+<a href="#h3-3" id="h3-3" class="h">@@ -164,7 +242,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     return false;
+                 }
+ 
+<a href="#h3-3-3" id="h3-3-3" class="d">-                return UpdateInternal(packageInfo.PackageLocation(), packageInfo.MsixInfo(), details, progress);
+</a><a href="#h3-3-4" id="h3-3-4" class="i">+                return UpdateInternal(packageInfo.PackageLocation(), details, progress);
+</a>             }
+ 
+             bool Update(const SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+<a href="#h3-4" id="h3-4" class="h">@@ -177,7 +255,10 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 return UpdateBase(details, true, progress);
+             }
+ 
+<a href="#h3-4-3" id="h3-4-3" class="d">-            virtual bool UpdateInternal(const std::string&amp; packageLocation, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a><a href="#h3-4-4" id="h3-4-4" class="i">+            // Retrieves the currently cached version of the package.
+</a><a href="#h3-4-5" id="h3-4-5" class="i">+            virtual std::optional&lt;Msix::PackageVersion&gt; GetCurrentVersion(const SourceDetails&amp; details) = 0;
+</a><a href="#h3-4-6" id="h3-4-6" class="i">+
+</a><a href="#h3-4-7" id="h3-4-7" class="i">+            virtual bool UpdateInternal(const std::string&amp; packageLocation, const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a> 
+             bool Remove(const SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+             {
+<a href="#h3-5" id="h3-5" class="h">@@ -215,14 +296,23 @@ namespace AppInstaller::Repository::Microsoft
+</a>             {
+                 THROW_HR_IF(E_INVALIDARG, details.Type != PreIndexedPackageSourceFactory::Type());
+ 
+<a href="#h3-5-3" id="h3-5-3" class="d">-                PreIndexedPackageInfo packageInfo(details, [](const std::string&amp;){});
+</a><a href="#h3-5-4" id="h3-5-4" class="i">+                std::optional&lt;Msix::PackageVersion&gt; currentVersion = GetCurrentVersion(details);
+</a><a href="#h3-5-5" id="h3-5-5" class="i">+                PreIndexedPackageUpdateCheck updateCheck(details);
+</a> 
+<a href="#h3-5-7" id="h3-5-7" class="d">-                // The package should not be a bundle
+</a><a href="#h3-5-8" id="h3-5-8" class="d">-                THROW_HR_IF(APPINSTALLER_CLI_ERROR_PACKAGE_IS_BUNDLE, packageInfo.MsixInfo().GetIsBundle());
+</a><a href="#h3-5-9" id="h3-5-9" class="d">-
+</a><a href="#h3-5-10" id="h3-5-10" class="d">-                // Ensure that family name has not changed
+</a><a href="#h3-5-11" id="h3-5-11" class="d">-                THROW_HR_IF(APPINSTALLER_CLI_ERROR_SOURCE_DATA_INTEGRITY_FAILURE,
+</a><a href="#h3-5-12" id="h3-5-12" class="d">-                    GetPackageFamilyNameFromDetails(details) != Msix::GetPackageFamilyNameFromFullName(packageInfo.MsixInfo().GetPackageFullName()));
+</a><a href="#h3-5-13" id="h3-5-13" class="i">+                if (currentVersion)
+</a><a href="#h3-5-14" id="h3-5-14" class="i">+                {
+</a><a href="#h3-5-15" id="h3-5-15" class="i">+                    if (currentVersion.value() &gt;= updateCheck.AvailableVersion())
+</a><a href="#h3-5-16" id="h3-5-16" class="i">+                    {
+</a><a href="#h3-5-17" id="h3-5-17" class="i">+                        AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Remote source data (&quot; &lt;&lt; updateCheck.AvailableVersion().ToString() &lt;&lt;
+</a><a href="#h3-5-18" id="h3-5-18" class="i">+                            &quot;) was not newer than existing (&quot; &lt;&lt; currentVersion.value().ToString() &lt;&lt; &quot;), no update needed&quot;);
+</a><a href="#h3-5-19" id="h3-5-19" class="i">+                        return true;
+</a><a href="#h3-5-20" id="h3-5-20" class="i">+                    }
+</a><a href="#h3-5-21" id="h3-5-21" class="i">+                    else
+</a><a href="#h3-5-22" id="h3-5-22" class="i">+                    {
+</a><a href="#h3-5-23" id="h3-5-23" class="i">+                        AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Remote source data (&quot; &lt;&lt; updateCheck.AvailableVersion().ToString() &lt;&lt;
+</a><a href="#h3-5-24" id="h3-5-24" class="i">+                            &quot;) was newer than existing (&quot; &lt;&lt; currentVersion.value().ToString() &lt;&lt; &quot;), updating&quot;);
+</a><a href="#h3-5-25" id="h3-5-25" class="i">+                    }
+</a><a href="#h3-5-26" id="h3-5-26" class="i">+                }
+</a> 
+                 if (progress.IsCancelledBy(CancelReason::Any))
+                 {
+<a href="#h3-6" id="h3-6" class="h">@@ -236,7 +326,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     return false;
+                 }
+ 
+<a href="#h3-6-3" id="h3-6-3" class="d">-                return UpdateInternal(packageInfo.PackageLocation(), packageInfo.MsixInfo(), details, progress);
+</a><a href="#h3-6-4" id="h3-6-4" class="i">+                return UpdateInternal(updateCheck.PackageLocation(), details, progress);
+</a>             }
+         };
+ 
+<a href="#h3-7" id="h3-7" class="h">@@ -305,46 +395,58 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 return std::make_shared&lt;PackagedContextSourceReference&gt;(details);
+             }
+ 
+<a href="#h3-7-3" id="h3-7-3" class="d">-            bool UpdateInternal(const std::string&amp; packageLocation, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a><a href="#h3-7-4" id="h3-7-4" class="i">+            std::optional&lt;Msix::PackageVersion&gt; GetCurrentVersion(const SourceDetails&amp; details) override
+</a>             {
+<a href="#h3-7-6" id="h3-7-6" class="d">-                // Check if the package is newer before calling into deployment.
+</a><a href="#h3-7-7" id="h3-7-7" class="d">-                // This can save us a lot of time over letting deployment detect same version.
+</a>                 auto extension = GetExtensionFromDetails(details);
+<a href="#h3-7-9" id="h3-7-9" class="i">+
+</a>                 if (extension)
+                 {
+<a href="#h3-7-12" id="h3-7-12" class="d">-                    if (!packageInfo.IsNewerThan(extension-&gt;GetPackageVersion()))
+</a><a href="#h3-7-13" id="h3-7-13" class="d">-                    {
+</a><a href="#h3-7-14" id="h3-7-14" class="d">-                        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Remote source data was not newer than existing, no update needed&quot;);
+</a><a href="#h3-7-15" id="h3-7-15" class="d">-                        return true;
+</a><a href="#h3-7-16" id="h3-7-16" class="d">-                    }
+</a><a href="#h3-7-17" id="h3-7-17" class="i">+                    auto version = extension-&gt;GetPackageVersion();
+</a><a href="#h3-7-18" id="h3-7-18" class="i">+                    return Msix::PackageVersion{ version.Major, version.Minor, version.Build, version.Revision };
+</a>                 }
+<a href="#h3-7-20" id="h3-7-20" class="d">-
+</a><a href="#h3-7-21" id="h3-7-21" class="d">-                if (progress.IsCancelledBy(CancelReason::Any))
+</a><a href="#h3-7-22" id="h3-7-22" class="i">+                else
+</a>                 {
+<a href="#h3-7-24" id="h3-7-24" class="d">-                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Cancelling update upon request&quot;);
+</a><a href="#h3-7-25" id="h3-7-25" class="d">-                    return false;
+</a><a href="#h3-7-26" id="h3-7-26" class="i">+                    return std::nullopt;
+</a>                 }
+<a href="#h3-7-28" id="h3-7-28" class="i">+            }
+</a> 
+<a href="#h3-7-30" id="h3-7-30" class="i">+            bool UpdateInternal(const std::string&amp; packageLocation, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a><a href="#h3-7-31" id="h3-7-31" class="i">+            {
+</a>                 // Due to complications with deployment, download the file and deploy from
+                 // a local source while we investigate further.
+                 bool download = Utility::IsUrlRemote(packageLocation);
+<a href="#h3-7-35" id="h3-7-35" class="d">-                std::filesystem::path tempFile;
+</a><a href="#h3-7-36" id="h3-7-36" class="d">-                winrt::Windows::Foundation::Uri uri = nullptr;
+</a><a href="#h3-7-37" id="h3-7-37" class="i">+                std::filesystem::path localFile;
+</a> 
+                 if (download)
+                 {
+<a href="#h3-7-41" id="h3-7-41" class="d">-                    tempFile = Runtime::GetPathTo(Runtime::PathName::Temp);
+</a><a href="#h3-7-42" id="h3-7-42" class="d">-                    tempFile /= GetPackageFamilyNameFromDetails(details) + &quot;.msix&quot;;
+</a><a href="#h3-7-43" id="h3-7-43" class="d">-
+</a><a href="#h3-7-44" id="h3-7-44" class="d">-                    Utility::Download(packageLocation, tempFile, Utility::DownloadType::Index, progress);
+</a><a href="#h3-7-45" id="h3-7-45" class="i">+                    localFile = Runtime::GetPathTo(Runtime::PathName::Temp);
+</a><a href="#h3-7-46" id="h3-7-46" class="i">+                    localFile /= GetPackageFamilyNameFromDetails(details) + &quot;.msix&quot;;
+</a> 
+<a href="#h3-7-48" id="h3-7-48" class="d">-                    uri = winrt::Windows::Foundation::Uri(tempFile.c_str());
+</a><a href="#h3-7-49" id="h3-7-49" class="i">+                    Utility::Download(packageLocation, localFile, Utility::DownloadType::Index, progress);
+</a>                 }
+                 else
+                 {
+<a href="#h3-7-53" id="h3-7-53" class="d">-                    uri = winrt::Windows::Foundation::Uri(Utility::ConvertToUTF16(packageLocation));
+</a><a href="#h3-7-54" id="h3-7-54" class="i">+                    localFile = Utility::ConvertToUTF16(packageLocation);
+</a>                 }
+ 
+<a href="#h3-7-57" id="h3-7-57" class="i">+                // Verify the local file
+</a><a href="#h3-7-58" id="h3-7-58" class="i">+                Msix::WriteLockedMsixFile fileLock{ localFile };
+</a><a href="#h3-7-59" id="h3-7-59" class="i">+                Msix::MsixInfo localMsixInfo{ localFile };
+</a><a href="#h3-7-60" id="h3-7-60" class="i">+
+</a><a href="#h3-7-61" id="h3-7-61" class="i">+                // The package should not be a bundle
+</a><a href="#h3-7-62" id="h3-7-62" class="i">+                THROW_HR_IF(APPINSTALLER_CLI_ERROR_PACKAGE_IS_BUNDLE, localMsixInfo.GetIsBundle());
+</a><a href="#h3-7-63" id="h3-7-63" class="i">+
+</a><a href="#h3-7-64" id="h3-7-64" class="i">+                // Ensure that family name has not changed
+</a><a href="#h3-7-65" id="h3-7-65" class="i">+                THROW_HR_IF(APPINSTALLER_CLI_ERROR_SOURCE_DATA_INTEGRITY_FAILURE,
+</a><a href="#h3-7-66" id="h3-7-66" class="i">+                    GetPackageFamilyNameFromDetails(details) != Msix::GetPackageFamilyNameFromFullName(localMsixInfo.GetPackageFullName()));
+</a><a href="#h3-7-67" id="h3-7-67" class="i">+
+</a><a href="#h3-7-68" id="h3-7-68" class="i">+                if (!fileLock.ValidateTrustInfo(WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::StoreOrigin)))
+</a><a href="#h3-7-69" id="h3-7-69" class="i">+                {
+</a><a href="#h3-7-70" id="h3-7-70" class="i">+                    AICLI_LOG(Repo, Error, &lt;&lt; &quot;Source update failed. Source package failed trust validation.&quot;);
+</a><a href="#h3-7-71" id="h3-7-71" class="i">+                    THROW_HR(APPINSTALLER_CLI_ERROR_SOURCE_DATA_INTEGRITY_FAILURE);
+</a><a href="#h3-7-72" id="h3-7-72" class="i">+                }
+</a><a href="#h3-7-73" id="h3-7-73" class="i">+
+</a><a href="#h3-7-74" id="h3-7-74" class="i">+                winrt::Windows::Foundation::Uri uri = winrt::Windows::Foundation::Uri(localFile.c_str());
+</a>                 Deployment::AddPackage(
+                     uri,
+                     winrt::Windows::Management::Deployment::DeploymentOptions::None,
+<a href="#h3-8" id="h3-8" class="h">@@ -356,29 +458,11 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     try
+                     {
+                         // If successful, delete the file
+<a href="#h3-8-3" id="h3-8-3" class="d">-                        std::filesystem::remove(tempFile);
+</a><a href="#h3-8-4" id="h3-8-4" class="i">+                        std::filesystem::remove(localFile);
+</a>                     }
+                     CATCH_LOG();
+                 }
+ 
+<a href="#h3-8-9" id="h3-8-9" class="d">-                // Ensure origin if necessary
+</a><a href="#h3-8-10" id="h3-8-10" class="d">-                // TODO: Move to checking this before deploying it. That requires significant code to be written though
+</a><a href="#h3-8-11" id="h3-8-11" class="d">-                //       as there is no public API to check the origin directly.
+</a><a href="#h3-8-12" id="h3-8-12" class="d">-                if (WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::StoreOrigin))
+</a><a href="#h3-8-13" id="h3-8-13" class="d">-                {
+</a><a href="#h3-8-14" id="h3-8-14" class="d">-                    std::wstring pfn = packageInfo.GetPackageFullNameWide();
+</a><a href="#h3-8-15" id="h3-8-15" class="d">-
+</a><a href="#h3-8-16" id="h3-8-16" class="d">-                    PackageOrigin origin = PackageOrigin::PackageOrigin_Unknown;
+</a><a href="#h3-8-17" id="h3-8-17" class="d">-                    if (SUCCEEDED_WIN32_LOG(GetStagedPackageOrigin(pfn.c_str(), &amp;origin)))
+</a><a href="#h3-8-18" id="h3-8-18" class="d">-                    {
+</a><a href="#h3-8-19" id="h3-8-19" class="d">-                        if (origin != PackageOrigin::PackageOrigin_Store)
+</a><a href="#h3-8-20" id="h3-8-20" class="d">-                        {
+</a><a href="#h3-8-21" id="h3-8-21" class="d">-                            Deployment::RemovePackage(Utility::ConvertToUTF8(pfn), winrt::Windows::Management::Deployment::RemovalOptions::None, progress);
+</a><a href="#h3-8-22" id="h3-8-22" class="d">-                            THROW_HR(APPINSTALLER_CLI_ERROR_SOURCE_DATA_INTEGRITY_FAILURE);
+</a><a href="#h3-8-23" id="h3-8-23" class="d">-                        }
+</a><a href="#h3-8-24" id="h3-8-24" class="d">-                    }
+</a><a href="#h3-8-25" id="h3-8-25" class="d">-                }
+</a><a href="#h3-8-26" id="h3-8-26" class="d">-
+</a>                 return true;
+             }
+ 
+<a href="#h3-9" id="h3-9" class="h">@@ -480,27 +564,51 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 return std::make_shared&lt;DesktopContextSourceReference&gt;(details);
+             }
+ 
+<a href="#h3-9-3" id="h3-9-3" class="d">-            bool UpdateInternal(const std::string&amp; packageLocation, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a><a href="#h3-9-4" id="h3-9-4" class="i">+            std::optional&lt;Msix::PackageVersion&gt; GetCurrentVersion(const SourceDetails&amp; details) override
+</a>             {
+<a href="#h3-9-6" id="h3-9-6" class="d">-                // We will extract the manifest and index files directly to this location
+</a>                 std::filesystem::path packageState = GetStatePathFromDetails(details);
+<a href="#h3-9-8" id="h3-9-8" class="d">-                std::filesystem::create_directories(packageState);
+</a><a href="#h3-9-9" id="h3-9-9" class="d">-
+</a>                 std::filesystem::path packagePath = packageState / s_PreIndexedPackageSourceFactory_PackageFileName;
+ 
+                 if (std::filesystem::exists(packagePath))
+                 {
+                     // If we already have a trusted index package, use it to determine if we need to update or not.
+                     Msix::WriteLockedMsixFile indexPackage{ packagePath };
+<a href="#h3-9-16" id="h3-9-16" class="d">-                    if (indexPackage.ValidateTrustInfo(WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::StoreOrigin)) &amp;&amp;
+</a><a href="#h3-9-17" id="h3-9-17" class="d">-                        !packageInfo.IsNewerThan(packagePath))
+</a><a href="#h3-9-18" id="h3-9-18" class="i">+                    if (indexPackage.ValidateTrustInfo(WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::StoreOrigin)))
+</a>                     {
+<a href="#h3-9-20" id="h3-9-20" class="d">-                        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Remote source data was not newer than existing, no update needed&quot;);
+</a><a href="#h3-9-21" id="h3-9-21" class="d">-                        return true;
+</a><a href="#h3-9-22" id="h3-9-22" class="i">+                        Msix::MsixInfo msixInfo{ packagePath };
+</a><a href="#h3-9-23" id="h3-9-23" class="i">+                        auto manifest = msixInfo.GetAppPackageManifests();
+</a><a href="#h3-9-24" id="h3-9-24" class="i">+
+</a><a href="#h3-9-25" id="h3-9-25" class="i">+                        if (manifest.size() == 1)
+</a><a href="#h3-9-26" id="h3-9-26" class="i">+                        {
+</a><a href="#h3-9-27" id="h3-9-27" class="i">+                            return manifest[0].GetIdentity().GetVersion();
+</a><a href="#h3-9-28" id="h3-9-28" class="i">+                        }
+</a>                     }
+                 }
+ 
+<a href="#h3-9-32" id="h3-9-32" class="i">+                return std::nullopt;
+</a><a href="#h3-9-33" id="h3-9-33" class="i">+            }
+</a><a href="#h3-9-34" id="h3-9-34" class="i">+
+</a><a href="#h3-9-35" id="h3-9-35" class="i">+            bool UpdateInternal(const std::string&amp; packageLocation, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a><a href="#h3-9-36" id="h3-9-36" class="i">+            {
+</a><a href="#h3-9-37" id="h3-9-37" class="i">+                // We will extract the manifest and index files directly to this location
+</a><a href="#h3-9-38" id="h3-9-38" class="i">+                std::filesystem::path packageState = GetStatePathFromDetails(details);
+</a><a href="#h3-9-39" id="h3-9-39" class="i">+                std::filesystem::create_directories(packageState);
+</a><a href="#h3-9-40" id="h3-9-40" class="i">+
+</a><a href="#h3-9-41" id="h3-9-41" class="i">+                std::filesystem::path packagePath = packageState / s_PreIndexedPackageSourceFactory_PackageFileName;
+</a><a href="#h3-9-42" id="h3-9-42" class="i">+
+</a>                 std::filesystem::path tempPackagePath = packagePath.u8string() + &quot;.dnld.msix&quot;;
+<a href="#h3-9-44" id="h3-9-44" class="i">+                auto removeTempFileOnExit = wil::scope_exit([&amp;]()
+</a><a href="#h3-9-45" id="h3-9-45" class="i">+                    {
+</a><a href="#h3-9-46" id="h3-9-46" class="i">+                        try
+</a><a href="#h3-9-47" id="h3-9-47" class="i">+                        {
+</a><a href="#h3-9-48" id="h3-9-48" class="i">+                            std::filesystem::remove(tempPackagePath);
+</a><a href="#h3-9-49" id="h3-9-49" class="i">+                        }
+</a><a href="#h3-9-50" id="h3-9-50" class="i">+                        catch (...)
+</a><a href="#h3-9-51" id="h3-9-51" class="i">+                        {
+</a><a href="#h3-9-52" id="h3-9-52" class="i">+                            AICLI_LOG(Repo, Info, &lt;&lt; &quot;Failed to remove temp index file at: &quot; &lt;&lt; tempPackagePath);
+</a><a href="#h3-9-53" id="h3-9-53" class="i">+                        }
+</a><a href="#h3-9-54" id="h3-9-54" class="i">+                    });
+</a><a href="#h3-9-55" id="h3-9-55" class="i">+
+</a>                 if (Utility::IsUrlRemote(packageLocation))
+                 {
+                     AppInstaller::Utility::Download(packageLocation, tempPackagePath, AppInstaller::Utility::DownloadType::Index, progress);
+<a href="#h3-10" id="h3-10" class="h">@@ -511,46 +619,37 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     progress.OnProgress(100, 100, ProgressType::Percent);
+                 }
+ 
+<a href="#h3-10-3" id="h3-10-3" class="d">-                bool updateSuccess = false;
+</a>                 if (progress.IsCancelledBy(CancelReason::Any))
+                 {
+                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Cancelling update upon request&quot;);
+<a href="#h3-10-7" id="h3-10-7" class="i">+                    return false;
+</a>                 }
+<a href="#h3-10-9" id="h3-10-9" class="d">-                else
+</a><a href="#h3-10-10" id="h3-10-10" class="i">+
+</a>                 {
+<a href="#h3-10-12" id="h3-10-12" class="d">-                    bool tempIndexPackageTrusted = false;
+</a><a href="#h3-10-13" id="h3-10-13" class="i">+                    // Extra scope to release the file lock right after trust validation.
+</a><a href="#h3-10-14" id="h3-10-14" class="i">+                    Msix::WriteLockedMsixFile tempIndexPackage{ tempPackagePath };
+</a><a href="#h3-10-15" id="h3-10-15" class="i">+                    Msix::MsixInfo tempMsixInfo{ tempPackagePath };
+</a> 
+<a href="#h3-10-17" id="h3-10-17" class="d">-                    {
+</a><a href="#h3-10-18" id="h3-10-18" class="d">-                        // Extra scope to release the file lock right after trust validation.
+</a><a href="#h3-10-19" id="h3-10-19" class="d">-                        Msix::WriteLockedMsixFile tempIndexPackage{ tempPackagePath };
+</a><a href="#h3-10-20" id="h3-10-20" class="d">-                        tempIndexPackageTrusted = tempIndexPackage.ValidateTrustInfo(WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::StoreOrigin));
+</a><a href="#h3-10-21" id="h3-10-21" class="d">-                    }
+</a><a href="#h3-10-22" id="h3-10-22" class="i">+                    // The package should not be a bundle
+</a><a href="#h3-10-23" id="h3-10-23" class="i">+                    THROW_HR_IF(APPINSTALLER_CLI_ERROR_PACKAGE_IS_BUNDLE, tempMsixInfo.GetIsBundle());
+</a> 
+<a href="#h3-10-25" id="h3-10-25" class="d">-                    if (tempIndexPackageTrusted)
+</a><a href="#h3-10-26" id="h3-10-26" class="d">-                    {
+</a><a href="#h3-10-27" id="h3-10-27" class="d">-                        std::filesystem::rename(tempPackagePath, packagePath);
+</a><a href="#h3-10-28" id="h3-10-28" class="d">-                        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Source update success.&quot;);
+</a><a href="#h3-10-29" id="h3-10-29" class="d">-                        updateSuccess = true;
+</a><a href="#h3-10-30" id="h3-10-30" class="d">-                    }
+</a><a href="#h3-10-31" id="h3-10-31" class="d">-                    else
+</a><a href="#h3-10-32" id="h3-10-32" class="i">+                    // Ensure that family name has not changed
+</a><a href="#h3-10-33" id="h3-10-33" class="i">+                    THROW_HR_IF(APPINSTALLER_CLI_ERROR_SOURCE_DATA_INTEGRITY_FAILURE,
+</a><a href="#h3-10-34" id="h3-10-34" class="i">+                        GetPackageFamilyNameFromDetails(details) != Msix::GetPackageFamilyNameFromFullName(tempMsixInfo.GetPackageFullName()));
+</a><a href="#h3-10-35" id="h3-10-35" class="i">+
+</a><a href="#h3-10-36" id="h3-10-36" class="i">+                    if (!tempIndexPackage.ValidateTrustInfo(WI_IsFlagSet(details.TrustLevel, SourceTrustLevel::StoreOrigin)))
+</a>                     {
+                         AICLI_LOG(Repo, Error, &lt;&lt; &quot;Source update failed. Source package failed trust validation.&quot;);
+<a href="#h3-10-39" id="h3-10-39" class="i">+                        THROW_HR(APPINSTALLER_CLI_ERROR_SOURCE_DATA_INTEGRITY_FAILURE);
+</a>                     }
+                 }
+ 
+<a href="#h3-10-43" id="h3-10-43" class="d">-                if (!updateSuccess)
+</a><a href="#h3-10-44" id="h3-10-44" class="d">-                {
+</a><a href="#h3-10-45" id="h3-10-45" class="d">-                    try
+</a><a href="#h3-10-46" id="h3-10-46" class="d">-                    {
+</a><a href="#h3-10-47" id="h3-10-47" class="d">-                        std::filesystem::remove(tempPackagePath);
+</a><a href="#h3-10-48" id="h3-10-48" class="d">-                    }
+</a><a href="#h3-10-49" id="h3-10-49" class="d">-                    catch (...)
+</a><a href="#h3-10-50" id="h3-10-50" class="d">-                    {
+</a><a href="#h3-10-51" id="h3-10-51" class="d">-                        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Failed to remove temp index file at: &quot; &lt;&lt; tempPackagePath);
+</a><a href="#h3-10-52" id="h3-10-52" class="d">-                    }
+</a><a href="#h3-10-53" id="h3-10-53" class="d">-                }
+</a><a href="#h3-10-54" id="h3-10-54" class="i">+                std::filesystem::rename(tempPackagePath, packagePath);
+</a><a href="#h3-10-55" id="h3-10-55" class="i">+                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Source update success.&quot;);
+</a> 
+<a href="#h3-10-57" id="h3-10-57" class="d">-                return updateSuccess;
+</a><a href="#h3-10-58" id="h3-10-58" class="i">+                removeTempFileOnExit.release();
+</a><a href="#h3-10-59" id="h3-10-59" class="i">+
+</a><a href="#h3-10-60" id="h3-10-60" class="i">+                return true;
+</a>             }
+ 
+             bool RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp;) override
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerSharedLib/Public/AppInstallerVersions.h.html">src/AppInstallerSharedLib/Public/AppInstallerVersions.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/AppInstallerVersions.h.html">src/AppInstallerSharedLib/Public/AppInstallerVersions.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -127,12 +127,14 @@ namespace AppInstaller::Utility
+</a>     {
+         UInt64Version() = default;
+         UInt64Version(UINT64 version);
+<a href="#h4-0-3" id="h4-0-3" class="i">+        UInt64Version(uint16_t major, uint16_t minor, uint16_t build, uint16_t revision);
+</a>         UInt64Version(std::string&amp;&amp; version, std::string_view splitChars = DefaultSplitChars);
+         UInt64Version(const std::string&amp; version, std::string_view splitChars = DefaultSplitChars) :
+             UInt64Version(std::string(version), splitChars) {}
+ 
+         void Assign(std::string version, std::string_view splitChars = DefaultSplitChars) override;
+         void Assign(UINT64 version);
+<a href="#h4-0-10" id="h4-0-10" class="i">+        void Assign(uint16_t major, uint16_t minor, uint16_t build, uint16_t revision);
+</a> 
+         UINT64 Major() const { return m_parts.size() &gt; 0 ? m_parts[0].Integer : 0; }
+         UINT64 Minor() const { return m_parts.size() &gt; 1 ? m_parts[1].Integer : 0; }
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerSharedLib/Versions.cpp.html">src/AppInstallerSharedLib/Versions.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/Versions.cpp.html">src/AppInstallerSharedLib/Versions.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -396,14 +396,24 @@ namespace AppInstaller::Utility
+</a>         Assign(version);
+     }
+ 
+<a href="#h5-0-3" id="h5-0-3" class="i">+    UInt64Version::UInt64Version(uint16_t major, uint16_t minor, uint16_t build, uint16_t revision)
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    {
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+        Assign(major, minor, build, revision);
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+    }
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+
+</a>     void UInt64Version::Assign(UINT64 version)
+     {
+<a href="#h5-0-10" id="h5-0-10" class="d">-        const UINT64 mask16 = (1 &lt;&lt; 16) - 1;
+</a><a href="#h5-0-11" id="h5-0-11" class="d">-        UINT64 revision = version &amp; mask16;
+</a><a href="#h5-0-12" id="h5-0-12" class="d">-        UINT64 build = (version &gt;&gt; 0x10) &amp; mask16;
+</a><a href="#h5-0-13" id="h5-0-13" class="d">-        UINT64 minor = (version &gt;&gt; 0x20) &amp; mask16;
+</a><a href="#h5-0-14" id="h5-0-14" class="d">-        UINT64 major = (version &gt;&gt; 0x30) &amp; mask16;
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+        constexpr UINT64 mask16 = (1 &lt;&lt; 16) - 1;
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+        uint16_t revision = version &amp; mask16;
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+        uint16_t build = (version &gt;&gt; 0x10) &amp; mask16;
+</a><a href="#h5-0-18" id="h5-0-18" class="i">+        uint16_t minor = (version &gt;&gt; 0x20) &amp; mask16;
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+        uint16_t major = (version &gt;&gt; 0x30) &amp; mask16;
+</a> 
+<a href="#h5-0-21" id="h5-0-21" class="i">+        Assign(major, minor, build, revision);
+</a><a href="#h5-0-22" id="h5-0-22" class="i">+    }
+</a><a href="#h5-0-23" id="h5-0-23" class="i">+
+</a><a href="#h5-0-24" id="h5-0-24" class="i">+    void UInt64Version::Assign(uint16_t major, uint16_t minor, uint16_t build, uint16_t revision)
+</a><a href="#h5-0-25" id="h5-0-25" class="i">+    {
+</a>         // Construct a string representation of the provided version
+         std::stringstream ssVersion;
+         ssVersion &lt;&lt; major
+</pre>
+</div>
+</body>
+</html>

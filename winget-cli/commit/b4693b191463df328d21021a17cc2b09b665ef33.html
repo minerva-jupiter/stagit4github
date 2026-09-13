@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Prevent circular dependency in global telemetry logger creation (#1674) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/b4693b191463df328d21021a17cc2b09b665ef33.html">b4693b191463df328d21021a17cc2b09b665ef33</a>
+<b>parent</b> <a href="../commit/a14de79013927fab44f529fd2299a99414d3b059.html">a14de79013927fab44f529fd2299a99414d3b059</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue,  9 Nov 2021 17:27:55 -0800
+
+Prevent circular dependency in global telemetry logger creation (#1674)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCommonCore/AppInstallerTelemetry.cpp</a></td><td> | </td><td class="num">32</td><td><span class="i">++++++++++++++++++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Public/AppInstallerTelemetry.h</a></td><td> | </td><td class="num">18</td><td><span class="i">+++++++++++</span><span class="d">-------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Public/winget/ThreadGlobals.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCommonCore/Public/winget/UserSettings.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCommonCore/ThreadGlobals.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCommonCore/TraceLogger.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCommonCore/UserSettings.cpp</a></td><td> | </td><td class="num">34</td><td><span class="i">++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/WinGetUtil/Exports.cpp</a></td><td> | </td><td class="num">10</td><td><span class="i">++++++++</span><span class="d">--</span></td></tr>
+</table></pre><pre>8 files changed, 85 insertions(+), 24 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCommonCore/AppInstallerTelemetry.cpp.html">src/AppInstallerCommonCore/AppInstallerTelemetry.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/AppInstallerTelemetry.cpp.html">src/AppInstallerCommonCore/AppInstallerTelemetry.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -80,8 +80,24 @@ namespace AppInstaller::Logging
+</a> 
+     void TelemetryTraceLogger::Initialize()
+     {
+<a href="#h0-0-3" id="h0-0-3" class="d">-        m_isSettingEnabled = !Settings::User().Get&lt;Settings::Setting::TelemetryDisable&gt;();
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-        m_userProfile = Runtime::GetPathTo(Runtime::PathName::UserProfile).wstring();
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        if (!m_isInitialized)
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+        {
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+            InitializeInternal(Settings::User());
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        }
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+    }
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+    bool TelemetryTraceLogger::TryInitialize()
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+    {
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+        if (!m_isInitialized)
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+        {
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+            auto userSettings = Settings::TryGetUser();
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+            if (userSettings)
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+            {
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+                InitializeInternal(*userSettings);
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+            }
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+        }
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+        return m_isInitialized;
+</a>     }
+ 
+     void TelemetryTraceLogger::SetTelemetryCorrelationJson(const std::wstring_view jsonStr_view) noexcept
+<a href="#h0-1" id="h0-1" class="h">@@ -520,7 +536,14 @@ namespace AppInstaller::Logging
+</a> 
+     bool TelemetryTraceLogger::IsTelemetryEnabled() const noexcept
+     {
+<a href="#h0-1-3" id="h0-1-3" class="d">-        return g_IsTelemetryProviderEnabled &amp;&amp; m_isSettingEnabled &amp;&amp; m_isRuntimeEnabled;
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        return g_IsTelemetryProviderEnabled &amp;&amp; m_isInitialized &amp;&amp; m_isSettingEnabled &amp;&amp; m_isRuntimeEnabled;
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+    }
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+    void TelemetryTraceLogger::InitializeInternal(const AppInstaller::Settings::UserSettings&amp; userSettings)
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+    {
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+        m_isSettingEnabled = !userSettings.Get&lt;Settings::Setting::TelemetryDisable&gt;();
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+        m_userProfile = Runtime::GetPathTo(Runtime::PathName::UserProfile).wstring();
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+        m_isInitialized = true;
+</a>     }
+ 
+     std::wstring TelemetryTraceLogger::AnonymizeString(const wchar_t* input) const noexcept
+<a href="#h0-2" id="h0-2" class="h">@@ -553,7 +576,8 @@ namespace AppInstaller::Logging
+</a>         }
+         else
+         {
+<a href="#h0-2-3" id="h0-2-3" class="d">-            static GlobalTelemetryTraceLogger processGlobalTelemetry;
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+            static TelemetryTraceLogger processGlobalTelemetry;
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+            processGlobalTelemetry.TryInitialize();
+</a>             return processGlobalTelemetry;
+         }
+     }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Public/AppInstallerTelemetry.h.html">src/AppInstallerCommonCore/Public/AppInstallerTelemetry.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerTelemetry.h.html">src/AppInstallerCommonCore/Public/AppInstallerTelemetry.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -8,6 +8,11 @@
+</a> #include &lt;vector&gt;
+ #include &lt;cguid.h&gt;
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+namespace AppInstaller::Settings
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+{
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    struct UserSettings;
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+}
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+
+</a> namespace AppInstaller::Logging
+ {
+     // This type contains the registration lifetime of the telemetry trace logging provider.
+<a href="#h1-1" id="h1-1" class="h">@@ -36,6 +41,9 @@ namespace AppInstaller::Logging
+</a>         // Capture if UserSettings is enabled and set user profile path
+         void Initialize();
+ 
+<a href="#h1-1-3" id="h1-1-3" class="i">+        // Try to capture if UserSettings is enabled and set user profile path, returns whether the action is successfully completed.
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        bool TryInitialize();
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+
+</a>         // Store the passed in name of the Caller for COM calls
+         void SetCaller(const std::string&amp; caller);
+ 
+<a href="#h1-2" id="h1-2" class="h">@@ -131,6 +139,8 @@ namespace AppInstaller::Logging
+</a>     protected:
+         bool IsTelemetryEnabled() const noexcept;
+ 
+<a href="#h1-2-3" id="h1-2-3" class="i">+        void InitializeInternal(const AppInstaller::Settings::UserSettings&amp; userSettings);
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+
+</a>         // Used to anonymize a string to the best of our ability.
+         // Should primarily be used on failure messages or paths if needed.
+         std::wstring AnonymizeString(const wchar_t* input) const noexcept;
+<a href="#h1-3" id="h1-3" class="h">@@ -138,6 +148,7 @@ namespace AppInstaller::Logging
+</a> 
+         bool m_isSettingEnabled = true;
+         std::atomic_bool m_isRuntimeEnabled{ true };
+<a href="#h1-3-3" id="h1-3-3" class="i">+        std::atomic_bool m_isInitialized{ false };
+</a> 
+         GUID m_activityId = GUID_NULL;
+         std::wstring m_telemetryCorrelationJsonW = L&quot;{}&quot;;
+<a href="#h1-4" id="h1-4" class="h">@@ -147,13 +158,6 @@ namespace AppInstaller::Logging
+</a>         std::wstring m_userProfile;
+     };
+ 
+<a href="#h1-4-3" id="h1-4-3" class="d">-    struct GlobalTelemetryTraceLogger : TelemetryTraceLogger
+</a><a href="#h1-4-4" id="h1-4-4" class="d">-    {
+</a><a href="#h1-4-5" id="h1-4-5" class="d">-        GlobalTelemetryTraceLogger() { Initialize(); }
+</a><a href="#h1-4-6" id="h1-4-6" class="d">-
+</a><a href="#h1-4-7" id="h1-4-7" class="d">-        ~GlobalTelemetryTraceLogger() = default;
+</a><a href="#h1-4-8" id="h1-4-8" class="d">-    };
+</a><a href="#h1-4-9" id="h1-4-9" class="d">-
+</a>     // Helper to make the call sites look clean.
+     TelemetryTraceLogger&amp; Telemetry();
+ 
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Public/winget/ThreadGlobals.h.html">src/AppInstallerCommonCore/Public/winget/ThreadGlobals.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/ThreadGlobals.h.html">src/AppInstallerCommonCore/Public/winget/ThreadGlobals.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -26,13 +26,12 @@ namespace AppInstaller::ThreadLocalStorage
+</a>         static ThreadGlobals* GetForCurrentThread();
+ 
+     private:
+<a href="#h2-0-3" id="h2-0-3" class="d">-        
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+
+</a>         void Initialize();
+ 
+         std::unique_ptr&lt;AppInstaller::Logging::DiagnosticLogger&gt; m_pDiagnosticLogger;
+         std::unique_ptr&lt;AppInstaller::Logging::TelemetryTraceLogger&gt; m_pTelemetryLogger;
+         std::once_flag loggerInitOnceFlag;
+<a href="#h2-0-10" id="h2-0-10" class="d">-        
+</a>     };
+ 
+     struct PreviousThreadGlobals
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCommonCore/Public/winget/UserSettings.h.html">src/AppInstallerCommonCore/Public/winget/UserSettings.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/UserSettings.h.html">src/AppInstallerCommonCore/Public/winget/UserSettings.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -188,8 +188,6 @@ namespace AppInstaller::Settings
+</a>         ~UserSettings() = default;
+     };
+ 
+<a href="#h3-0-3" id="h3-0-3" class="d">-    inline UserSettings const&amp; User()
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-    {
+</a><a href="#h3-0-5" id="h3-0-5" class="d">-        return UserSettings::Instance();
+</a><a href="#h3-0-6" id="h3-0-6" class="d">-    }
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+    const UserSettings* TryGetUser();
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+    UserSettings const&amp; User();
+</a> }
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCommonCore/ThreadGlobals.cpp.html">src/AppInstallerCommonCore/ThreadGlobals.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/ThreadGlobals.cpp.html">src/AppInstallerCommonCore/ThreadGlobals.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -35,7 +35,7 @@ namespace AppInstaller::ThreadLocalStorage
+</a>                 {
+                     m_pDiagnosticLogger = std::make_unique&lt;DiagnosticLogger&gt;();
+                     m_pTelemetryLogger = std::make_unique&lt;TelemetryTraceLogger&gt;();
+<a href="#h4-0-3" id="h4-0-3" class="d">-                    
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+
+</a>                     // The above make_unique for TelemetryTraceLogger will either create an object or will throw which is caught below.
+                     m_pTelemetryLogger-&gt;Initialize();
+                 });
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCommonCore/TraceLogger.cpp.html">src/AppInstallerCommonCore/TraceLogger.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/TraceLogger.cpp.html">src/AppInstallerCommonCore/TraceLogger.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -15,7 +15,7 @@ namespace AppInstaller::Logging
+</a> 
+         TraceLoggingWriteActivity(g_hTraceProvider,
+             &quot;Diagnostics&quot;,
+<a href="#h5-0-3" id="h5-0-3" class="d">-            nullptr, // TODO: ActivityId of the Global and COMContext telemetry to be logged in future
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+            Telemetry().GetActivityId(),
+</a>             nullptr,
+             TraceLoggingString(strstr.str().c_str(), &quot;LogMessage&quot;));
+     }
+<a href="#h5-1" id="h5-1" class="h">@@ -28,7 +28,7 @@ namespace AppInstaller::Logging
+</a>     {
+         TraceLoggingWriteActivity(g_hTraceProvider,
+             &quot;Diagnostics&quot;,
+<a href="#h5-1-3" id="h5-1-3" class="d">-            nullptr, // TODO: ActivityId of the Global and COMContext telemetry to be logged in future
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+            Telemetry().GetActivityId(),
+</a>             nullptr,
+             TraceLoggingCountedUtf8String(message.data(), static_cast&lt;ULONG&gt;(message.size()), &quot;LogMessage&quot;));
+     }
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCommonCore/UserSettings.cpp.html">src/AppInstallerCommonCore/UserSettings.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/UserSettings.cpp.html">src/AppInstallerCommonCore/UserSettings.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -305,20 +305,50 @@ namespace AppInstaller::Settings
+</a>     }
+ #endif
+ 
+<a href="#h6-0-3" id="h6-0-3" class="i">+    static std::atomic_bool s_userSettingsInitialized{ false };
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+    static std::atomic_bool s_userSettingsInInitialization{ false };
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+
+</a>     UserSettings const&amp; UserSettings::Instance()
+     {
+<a href="#h6-0-8" id="h6-0-8" class="d">-        static UserSettings userSettings;
+</a><a href="#h6-0-9" id="h6-0-9" class="d">-
+</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+         if (s_UserSettings_Override)
+         {
+             return *s_UserSettings_Override;
+         }
+ #endif
+<a href="#h6-0-16" id="h6-0-16" class="i">+        if (!s_userSettingsInitialized)
+</a><a href="#h6-0-17" id="h6-0-17" class="i">+        {
+</a><a href="#h6-0-18" id="h6-0-18" class="i">+            s_userSettingsInInitialization = true;
+</a><a href="#h6-0-19" id="h6-0-19" class="i">+        }
+</a><a href="#h6-0-20" id="h6-0-20" class="i">+
+</a><a href="#h6-0-21" id="h6-0-21" class="i">+        static UserSettings userSettings;
+</a><a href="#h6-0-22" id="h6-0-22" class="i">+        s_userSettingsInitialized = true;
+</a><a href="#h6-0-23" id="h6-0-23" class="i">+        s_userSettingsInInitialization = false;
+</a> 
+         return userSettings;
+     }
+ 
+<a href="#h6-0-28" id="h6-0-28" class="i">+    const UserSettings* TryGetUser()
+</a><a href="#h6-0-29" id="h6-0-29" class="i">+    {
+</a><a href="#h6-0-30" id="h6-0-30" class="i">+        if (s_userSettingsInitialized)
+</a><a href="#h6-0-31" id="h6-0-31" class="i">+        {
+</a><a href="#h6-0-32" id="h6-0-32" class="i">+            return &amp;UserSettings::Instance();
+</a><a href="#h6-0-33" id="h6-0-33" class="i">+        }
+</a><a href="#h6-0-34" id="h6-0-34" class="i">+
+</a><a href="#h6-0-35" id="h6-0-35" class="i">+        // Try to initialize UserSettings, return nullptr if it&#39;s already in initialization.
+</a><a href="#h6-0-36" id="h6-0-36" class="i">+        if (s_userSettingsInInitialization)
+</a><a href="#h6-0-37" id="h6-0-37" class="i">+        {
+</a><a href="#h6-0-38" id="h6-0-38" class="i">+            return nullptr;
+</a><a href="#h6-0-39" id="h6-0-39" class="i">+        }
+</a><a href="#h6-0-40" id="h6-0-40" class="i">+
+</a><a href="#h6-0-41" id="h6-0-41" class="i">+        return &amp;UserSettings::Instance();
+</a><a href="#h6-0-42" id="h6-0-42" class="i">+    }
+</a><a href="#h6-0-43" id="h6-0-43" class="i">+
+</a><a href="#h6-0-44" id="h6-0-44" class="i">+    UserSettings const&amp; User()
+</a><a href="#h6-0-45" id="h6-0-45" class="i">+    {
+</a><a href="#h6-0-46" id="h6-0-46" class="i">+        return UserSettings::Instance();
+</a><a href="#h6-0-47" id="h6-0-47" class="i">+    }
+</a><a href="#h6-0-48" id="h6-0-48" class="i">+
+</a>     UserSettings::UserSettings() : m_type(UserSettingsType::Default)
+     {
+         Json::Value settingsRoot = Json::Value::nullSingleton();
+<b>diff --git a/<a id="h7" href="../file/src/WinGetUtil/Exports.cpp.html">src/WinGetUtil/Exports.cpp</a> b/<a href="../file/src/WinGetUtil/Exports.cpp.html">src/WinGetUtil/Exports.cpp</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -10,6 +10,7 @@
+</a> #include &lt;AppInstallerTelemetry.h&gt;
+ #include &lt;Microsoft/SQLiteIndex.h&gt;
+ #include &lt;winget/ManifestYamlParser.h&gt;
+<a href="#h7-0-3" id="h7-0-3" class="i">+#include &lt;winget/ThreadGlobals.h&gt;
+</a> 
+ using namespace AppInstaller::Utility;
+ using namespace AppInstaller::Manifest;
+<a href="#h7-1" id="h7-1" class="h">@@ -21,8 +22,13 @@ extern &quot;C&quot;
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !logPath);
+ 
+<a href="#h7-1-3" id="h7-1-3" class="d">-        static std::once_flag s_initLogging;
+</a><a href="#h7-1-4" id="h7-1-4" class="d">-        std::call_once(s_initLogging, []() {
+</a><a href="#h7-1-5" id="h7-1-5" class="i">+        thread_local AppInstaller::ThreadLocalStorage::ThreadGlobals threadGlobals;
+</a><a href="#h7-1-6" id="h7-1-6" class="i">+        thread_local std::once_flag initLogging;
+</a><a href="#h7-1-7" id="h7-1-7" class="i">+
+</a><a href="#h7-1-8" id="h7-1-8" class="i">+        std::call_once(initLogging, []() {
+</a><a href="#h7-1-9" id="h7-1-9" class="i">+            std::unique_ptr&lt;AppInstaller::ThreadLocalStorage::PreviousThreadGlobals&gt; previous = threadGlobals.SetForCurrentThread();
+</a><a href="#h7-1-10" id="h7-1-10" class="i">+            // Intentionally release to leave the local ThreadGlobals.
+</a><a href="#h7-1-11" id="h7-1-11" class="i">+            previous.release();
+</a>             // Enable all logs for now.
+             AppInstaller::Logging::Log().EnableChannel(AppInstaller::Logging::Channel::All);
+             AppInstaller::Logging::Log().SetLevel(AppInstaller::Logging::Level::Verbose);
+</pre>
+</div>
+</body>
+</html>

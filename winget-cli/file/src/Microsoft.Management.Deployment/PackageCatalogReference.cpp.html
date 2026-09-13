@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>PackageCatalogReference.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> PackageCatalogReference.cpp (16430B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &lt;winget/RepositorySource.h&gt;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;PackageCatalogReference.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;PackageCatalogReference.g.cpp&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;PackageCatalogInfo.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;PackageCatalog.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;SourceAgreement.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> #include &quot;ConnectResult.h&quot;
+<a href="#l11" class="line" id="l11">     11</a> #include &quot;AuthenticationInfo.h&quot;
+<a href="#l12" class="line" id="l12">     12</a> #include &quot;Workflows/WorkflowBase.h&quot;
+<a href="#l13" class="line" id="l13">     13</a> #include &quot;Converters.h&quot;
+<a href="#l14" class="line" id="l14">     14</a> #include &quot;Microsoft/PredefinedInstalledSourceFactory.h&quot;
+<a href="#l15" class="line" id="l15">     15</a> #include &lt;wil\cppwinrt_wrl.h&gt;
+<a href="#l16" class="line" id="l16">     16</a> #include &lt;winget/GroupPolicy.h&gt;
+<a href="#l17" class="line" id="l17">     17</a> #include &lt;AppInstallerErrors.h&gt;
+<a href="#l18" class="line" id="l18">     18</a> #include &lt;AppInstallerStrings.h&gt;
+<a href="#l19" class="line" id="l19">     19</a> #include &lt;winget/UserSettings.h&gt;
+<a href="#l20" class="line" id="l20">     20</a> #include &lt;Helpers.h&gt;
+<a href="#l21" class="line" id="l21">     21</a> #include &lt;ExecutionContext.h&gt;
+<a href="#l22" class="line" id="l22">     22</a> #include &lt;RefreshPackageCatalogResult.h&gt;
+<a href="#l23" class="line" id="l23">     23</a> #include &lt;PackageCatalogProgress.h&gt;
+<a href="#l24" class="line" id="l24">     24</a> 
+<a href="#l25" class="line" id="l25">     25</a> namespace winrt::Microsoft::Management::Deployment::implementation
+<a href="#l26" class="line" id="l26">     26</a> {
+<a href="#l27" class="line" id="l27">     27</a>     namespace
+<a href="#l28" class="line" id="l28">     28</a>     {
+<a href="#l29" class="line" id="l29">     29</a>         winrt::Microsoft::Management::Deployment::RefreshPackageCatalogResult GetRefreshPackageCatalogResult(winrt::hresult terminationStatus)
+<a href="#l30" class="line" id="l30">     30</a>         {
+<a href="#l31" class="line" id="l31">     31</a>             winrt::Microsoft::Management::Deployment::RefreshPackageCatalogStatus status = GetPackageCatalogOperationStatus&lt;RefreshPackageCatalogStatus&gt;(terminationStatus);
+<a href="#l32" class="line" id="l32">     32</a>             auto updateResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::RefreshPackageCatalogResult&gt;&gt;();
+<a href="#l33" class="line" id="l33">     33</a>             updateResult-&gt;Initialize(status, terminationStatus);
+<a href="#l34" class="line" id="l34">     34</a>             return *updateResult;
+<a href="#l35" class="line" id="l35">     35</a>         }
+<a href="#l36" class="line" id="l36">     36</a>     }
+<a href="#l37" class="line" id="l37">     37</a> 
+<a href="#l38" class="line" id="l38">     38</a>     void PackageCatalogReference::Initialize(winrt::Microsoft::Management::Deployment::PackageCatalogInfo packageCatalogInfo, ::AppInstaller::Repository::Source sourceReference)
+<a href="#l39" class="line" id="l39">     39</a>     {
+<a href="#l40" class="line" id="l40">     40</a>         m_info = packageCatalogInfo;
+<a href="#l41" class="line" id="l41">     41</a>         m_sourceReference = std::move(sourceReference);
+<a href="#l42" class="line" id="l42">     42</a>         m_packageCatalogBackgroundUpdateInterval = ::AppInstaller::Settings::User().Get&lt;::AppInstaller::Settings::Setting::AutoUpdateTimeInMinutes&gt;();
+<a href="#l43" class="line" id="l43">     43</a> 
+<a href="#l44" class="line" id="l44">     44</a>         if (IsBackgroundProcessForPolicy())
+<a href="#l45" class="line" id="l45">     45</a>         {
+<a href="#l46" class="line" id="l46">     46</a>             // Delay the default update interval for these background processes
+<a href="#l47" class="line" id="l47">     47</a>             static constexpr winrt::Windows::Foundation::TimeSpan s_PackageCatalogUpdateIntervalDelay_Base = 168h; //1 week
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a>             // Add a bit of randomness to the default interval time
+<a href="#l50" class="line" id="l50">     50</a>             std::default_random_engine randomEngine(std::random_device{}());
+<a href="#l51" class="line" id="l51">     51</a>             std::uniform_int_distribution&lt;long long&gt; distribution(0, 604800);
+<a href="#l52" class="line" id="l52">     52</a> 
+<a href="#l53" class="line" id="l53">     53</a>             m_packageCatalogBackgroundUpdateInterval = s_PackageCatalogUpdateIntervalDelay_Base + std::chrono::seconds(distribution(randomEngine));
+<a href="#l54" class="line" id="l54">     54</a> 
+<a href="#l55" class="line" id="l55">     55</a>             // Prevent any update / data processing by default for these background processes for now
+<a href="#l56" class="line" id="l56">     56</a>             m_installedPackageInformationOnly = m_sourceReference.IsWellKnownSource(AppInstaller::Repository::WellKnownSource::WinGet);
+<a href="#l57" class="line" id="l57">     57</a>         }
+<a href="#l58" class="line" id="l58">     58</a>     }
+<a href="#l59" class="line" id="l59">     59</a> 
+<a href="#l60" class="line" id="l60">     60</a>     void PackageCatalogReference::Initialize(winrt::Microsoft::Management::Deployment::CreateCompositePackageCatalogOptions options)
+<a href="#l61" class="line" id="l61">     61</a>     {
+<a href="#l62" class="line" id="l62">     62</a>         m_compositePackageCatalogOptions = options;
+<a href="#l63" class="line" id="l63">     63</a>     }
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a>     bool PackageCatalogReference::IsComposite()
+<a href="#l66" class="line" id="l66">     66</a>     {
+<a href="#l67" class="line" id="l67">     67</a>         return (m_compositePackageCatalogOptions != nullptr);
+<a href="#l68" class="line" id="l68">     68</a>     }
+<a href="#l69" class="line" id="l69">     69</a>     winrt::Microsoft::Management::Deployment::PackageCatalogInfo PackageCatalogReference::Info()
+<a href="#l70" class="line" id="l70">     70</a>     {
+<a href="#l71" class="line" id="l71">     71</a>         return m_info;
+<a href="#l72" class="line" id="l72">     72</a>     }
+<a href="#l73" class="line" id="l73">     73</a>     winrt::Windows::Foundation::IAsyncOperation&lt;winrt::Microsoft::Management::Deployment::ConnectResult&gt; PackageCatalogReference::ConnectAsync()
+<a href="#l74" class="line" id="l74">     74</a>     {
+<a href="#l75" class="line" id="l75">     75</a>         co_return Connect();
+<a href="#l76" class="line" id="l76">     76</a>     }
+<a href="#l77" class="line" id="l77">     77</a>     winrt::Microsoft::Management::Deployment::ConnectResult GetConnectCatalogErrorResult(hresult hr)
+<a href="#l78" class="line" id="l78">     78</a>     {
+<a href="#l79" class="line" id="l79">     79</a>         auto connectResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::ConnectResult&gt;&gt;();
+<a href="#l80" class="line" id="l80">     80</a>         connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::CatalogError, nullptr, hr);
+<a href="#l81" class="line" id="l81">     81</a>         return *connectResult;
+<a href="#l82" class="line" id="l82">     82</a>     }
+<a href="#l83" class="line" id="l83">     83</a>     winrt::Microsoft::Management::Deployment::ConnectResult GetConnectSourceAgreementsNotAcceptedErrorResult()
+<a href="#l84" class="line" id="l84">     84</a>     {
+<a href="#l85" class="line" id="l85">     85</a>         auto connectResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::ConnectResult&gt;&gt;();
+<a href="#l86" class="line" id="l86">     86</a>         connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::SourceAgreementsNotAccepted, nullptr, APPINSTALLER_CLI_ERROR_SOURCE_AGREEMENTS_NOT_ACCEPTED);
+<a href="#l87" class="line" id="l87">     87</a>         return *connectResult;
+<a href="#l88" class="line" id="l88">     88</a>     }
+<a href="#l89" class="line" id="l89">     89</a>     winrt::Microsoft::Management::Deployment::ConnectResult PackageCatalogReference::Connect() try
+<a href="#l90" class="line" id="l90">     90</a>     {
+<a href="#l91" class="line" id="l91">     91</a>         HRESULT hr = EnsureComCallerHasCapability(Capability::PackageQuery);
+<a href="#l92" class="line" id="l92">     92</a>         if (FAILED(hr))
+<a href="#l93" class="line" id="l93">     93</a>         {
+<a href="#l94" class="line" id="l94">     94</a>             // TODO: When more error codes are added, this should go back as something other than CatalogError.
+<a href="#l95" class="line" id="l95">     95</a>             return GetConnectCatalogErrorResult(hr);
+<a href="#l96" class="line" id="l96">     96</a>         }
+<a href="#l97" class="line" id="l97">     97</a> 
+<a href="#l98" class="line" id="l98">     98</a>         std::string callerName = GetCallerName();
+<a href="#l99" class="line" id="l99">     99</a> 
+<a href="#l100" class="line" id="l100">    100</a>         ::AppInstaller::ProgressCallback progress;
+<a href="#l101" class="line" id="l101">    101</a>         ::AppInstaller::Repository::Source source;
+<a href="#l102" class="line" id="l102">    102</a>         if (m_compositePackageCatalogOptions)
+<a href="#l103" class="line" id="l103">    103</a>         {
+<a href="#l104" class="line" id="l104">    104</a>             std::vector&lt;::AppInstaller::Repository::Source&gt; remoteSources;
+<a href="#l105" class="line" id="l105">    105</a> 
+<a href="#l106" class="line" id="l106">    106</a>             for (uint32_t i = 0; i &lt; m_compositePackageCatalogOptions.Catalogs().Size(); ++i)
+<a href="#l107" class="line" id="l107">    107</a>             {
+<a href="#l108" class="line" id="l108">    108</a>                 auto catalog = m_compositePackageCatalogOptions.Catalogs().GetAt(i);
+<a href="#l109" class="line" id="l109">    109</a>                 if (!catalog.AcceptSourceAgreements() &amp;&amp; catalog.SourceAgreements().Size() != 0)
+<a href="#l110" class="line" id="l110">    110</a>                 {
+<a href="#l111" class="line" id="l111">    111</a>                     return GetConnectSourceAgreementsNotAcceptedErrorResult();
+<a href="#l112" class="line" id="l112">    112</a>                 }
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>                 winrt::Microsoft::Management::Deployment::implementation::PackageCatalogReference* catalogImpl = get_self&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalogReference&gt;(catalog);
+<a href="#l115" class="line" id="l115">    115</a>                 auto copy = catalogImpl-&gt;m_sourceReference;
+<a href="#l116" class="line" id="l116">    116</a>                 copy.SetCaller(callerName);
+<a href="#l117" class="line" id="l117">    117</a>                 copy.SetBackgroundUpdateInterval(catalog.PackageCatalogBackgroundUpdateInterval());
+<a href="#l118" class="line" id="l118">    118</a>                 copy.InstalledPackageInformationOnly(catalog.InstalledPackageInformationOnly());
+<a href="#l119" class="line" id="l119">    119</a>                 if (catalog.AuthenticationInfo().AuthenticationType() != winrt::Microsoft::Management::Deployment::AuthenticationType::None)
+<a href="#l120" class="line" id="l120">    120</a>                 {
+<a href="#l121" class="line" id="l121">    121</a>                     copy.SetAuthenticationArguments(GetAuthenticationArguments(catalog.AuthenticationArguments()));
+<a href="#l122" class="line" id="l122">    122</a>                 }
+<a href="#l123" class="line" id="l123">    123</a>                 copy.Open(progress);
+<a href="#l124" class="line" id="l124">    124</a>                 remoteSources.emplace_back(std::move(copy));
+<a href="#l125" class="line" id="l125">    125</a>             }
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a>             // Create the aggregated source.
+<a href="#l128" class="line" id="l128">    128</a>             source = ::AppInstaller::Repository::Source{ remoteSources };
+<a href="#l129" class="line" id="l129">    129</a> 
+<a href="#l130" class="line" id="l130">    130</a>             // Create composite with installed source if needed.
+<a href="#l131" class="line" id="l131">    131</a>             ::AppInstaller::Repository::CompositeSearchBehavior searchBehavior = GetRepositoryCompositeSearchBehavior(m_compositePackageCatalogOptions.CompositeSearchBehavior());
+<a href="#l132" class="line" id="l132">    132</a> 
+<a href="#l133" class="line" id="l133">    133</a>             // Check if search behavior indicates that the caller does not want to do local correlation.
+<a href="#l134" class="line" id="l134">    134</a>             if (m_compositePackageCatalogOptions.CompositeSearchBehavior() != Microsoft::Management::Deployment::CompositeSearchBehavior::RemotePackagesFromRemoteCatalogs)
+<a href="#l135" class="line" id="l135">    135</a>             {
+<a href="#l136" class="line" id="l136">    136</a>                 ::AppInstaller::Repository::Source installedSource;
+<a href="#l137" class="line" id="l137">    137</a>                 auto manifestInstalledScope = GetManifestScope(m_compositePackageCatalogOptions.InstalledScope()).first;
+<a href="#l138" class="line" id="l138">    138</a>                 if (manifestInstalledScope == ::AppInstaller::Manifest::ScopeEnum::User)
+<a href="#l139" class="line" id="l139">    139</a>                 {
+<a href="#l140" class="line" id="l140">    140</a>                     installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::InstalledUser };
+<a href="#l141" class="line" id="l141">    141</a>                 }
+<a href="#l142" class="line" id="l142">    142</a>                 else if (manifestInstalledScope == ::AppInstaller::Manifest::ScopeEnum::Machine)
+<a href="#l143" class="line" id="l143">    143</a>                 {
+<a href="#l144" class="line" id="l144">    144</a>                     installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::InstalledMachine };
+<a href="#l145" class="line" id="l145">    145</a>                 }
+<a href="#l146" class="line" id="l146">    146</a>                 else
+<a href="#l147" class="line" id="l147">    147</a>                 {
+<a href="#l148" class="line" id="l148">    148</a>                     installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::Installed };
+<a href="#l149" class="line" id="l149">    149</a>                 }
+<a href="#l150" class="line" id="l150">    150</a> 
+<a href="#l151" class="line" id="l151">    151</a>                 installedSource.Open(progress);
+<a href="#l152" class="line" id="l152">    152</a>                 source = ::AppInstaller::Repository::Source{ installedSource, source, searchBehavior };
+<a href="#l153" class="line" id="l153">    153</a>             }
+<a href="#l154" class="line" id="l154">    154</a>         }
+<a href="#l155" class="line" id="l155">    155</a>         else
+<a href="#l156" class="line" id="l156">    156</a>         {
+<a href="#l157" class="line" id="l157">    157</a>             if (!AcceptSourceAgreements() &amp;&amp; SourceAgreements().Size() != 0)
+<a href="#l158" class="line" id="l158">    158</a>             {
+<a href="#l159" class="line" id="l159">    159</a>                 return GetConnectSourceAgreementsNotAcceptedErrorResult();
+<a href="#l160" class="line" id="l160">    160</a>             }
+<a href="#l161" class="line" id="l161">    161</a> 
+<a href="#l162" class="line" id="l162">    162</a>             source = m_sourceReference;
+<a href="#l163" class="line" id="l163">    163</a>             source.SetCaller(callerName);
+<a href="#l164" class="line" id="l164">    164</a>             source.SetBackgroundUpdateInterval(PackageCatalogBackgroundUpdateInterval());
+<a href="#l165" class="line" id="l165">    165</a>             source.InstalledPackageInformationOnly(m_installedPackageInformationOnly);
+<a href="#l166" class="line" id="l166">    166</a>             if (AuthenticationInfo().AuthenticationType() != winrt::Microsoft::Management::Deployment::AuthenticationType::None)
+<a href="#l167" class="line" id="l167">    167</a>             {
+<a href="#l168" class="line" id="l168">    168</a>                 source.SetAuthenticationArguments(GetAuthenticationArguments(m_authenticationArguments));
+<a href="#l169" class="line" id="l169">    169</a>             }
+<a href="#l170" class="line" id="l170">    170</a>             source.Open(progress);
+<a href="#l171" class="line" id="l171">    171</a>         }
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a>         if (!source)
+<a href="#l174" class="line" id="l174">    174</a>         {
+<a href="#l175" class="line" id="l175">    175</a>             // We call `Open` on each individual source above, meaning that they should throw any error that occurs.
+<a href="#l176" class="line" id="l176">    176</a>             // If the source is still not open at this point it is a bug.
+<a href="#l177" class="line" id="l177">    177</a>             return GetConnectCatalogErrorResult(E_UNEXPECTED);
+<a href="#l178" class="line" id="l178">    178</a>         }
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>         // Have to make another package catalog info because source-&gt;GetDetails has more fields than m_info does.
+<a href="#l181" class="line" id="l181">    181</a>         // Specifically, Rest sources do not have the Ids filled in m_info since they only get the id from the rest server after being Opened.
+<a href="#l182" class="line" id="l182">    182</a>         auto packageCatalogInfo = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalogInfo&gt;&gt;();
+<a href="#l183" class="line" id="l183">    183</a>         packageCatalogInfo-&gt;Initialize(source.GetDetails());
+<a href="#l184" class="line" id="l184">    184</a>         auto connectResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::ConnectResult&gt;&gt;();
+<a href="#l185" class="line" id="l185">    185</a>         auto packageCatalog = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalog&gt;&gt;();
+<a href="#l186" class="line" id="l186">    186</a>         packageCatalog-&gt;Initialize(*packageCatalogInfo, source, (m_compositePackageCatalogOptions != nullptr));
+<a href="#l187" class="line" id="l187">    187</a>         connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::Ok, *packageCatalog, S_OK);
+<a href="#l188" class="line" id="l188">    188</a>         return *connectResult;
+<a href="#l189" class="line" id="l189">    189</a>     }
+<a href="#l190" class="line" id="l190">    190</a>     catch (...)
+<a href="#l191" class="line" id="l191">    191</a>     {
+<a href="#l192" class="line" id="l192">    192</a>         return GetConnectCatalogErrorResult(AppInstaller::CLI::Workflow::HandleException(nullptr, std::current_exception()));
+<a href="#l193" class="line" id="l193">    193</a>     }
+<a href="#l194" class="line" id="l194">    194</a> 
+<a href="#l195" class="line" id="l195">    195</a>     winrt::Windows::Foundation::Collections::IVectorView&lt;winrt::Microsoft::Management::Deployment::SourceAgreement&gt; PackageCatalogReference::SourceAgreements()
+<a href="#l196" class="line" id="l196">    196</a>     {
+<a href="#l197" class="line" id="l197">    197</a>         std::call_once(m_sourceAgreementsOnceFlag,
+<a href="#l198" class="line" id="l198">    198</a>             [&amp;]()
+<a href="#l199" class="line" id="l199">    199</a>             {
+<a href="#l200" class="line" id="l200">    200</a>                 if (!IsComposite())
+<a href="#l201" class="line" id="l201">    201</a>                 {
+<a href="#l202" class="line" id="l202">    202</a>                     for (auto const&amp; agreement : m_sourceReference.GetInformation().SourceAgreements)
+<a href="#l203" class="line" id="l203">    203</a>                     {
+<a href="#l204" class="line" id="l204">    204</a>                         auto sourceAgreement = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::SourceAgreement&gt;&gt;();
+<a href="#l205" class="line" id="l205">    205</a>                         sourceAgreement-&gt;Initialize(agreement);
+<a href="#l206" class="line" id="l206">    206</a>                         m_sourceAgreements.Append(*sourceAgreement);
+<a href="#l207" class="line" id="l207">    207</a>                     }
+<a href="#l208" class="line" id="l208">    208</a>                 }
+<a href="#l209" class="line" id="l209">    209</a>             });
+<a href="#l210" class="line" id="l210">    210</a>         return m_sourceAgreements.GetView();
+<a href="#l211" class="line" id="l211">    211</a>     }
+<a href="#l212" class="line" id="l212">    212</a>     hstring PackageCatalogReference::AdditionalPackageCatalogArguments()
+<a href="#l213" class="line" id="l213">    213</a>     {
+<a href="#l214" class="line" id="l214">    214</a>         if (!IsComposite())
+<a href="#l215" class="line" id="l215">    215</a>         {
+<a href="#l216" class="line" id="l216">    216</a>             if (m_additionalPackageCatalogArguments.has_value())
+<a href="#l217" class="line" id="l217">    217</a>             {
+<a href="#l218" class="line" id="l218">    218</a>                 return winrt::to_hstring(m_additionalPackageCatalogArguments.value());
+<a href="#l219" class="line" id="l219">    219</a>             }
+<a href="#l220" class="line" id="l220">    220</a>         }
+<a href="#l221" class="line" id="l221">    221</a> 
+<a href="#l222" class="line" id="l222">    222</a>         return {};
+<a href="#l223" class="line" id="l223">    223</a>     }
+<a href="#l224" class="line" id="l224">    224</a>     void PackageCatalogReference::AdditionalPackageCatalogArguments(hstring const&amp; value)
+<a href="#l225" class="line" id="l225">    225</a>     {
+<a href="#l226" class="line" id="l226">    226</a>         if (IsComposite())
+<a href="#l227" class="line" id="l227">    227</a>         {
+<a href="#l228" class="line" id="l228">    228</a>             // Can&#39;t set AdditionalPackageCatalogArguments on a composite. Callers should set it on each non-composite PackageCatalogReference in the composite.
+<a href="#l229" class="line" id="l229">    229</a>             throw winrt::hresult_illegal_state_change();
+<a href="#l230" class="line" id="l230">    230</a>         }
+<a href="#l231" class="line" id="l231">    231</a>         else
+<a href="#l232" class="line" id="l232">    232</a>         {
+<a href="#l233" class="line" id="l233">    233</a>             m_additionalPackageCatalogArguments = ::AppInstaller::Utility::ConvertToUTF8(value);
+<a href="#l234" class="line" id="l234">    234</a>             m_sourceReference.SetCustomHeader(m_additionalPackageCatalogArguments);
+<a href="#l235" class="line" id="l235">    235</a>         }
+<a href="#l236" class="line" id="l236">    236</a>     }
+<a href="#l237" class="line" id="l237">    237</a>     void PackageCatalogReference::AcceptSourceAgreements(bool value)
+<a href="#l238" class="line" id="l238">    238</a>     {
+<a href="#l239" class="line" id="l239">    239</a>         if (IsComposite())
+<a href="#l240" class="line" id="l240">    240</a>         {
+<a href="#l241" class="line" id="l241">    241</a>             // Can&#39;t set AcceptSourceAgreements on a composite. Callers should set it on each non-composite PackageCatalogReference in the composite.
+<a href="#l242" class="line" id="l242">    242</a>             throw winrt::hresult_illegal_state_change();
+<a href="#l243" class="line" id="l243">    243</a>         }
+<a href="#l244" class="line" id="l244">    244</a>         m_acceptSourceAgreements = value;
+<a href="#l245" class="line" id="l245">    245</a>     }
+<a href="#l246" class="line" id="l246">    246</a>     bool PackageCatalogReference::AcceptSourceAgreements()
+<a href="#l247" class="line" id="l247">    247</a>     {
+<a href="#l248" class="line" id="l248">    248</a>         return m_acceptSourceAgreements;
+<a href="#l249" class="line" id="l249">    249</a>     }
+<a href="#l250" class="line" id="l250">    250</a> 
+<a href="#l251" class="line" id="l251">    251</a>     void PackageCatalogReference::PackageCatalogBackgroundUpdateInterval(winrt::Windows::Foundation::TimeSpan const&amp; value)
+<a href="#l252" class="line" id="l252">    252</a>     {
+<a href="#l253" class="line" id="l253">    253</a>         if (IsComposite())
+<a href="#l254" class="line" id="l254">    254</a>         {
+<a href="#l255" class="line" id="l255">    255</a>             // Can&#39;t set PackageCatalogBackgroundUpdateInterval on a composite. Callers should set it on each non-composite PackageCatalogReference in the composite.
+<a href="#l256" class="line" id="l256">    256</a>             throw winrt::hresult_illegal_state_change();
+<a href="#l257" class="line" id="l257">    257</a>         }
+<a href="#l258" class="line" id="l258">    258</a>         m_packageCatalogBackgroundUpdateInterval = value;
+<a href="#l259" class="line" id="l259">    259</a>     }
+<a href="#l260" class="line" id="l260">    260</a>     winrt::Windows::Foundation::TimeSpan PackageCatalogReference::PackageCatalogBackgroundUpdateInterval()
+<a href="#l261" class="line" id="l261">    261</a>     {
+<a href="#l262" class="line" id="l262">    262</a>         return m_packageCatalogBackgroundUpdateInterval;
+<a href="#l263" class="line" id="l263">    263</a>     }
+<a href="#l264" class="line" id="l264">    264</a> 
+<a href="#l265" class="line" id="l265">    265</a>     bool PackageCatalogReference::InstalledPackageInformationOnly()
+<a href="#l266" class="line" id="l266">    266</a>     {
+<a href="#l267" class="line" id="l267">    267</a>         return m_installedPackageInformationOnly;
+<a href="#l268" class="line" id="l268">    268</a>     }
+<a href="#l269" class="line" id="l269">    269</a> 
+<a href="#l270" class="line" id="l270">    270</a>     void PackageCatalogReference::InstalledPackageInformationOnly(bool value)
+<a href="#l271" class="line" id="l271">    271</a>     {
+<a href="#l272" class="line" id="l272">    272</a>         if (IsComposite())
+<a href="#l273" class="line" id="l273">    273</a>         {
+<a href="#l274" class="line" id="l274">    274</a>             throw winrt::hresult_illegal_state_change();
+<a href="#l275" class="line" id="l275">    275</a>         }
+<a href="#l276" class="line" id="l276">    276</a> 
+<a href="#l277" class="line" id="l277">    277</a>         m_installedPackageInformationOnly = value;
+<a href="#l278" class="line" id="l278">    278</a>     }
+<a href="#l279" class="line" id="l279">    279</a>     winrt::Microsoft::Management::Deployment::AuthenticationArguments PackageCatalogReference::AuthenticationArguments()
+<a href="#l280" class="line" id="l280">    280</a>     {
+<a href="#l281" class="line" id="l281">    281</a>         return m_authenticationArguments;
+<a href="#l282" class="line" id="l282">    282</a>     }
+<a href="#l283" class="line" id="l283">    283</a>     void PackageCatalogReference::AuthenticationArguments(winrt::Microsoft::Management::Deployment::AuthenticationArguments const&amp; value)
+<a href="#l284" class="line" id="l284">    284</a>     {
+<a href="#l285" class="line" id="l285">    285</a>         if (IsComposite())
+<a href="#l286" class="line" id="l286">    286</a>         {
+<a href="#l287" class="line" id="l287">    287</a>             throw winrt::hresult_illegal_state_change();
+<a href="#l288" class="line" id="l288">    288</a>         }
+<a href="#l289" class="line" id="l289">    289</a> 
+<a href="#l290" class="line" id="l290">    290</a>         m_authenticationArguments = value;
+<a href="#l291" class="line" id="l291">    291</a>     }
+<a href="#l292" class="line" id="l292">    292</a>     winrt::Microsoft::Management::Deployment::AuthenticationInfo PackageCatalogReference::AuthenticationInfo()
+<a href="#l293" class="line" id="l293">    293</a>     {
+<a href="#l294" class="line" id="l294">    294</a>         std::call_once(m_authenticationInfoOnceFlag,
+<a href="#l295" class="line" id="l295">    295</a>             [&amp;]()
+<a href="#l296" class="line" id="l296">    296</a>             {
+<a href="#l297" class="line" id="l297">    297</a>                 if (!IsComposite())
+<a href="#l298" class="line" id="l298">    298</a>                 {
+<a href="#l299" class="line" id="l299">    299</a>                     auto authenticationInfo = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::AuthenticationInfo&gt;&gt;();
+<a href="#l300" class="line" id="l300">    300</a>                     authenticationInfo-&gt;Initialize(m_sourceReference.GetInformation().Authentication);
+<a href="#l301" class="line" id="l301">    301</a>                     m_authenticationInfo = *authenticationInfo;
+<a href="#l302" class="line" id="l302">    302</a>                 }
+<a href="#l303" class="line" id="l303">    303</a>             });
+<a href="#l304" class="line" id="l304">    304</a>         return m_authenticationInfo;
+<a href="#l305" class="line" id="l305">    305</a>     }
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>     winrt::Windows::Foundation::IAsyncOperationWithProgress&lt;winrt::Microsoft::Management::Deployment::RefreshPackageCatalogResult, double&gt; PackageCatalogReference::RefreshPackageCatalogAsync()
+<a href="#l308" class="line" id="l308">    308</a>     {
+<a href="#l309" class="line" id="l309">    309</a>         HRESULT terminationHR = S_OK;
+<a href="#l310" class="line" id="l310">    310</a>         try {
+<a href="#l311" class="line" id="l311">    311</a>             // Check for permissions and get caller info for telemetry
+<a href="#l312" class="line" id="l312">    312</a>             THROW_IF_FAILED(EnsureComCallerHasCapability(Capability::PackageQuery));
+<a href="#l313" class="line" id="l313">    313</a> 
+<a href="#l314" class="line" id="l314">    314</a>             auto strong_this = get_strong();
+<a href="#l315" class="line" id="l315">    315</a>             auto report_progress{ co_await winrt::get_progress_token() };
+<a href="#l316" class="line" id="l316">    316</a>             co_await winrt::resume_background();
+<a href="#l317" class="line" id="l317">    317</a> 
+<a href="#l318" class="line" id="l318">    318</a>             auto packageCatalogProgressSink = winrt::Microsoft::Management::Deployment::ProgressSinkFactory::CreatePackageCatalogProgressSink(this-&gt;m_sourceReference.GetDetails().Type, report_progress);
+<a href="#l319" class="line" id="l319">    319</a> 
+<a href="#l320" class="line" id="l320">    320</a>             packageCatalogProgressSink-&gt;BeginProgress();
+<a href="#l321" class="line" id="l321">    321</a>             ::AppInstaller::ProgressCallback progress(packageCatalogProgressSink.get());
+<a href="#l322" class="line" id="l322">    322</a>             this-&gt;m_sourceReference.Update(progress);
+<a href="#l323" class="line" id="l323">    323</a>             packageCatalogProgressSink-&gt;EndProgress(false);
+<a href="#l324" class="line" id="l324">    324</a>         }
+<a href="#l325" class="line" id="l325">    325</a>         catch (...)
+<a href="#l326" class="line" id="l326">    326</a>         {
+<a href="#l327" class="line" id="l327">    327</a>             terminationHR = AppInstaller::CLI::Workflow::HandleException(nullptr, std::current_exception());
+<a href="#l328" class="line" id="l328">    328</a>         }
+<a href="#l329" class="line" id="l329">    329</a> 
+<a href="#l330" class="line" id="l330">    330</a>         co_return GetRefreshPackageCatalogResult(terminationHR);
+<a href="#l331" class="line" id="l331">    331</a>     }
+<a href="#l332" class="line" id="l332">    332</a> }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix bugs with display paths (#3157) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/578f451ebca68f46e0d11271cde5df7bc5aa29c6.html">578f451ebca68f46e0d11271cde5df7bc5aa29c6</a>
+<b>parent</b> <a href="../commit/16fd465870a911a5683903abf0af7e277d32a631.html">16fd465870a911a5683903abf0af7e277d32a631</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Mon, 17 Apr 2023 18:51:41 -0700
+
+Fix bugs with display paths (#3157)
+
+Change
+This change fixes two bugs with display paths:
+
+The recent change to use case insensitive ICU for directory name equality inverted the comparison, making the replacement not happen correctly.
+The recent change to enable display paths generically left them marked for creation, resulting in errors if directories that required administrator privileges to create did not exist and were requested from an unelevated context (ex. run winget --info from medium IL process when the portable machine links location(s) did not exist).
+In addition, I tried to generally make forDisplay apply broadly since it is now allowed to be requested on any path.
+
+Validation
+winget --info now contains the expected output instead of an error (2) or the full paths containing the user&#39;s account name (1).
+A few unit tests that were being hit by the error are also working now.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/Filesystem.cpp</a></td><td> | </td><td class="num">17</td><td><span class="i">+++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLITests/Runtime.cpp</a></td><td> | </td><td class="num">23</td><td><span class="i">+++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLITests/TestCommon.cpp</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLITests/TestCommon.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLITests/main.cpp</a></td><td> | </td><td class="num">9</td><td><span class="i">+</span><span class="d">--------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCLITests/pch.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCommonCore/Filesystem.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerCommonCore/Runtime.cpp</a></td><td> | </td><td class="num">109</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------------------</span></td></tr>
+</table></pre><pre>10 files changed, 128 insertions(+), 63 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -227,9 +227,6 @@
+</a>     &lt;ClCompile Include=&quot;Archive.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files\Common&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h0-0-3" id="h0-0-3" class="d">-    &lt;ClCompile Include=&quot;Filesystem.cpp&quot;&gt;
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-      &lt;Filter&gt;Source Files&lt;/Filter&gt;
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-    &lt;/ClCompile&gt;
+</a>     &lt;ClCompile Include=&quot;FolderFileWatcher.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files\Common&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h0-1" id="h0-1" class="h">@@ -242,9 +239,6 @@
+</a>     &lt;ClCompile Include=&quot;PackageDependenciesValidationUtil.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files\Repository&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h0-1-3" id="h0-1-3" class="d">-    &lt;ClCompile Include=&quot;RestInterface_1_4.cpp&quot;&gt;
+</a><a href="#h0-1-4" id="h0-1-4" class="d">-      &lt;Filter&gt;Source Files&lt;/Filter&gt;
+</a><a href="#h0-1-5" id="h0-1-5" class="d">-    &lt;/ClCompile&gt;
+</a>     &lt;ClCompile Include=&quot;AdminSettings.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files\Common&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h0-2" id="h0-2" class="h">@@ -293,6 +287,12 @@
+</a>     &lt;ClCompile Include=&quot;WindowsFeature.cpp&quot;&gt;
+       &lt;Filter&gt;Source Files\CLI&lt;/Filter&gt;
+     &lt;/ClCompile&gt;
+<a href="#h0-2-3" id="h0-2-3" class="i">+    &lt;ClCompile Include=&quot;Filesystem.cpp&quot;&gt;
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+      &lt;Filter&gt;Source Files\Common&lt;/Filter&gt;
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+    &lt;/ClCompile&gt;
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+    &lt;ClCompile Include=&quot;RestInterface_1_4.cpp&quot;&gt;
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+      &lt;Filter&gt;Source Files\Repository&lt;/Filter&gt;
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+    &lt;/ClCompile&gt;
+</a>   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;None Include=&quot;PropertySheet.props&quot; /&gt;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/Filesystem.cpp.html">src/AppInstallerCLITests/Filesystem.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Filesystem.cpp.html">src/AppInstallerCLITests/Filesystem.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -86,4 +86,18 @@ TEST_CASE(&quot;VerifyIsSameVolume&quot;, &quot;[filesystem]&quot;)
+</a>     REQUIRE_FALSE(IsSameVolume(path5, path6));
+     REQUIRE_FALSE(IsSameVolume(path4, path6));
+     REQUIRE_FALSE(IsSameVolume(path6, path8));
+<a href="#h1-0-3" id="h1-0-3" class="d">-}</a><a href="#h1-0-4" id="h1-0-4" class="d">-
+\ No newline at end of file
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+}
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+TEST_CASE(&quot;ReplaceCommonPathPrefix&quot;, &quot;[filesystem]&quot;)
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+{
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    std::filesystem::path prefix = &quot;C:\\test1\\test2&quot;;
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    std::string replacement = &quot;%TEST%&quot;;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+    std::filesystem::path shouldReplace = &quot;C:\\test1\\test2\\subdir1\\subdir2&quot;;
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+    REQUIRE(ReplaceCommonPathPrefix(shouldReplace, prefix, replacement));
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+    REQUIRE(shouldReplace.u8string() == (replacement + &quot;\\subdir1\\subdir2&quot;));
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+    std::filesystem::path shouldNotReplace = &quot;C:\\test1\\test3\\subdir1\\subdir2&quot;;
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+    REQUIRE(!ReplaceCommonPathPrefix(shouldNotReplace, prefix, replacement));
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+    REQUIRE(shouldNotReplace.u8string() == &quot;C:\\test1\\test3\\subdir1\\subdir2&quot;);
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/Runtime.cpp.html">src/AppInstallerCLITests/Runtime.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Runtime.cpp.html">src/AppInstallerCLITests/Runtime.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -2,7 +2,9 @@
+</a> // Licensed under the MIT License.
+ #include &quot;pch.h&quot;
+ #include &quot;TestCommon.h&quot;
+<a href="#h2-0-3" id="h2-0-3" class="i">+#include &quot;TestHooks.h&quot;
+</a> #include &lt;AppInstallerRuntime.h&gt;
+<a href="#h2-0-5" id="h2-0-5" class="i">+#include &lt;winget/Filesystem.h&gt;
+</a> 
+ using namespace AppInstaller;
+ using namespace AppInstaller::Runtime;
+<a href="#h2-1" id="h2-1" class="h">@@ -113,4 +115,22 @@ TEST_CASE(&quot;VerifyDevModeEnabledCheck&quot;, &quot;[runtime]&quot;)
+</a> 
+     REQUIRE(modifiedState != initialState);
+     REQUIRE(revertedState == initialState);
+<a href="#h2-1-3" id="h2-1-3" class="d">-}</a><a href="#h2-1-4" id="h2-1-4" class="d">-
+\ No newline at end of file
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+}
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+TEST_CASE(&quot;EnsureUserProfileNotPresentInDisplayPaths&quot;, &quot;[runtime]&quot;)
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+{
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+    // Clear the overrides that we use when testing as they don&#39;t consider display purposes
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+    Runtime::TestHook_ClearPathOverrides();
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+    auto restorePaths = wil::scope_exit([]() { TestCommon::SetTestPathOverrides(); });
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+    std::filesystem::path userProfilePath = Filesystem::GetKnownFolderPath(FOLDERID_Profile);
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+    std::string userProfileString = userProfilePath.u8string();
+</a><a href="#h2-1-15" id="h2-1-15" class="i">+
+</a><a href="#h2-1-16" id="h2-1-16" class="i">+    for (auto i = ToIntegral(ToEnum&lt;PathName&gt;(0)); i &lt; ToIntegral(PathName::Max); ++i)
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+    {
+</a><a href="#h2-1-18" id="h2-1-18" class="i">+        std::filesystem::path displayPath = GetPathTo(ToEnum&lt;PathName&gt;(i), true);
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+        std::string displayPathString = displayPath.u8string();
+</a><a href="#h2-1-20" id="h2-1-20" class="i">+        INFO(i &lt;&lt; &quot; = &quot; &lt;&lt; displayPathString);
+</a><a href="#h2-1-21" id="h2-1-21" class="i">+        REQUIRE(displayPathString.find(userProfileString) == std::string::npos);
+</a><a href="#h2-1-22" id="h2-1-22" class="i">+    }
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+}
+</a><b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/TestCommon.cpp.html">src/AppInstallerCLITests/TestCommon.cpp</a> b/<a href="../file/src/AppInstallerCLITests/TestCommon.cpp.html">src/AppInstallerCLITests/TestCommon.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -8,6 +8,8 @@
+</a> #include &lt;AppInstallerMsixInfo.h&gt;
+ #include &lt;AppInstallerDownloader.h&gt;
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+using namespace AppInstaller;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+
+</a> namespace TestCommon
+ {
+     namespace
+<a href="#h3-1" id="h3-1" class="h">@@ -363,4 +365,15 @@ namespace TestCommon
+</a> 
+         return root;
+     }
+<a href="#h3-1-3" id="h3-1-3" class="i">+
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+    void SetTestPathOverrides()
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+    {
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+        // Force all tests to run against settings inside this container.
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+        // This prevents test runs from trashing the users actual settings.
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+        Runtime::TestHook_SetPathOverride(Runtime::PathName::LocalState, Runtime::GetPathTo(Runtime::PathName::LocalState) / &quot;Tests&quot;);
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+        Runtime::TestHook_SetPathOverride(Runtime::PathName::UserFileSettings, Runtime::GetPathTo(Runtime::PathName::UserFileSettings) / &quot;Tests&quot;);
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+        Runtime::TestHook_SetPathOverride(Runtime::PathName::StandardSettings, Runtime::GetPathTo(Runtime::PathName::StandardSettings) / &quot;Tests&quot;);
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+        Runtime::TestHook_SetPathOverride(Runtime::PathName::SecureSettingsForRead, Runtime::GetPathTo(Runtime::PathName::StandardSettings) / &quot;WinGet_SecureSettings_Tests&quot;);
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+        Runtime::TestHook_SetPathOverride(Runtime::PathName::SecureSettingsForWrite, Runtime::GetPathDetailsFor(Runtime::PathName::SecureSettingsForRead));
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLITests/TestCommon.h.html">src/AppInstallerCLITests/TestCommon.h</a> b/<a href="../file/src/AppInstallerCLITests/TestCommon.h.html">src/AppInstallerCLITests/TestCommon.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -153,4 +153,7 @@ namespace TestCommon
+</a> 
+     // Convert to Json::Value
+     Json::Value ConvertToJson(const std::string&amp; content);
+<a href="#h4-0-3" id="h4-0-3" class="i">+
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+    // Sets up the test path overrides.
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+    void SetTestPathOverrides();
+</a> }
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLITests/main.cpp.html">src/AppInstallerCLITests/main.cpp</a> b/<a href="../file/src/AppInstallerCLITests/main.cpp.html">src/AppInstallerCLITests/main.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -13,7 +13,6 @@
+</a> #include &lt;Telemetry/TraceLogging.h&gt;
+ 
+ #include &quot;TestCommon.h&quot;
+<a href="#h5-0-3" id="h5-0-3" class="d">-#include &quot;TestHooks.h&quot;
+</a> #include &quot;TestSettings.h&quot;
+ 
+ using namespace winrt;
+<a href="#h5-1" id="h5-1" class="h">@@ -151,13 +150,7 @@ int main(int argc, char** argv)
+</a>     // Forcibly enable event writing to catch bugs in that code
+     g_IsTelemetryProviderEnabled = true;
+ 
+<a href="#h5-1-3" id="h5-1-3" class="d">-    // Force all tests to run against settings inside this container.
+</a><a href="#h5-1-4" id="h5-1-4" class="d">-    // This prevents test runs from trashing the users actual settings.
+</a><a href="#h5-1-5" id="h5-1-5" class="d">-    Runtime::TestHook_SetPathOverride(Runtime::PathName::LocalState, Runtime::GetPathTo(Runtime::PathName::LocalState) / &quot;Tests&quot;);
+</a><a href="#h5-1-6" id="h5-1-6" class="d">-    Runtime::TestHook_SetPathOverride(Runtime::PathName::UserFileSettings, Runtime::GetPathTo(Runtime::PathName::UserFileSettings) / &quot;Tests&quot;);
+</a><a href="#h5-1-7" id="h5-1-7" class="d">-    Runtime::TestHook_SetPathOverride(Runtime::PathName::StandardSettings, Runtime::GetPathTo(Runtime::PathName::StandardSettings) / &quot;Tests&quot;);
+</a><a href="#h5-1-8" id="h5-1-8" class="d">-    Runtime::TestHook_SetPathOverride(Runtime::PathName::SecureSettingsForRead, Runtime::GetPathTo(Runtime::PathName::StandardSettings) / &quot;WinGet_SecureSettings_Tests&quot;);
+</a><a href="#h5-1-9" id="h5-1-9" class="d">-    Runtime::TestHook_SetPathOverride(Runtime::PathName::SecureSettingsForWrite, Runtime::GetPathDetailsFor(Runtime::PathName::SecureSettingsForRead));
+</a><a href="#h5-1-10" id="h5-1-10" class="i">+    TestCommon::SetTestPathOverrides();
+</a> 
+     // Remove any existing settings files in the new tests path
+     TestCommon::UserSettingsFileGuard settingsGuard;
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCLITests/pch.h.html">src/AppInstallerCLITests/pch.h</a> b/<a href="../file/src/AppInstallerCLITests/pch.h.html">src/AppInstallerCLITests/pch.h</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -9,6 +9,7 @@
+</a> #include &lt;objbase.h&gt;
+ #include &lt;urlmon.h&gt;
+ #include &lt;Msi.h&gt;
+<a href="#h6-0-3" id="h6-0-3" class="i">+#include &lt;KnownFolders.h&gt;
+</a> 
+ #include &lt;catch.hpp&gt;
+ 
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCommonCore/Filesystem.cpp.html">src/AppInstallerCommonCore/Filesystem.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Filesystem.cpp.html">src/AppInstallerCommonCore/Filesystem.cpp</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -209,7 +209,7 @@ namespace AppInstaller::Filesystem
+</a> 
+         while (prefixItr != prefix.end() &amp;&amp; sourceItr != source.end())
+         {
+<a href="#h7-0-3" id="h7-0-3" class="d">-            if (Utility::ICUCaseInsensitiveEquals(prefixItr-&gt;u8string(), sourceItr-&gt;u8string()))
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+            if (!Utility::ICUCaseInsensitiveEquals(prefixItr-&gt;u8string(), sourceItr-&gt;u8string()))
+</a>             {
+                 break;
+             }
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerCommonCore/Public/AppInstallerRuntime.h.html">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerRuntime.h.html">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -47,6 +47,8 @@ namespace AppInstaller::Runtime
+</a>         PortableLinksMachineLocation,
+         // The root location for the package containing the winget application.
+         SelfPackageRoot,
+<a href="#h8-0-3" id="h8-0-3" class="i">+        // Always one more than the last path; for being able to iterate paths in tests.
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+        Max
+</a>     };
+ 
+     // The principal that an ACE applies to.
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -38,6 +38,9 @@ namespace AppInstaller::Runtime
+</a> #endif
+         constexpr std::string_view s_RuntimePath_Unpackaged_DefaultState = &quot;defaultState&quot;sv;
+ 
+<a href="#h9-0-3" id="h9-0-3" class="i">+        constexpr std::string_view s_UserProfileEnvironmentVariable = &quot;%USERPROFILE%&quot;;
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+        constexpr std::string_view s_LocalAppDataEnvironmentVariable = &quot;%LOCALAPPDATA%&quot;;
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+
+</a>         static std::optional&lt;std::string&gt; s_runtimePathStateName;
+         static wil::srwlock s_runtimePathStateNameLock;
+ 
+<a href="#h9-1" id="h9-1" class="h">@@ -108,35 +111,42 @@ namespace AppInstaller::Runtime
+</a> #endif
+ 
+         // Gets the user&#39;s temp path
+<a href="#h9-1-3" id="h9-1-3" class="d">-        std::filesystem::path GetPathToUserTemp()
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+        std::filesystem::path GetPathToUserTemp(bool forDisplay)
+</a>         {
+<a href="#h9-1-6" id="h9-1-6" class="d">-            wchar_t tempPath[MAX_PATH + 1];
+</a><a href="#h9-1-7" id="h9-1-7" class="d">-            DWORD tempChars = GetTempPathW(ARRAYSIZE(tempPath), tempPath);
+</a><a href="#h9-1-8" id="h9-1-8" class="d">-            THROW_LAST_ERROR_IF(!tempChars);
+</a><a href="#h9-1-9" id="h9-1-9" class="d">-            THROW_HR_IF(E_UNEXPECTED, tempChars &gt; ARRAYSIZE(tempPath));
+</a><a href="#h9-1-10" id="h9-1-10" class="d">-            return { std::wstring_view{ tempPath, static_cast&lt;size_t&gt;(tempChars) } };
+</a><a href="#h9-1-11" id="h9-1-11" class="i">+            if (forDisplay)
+</a><a href="#h9-1-12" id="h9-1-12" class="i">+            {
+</a><a href="#h9-1-13" id="h9-1-13" class="i">+                return &quot;%TEMP%&quot;;
+</a><a href="#h9-1-14" id="h9-1-14" class="i">+            }
+</a><a href="#h9-1-15" id="h9-1-15" class="i">+            else
+</a><a href="#h9-1-16" id="h9-1-16" class="i">+            {
+</a><a href="#h9-1-17" id="h9-1-17" class="i">+                wchar_t tempPath[MAX_PATH + 1];
+</a><a href="#h9-1-18" id="h9-1-18" class="i">+                DWORD tempChars = GetTempPathW(ARRAYSIZE(tempPath), tempPath);
+</a><a href="#h9-1-19" id="h9-1-19" class="i">+                THROW_LAST_ERROR_IF(!tempChars);
+</a><a href="#h9-1-20" id="h9-1-20" class="i">+                THROW_HR_IF(E_UNEXPECTED, tempChars &gt; ARRAYSIZE(tempPath));
+</a><a href="#h9-1-21" id="h9-1-21" class="i">+                return { std::wstring_view{ tempPath, static_cast&lt;size_t&gt;(tempChars) } };
+</a><a href="#h9-1-22" id="h9-1-22" class="i">+            }
+</a>         }
+ 
+         // Gets the path to the appdata root.
+         // *Only used by non packaged version!*
+<a href="#h9-1-27" id="h9-1-27" class="d">-        std::filesystem::path GetPathToAppDataRoot()
+</a><a href="#h9-1-28" id="h9-1-28" class="i">+        std::filesystem::path GetPathToAppDataRoot(bool forDisplay)
+</a>         {
+             THROW_HR_IF(E_NOT_VALID_STATE, IsRunningInPackagedContext());
+ 
+<a href="#h9-1-32" id="h9-1-32" class="d">-            std::filesystem::path result = GetKnownFolderPath(FOLDERID_LocalAppData);
+</a><a href="#h9-1-33" id="h9-1-33" class="i">+            std::filesystem::path result = forDisplay ? s_LocalAppDataEnvironmentVariable : GetKnownFolderPath(FOLDERID_LocalAppData);
+</a>             result /= &quot;Microsoft/WinGet&quot;;
+ 
+             return result;
+         }
+ 
+         // Gets the path to the app data relative directory.
+<a href="#h9-1-40" id="h9-1-40" class="d">-        std::filesystem::path GetPathToAppDataDir(const std::filesystem::path&amp; relative)
+</a><a href="#h9-1-41" id="h9-1-41" class="i">+        std::filesystem::path GetPathToAppDataDir(const std::filesystem::path&amp; relative, bool forDisplay)
+</a>         {
+             THROW_HR_IF(E_INVALIDARG, !relative.has_relative_path());
+             THROW_HR_IF(E_INVALIDARG, relative.has_root_path());
+             THROW_HR_IF(E_INVALIDARG, !relative.has_filename());
+ 
+<a href="#h9-1-47" id="h9-1-47" class="d">-            std::filesystem::path result = GetPathToAppDataRoot();
+</a><a href="#h9-1-48" id="h9-1-48" class="i">+            std::filesystem::path result = GetPathToAppDataRoot(forDisplay);
+</a>             result /= relative;
+ 
+             return result;
+<a href="#h9-2" id="h9-2" class="h">@@ -206,6 +216,15 @@ namespace AppInstaller::Runtime
+</a>             PSID SID;
+             TRUSTEE_TYPE TrusteeType;
+         };
+<a href="#h9-2-3" id="h9-2-3" class="i">+
+</a><a href="#h9-2-4" id="h9-2-4" class="i">+        // Try to replace LOCALAPPDATA first as it is the likely location, fall back to trying USERPROFILE.
+</a><a href="#h9-2-5" id="h9-2-5" class="i">+        void ReplaceProfilePathsWithEnvironmentVariable(std::filesystem::path&amp; path)
+</a><a href="#h9-2-6" id="h9-2-6" class="i">+        {
+</a><a href="#h9-2-7" id="h9-2-7" class="i">+            if (!ReplaceCommonPathPrefix(path, GetKnownFolderPath(FOLDERID_LocalAppData), s_LocalAppDataEnvironmentVariable))
+</a><a href="#h9-2-8" id="h9-2-8" class="i">+            {
+</a><a href="#h9-2-9" id="h9-2-9" class="i">+                ReplaceCommonPathPrefix(path, GetKnownFolderPath(FOLDERID_Profile), s_UserProfileEnvironmentVariable);
+</a><a href="#h9-2-10" id="h9-2-10" class="i">+            }
+</a><a href="#h9-2-11" id="h9-2-11" class="i">+        }
+</a>     }
+ 
+     void SetRuntimePathStateName(std::string name)
+<a href="#h9-3" id="h9-3" class="h">@@ -308,14 +327,18 @@ namespace AppInstaller::Runtime
+</a>     }
+ 
+     // Contains all of the paths that are common between the runtime contexts.
+<a href="#h9-3-3" id="h9-3-3" class="d">-    PathDetails GetPathDetailsCommon(PathName path)
+</a><a href="#h9-3-4" id="h9-3-4" class="i">+    PathDetails GetPathDetailsCommon(PathName path, bool forDisplay)
+</a>     {
+         PathDetails result;
+<a href="#h9-3-7" id="h9-3-7" class="i">+        // We should not create directories by default when they are retrieved for display purposes.
+</a><a href="#h9-3-8" id="h9-3-8" class="i">+        result.Create = !forDisplay;
+</a><a href="#h9-3-9" id="h9-3-9" class="i">+
+</a><a href="#h9-3-10" id="h9-3-10" class="i">+        bool mayBeInProfilePath = false;
+</a> 
+         switch (path)
+         {
+         case PathName::UserProfile:
+<a href="#h9-3-15" id="h9-3-15" class="d">-            result.Path = GetKnownFolderPath(FOLDERID_Profile);
+</a><a href="#h9-3-16" id="h9-3-16" class="i">+            result.Path = forDisplay ? s_UserProfileEnvironmentVariable : GetKnownFolderPath(FOLDERID_Profile);
+</a>             result.Create = false;
+             break;
+         case PathName::PortablePackageUserRoot:
+<a href="#h9-4" id="h9-4" class="h">@@ -327,6 +350,7 @@ namespace AppInstaller::Runtime
+</a>                 result.Path /= s_PortablePackageRoot;
+                 result.Path /= s_PortablePackagesDirectory;
+             }
+<a href="#h9-4-3" id="h9-4-3" class="i">+            mayBeInProfilePath = true;
+</a>             break;
+         case PathName::PortablePackageMachineRoot:
+             result.Path = Settings::User().Get&lt;Setting::PortablePackageMachineRoot&gt;();
+<a href="#h9-5" id="h9-5" class="h">@@ -351,6 +375,7 @@ namespace AppInstaller::Runtime
+</a>             result.Path /= s_PortablePackageUserRoot_Base;
+             result.Path /= s_PortablePackageRoot;
+             result.Path /= s_LinksDirectory;
+<a href="#h9-5-3" id="h9-5-3" class="i">+            mayBeInProfilePath = true;
+</a>             break;
+         case PathName::PortableLinksMachineLocation:
+             result.Path = GetKnownFolderPath(FOLDERID_ProgramFiles);
+<a href="#h9-6" id="h9-6" class="h">@@ -361,20 +386,28 @@ namespace AppInstaller::Runtime
+</a>             THROW_HR(E_UNEXPECTED);
+         }
+ 
+<a href="#h9-6-3" id="h9-6-3" class="i">+        if (mayBeInProfilePath &amp;&amp; forDisplay)
+</a><a href="#h9-6-4" id="h9-6-4" class="i">+        {
+</a><a href="#h9-6-5" id="h9-6-5" class="i">+            ReplaceProfilePathsWithEnvironmentVariable(result.Path);
+</a><a href="#h9-6-6" id="h9-6-6" class="i">+        }
+</a><a href="#h9-6-7" id="h9-6-7" class="i">+
+</a>         return result;
+     }
+ 
+ #ifndef WINGET_DISABLE_FOR_FUZZING
+<a href="#h9-6-12" id="h9-6-12" class="d">-    PathDetails GetPathDetailsForPackagedContext(PathName path, bool forDisplay = false)
+</a><a href="#h9-6-13" id="h9-6-13" class="i">+    PathDetails GetPathDetailsForPackagedContext(PathName path, bool forDisplay)
+</a>     {
+         PathDetails result;
+<a href="#h9-6-16" id="h9-6-16" class="i">+        // We should not create directories by default when they are retrieved for display purposes.
+</a><a href="#h9-6-17" id="h9-6-17" class="i">+        result.Create = !forDisplay;
+</a> 
+         auto appStorage = winrt::Windows::Storage::ApplicationData::Current();
+<a href="#h9-6-20" id="h9-6-20" class="i">+        bool mayBeInProfilePath = false;
+</a> 
+         switch (path)
+         {
+         case PathName::Temp:
+<a href="#h9-6-25" id="h9-6-25" class="d">-            result.Path = GetPathToUserTemp() / s_DefaultTempDirectory;
+</a><a href="#h9-6-26" id="h9-6-26" class="i">+            result.Path = GetPathToUserTemp(forDisplay) / s_DefaultTempDirectory;
+</a>             result.SetOwner(ACEPrincipal::CurrentUser);
+             result.ACL[ACEPrincipal::System] = ACEPermissions::All;
+             result.ACL[ACEPrincipal::Admins] = ACEPermissions::All;
+<a href="#h9-7" id="h9-7" class="h">@@ -382,15 +415,13 @@ namespace AppInstaller::Runtime
+</a>         case PathName::LocalState:
+         case PathName::UserFileSettings:
+             result.Path.assign(appStorage.LocalFolder().Path().c_str());
+<a href="#h9-7-3" id="h9-7-3" class="i">+            mayBeInProfilePath = true;
+</a>             break;
+         case PathName::DefaultLogLocation:
+             // To enable UIF collection through Feedback hub, we must put our logs here.
+             result.Path.assign(appStorage.LocalFolder().Path().c_str());
+             result.Path /= WINGET_DEFAULT_LOG_DIRECTORY;
+<a href="#h9-7-9" id="h9-7-9" class="d">-            if (forDisplay)
+</a><a href="#h9-7-10" id="h9-7-10" class="d">-            {
+</a><a href="#h9-7-11" id="h9-7-11" class="d">-                ReplaceCommonPathPrefix(result.Path, GetKnownFolderPath(FOLDERID_LocalAppData), &quot;%LOCALAPPDATA%&quot;);
+</a><a href="#h9-7-12" id="h9-7-12" class="d">-            }
+</a><a href="#h9-7-13" id="h9-7-13" class="i">+            mayBeInProfilePath = true;
+</a>             break;
+         case PathName::StandardSettings:
+             result.Create = false;
+<a href="#h9-8" id="h9-8" class="h">@@ -417,15 +448,11 @@ namespace AppInstaller::Runtime
+</a>         case PathName::PortablePackageMachineRoot:
+         case PathName::PortablePackageMachineRootX86:
+         case PathName::PortableLinksMachineLocation:
+<a href="#h9-8-3" id="h9-8-3" class="d">-            result = GetPathDetailsCommon(path);
+</a><a href="#h9-8-4" id="h9-8-4" class="i">+            result = GetPathDetailsCommon(path, forDisplay);
+</a>             break;
+         case PathName::PortableLinksUserLocation:
+         case PathName::PortablePackageUserRoot:
+<a href="#h9-8-8" id="h9-8-8" class="d">-            result = GetPathDetailsCommon(path);
+</a><a href="#h9-8-9" id="h9-8-9" class="d">-            if (forDisplay)
+</a><a href="#h9-8-10" id="h9-8-10" class="d">-            {
+</a><a href="#h9-8-11" id="h9-8-11" class="d">-                ReplaceCommonPathPrefix(result.Path, GetKnownFolderPath(FOLDERID_LocalAppData), &quot;%LOCALAPPDATA%&quot;);
+</a><a href="#h9-8-12" id="h9-8-12" class="d">-            }
+</a><a href="#h9-8-13" id="h9-8-13" class="i">+            result = GetPathDetailsCommon(path, forDisplay);
+</a>             break;
+         case PathName::SelfPackageRoot:
+             result.Path = GetPackagePath();
+<a href="#h9-9" id="h9-9" class="h">@@ -435,29 +462,27 @@ namespace AppInstaller::Runtime
+</a>             THROW_HR(E_UNEXPECTED);
+         }
+ 
+<a href="#h9-9-3" id="h9-9-3" class="i">+        if (mayBeInProfilePath &amp;&amp; forDisplay)
+</a><a href="#h9-9-4" id="h9-9-4" class="i">+        {
+</a><a href="#h9-9-5" id="h9-9-5" class="i">+            ReplaceProfilePathsWithEnvironmentVariable(result.Path);
+</a><a href="#h9-9-6" id="h9-9-6" class="i">+        }
+</a><a href="#h9-9-7" id="h9-9-7" class="i">+
+</a>         return result;
+     }
+ #endif
+ 
+<a href="#h9-9-12" id="h9-9-12" class="d">-    PathDetails GetPathDetailsForUnpackagedContext(PathName path, bool forDisplay = false)
+</a><a href="#h9-9-13" id="h9-9-13" class="i">+    PathDetails GetPathDetailsForUnpackagedContext(PathName path, bool forDisplay)
+</a>     {
+         PathDetails result;
+<a href="#h9-9-16" id="h9-9-16" class="i">+        // We should not create directories by default when they are retrieved for display purposes.
+</a><a href="#h9-9-17" id="h9-9-17" class="i">+        result.Create = !forDisplay;
+</a> 
+         switch (path)
+         {
+         case PathName::Temp:
+         case PathName::DefaultLogLocation:
+         {
+<a href="#h9-9-24" id="h9-9-24" class="d">-            if (forDisplay)
+</a><a href="#h9-9-25" id="h9-9-25" class="d">-            {
+</a><a href="#h9-9-26" id="h9-9-26" class="d">-                result.Path.assign(&quot;%TEMP%&quot;);
+</a><a href="#h9-9-27" id="h9-9-27" class="d">-                result.Create = false;
+</a><a href="#h9-9-28" id="h9-9-28" class="d">-            }
+</a><a href="#h9-9-29" id="h9-9-29" class="d">-            else
+</a><a href="#h9-9-30" id="h9-9-30" class="d">-            {
+</a><a href="#h9-9-31" id="h9-9-31" class="d">-                result.Path = GetPathToUserTemp();
+</a><a href="#h9-9-32" id="h9-9-32" class="d">-            }
+</a><a href="#h9-9-33" id="h9-9-33" class="d">-
+</a><a href="#h9-9-34" id="h9-9-34" class="i">+            result.Path = GetPathToUserTemp(forDisplay);
+</a>             result.Path /= s_DefaultTempDirectory;
+             result.Path /= GetRuntimePathStateName();
+             if (path == PathName::Temp)
+<a href="#h9-10" id="h9-10" class="h">@@ -469,13 +494,13 @@ namespace AppInstaller::Runtime
+</a>         }
+         break;
+         case PathName::LocalState:
+<a href="#h9-10-3" id="h9-10-3" class="d">-            result.Path = GetPathToAppDataDir(s_AppDataDir_State);
+</a><a href="#h9-10-4" id="h9-10-4" class="i">+            result.Path = GetPathToAppDataDir(s_AppDataDir_State, forDisplay);
+</a>             result.Path /= GetRuntimePathStateName();
+             result.SetOwner(ACEPrincipal::CurrentUser);
+             break;
+         case PathName::StandardSettings:
+         case PathName::UserFileSettings:
+<a href="#h9-10-10" id="h9-10-10" class="d">-            result.Path = GetPathToAppDataDir(s_AppDataDir_Settings);
+</a><a href="#h9-10-11" id="h9-10-11" class="i">+            result.Path = GetPathToAppDataDir(s_AppDataDir_Settings, forDisplay);
+</a>             result.Path /= GetRuntimePathStateName();
+             result.SetOwner(ACEPrincipal::CurrentUser);
+             break;
+<a href="#h9-11" id="h9-11" class="h">@@ -501,15 +526,11 @@ namespace AppInstaller::Runtime
+</a>         case PathName::PortablePackageMachineRoot:
+         case PathName::PortablePackageMachineRootX86:
+         case PathName::PortableLinksMachineLocation:
+<a href="#h9-11-3" id="h9-11-3" class="d">-            result = GetPathDetailsCommon(path);
+</a><a href="#h9-11-4" id="h9-11-4" class="i">+            result = GetPathDetailsCommon(path, forDisplay);
+</a>             break;
+         case PathName::PortableLinksUserLocation:
+         case PathName::PortablePackageUserRoot:
+<a href="#h9-11-8" id="h9-11-8" class="d">-            result = GetPathDetailsCommon(path);
+</a><a href="#h9-11-9" id="h9-11-9" class="d">-            if (forDisplay)
+</a><a href="#h9-11-10" id="h9-11-10" class="d">-            {
+</a><a href="#h9-11-11" id="h9-11-11" class="d">-                ReplaceCommonPathPrefix(result.Path, GetKnownFolderPath(FOLDERID_LocalAppData), &quot;%LOCALAPPDATA%&quot;);
+</a><a href="#h9-11-12" id="h9-11-12" class="d">-            }
+</a><a href="#h9-11-13" id="h9-11-13" class="i">+            result = GetPathDetailsCommon(path, forDisplay);
+</a>             break;
+         case PathName::SelfPackageRoot:
+             result.Path = GetBinaryDirectoryPath();
+<a href="#h9-12" id="h9-12" class="h">@@ -534,7 +555,7 @@ namespace AppInstaller::Runtime
+</a>         else
+ #endif
+         {
+<a href="#h9-12-3" id="h9-12-3" class="d">-            result = GetPathDetailsForUnpackagedContext(path);
+</a><a href="#h9-12-4" id="h9-12-4" class="i">+            result = GetPathDetailsForUnpackagedContext(path, forDisplay);
+</a>         }
+ 
+ #ifndef AICLI_DISABLE_TEST_HOOKS
+</pre>
+</div>
+</body>
+</html>

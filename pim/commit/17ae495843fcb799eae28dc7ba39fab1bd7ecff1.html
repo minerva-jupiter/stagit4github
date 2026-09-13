@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat: implement core editor functionality with swap and recovery support - pim - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="pim.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="pim.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>pim</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/17ae495843fcb799eae28dc7ba39fab1bd7ecff1.html">17ae495843fcb799eae28dc7ba39fab1bd7ecff1</a>
+<b>parent</b> <a href="../commit/8e197646ed86e20c8cda95a7e057b84830e8fdae.html">8e197646ed86e20c8cda95a7e057b84830e8fdae</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Sun,  7 Jun 2026 11:42:40 +0900
+
+feat: implement core editor functionality with swap and recovery support
+
+- Add `Buffer` for on-demand file I/O, delta management, and swap file persistence.
+- Implement `Editor` state machine for navigation and mode switching.
+- Add swap file detection and recovery prompts to `main.rs`.
+- Implement basic text editing (Insert mode) and atomic saving.
+- Update `README.md` with new features and roadmap progress.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">README.md</a></td><td> | </td><td class="num">154</td><td><span class="i">+++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------------------------</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h1">src/buffer.rs</a></td><td> | </td><td class="num">198</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h2">src/editor.rs</a></td><td> | </td><td class="num">59</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/main.rs</a></td><td> | </td><td class="num">343</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>4 files changed, 670 insertions(+), 84 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/README.md.html">README.md</a> b/<a href="../file/README.md.html">README.md</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1,82 +1,72 @@
+</a><a href="#h0-0-0" id="h0-0-0" class="d">-# pim - A Lightweight Minimalist Text Editor written in Rust
+</a><a href="#h0-0-1" id="h0-0-1" class="d">-
+</a><a href="#h0-0-2" id="h0-0-2" class="d">-`pim` は、Rustで開発されるテキストエディタである。初期実装として `nano` のようなミニマリズムと省メモリ設計（オンデマンド読み込み）を採用しつつ、内部構造は `vim` のようなモード管理（ステートマシン）が可能なアーキテクチャを採用する。
+</a><a href="#h0-0-3" id="h0-0-3" class="d">-
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-## 1. 動作環境・技術スタック
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-* **Language**: Rust
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-* **TUI Framework**: `ratatui` (v0.26以降想定)
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-* **Terminal Control (Backend)**: `crossterm`
+</a><a href="#h0-0-9" id="h0-0-9" class="d">-* **Target OS**: Linux, macOS, Windows
+</a><a href="#h0-0-10" id="h0-0-10" class="d">-
+</a><a href="#h0-0-11" id="h0-0-11" class="d">----
+</a><a href="#h0-0-12" id="h0-0-12" class="d">-
+</a><a href="#h0-0-13" id="h0-0-13" class="d">-## 2. コア仕様 (Specifications)
+</a><a href="#h0-0-14" id="h0-0-14" class="d">-
+</a><a href="#h0-0-15" id="h0-0-15" class="d">-### 2.1. モード管理 (State Machine)
+</a><a href="#h0-0-16" id="h0-0-16" class="d">-起動時は常に `Normal` モードから開始する。入力されたキーイベントは直接テキストバッファに渡されず、現在のモードに応じて `Action` に変換されてから処理される。
+</a><a href="#h0-0-17" id="h0-0-17" class="d">-
+</a><a href="#h0-0-18" id="h0-0-18" class="d">-* **Normal モード**
+</a><a href="#h0-0-19" id="h0-0-19" class="d">-  * `i`: `Insert` モードへ移行
+</a><a href="#h0-0-20" id="h0-0-20" class="d">-  * `j`: カーソルを下へ移動
+</a><a href="#h0-0-21" id="h0-0-21" class="d">-  * `k`: カーソルを上へ移動
+</a><a href="#h0-0-22" id="h0-0-22" class="d">-  * `:q`: エディタの終了 (コマンドラインモード実装までの暫定)
+</a><a href="#h0-0-23" id="h0-0-23" class="d">-* **Insert モード**
+</a><a href="#h0-0-24" id="h0-0-24" class="d">-  * `Esc`: `Normal` モードへ移行
+</a><a href="#h0-0-25" id="h0-0-25" class="d">-  * 一般文字キー: テキストバッファへの文字挿入
+</a><a href="#h0-0-26" id="h0-0-26" class="d">-  * `Backspace`: 文字の削除
+</a><a href="#h0-0-27" id="h0-0-27" class="d">-
+</a><a href="#h0-0-28" id="h0-0-28" class="d">-### 2.2. 省メモリ設計 (On-demand File I/O)
+</a><a href="#h0-0-29" id="h0-0-29" class="d">-数GB規模の巨大ファイルを開いた際、メモリのパンクを防ぐために以下の仕様を満たす。
+</a><a href="#h0-0-30" id="h0-0-30" class="d">-1. **行インデックス化**: ファイルオープン時、ファイル全体はメモリに読み込まず、各行の開始バイト位置（オフセット）のみを `Vec&lt;usize&gt;` に記録する。
+</a><a href="#h0-0-31" id="h0-0-31" class="d">-2. **オンデマンド描画**: 画面のスクロール位置に対応する行のバイト範囲のみをファイルから `seek` して読み込み、`ratatui` の描画バッファへ渡す。
+</a><a href="#h0-0-32" id="h0-0-32" class="d">-3. **差分バッファ管理**: 編集内容（挿入・削除）は元のファイルバッファを書き換えず、どの行のどの位置に変更があったかを別構造（Delta Queue）で管理する。画面描画時は、ファイルから読み込んだデータにこの差分を動的にパッチ当てして表示する。
+</a><a href="#h0-0-33" id="h0-0-33" class="d">-
+</a><a href="#h0-0-34" id="h0-0-34" class="d">----
+</a><a href="#h0-0-35" id="h0-0-35" class="d">-
+</a><a href="#h0-0-36" id="h0-0-36" class="d">-## 3. アーキテクチャとデータ構造
+</a><a href="#h0-0-37" id="h0-0-37" class="d">-
+</a><a href="#h0-0-38" id="h0-0-38" class="d">-### 3.1. モードおよびアクションの定義
+</a><a href="#h0-0-39" id="h0-0-39" class="d">-```rust
+</a><a href="#h0-0-40" id="h0-0-40" class="d">-pub enum Mode {
+</a><a href="#h0-0-41" id="h0-0-41" class="d">-    Normal,
+</a><a href="#h0-0-42" id="h0-0-42" class="d">-    Insert,
+</a><a href="#h0-0-43" id="h0-0-43" class="d">-}
+</a><a href="#h0-0-44" id="h0-0-44" class="d">-```
+</a><a href="#h0-0-45" id="h0-0-45" class="d">-
+</a><a href="#h0-0-46" id="h0-0-46" class="d">-### 3.2. テキストインデックスと差分管理
+</a><a href="#h0-0-47" id="h0-0-47" class="d">-
+</a><a href="#h0-0-48" id="h0-0-48" class="d">----
+</a><a href="#h0-0-49" id="h0-0-49" class="d">-
+</a><a href="#h0-0-50" id="h0-0-50" class="d">-## 4. 実装ステップ (Implementation Roadmap)
+</a><a href="#h0-0-51" id="h0-0-51" class="d">-
+</a><a href="#h0-0-52" id="h0-0-52" class="d">-### フェーズ 1: ターミナル制御とモード遷移の確立 (土台)
+</a><a href="#h0-0-53" id="h0-0-53" class="d">-
+</a><a href="#h0-0-54" id="h0-0-54" class="d">-`crossterm` と `ratatui` を統合し、イベントループと画面の基本レイアウトを構築する。
+</a><a href="#h0-0-55" id="h0-0-55" class="d">-
+</a><a href="#h0-0-56" id="h0-0-56" class="d">-* [ ] Rawモードの有効化とオルタネイトスクリーンの展開
+</a><a href="#h0-0-57" id="h0-0-57" class="d">-* [ ] 画面最下部へのステータスバー（現在の `Mode` 表示）の配置
+</a><a href="#h0-0-58" id="h0-0-58" class="d">-* [ ] キー入力イベントから `Action` への変換およびモード遷移のテスト
+</a><a href="#h0-0-59" id="h0-0-59" class="d">-
+</a><a href="#h0-0-60" id="h0-0-60" class="d">-### フェーズ 2: 巨大ファイルのインデックス化と部分読み込み (閲覧)
+</a><a href="#h0-0-61" id="h0-0-61" class="d">-
+</a><a href="#h0-0-62" id="h0-0-62" class="d">-テキストの編集を行わず、任意のサイズのファイルを最小のメモリで表示・スクロールできる状態を実装する。
+</a><a href="#h0-0-63" id="h0-0-63" class="d">-
+</a><a href="#h0-0-64" id="h0-0-64" class="d">-* [ ] ファイルをスキャンし、改行コードを元に `LineIndex` を生成するロジックの実装
+</a><a href="#h0-0-65" id="h0-0-65" class="d">-* [ ] ターミナルの行数分だけファイルを `seek` して読み込む描画ロジックの実装
+</a><a href="#h0-0-66" id="h0-0-66" class="d">-* [ ] 矢印キー（または `j`/`k`）によるスクロール移動の実装
+</a><a href="#h0-0-67" id="h0-0-67" class="d">-
+</a><a href="#h0-0-68" id="h0-0-68" class="d">-### フェーズ 3: 差分バッファの動的適用 (編集)
+</a><a href="#h0-0-69" id="h0-0-69" class="d">-
+</a><a href="#h0-0-70" id="h0-0-70" class="d">-メモリ上のファイルデータに対して変更履歴をオーバーレイさせ、画面に反映する。
+</a><a href="#h0-0-71" id="h0-0-71" class="d">-
+</a><a href="#h0-0-72" id="h0-0-72" class="d">-* [ ] `DeltaBuffer` のデータ構造の定義
+</a><a href="#h0-0-73" id="h0-0-73" class="d">-* [ ] ファイルから読み込んだ生の行データに対し、`DeltaBuffer` 内の `EditOp` を適用して文字列を合成する関数の実装
+</a><a href="#h0-0-74" id="h0-0-74" class="d">-* [ ] Insertモード時における文字入力の `DeltaBuffer` への記録
+</a><a href="#h0-0-75" id="h0-0-75" class="d">-
+</a><a href="#h0-0-76" id="h0-0-76" class="d">-### フェーズ 4: アトミックな書き込み (保存)
+</a><a href="#h0-0-77" id="h0-0-77" class="d">-
+</a><a href="#h0-0-78" id="h0-0-78" class="d">-編集されたデータを元のファイル、あるいは新しいファイルへ安全に出力する。
+</a><a href="#h0-0-79" id="h0-0-79" class="d">-
+</a><a href="#h0-0-80" id="h0-0-80" class="d">-* [ ] `LineIndex` と `DeltaBuffer` を走査し、1行ずつストリームとしてディスクへ書き出すロジックの実装
+</a><a href="#h0-0-81" id="h0-0-81" class="d">-* [ ] 書き込み完了後の `LineIndex` の再構築と `DeltaBuffer` のクリア
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+# pim - A Lightweight Minimalist Text Editor written in Rust
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+
+</a><a href="#h0-0-84" id="h0-0-84" class="i">+`pim` は、Rustで開発されるテキストエディタである。初期実装として `nano` のようなミニマリズムと省メモリ設計（オンデマンド読み込み）を採用しつつ、内部構造は `vim` のようなモード管理（ステートマシン）が可能なアーキテクチャを採用する。
+</a><a href="#h0-0-85" id="h0-0-85" class="i">+
+</a><a href="#h0-0-86" id="h0-0-86" class="i">+## 1. 動作環境・技術スタック
+</a><a href="#h0-0-87" id="h0-0-87" class="i">+
+</a><a href="#h0-0-88" id="h0-0-88" class="i">+* **Language**: Rust (Edition 2024)
+</a><a href="#h0-0-89" id="h0-0-89" class="i">+* **TUI Framework**: `ratatui`
+</a><a href="#h0-0-90" id="h0-0-90" class="i">+* **Terminal Control (Backend)**: `crossterm`
+</a><a href="#h0-0-91" id="h0-0-91" class="i">+* **Target OS**: Linux, macOS, Windows
+</a><a href="#h0-0-92" id="h0-0-92" class="i">+
+</a><a href="#h0-0-93" id="h0-0-93" class="i">+---
+</a><a href="#h0-0-94" id="h0-0-94" class="i">+
+</a><a href="#h0-0-95" id="h0-0-95" class="i">+## 2. コア仕様 (Specifications)
+</a><a href="#h0-0-96" id="h0-0-96" class="i">+
+</a><a href="#h0-0-97" id="h0-0-97" class="i">+### 2.1. モード管理 (State Machine)
+</a><a href="#h0-0-98" id="h0-0-98" class="i">+起動時は常に `Normal` モードから開始する。入力されたキーイベントは直接テキストバッファに渡されず、現在のモードに応じて `Action` に変換されてから処理される。
+</a><a href="#h0-0-99" id="h0-0-99" class="i">+
+</a><a href="#h0-0-100" id="h0-0-100" class="i">+* **Normal モード**
+</a><a href="#h0-0-101" id="h0-0-101" class="i">+  * `i`: `Insert` モードへ移行
+</a><a href="#h0-0-102" id="h0-0-102" class="i">+  * `h`, `j`, `k`, `l`: カーソル移動
+</a><a href="#h0-0-103" id="h0-0-103" class="i">+  * `w`: ファイルの保存
+</a><a href="#h0-0-104" id="h0-0-104" class="i">+  * `u`: Undo (前回の保存時点までロールバック)
+</a><a href="#h0-0-105" id="h0-0-105" class="i">+  * `q`: エディタの終了
+</a><a href="#h0-0-106" id="h0-0-106" class="i">+* **Insert モード**
+</a><a href="#h0-0-107" id="h0-0-107" class="i">+  * `Esc`: `Normal` モードへ移行
+</a><a href="#h0-0-108" id="h0-0-108" class="i">+  * 一般文字キー: カーソル位置への文字挿入
+</a><a href="#h0-0-109" id="h0-0-109" class="i">+  * `Backspace`: 文字の削除
+</a><a href="#h0-0-110" id="h0-0-110" class="i">+
+</a><a href="#h0-0-111" id="h0-0-111" class="i">+### 2.2. 省メモリ設計 (On-demand File I/O)
+</a><a href="#h0-0-112" id="h0-0-112" class="i">+1. **行インデックス化**: ファイルオープン時、各行の開始バイト位置のみを記録し、メモリ消費を抑える。
+</a><a href="#h0-0-113" id="h0-0-113" class="i">+2. **オンデマンド描画**: 画面の表示範囲のみを `seek` して読み込む。
+</a><a href="#h0-0-114" id="h0-0-114" class="i">+3. **差分バッファ管理**: 編集内容は `HashMap` で管理し、元の巨大ファイルを読み書きする負荷を最小化する。
+</a><a href="#h0-0-115" id="h0-0-115" class="i">+
+</a><a href="#h0-0-116" id="h0-0-116" class="i">+### 2.3. データ保護 (Swap File &amp; Safety)
+</a><a href="#h0-0-117" id="h0-0-117" class="i">+1. **スワップファイル**: 編集内容は自動的に `.swp` ファイルへ同期（Insertモード終了時にバッチ書き込み）。
+</a><a href="#h0-0-118" id="h0-0-118" class="i">+2. **リカバリ機能**: クラッシュ後の再起動時に未保存の変更を復元可能。
+</a><a href="#h0-0-119" id="h0-0-119" class="i">+3. **アトミック保存**: 保存時は一時ファイルを作成してから置換し、改行コードは常に `LF` に統一される。
+</a><a href="#h0-0-120" id="h0-0-120" class="i">+
+</a><a href="#h0-0-121" id="h0-0-121" class="i">+---
+</a><a href="#h0-0-122" id="h0-0-122" class="i">+
+</a><a href="#h0-0-123" id="h0-0-123" class="i">+## 3. 実装ステップ (Implementation Roadmap)
+</a><a href="#h0-0-124" id="h0-0-124" class="i">+
+</a><a href="#h0-0-125" id="h0-0-125" class="i">+### フェーズ 1: ターミナル制御とモード遷移の確立 (土台)
+</a><a href="#h0-0-126" id="h0-0-126" class="i">+* [x] Rawモードの有効化とオルタネイトスクリーンの展開
+</a><a href="#h0-0-127" id="h0-0-127" class="i">+* [x] 画面最下部へのステータスバー（現在の `Mode` 表示）の配置
+</a><a href="#h0-0-128" id="h0-0-128" class="i">+* [x] キー入力イベントから `Action` への変換およびモード遷移のテスト
+</a><a href="#h0-0-129" id="h0-0-129" class="i">+
+</a><a href="#h0-0-130" id="h0-0-130" class="i">+### フェーズ 2: 巨大ファイルのインデックス化と部分読み込み (閲覧)
+</a><a href="#h0-0-131" id="h0-0-131" class="i">+* [x] ファイルをスキャンし、改行コードを元に `LineIndex` を生成するロジックの実装
+</a><a href="#h0-0-132" id="h0-0-132" class="i">+* [x] ターミナルの行数分だけファイルを `seek` して読み込む描画ロジックの実装
+</a><a href="#h0-0-133" id="h0-0-133" class="i">+* [x] 矢印キー（または `j`/`k`）によるスクロール移動の実装
+</a><a href="#h0-0-134" id="h0-0-134" class="i">+* [x] 行番号の表示実装
+</a><a href="#h0-0-135" id="h0-0-135" class="i">+
+</a><a href="#h0-0-136" id="h0-0-136" class="i">+### フェーズ 3: 差分バッファの動的適用 (編集)
+</a><a href="#h0-0-137" id="h0-0-137" class="i">+* [x] `DeltaBuffer` のデータ構造の定義
+</a><a href="#h0-0-138" id="h0-0-138" class="i">+* [x] スワップファイル（`.swp`）による自動保存とリカバリプロンプトの実装
+</a><a href="#h0-0-139" id="h0-0-139" class="i">+* [x] ビジュアルカーソルの実装と行内移動（`h`/`l`）の対応
+</a><a href="#h0-0-140" id="h0-0-140" class="i">+* [x] Insertモード終了時の一括スワップ同期（パフォーマンス最適化）
+</a><a href="#h0-0-141" id="h0-0-141" class="i">+
+</a><a href="#h0-0-142" id="h0-0-142" class="i">+### フェーズ 4: アトミックな書き込み (保存)
+</a><a href="#h0-0-143" id="h0-0-143" class="i">+* [x] 常に `LF` 形式での保存ロジックの実装
+</a><a href="#h0-0-144" id="h0-0-144" class="i">+* [x] `u` キーによる保存単位のロールバック（ハイブリッド・スワップ管理）
+</a><a href="#h0-0-145" id="h0-0-145" class="i">+* [x] 終了時の未保存変更チェックとクリーンアップ
+</a><a href="#h0-0-146" id="h0-0-146" class="i">+
+</a><a href="#h0-0-147" id="h0-0-147" class="i">+---
+</a><a href="#h0-0-148" id="h0-0-148" class="i">+
+</a><a href="#h0-0-149" id="h0-0-149" class="i">+## 4. 使い方
+</a><a href="#h0-0-150" id="h0-0-150" class="i">+
+</a><a href="#h0-0-151" id="h0-0-151" class="i">+```bash
+</a><a href="#h0-0-152" id="h0-0-152" class="i">+cargo run -- &lt;filename&gt;
+</a><a href="#h0-0-153" id="h0-0-153" class="i">+```
+</a><b>diff --git a/<a id="h1" href="../file/src/buffer.rs.html">src/buffer.rs</a> b/<a href="../file/src/buffer.rs.html">src/buffer.rs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -0,0 +1,198 @@
+</a><a href="#h1-0-0" id="h1-0-0" class="i">+use std::collections::HashMap;
+</a><a href="#h1-0-1" id="h1-0-1" class="i">+use std::fs::{self, File, OpenOptions};
+</a><a href="#h1-0-2" id="h1-0-2" class="i">+use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
+</a><a href="#h1-0-3" id="h1-0-3" class="i">+use std::path::PathBuf;
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+pub struct Buffer {
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    file_path: PathBuf,
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    swap_path: PathBuf,
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+    line_offsets: Vec&lt;u64&gt;,
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    deltas: HashMap&lt;usize, String&gt;,
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    modified: bool,
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+}
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+impl Buffer {
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+    pub fn new_empty(path: PathBuf) -&gt; Self {
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+        let swap_path = path.with_extension(format!(
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+            &quot;{}.swp&quot;,
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+            path.extension().and_then(|e| e.to_str()).unwrap_or(&quot;txt&quot;)
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+        ));
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+        Self {
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+            file_path: path,
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+            swap_path,
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+            line_offsets: vec![0],
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+            deltas: HashMap::new(),
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+            modified: false,
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+        }
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+    }
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+    pub fn from_path(path: PathBuf, should_recover: bool) -&gt; io::Result&lt;Self&gt; {
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+        let file = File::open(&amp;path)?;
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+        let mut reader = BufReader::new(file);
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+        let mut line_offsets = vec![0];
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+        let mut offset = 0;
+</a><a href="#h1-0-33" id="h1-0-33" class="i">+
+</a><a href="#h1-0-34" id="h1-0-34" class="i">+        let mut buf = Vec::new();
+</a><a href="#h1-0-35" id="h1-0-35" class="i">+        while reader.read_until(b&#39;\n&#39;, &amp;mut buf)? &gt; 0 {
+</a><a href="#h1-0-36" id="h1-0-36" class="i">+            offset += buf.len() as u64;
+</a><a href="#h1-0-37" id="h1-0-37" class="i">+            line_offsets.push(offset);
+</a><a href="#h1-0-38" id="h1-0-38" class="i">+            buf.clear();
+</a><a href="#h1-0-39" id="h1-0-39" class="i">+        }
+</a><a href="#h1-0-40" id="h1-0-40" class="i">+
+</a><a href="#h1-0-41" id="h1-0-41" class="i">+        let swap_path = path.with_extension(format!(
+</a><a href="#h1-0-42" id="h1-0-42" class="i">+            &quot;{}.swp&quot;,
+</a><a href="#h1-0-43" id="h1-0-43" class="i">+            path.extension().and_then(|e| e.to_str()).unwrap_or(&quot;txt&quot;)
+</a><a href="#h1-0-44" id="h1-0-44" class="i">+        ));
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+        let mut deltas = HashMap::new();
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+        let mut modified = false;
+</a><a href="#h1-0-48" id="h1-0-48" class="i">+        if swap_path.exists() &amp;&amp; should_recover {
+</a><a href="#h1-0-49" id="h1-0-49" class="i">+            let swap_file = File::open(&amp;swap_path)?;
+</a><a href="#h1-0-50" id="h1-0-50" class="i">+            let swap_reader = BufReader::new(swap_file);
+</a><a href="#h1-0-51" id="h1-0-51" class="i">+            for line in swap_reader.lines() {
+</a><a href="#h1-0-52" id="h1-0-52" class="i">+                let line = line?;
+</a><a href="#h1-0-53" id="h1-0-53" class="i">+                if line == &quot;SAVE&quot; {
+</a><a href="#h1-0-54" id="h1-0-54" class="i">+                    modified = false;
+</a><a href="#h1-0-55" id="h1-0-55" class="i">+                    continue;
+</a><a href="#h1-0-56" id="h1-0-56" class="i">+                }
+</a><a href="#h1-0-57" id="h1-0-57" class="i">+                if let Some((idx_str, content)) = line.split_once(&#39;:&#39;)
+</a><a href="#h1-0-58" id="h1-0-58" class="i">+                    &amp;&amp; let Ok(idx) = idx_str.parse::&lt;usize&gt;()
+</a><a href="#h1-0-59" id="h1-0-59" class="i">+                {
+</a><a href="#h1-0-60" id="h1-0-60" class="i">+                    deltas.insert(idx, content.to_string());
+</a><a href="#h1-0-61" id="h1-0-61" class="i">+                    modified = true;
+</a><a href="#h1-0-62" id="h1-0-62" class="i">+                }
+</a><a href="#h1-0-63" id="h1-0-63" class="i">+            }
+</a><a href="#h1-0-64" id="h1-0-64" class="i">+        } else if swap_path.exists() {
+</a><a href="#h1-0-65" id="h1-0-65" class="i">+            fs::remove_file(&amp;swap_path)?;
+</a><a href="#h1-0-66" id="h1-0-66" class="i">+        }
+</a><a href="#h1-0-67" id="h1-0-67" class="i">+
+</a><a href="#h1-0-68" id="h1-0-68" class="i">+        Ok(Self {
+</a><a href="#h1-0-69" id="h1-0-69" class="i">+            file_path: path,
+</a><a href="#h1-0-70" id="h1-0-70" class="i">+            swap_path,
+</a><a href="#h1-0-71" id="h1-0-71" class="i">+            line_offsets,
+</a><a href="#h1-0-72" id="h1-0-72" class="i">+            deltas,
+</a><a href="#h1-0-73" id="h1-0-73" class="i">+            modified,
+</a><a href="#h1-0-74" id="h1-0-74" class="i">+        })
+</a><a href="#h1-0-75" id="h1-0-75" class="i">+    }
+</a><a href="#h1-0-76" id="h1-0-76" class="i">+
+</a><a href="#h1-0-77" id="h1-0-77" class="i">+    pub fn read_line(&amp;self, index: usize) -&gt; io::Result&lt;String&gt; {
+</a><a href="#h1-0-78" id="h1-0-78" class="i">+        if let Some(delta) = self.deltas.get(&amp;index) {
+</a><a href="#h1-0-79" id="h1-0-79" class="i">+            return Ok(delta.clone());
+</a><a href="#h1-0-80" id="h1-0-80" class="i">+        }
+</a><a href="#h1-0-81" id="h1-0-81" class="i">+
+</a><a href="#h1-0-82" id="h1-0-82" class="i">+        if index &gt;= self.line_offsets.len().saturating_sub(1) {
+</a><a href="#h1-0-83" id="h1-0-83" class="i">+            return Ok(String::new());
+</a><a href="#h1-0-84" id="h1-0-84" class="i">+        }
+</a><a href="#h1-0-85" id="h1-0-85" class="i">+
+</a><a href="#h1-0-86" id="h1-0-86" class="i">+        let mut file = File::open(&amp;self.file_path)?;
+</a><a href="#h1-0-87" id="h1-0-87" class="i">+        file.seek(SeekFrom::Start(self.line_offsets[index]))?;
+</a><a href="#h1-0-88" id="h1-0-88" class="i">+
+</a><a href="#h1-0-89" id="h1-0-89" class="i">+        let length = self.line_offsets[index + 1] - self.line_offsets[index];
+</a><a href="#h1-0-90" id="h1-0-90" class="i">+        let mut buf = vec![0; length as usize];
+</a><a href="#h1-0-91" id="h1-0-91" class="i">+        io::Read::read_exact(&amp;mut file, &amp;mut buf)?;
+</a><a href="#h1-0-92" id="h1-0-92" class="i">+
+</a><a href="#h1-0-93" id="h1-0-93" class="i">+        Ok(String::from_utf8_lossy(&amp;buf).to_string())
+</a><a href="#h1-0-94" id="h1-0-94" class="i">+    }
+</a><a href="#h1-0-95" id="h1-0-95" class="i">+
+</a><a href="#h1-0-96" id="h1-0-96" class="i">+    pub fn update_line(&amp;mut self, index: usize, content: String) {
+</a><a href="#h1-0-97" id="h1-0-97" class="i">+        self.deltas.insert(index, content);
+</a><a href="#h1-0-98" id="h1-0-98" class="i">+        self.modified = true;
+</a><a href="#h1-0-99" id="h1-0-99" class="i">+    }
+</a><a href="#h1-0-100" id="h1-0-100" class="i">+
+</a><a href="#h1-0-101" id="h1-0-101" class="i">+    pub fn sync_to_swap(&amp;self) -&gt; io::Result&lt;()&gt; {
+</a><a href="#h1-0-102" id="h1-0-102" class="i">+        let mut swap_file = OpenOptions::new()
+</a><a href="#h1-0-103" id="h1-0-103" class="i">+            .create(true)
+</a><a href="#h1-0-104" id="h1-0-104" class="i">+            .append(true)
+</a><a href="#h1-0-105" id="h1-0-105" class="i">+            .open(&amp;self.swap_path)?;
+</a><a href="#h1-0-106" id="h1-0-106" class="i">+
+</a><a href="#h1-0-107" id="h1-0-107" class="i">+        // 現在の全ての差分をスワップファイルに書き出す
+</a><a href="#h1-0-108" id="h1-0-108" class="i">+        // 本来は「今回の編集セッションの変更点」だけに絞るのが効率的だが、
+</a><a href="#h1-0-109" id="h1-0-109" class="i">+        // 現状のログ形式を維持するため、全ての deltas を再出力する
+</a><a href="#h1-0-110" id="h1-0-110" class="i">+        for (idx, content) in &amp;self.deltas {
+</a><a href="#h1-0-111" id="h1-0-111" class="i">+            writeln!(swap_file, &quot;{}:{}&quot;, idx, content.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;))?;
+</a><a href="#h1-0-112" id="h1-0-112" class="i">+        }
+</a><a href="#h1-0-113" id="h1-0-113" class="i">+        Ok(())
+</a><a href="#h1-0-114" id="h1-0-114" class="i">+    }
+</a><a href="#h1-0-115" id="h1-0-115" class="i">+
+</a><a href="#h1-0-116" id="h1-0-116" class="i">+    pub fn save(&amp;mut self) -&gt; io::Result&lt;()&gt; {
+</a><a href="#h1-0-117" id="h1-0-117" class="i">+        let temp_path = self.file_path.with_extension(&quot;tmp&quot;);
+</a><a href="#h1-0-118" id="h1-0-118" class="i">+        let mut temp_file = File::create(&amp;temp_path)?;
+</a><a href="#h1-0-119" id="h1-0-119" class="i">+
+</a><a href="#h1-0-120" id="h1-0-120" class="i">+        for i in 0..self.total_lines().max(1) {
+</a><a href="#h1-0-121" id="h1-0-121" class="i">+            let line = self.read_line(i)?;
+</a><a href="#h1-0-122" id="h1-0-122" class="i">+            let content = line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;);
+</a><a href="#h1-0-123" id="h1-0-123" class="i">+            #[allow(clippy::write_with_newline)]
+</a><a href="#h1-0-124" id="h1-0-124" class="i">+            write!(temp_file, &quot;{}\n&quot;, content)?;
+</a><a href="#h1-0-125" id="h1-0-125" class="i">+        }
+</a><a href="#h1-0-126" id="h1-0-126" class="i">+
+</a><a href="#h1-0-127" id="h1-0-127" class="i">+        fs::rename(temp_path, &amp;self.file_path)?;
+</a><a href="#h1-0-128" id="h1-0-128" class="i">+
+</a><a href="#h1-0-129" id="h1-0-129" class="i">+        let mut swap_file = OpenOptions::new()
+</a><a href="#h1-0-130" id="h1-0-130" class="i">+            .create(true)
+</a><a href="#h1-0-131" id="h1-0-131" class="i">+            .append(true)
+</a><a href="#h1-0-132" id="h1-0-132" class="i">+            .open(&amp;self.swap_path)?;
+</a><a href="#h1-0-133" id="h1-0-133" class="i">+        writeln!(swap_file, &quot;SAVE&quot;)?;
+</a><a href="#h1-0-134" id="h1-0-134" class="i">+
+</a><a href="#h1-0-135" id="h1-0-135" class="i">+        self.modified = false;
+</a><a href="#h1-0-136" id="h1-0-136" class="i">+        Ok(())
+</a><a href="#h1-0-137" id="h1-0-137" class="i">+    }
+</a><a href="#h1-0-138" id="h1-0-138" class="i">+
+</a><a href="#h1-0-139" id="h1-0-139" class="i">+    pub fn rollback(&amp;mut self) -&gt; io::Result&lt;()&gt; {
+</a><a href="#h1-0-140" id="h1-0-140" class="i">+        if !self.swap_path.exists() {
+</a><a href="#h1-0-141" id="h1-0-141" class="i">+            return Ok(());
+</a><a href="#h1-0-142" id="h1-0-142" class="i">+        }
+</a><a href="#h1-0-143" id="h1-0-143" class="i">+
+</a><a href="#h1-0-144" id="h1-0-144" class="i">+        let swap_file = File::open(&amp;self.swap_path)?;
+</a><a href="#h1-0-145" id="h1-0-145" class="i">+        let lines: Vec&lt;String&gt; = BufReader::new(swap_file)
+</a><a href="#h1-0-146" id="h1-0-146" class="i">+            .lines()
+</a><a href="#h1-0-147" id="h1-0-147" class="i">+            .collect::&lt;Result&lt;_, _&gt;&gt;()?;
+</a><a href="#h1-0-148" id="h1-0-148" class="i">+
+</a><a href="#h1-0-149" id="h1-0-149" class="i">+        let last_save_idx = lines.iter().rposition(|l| l == &quot;SAVE&quot;);
+</a><a href="#h1-0-150" id="h1-0-150" class="i">+        let target_idx = if let Some(idx) = last_save_idx {
+</a><a href="#h1-0-151" id="h1-0-151" class="i">+            lines[..idx].iter().rposition(|l| l == &quot;SAVE&quot;)
+</a><a href="#h1-0-152" id="h1-0-152" class="i">+        } else {
+</a><a href="#h1-0-153" id="h1-0-153" class="i">+            None
+</a><a href="#h1-0-154" id="h1-0-154" class="i">+        };
+</a><a href="#h1-0-155" id="h1-0-155" class="i">+
+</a><a href="#h1-0-156" id="h1-0-156" class="i">+        let mut new_deltas = HashMap::new();
+</a><a href="#h1-0-157" id="h1-0-157" class="i">+        let limit = target_idx.map(|i| i + 1).unwrap_or(0);
+</a><a href="#h1-0-158" id="h1-0-158" class="i">+
+</a><a href="#h1-0-159" id="h1-0-159" class="i">+        for line in &amp;lines[..limit] {
+</a><a href="#h1-0-160" id="h1-0-160" class="i">+            if line == &quot;SAVE&quot; {
+</a><a href="#h1-0-161" id="h1-0-161" class="i">+                continue;
+</a><a href="#h1-0-162" id="h1-0-162" class="i">+            }
+</a><a href="#h1-0-163" id="h1-0-163" class="i">+            if let Some((idx_str, content)) = line.split_once(&#39;:&#39;)
+</a><a href="#h1-0-164" id="h1-0-164" class="i">+                &amp;&amp; let Ok(idx) = idx_str.parse::&lt;usize&gt;()
+</a><a href="#h1-0-165" id="h1-0-165" class="i">+            {
+</a><a href="#h1-0-166" id="h1-0-166" class="i">+                new_deltas.insert(idx, content.to_string());
+</a><a href="#h1-0-167" id="h1-0-167" class="i">+            }
+</a><a href="#h1-0-168" id="h1-0-168" class="i">+        }
+</a><a href="#h1-0-169" id="h1-0-169" class="i">+
+</a><a href="#h1-0-170" id="h1-0-170" class="i">+        let mut swap_file = File::create(&amp;self.swap_path)?;
+</a><a href="#h1-0-171" id="h1-0-171" class="i">+        for line in &amp;lines[..limit] {
+</a><a href="#h1-0-172" id="h1-0-172" class="i">+            writeln!(swap_file, &quot;{}&quot;, line)?;
+</a><a href="#h1-0-173" id="h1-0-173" class="i">+        }
+</a><a href="#h1-0-174" id="h1-0-174" class="i">+
+</a><a href="#h1-0-175" id="h1-0-175" class="i">+        self.deltas = new_deltas;
+</a><a href="#h1-0-176" id="h1-0-176" class="i">+        self.modified = false;
+</a><a href="#h1-0-177" id="h1-0-177" class="i">+        Ok(())
+</a><a href="#h1-0-178" id="h1-0-178" class="i">+    }
+</a><a href="#h1-0-179" id="h1-0-179" class="i">+
+</a><a href="#h1-0-180" id="h1-0-180" class="i">+    pub fn is_modified(&amp;self) -&gt; bool {
+</a><a href="#h1-0-181" id="h1-0-181" class="i">+        self.modified
+</a><a href="#h1-0-182" id="h1-0-182" class="i">+    }
+</a><a href="#h1-0-183" id="h1-0-183" class="i">+
+</a><a href="#h1-0-184" id="h1-0-184" class="i">+    pub fn total_lines(&amp;self) -&gt; usize {
+</a><a href="#h1-0-185" id="h1-0-185" class="i">+        self.line_offsets
+</a><a href="#h1-0-186" id="h1-0-186" class="i">+            .len()
+</a><a href="#h1-0-187" id="h1-0-187" class="i">+            .saturating_sub(1)
+</a><a href="#h1-0-188" id="h1-0-188" class="i">+            .max(self.deltas.keys().map(|&amp;k| k + 1).max().unwrap_or(0))
+</a><a href="#h1-0-189" id="h1-0-189" class="i">+    }
+</a><a href="#h1-0-190" id="h1-0-190" class="i">+
+</a><a href="#h1-0-191" id="h1-0-191" class="i">+    pub fn remove_swap_file(&amp;self) -&gt; io::Result&lt;()&gt; {
+</a><a href="#h1-0-192" id="h1-0-192" class="i">+        if self.swap_path.exists() {
+</a><a href="#h1-0-193" id="h1-0-193" class="i">+            fs::remove_file(&amp;self.swap_path)?;
+</a><a href="#h1-0-194" id="h1-0-194" class="i">+        }
+</a><a href="#h1-0-195" id="h1-0-195" class="i">+        Ok(())
+</a><a href="#h1-0-196" id="h1-0-196" class="i">+    }
+</a><a href="#h1-0-197" id="h1-0-197" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/src/editor.rs.html">src/editor.rs</a> b/<a href="../file/src/editor.rs.html">src/editor.rs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -0,0 +1,59 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="i">+#[derive(PartialEq)]
+</a><a href="#h2-0-1" id="h2-0-1" class="i">+pub enum Mode {
+</a><a href="#h2-0-2" id="h2-0-2" class="i">+    Normal,
+</a><a href="#h2-0-3" id="h2-0-3" class="i">+    Insert,
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+}
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+pub struct Editor {
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+    pub mode: Mode,
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+    pub scroll_offset: usize,
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+    pub cursor_line: usize,
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+    pub cursor_column: usize,
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+}
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+impl Editor {
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+    pub fn new() -&gt; Self {
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+        Self {
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+            mode: Mode::Normal,
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+            scroll_offset: 0,
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+            cursor_line: 0,
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+            cursor_column: 0,
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+        }
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+    }
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+    pub fn scroll_down(&amp;mut self, total_lines: usize, view_height: usize) {
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+        if self.scroll_offset + view_height &lt; total_lines {
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+            self.scroll_offset += 1;
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+        }
+</a><a href="#h2-0-27" id="h2-0-27" class="i">+    }
+</a><a href="#h2-0-28" id="h2-0-28" class="i">+
+</a><a href="#h2-0-29" id="h2-0-29" class="i">+    pub fn scroll_up(&amp;mut self) {
+</a><a href="#h2-0-30" id="h2-0-30" class="i">+        if self.scroll_offset &gt; 0 {
+</a><a href="#h2-0-31" id="h2-0-31" class="i">+            self.scroll_offset -= 1;
+</a><a href="#h2-0-32" id="h2-0-32" class="i">+        }
+</a><a href="#h2-0-33" id="h2-0-33" class="i">+    }
+</a><a href="#h2-0-34" id="h2-0-34" class="i">+
+</a><a href="#h2-0-35" id="h2-0-35" class="i">+    pub fn move_cursor_down(&amp;mut self, total_lines: usize) {
+</a><a href="#h2-0-36" id="h2-0-36" class="i">+        if self.cursor_line + 1 &lt; total_lines {
+</a><a href="#h2-0-37" id="h2-0-37" class="i">+            self.cursor_line += 1;
+</a><a href="#h2-0-38" id="h2-0-38" class="i">+        }
+</a><a href="#h2-0-39" id="h2-0-39" class="i">+    }
+</a><a href="#h2-0-40" id="h2-0-40" class="i">+
+</a><a href="#h2-0-41" id="h2-0-41" class="i">+    pub fn move_cursor_up(&amp;mut self) {
+</a><a href="#h2-0-42" id="h2-0-42" class="i">+        if self.cursor_line &gt; 0 {
+</a><a href="#h2-0-43" id="h2-0-43" class="i">+            self.cursor_line -= 1;
+</a><a href="#h2-0-44" id="h2-0-44" class="i">+        }
+</a><a href="#h2-0-45" id="h2-0-45" class="i">+    }
+</a><a href="#h2-0-46" id="h2-0-46" class="i">+
+</a><a href="#h2-0-47" id="h2-0-47" class="i">+    pub fn move_cursor_left(&amp;mut self) {
+</a><a href="#h2-0-48" id="h2-0-48" class="i">+        if self.cursor_column &gt; 0 {
+</a><a href="#h2-0-49" id="h2-0-49" class="i">+            self.cursor_column -= 1;
+</a><a href="#h2-0-50" id="h2-0-50" class="i">+        }
+</a><a href="#h2-0-51" id="h2-0-51" class="i">+    }
+</a><a href="#h2-0-52" id="h2-0-52" class="i">+
+</a><a href="#h2-0-53" id="h2-0-53" class="i">+    pub fn move_cursor_right(&amp;mut self, line_len: usize) {
+</a><a href="#h2-0-54" id="h2-0-54" class="i">+        if self.cursor_column &lt; line_len {
+</a><a href="#h2-0-55" id="h2-0-55" class="i">+            self.cursor_column += 1;
+</a><a href="#h2-0-56" id="h2-0-56" class="i">+        }
+</a><a href="#h2-0-57" id="h2-0-57" class="i">+    }
+</a><a href="#h2-0-58" id="h2-0-58" class="i">+}
+</a><b>diff --git a/<a id="h3" href="../file/src/main.rs.html">src/main.rs</a> b/<a href="../file/src/main.rs.html">src/main.rs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -1,3 +1,342 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="d">-fn main() {
+</a><a href="#h3-0-1" id="h3-0-1" class="d">-    println!(&quot;Hello, world!&quot;);
+</a><a href="#h3-0-2" id="h3-0-2" class="i">+mod buffer;
+</a><a href="#h3-0-3" id="h3-0-3" class="i">+mod editor;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+use crossterm::{
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+    event::{self, Event, KeyCode},
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+    execute,
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+};
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+use ratatui::{
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+    Terminal,
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+    backend::CrosstermBackend,
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+    layout::{Constraint, Direction, Layout},
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+    widgets::Paragraph,
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+};
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+use std::io::{self, Stdout, stdout};
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+use std::path::PathBuf;
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+use crate::buffer::Buffer;
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+use crate::editor::{Editor, Mode};
+</a><a href="#h3-0-21" id="h3-0-21" class="i">+
+</a><a href="#h3-0-22" id="h3-0-22" class="i">+enum AppState {
+</a><a href="#h3-0-23" id="h3-0-23" class="i">+    Running,
+</a><a href="#h3-0-24" id="h3-0-24" class="i">+    SwapDetected(PathBuf),
+</a><a href="#h3-0-25" id="h3-0-25" class="i">+    NewFilePrompt(PathBuf),
+</a><a href="#h3-0-26" id="h3-0-26" class="i">+    UnsavedChangesPrompt,
+</a><a href="#h3-0-27" id="h3-0-27" class="i">+    Quitting,
+</a><a href="#h3-0-28" id="h3-0-28" class="i">+}
+</a><a href="#h3-0-29" id="h3-0-29" class="i">+
+</a><a href="#h3-0-30" id="h3-0-30" class="i">+fn main() -&gt; io::Result&lt;()&gt; {
+</a><a href="#h3-0-31" id="h3-0-31" class="i">+    let mut terminal = setup_terminal()?;
+</a><a href="#h3-0-32" id="h3-0-32" class="i">+
+</a><a href="#h3-0-33" id="h3-0-33" class="i">+    let path = std::env::args().nth(1).map(PathBuf::from);
+</a><a href="#h3-0-34" id="h3-0-34" class="i">+    let mut buffer = None;
+</a><a href="#h3-0-35" id="h3-0-35" class="i">+    let mut state = AppState::Running;
+</a><a href="#h3-0-36" id="h3-0-36" class="i">+
+</a><a href="#h3-0-37" id="h3-0-37" class="i">+    if let Some(ref p) = path {
+</a><a href="#h3-0-38" id="h3-0-38" class="i">+        let swap_path = p.with_extension(format!(
+</a><a href="#h3-0-39" id="h3-0-39" class="i">+            &quot;{}.swp&quot;,
+</a><a href="#h3-0-40" id="h3-0-40" class="i">+            p.extension().and_then(|e| e.to_str()).unwrap_or(&quot;txt&quot;)
+</a><a href="#h3-0-41" id="h3-0-41" class="i">+        ));
+</a><a href="#h3-0-42" id="h3-0-42" class="i">+        if swap_path.exists() {
+</a><a href="#h3-0-43" id="h3-0-43" class="i">+            state = AppState::SwapDetected(p.clone());
+</a><a href="#h3-0-44" id="h3-0-44" class="i">+        } else if !p.exists() {
+</a><a href="#h3-0-45" id="h3-0-45" class="i">+            state = AppState::NewFilePrompt(p.clone());
+</a><a href="#h3-0-46" id="h3-0-46" class="i">+        } else {
+</a><a href="#h3-0-47" id="h3-0-47" class="i">+            buffer = Some(Buffer::from_path(p.clone(), true)?);
+</a><a href="#h3-0-48" id="h3-0-48" class="i">+        }
+</a><a href="#h3-0-49" id="h3-0-49" class="i">+    }
+</a><a href="#h3-0-50" id="h3-0-50" class="i">+
+</a><a href="#h3-0-51" id="h3-0-51" class="i">+    let result = run(&amp;mut terminal, buffer, state, path);
+</a><a href="#h3-0-52" id="h3-0-52" class="i">+    restore_terminal(&amp;mut terminal)?;
+</a><a href="#h3-0-53" id="h3-0-53" class="i">+    result
+</a><a href="#h3-0-54" id="h3-0-54" class="i">+}
+</a><a href="#h3-0-55" id="h3-0-55" class="i">+
+</a><a href="#h3-0-56" id="h3-0-56" class="i">+fn setup_terminal() -&gt; io::Result&lt;Terminal&lt;CrosstermBackend&lt;Stdout&gt;&gt;&gt; {
+</a><a href="#h3-0-57" id="h3-0-57" class="i">+    enable_raw_mode()?;
+</a><a href="#h3-0-58" id="h3-0-58" class="i">+    let mut stdout = stdout();
+</a><a href="#h3-0-59" id="h3-0-59" class="i">+    execute!(stdout, EnterAlternateScreen)?;
+</a><a href="#h3-0-60" id="h3-0-60" class="i">+    let backend = CrosstermBackend::new(stdout);
+</a><a href="#h3-0-61" id="h3-0-61" class="i">+    Terminal::new(backend)
+</a><a href="#h3-0-62" id="h3-0-62" class="i">+}
+</a><a href="#h3-0-63" id="h3-0-63" class="i">+
+</a><a href="#h3-0-64" id="h3-0-64" class="i">+fn restore_terminal(terminal: &amp;mut Terminal&lt;CrosstermBackend&lt;Stdout&gt;&gt;) -&gt; io::Result&lt;()&gt; {
+</a><a href="#h3-0-65" id="h3-0-65" class="i">+    disable_raw_mode()?;
+</a><a href="#h3-0-66" id="h3-0-66" class="i">+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+</a><a href="#h3-0-67" id="h3-0-67" class="i">+    terminal.show_cursor()
+</a><a href="#h3-0-68" id="h3-0-68" class="i">+}
+</a><a href="#h3-0-69" id="h3-0-69" class="i">+
+</a><a href="#h3-0-70" id="h3-0-70" class="i">+fn run(
+</a><a href="#h3-0-71" id="h3-0-71" class="i">+    terminal: &amp;mut Terminal&lt;CrosstermBackend&lt;Stdout&gt;&gt;,
+</a><a href="#h3-0-72" id="h3-0-72" class="i">+    mut buffer: Option&lt;Buffer&gt;,
+</a><a href="#h3-0-73" id="h3-0-73" class="i">+    mut state: AppState,
+</a><a href="#h3-0-74" id="h3-0-74" class="i">+    _path: Option&lt;PathBuf&gt;,
+</a><a href="#h3-0-75" id="h3-0-75" class="i">+) -&gt; io::Result&lt;()&gt; {
+</a><a href="#h3-0-76" id="h3-0-76" class="i">+    let mut editor = Editor::new();
+</a><a href="#h3-0-77" id="h3-0-77" class="i">+
+</a><a href="#h3-0-78" id="h3-0-78" class="i">+    loop {
+</a><a href="#h3-0-79" id="h3-0-79" class="i">+        match state {
+</a><a href="#h3-0-80" id="h3-0-80" class="i">+            AppState::Quitting =&gt; {
+</a><a href="#h3-0-81" id="h3-0-81" class="i">+                if let Some(ref b) = buffer {
+</a><a href="#h3-0-82" id="h3-0-82" class="i">+                    let _ = b.remove_swap_file();
+</a><a href="#h3-0-83" id="h3-0-83" class="i">+                }
+</a><a href="#h3-0-84" id="h3-0-84" class="i">+                break;
+</a><a href="#h3-0-85" id="h3-0-85" class="i">+            }
+</a><a href="#h3-0-86" id="h3-0-86" class="i">+            AppState::SwapDetected(ref p) =&gt; {
+</a><a href="#h3-0-87" id="h3-0-87" class="i">+                terminal.draw(|f| {
+</a><a href="#h3-0-88" id="h3-0-88" class="i">+                    let content = format!(
+</a><a href="#h3-0-89" id="h3-0-89" class="i">+                        &quot;Swap file detected for {:?}. \nRecover? (y: Yes, n: No/Discard)&quot;,
+</a><a href="#h3-0-90" id="h3-0-90" class="i">+                        p
+</a><a href="#h3-0-91" id="h3-0-91" class="i">+                    );
+</a><a href="#h3-0-92" id="h3-0-92" class="i">+                    f.render_widget(Paragraph::new(content), f.area());
+</a><a href="#h3-0-93" id="h3-0-93" class="i">+                })?;
+</a><a href="#h3-0-94" id="h3-0-94" class="i">+
+</a><a href="#h3-0-95" id="h3-0-95" class="i">+                if let Ok(Event::Key(key)) = event::read()
+</a><a href="#h3-0-96" id="h3-0-96" class="i">+                    &amp;&amp; key.kind == event::KeyEventKind::Press
+</a><a href="#h3-0-97" id="h3-0-97" class="i">+                {
+</a><a href="#h3-0-98" id="h3-0-98" class="i">+                    match key.code {
+</a><a href="#h3-0-99" id="h3-0-99" class="i">+                        KeyCode::Char(&#39;y&#39;) =&gt; {
+</a><a href="#h3-0-100" id="h3-0-100" class="i">+                            buffer = Some(Buffer::from_path(p.clone(), true)?);
+</a><a href="#h3-0-101" id="h3-0-101" class="i">+                            state = AppState::Running;
+</a><a href="#h3-0-102" id="h3-0-102" class="i">+                        }
+</a><a href="#h3-0-103" id="h3-0-103" class="i">+                        KeyCode::Char(&#39;n&#39;) =&gt; {
+</a><a href="#h3-0-104" id="h3-0-104" class="i">+                            buffer = Some(Buffer::from_path(p.clone(), false)?);
+</a><a href="#h3-0-105" id="h3-0-105" class="i">+                            state = AppState::Running;
+</a><a href="#h3-0-106" id="h3-0-106" class="i">+                        }
+</a><a href="#h3-0-107" id="h3-0-107" class="i">+                        _ =&gt; {}
+</a><a href="#h3-0-108" id="h3-0-108" class="i">+                    }
+</a><a href="#h3-0-109" id="h3-0-109" class="i">+                }
+</a><a href="#h3-0-110" id="h3-0-110" class="i">+            }
+</a><a href="#h3-0-111" id="h3-0-111" class="i">+            AppState::NewFilePrompt(ref p) =&gt; {
+</a><a href="#h3-0-112" id="h3-0-112" class="i">+                terminal.draw(|f| {
+</a><a href="#h3-0-113" id="h3-0-113" class="i">+                    let content = format!(
+</a><a href="#h3-0-114" id="h3-0-114" class="i">+                        &quot;File {:?} does not exist. \nCreate new file? (y: Yes, n: No/Quit)&quot;,
+</a><a href="#h3-0-115" id="h3-0-115" class="i">+                        p
+</a><a href="#h3-0-116" id="h3-0-116" class="i">+                    );
+</a><a href="#h3-0-117" id="h3-0-117" class="i">+                    f.render_widget(Paragraph::new(content), f.area());
+</a><a href="#h3-0-118" id="h3-0-118" class="i">+                })?;
+</a><a href="#h3-0-119" id="h3-0-119" class="i">+
+</a><a href="#h3-0-120" id="h3-0-120" class="i">+                if let Ok(Event::Key(key)) = event::read()
+</a><a href="#h3-0-121" id="h3-0-121" class="i">+                    &amp;&amp; key.kind == event::KeyEventKind::Press
+</a><a href="#h3-0-122" id="h3-0-122" class="i">+                {
+</a><a href="#h3-0-123" id="h3-0-123" class="i">+                    match key.code {
+</a><a href="#h3-0-124" id="h3-0-124" class="i">+                        KeyCode::Char(&#39;y&#39;) =&gt; {
+</a><a href="#h3-0-125" id="h3-0-125" class="i">+                            buffer = Some(Buffer::new_empty(p.clone()));
+</a><a href="#h3-0-126" id="h3-0-126" class="i">+                            state = AppState::Running;
+</a><a href="#h3-0-127" id="h3-0-127" class="i">+                        }
+</a><a href="#h3-0-128" id="h3-0-128" class="i">+                        KeyCode::Char(&#39;n&#39;) =&gt; {
+</a><a href="#h3-0-129" id="h3-0-129" class="i">+                            state = AppState::Quitting;
+</a><a href="#h3-0-130" id="h3-0-130" class="i">+                        }
+</a><a href="#h3-0-131" id="h3-0-131" class="i">+                        _ =&gt; {}
+</a><a href="#h3-0-132" id="h3-0-132" class="i">+                    }
+</a><a href="#h3-0-133" id="h3-0-133" class="i">+                }
+</a><a href="#h3-0-134" id="h3-0-134" class="i">+            }
+</a><a href="#h3-0-135" id="h3-0-135" class="i">+            AppState::UnsavedChangesPrompt =&gt; {
+</a><a href="#h3-0-136" id="h3-0-136" class="i">+                terminal.draw(|f| {
+</a><a href="#h3-0-137" id="h3-0-137" class="i">+                    let content = &quot;You have unsaved changes. \nSave and quit? (y: Save &amp; Quit, n: Discard &amp; Quit, c: Cancel)&quot;;
+</a><a href="#h3-0-138" id="h3-0-138" class="i">+                    f.render_widget(Paragraph::new(content), f.area());
+</a><a href="#h3-0-139" id="h3-0-139" class="i">+                })?;
+</a><a href="#h3-0-140" id="h3-0-140" class="i">+
+</a><a href="#h3-0-141" id="h3-0-141" class="i">+                if let Ok(Event::Key(key)) = event::read()
+</a><a href="#h3-0-142" id="h3-0-142" class="i">+                    &amp;&amp; key.kind == event::KeyEventKind::Press
+</a><a href="#h3-0-143" id="h3-0-143" class="i">+                {
+</a><a href="#h3-0-144" id="h3-0-144" class="i">+                    match key.code {
+</a><a href="#h3-0-145" id="h3-0-145" class="i">+                        KeyCode::Char(&#39;y&#39;) =&gt; {
+</a><a href="#h3-0-146" id="h3-0-146" class="i">+                            if let Some(ref mut b) = buffer {
+</a><a href="#h3-0-147" id="h3-0-147" class="i">+                                b.save()?;
+</a><a href="#h3-0-148" id="h3-0-148" class="i">+                            }
+</a><a href="#h3-0-149" id="h3-0-149" class="i">+                            state = AppState::Quitting;
+</a><a href="#h3-0-150" id="h3-0-150" class="i">+                        }
+</a><a href="#h3-0-151" id="h3-0-151" class="i">+                        KeyCode::Char(&#39;n&#39;) =&gt; {
+</a><a href="#h3-0-152" id="h3-0-152" class="i">+                            state = AppState::Quitting;
+</a><a href="#h3-0-153" id="h3-0-153" class="i">+                        }
+</a><a href="#h3-0-154" id="h3-0-154" class="i">+                        KeyCode::Char(&#39;c&#39;) =&gt; {
+</a><a href="#h3-0-155" id="h3-0-155" class="i">+                            state = AppState::Running;
+</a><a href="#h3-0-156" id="h3-0-156" class="i">+                        }
+</a><a href="#h3-0-157" id="h3-0-157" class="i">+                        _ =&gt; {}
+</a><a href="#h3-0-158" id="h3-0-158" class="i">+                    }
+</a><a href="#h3-0-159" id="h3-0-159" class="i">+                }
+</a><a href="#h3-0-160" id="h3-0-160" class="i">+            }
+</a><a href="#h3-0-161" id="h3-0-161" class="i">+            AppState::Running =&gt; {
+</a><a href="#h3-0-162" id="h3-0-162" class="i">+                let mut line_num_width = 0;
+</a><a href="#h3-0-163" id="h3-0-163" class="i">+                terminal.draw(|f| {
+</a><a href="#h3-0-164" id="h3-0-164" class="i">+                    let chunks = Layout::default()
+</a><a href="#h3-0-165" id="h3-0-165" class="i">+                        .direction(Direction::Vertical)
+</a><a href="#h3-0-166" id="h3-0-166" class="i">+                        .constraints([Constraint::Min(0), Constraint::Length(1)])
+</a><a href="#h3-0-167" id="h3-0-167" class="i">+                        .split(f.area());
+</a><a href="#h3-0-168" id="h3-0-168" class="i">+
+</a><a href="#h3-0-169" id="h3-0-169" class="i">+                    let mut display_content = String::new();
+</a><a href="#h3-0-170" id="h3-0-170" class="i">+                    if let Some(ref b) = buffer {
+</a><a href="#h3-0-171" id="h3-0-171" class="i">+                        let view_height = chunks[0].height as usize;
+</a><a href="#h3-0-172" id="h3-0-172" class="i">+                        let total_lines = b.total_lines();
+</a><a href="#h3-0-173" id="h3-0-173" class="i">+                        line_num_width = total_lines.to_string().len().max(1);
+</a><a href="#h3-0-174" id="h3-0-174" class="i">+
+</a><a href="#h3-0-175" id="h3-0-175" class="i">+                        let start = editor.scroll_offset;
+</a><a href="#h3-0-176" id="h3-0-176" class="i">+                        let end = (start + view_height).min(total_lines.max(1));
+</a><a href="#h3-0-177" id="h3-0-177" class="i">+
+</a><a href="#h3-0-178" id="h3-0-178" class="i">+                        for i in start..end {
+</a><a href="#h3-0-179" id="h3-0-179" class="i">+                            if let Ok(line) = b.read_line(i) {
+</a><a href="#h3-0-180" id="h3-0-180" class="i">+                                let line_content = line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;);
+</a><a href="#h3-0-181" id="h3-0-181" class="i">+                                let line_display = format!(
+</a><a href="#h3-0-182" id="h3-0-182" class="i">+                                    &quot;  {:&gt;width$} | {}\n&quot;,
+</a><a href="#h3-0-183" id="h3-0-183" class="i">+                                    i + 1,
+</a><a href="#h3-0-184" id="h3-0-184" class="i">+                                    line_content,
+</a><a href="#h3-0-185" id="h3-0-185" class="i">+                                    width = line_num_width
+</a><a href="#h3-0-186" id="h3-0-186" class="i">+                                );
+</a><a href="#h3-0-187" id="h3-0-187" class="i">+                                display_content.push_str(&amp;line_display);
+</a><a href="#h3-0-188" id="h3-0-188" class="i">+                            }
+</a><a href="#h3-0-189" id="h3-0-189" class="i">+                        }
+</a><a href="#h3-0-190" id="h3-0-190" class="i">+                    }
+</a><a href="#h3-0-191" id="h3-0-191" class="i">+
+</a><a href="#h3-0-192" id="h3-0-192" class="i">+                    f.render_widget(Paragraph::new(display_content), chunks[0]);
+</a><a href="#h3-0-193" id="h3-0-193" class="i">+
+</a><a href="#h3-0-194" id="h3-0-194" class="i">+                    let mode_str = match editor.mode {
+</a><a href="#h3-0-195" id="h3-0-195" class="i">+                        Mode::Normal =&gt; &quot;NORMAL&quot;,
+</a><a href="#h3-0-196" id="h3-0-196" class="i">+                        Mode::Insert =&gt; &quot;INSERT&quot;,
+</a><a href="#h3-0-197" id="h3-0-197" class="i">+                    };
+</a><a href="#h3-0-198" id="h3-0-198" class="i">+
+</a><a href="#h3-0-199" id="h3-0-199" class="i">+                    let line_count = buffer.as_ref().map(|b| b.total_lines()).unwrap_or(0);
+</a><a href="#h3-0-200" id="h3-0-200" class="i">+                    let modified_flag = if buffer.as_ref().map(|b| b.is_modified()).unwrap_or(false)
+</a><a href="#h3-0-201" id="h3-0-201" class="i">+                    {
+</a><a href="#h3-0-202" id="h3-0-202" class="i">+                        &quot; [modified]&quot;
+</a><a href="#h3-0-203" id="h3-0-203" class="i">+                    } else {
+</a><a href="#h3-0-204" id="h3-0-204" class="i">+                        &quot;&quot;
+</a><a href="#h3-0-205" id="h3-0-205" class="i">+                    };
+</a><a href="#h3-0-206" id="h3-0-206" class="i">+
+</a><a href="#h3-0-207" id="h3-0-207" class="i">+                    let key_hint = match editor.mode {
+</a><a href="#h3-0-208" id="h3-0-208" class="i">+                        Mode::Normal =&gt; &quot;&#39;w&#39;: Save, &#39;u&#39;: Undo, &#39;q&#39;: Quit, &#39;h/j/k/l&#39;: Move&quot;,
+</a><a href="#h3-0-209" id="h3-0-209" class="i">+                        Mode::Insert =&gt; &quot;&#39;ESC&#39;: Exit Insert mode&quot;,
+</a><a href="#h3-0-210" id="h3-0-210" class="i">+                    };
+</a><a href="#h3-0-211" id="h3-0-211" class="i">+
+</a><a href="#h3-0-212" id="h3-0-212" class="i">+                    let status = format!(
+</a><a href="#h3-0-213" id="h3-0-213" class="i">+                        &quot;Mode: {}{} | Lines: {} | Cursor: {}:{} | {}&quot;,
+</a><a href="#h3-0-214" id="h3-0-214" class="i">+                        mode_str,
+</a><a href="#h3-0-215" id="h3-0-215" class="i">+                        modified_flag,
+</a><a href="#h3-0-216" id="h3-0-216" class="i">+                        line_count,
+</a><a href="#h3-0-217" id="h3-0-217" class="i">+                        editor.cursor_line + 1,
+</a><a href="#h3-0-218" id="h3-0-218" class="i">+                        editor.cursor_column + 1,
+</a><a href="#h3-0-219" id="h3-0-219" class="i">+                        key_hint
+</a><a href="#h3-0-220" id="h3-0-220" class="i">+                    );
+</a><a href="#h3-0-221" id="h3-0-221" class="i">+
+</a><a href="#h3-0-222" id="h3-0-222" class="i">+                    f.render_widget(Paragraph::new(status), chunks[1]);
+</a><a href="#h3-0-223" id="h3-0-223" class="i">+                })?;
+</a><a href="#h3-0-224" id="h3-0-224" class="i">+
+</a><a href="#h3-0-225" id="h3-0-225" class="i">+                // カーソル位置の調整
+</a><a href="#h3-0-226" id="h3-0-226" class="i">+                if let Some(ref b) = buffer {
+</a><a href="#h3-0-227" id="h3-0-227" class="i">+                    let line = b.read_line(editor.cursor_line).unwrap_or_default();
+</a><a href="#h3-0-228" id="h3-0-228" class="i">+                    let line_len = line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;).len();
+</a><a href="#h3-0-229" id="h3-0-229" class="i">+                    let max_column = if editor.mode == Mode::Normal {
+</a><a href="#h3-0-230" id="h3-0-230" class="i">+                        line_len.saturating_sub(1)
+</a><a href="#h3-0-231" id="h3-0-231" class="i">+                    } else {
+</a><a href="#h3-0-232" id="h3-0-232" class="i">+                        line_len
+</a><a href="#h3-0-233" id="h3-0-233" class="i">+                    };
+</a><a href="#h3-0-234" id="h3-0-234" class="i">+                    if editor.cursor_column &gt; max_column {
+</a><a href="#h3-0-235" id="h3-0-235" class="i">+                        editor.cursor_column = max_column;
+</a><a href="#h3-0-236" id="h3-0-236" class="i">+                    }
+</a><a href="#h3-0-237" id="h3-0-237" class="i">+
+</a><a href="#h3-0-238" id="h3-0-238" class="i">+                    let x = (2 + line_num_width + 3 + editor.cursor_column) as u16;
+</a><a href="#h3-0-239" id="h3-0-239" class="i">+                    let y = (editor.cursor_line - editor.scroll_offset) as u16;
+</a><a href="#h3-0-240" id="h3-0-240" class="i">+                    terminal.set_cursor_position((x, y))?;
+</a><a href="#h3-0-241" id="h3-0-241" class="i">+                }
+</a><a href="#h3-0-242" id="h3-0-242" class="i">+                terminal.show_cursor()?;
+</a><a href="#h3-0-243" id="h3-0-243" class="i">+
+</a><a href="#h3-0-244" id="h3-0-244" class="i">+                if let Event::Key(key) = event::read()? {
+</a><a href="#h3-0-245" id="h3-0-245" class="i">+                    if key.kind != event::KeyEventKind::Press {
+</a><a href="#h3-0-246" id="h3-0-246" class="i">+                        continue;
+</a><a href="#h3-0-247" id="h3-0-247" class="i">+                    }
+</a><a href="#h3-0-248" id="h3-0-248" class="i">+
+</a><a href="#h3-0-249" id="h3-0-249" class="i">+                    match editor.mode {
+</a><a href="#h3-0-250" id="h3-0-250" class="i">+                        Mode::Normal =&gt; match key.code {
+</a><a href="#h3-0-251" id="h3-0-251" class="i">+                            KeyCode::Char(&#39;q&#39;) =&gt; {
+</a><a href="#h3-0-252" id="h3-0-252" class="i">+                                if buffer.as_ref().map(|b| b.is_modified()).unwrap_or(false) {
+</a><a href="#h3-0-253" id="h3-0-253" class="i">+                                    state = AppState::UnsavedChangesPrompt;
+</a><a href="#h3-0-254" id="h3-0-254" class="i">+                                } else {
+</a><a href="#h3-0-255" id="h3-0-255" class="i">+                                    state = AppState::Quitting;
+</a><a href="#h3-0-256" id="h3-0-256" class="i">+                                }
+</a><a href="#h3-0-257" id="h3-0-257" class="i">+                            }
+</a><a href="#h3-0-258" id="h3-0-258" class="i">+                            KeyCode::Char(&#39;w&#39;) =&gt; {
+</a><a href="#h3-0-259" id="h3-0-259" class="i">+                                if let Some(ref mut b) = buffer {
+</a><a href="#h3-0-260" id="h3-0-260" class="i">+                                    b.save()?;
+</a><a href="#h3-0-261" id="h3-0-261" class="i">+                                }
+</a><a href="#h3-0-262" id="h3-0-262" class="i">+                            }
+</a><a href="#h3-0-263" id="h3-0-263" class="i">+                            KeyCode::Char(&#39;u&#39;) =&gt; {
+</a><a href="#h3-0-264" id="h3-0-264" class="i">+                                if let Some(ref mut b) = buffer {
+</a><a href="#h3-0-265" id="h3-0-265" class="i">+                                    b.rollback()?;
+</a><a href="#h3-0-266" id="h3-0-266" class="i">+                                    let line = b.read_line(editor.cursor_line).unwrap_or_default();
+</a><a href="#h3-0-267" id="h3-0-267" class="i">+                                    let line_len = line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;).len();
+</a><a href="#h3-0-268" id="h3-0-268" class="i">+                                    if editor.cursor_column &gt;= line_len {
+</a><a href="#h3-0-269" id="h3-0-269" class="i">+                                        editor.cursor_column = line_len.saturating_sub(1);
+</a><a href="#h3-0-270" id="h3-0-270" class="i">+                                    }
+</a><a href="#h3-0-271" id="h3-0-271" class="i">+                                }
+</a><a href="#h3-0-272" id="h3-0-272" class="i">+                            }
+</a><a href="#h3-0-273" id="h3-0-273" class="i">+                            KeyCode::Char(&#39;i&#39;) =&gt; editor.mode = Mode::Insert,
+</a><a href="#h3-0-274" id="h3-0-274" class="i">+                            KeyCode::Char(&#39;h&#39;) =&gt; editor.move_cursor_left(),
+</a><a href="#h3-0-275" id="h3-0-275" class="i">+                            KeyCode::Char(&#39;l&#39;) =&gt; {
+</a><a href="#h3-0-276" id="h3-0-276" class="i">+                                if let Some(ref b) = buffer {
+</a><a href="#h3-0-277" id="h3-0-277" class="i">+                                    let line = b.read_line(editor.cursor_line).unwrap_or_default();
+</a><a href="#h3-0-278" id="h3-0-278" class="i">+                                    let line_len = line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;).len();
+</a><a href="#h3-0-279" id="h3-0-279" class="i">+                                    editor.move_cursor_right(line_len.saturating_sub(1));
+</a><a href="#h3-0-280" id="h3-0-280" class="i">+                                }
+</a><a href="#h3-0-281" id="h3-0-281" class="i">+                            }
+</a><a href="#h3-0-282" id="h3-0-282" class="i">+                            KeyCode::Char(&#39;j&#39;) =&gt; {
+</a><a href="#h3-0-283" id="h3-0-283" class="i">+                                if let Some(ref b) = buffer {
+</a><a href="#h3-0-284" id="h3-0-284" class="i">+                                    let total = b.total_lines().max(1);
+</a><a href="#h3-0-285" id="h3-0-285" class="i">+                                    editor.move_cursor_down(total);
+</a><a href="#h3-0-286" id="h3-0-286" class="i">+                                    if editor.cursor_line
+</a><a href="#h3-0-287" id="h3-0-287" class="i">+                                        &gt;= editor.scroll_offset + terminal.size()?.height as usize
+</a><a href="#h3-0-288" id="h3-0-288" class="i">+                                            - 1
+</a><a href="#h3-0-289" id="h3-0-289" class="i">+                                    {
+</a><a href="#h3-0-290" id="h3-0-290" class="i">+                                        editor.scroll_down(total, 1);
+</a><a href="#h3-0-291" id="h3-0-291" class="i">+                                    }
+</a><a href="#h3-0-292" id="h3-0-292" class="i">+                                }
+</a><a href="#h3-0-293" id="h3-0-293" class="i">+                            }
+</a><a href="#h3-0-294" id="h3-0-294" class="i">+                            KeyCode::Char(&#39;k&#39;) =&gt; {
+</a><a href="#h3-0-295" id="h3-0-295" class="i">+                                if buffer.is_some() {
+</a><a href="#h3-0-296" id="h3-0-296" class="i">+                                    editor.move_cursor_up();
+</a><a href="#h3-0-297" id="h3-0-297" class="i">+                                    if editor.cursor_line &lt; editor.scroll_offset {
+</a><a href="#h3-0-298" id="h3-0-298" class="i">+                                        editor.scroll_up();
+</a><a href="#h3-0-299" id="h3-0-299" class="i">+                                    }
+</a><a href="#h3-0-300" id="h3-0-300" class="i">+                                }
+</a><a href="#h3-0-301" id="h3-0-301" class="i">+                            }
+</a><a href="#h3-0-302" id="h3-0-302" class="i">+                            _ =&gt; {}
+</a><a href="#h3-0-303" id="h3-0-303" class="i">+                        },
+</a><a href="#h3-0-304" id="h3-0-304" class="i">+                        Mode::Insert =&gt; {
+</a><a href="#h3-0-305" id="h3-0-305" class="i">+                            if key.code == KeyCode::Esc {
+</a><a href="#h3-0-306" id="h3-0-306" class="i">+                                editor.mode = Mode::Normal;
+</a><a href="#h3-0-307" id="h3-0-307" class="i">+                                if let Some(ref mut b) = buffer {
+</a><a href="#h3-0-308" id="h3-0-308" class="i">+                                    // Insertモード終了時にスワップファイルに書き出す
+</a><a href="#h3-0-309" id="h3-0-309" class="i">+                                    b.sync_to_swap()?;
+</a><a href="#h3-0-310" id="h3-0-310" class="i">+
+</a><a href="#h3-0-311" id="h3-0-311" class="i">+                                    let line = b.read_line(editor.cursor_line).unwrap_or_default();
+</a><a href="#h3-0-312" id="h3-0-312" class="i">+                                    let line_len = line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;).len();
+</a><a href="#h3-0-313" id="h3-0-313" class="i">+                                    if editor.cursor_column &gt;= line_len &amp;&amp; line_len &gt; 0 {
+</a><a href="#h3-0-314" id="h3-0-314" class="i">+                                        editor.cursor_column = line_len - 1;
+</a><a href="#h3-0-315" id="h3-0-315" class="i">+                                    }
+</a><a href="#h3-0-316" id="h3-0-316" class="i">+                                }
+</a><a href="#h3-0-317" id="h3-0-317" class="i">+                            } else if let KeyCode::Char(c) = key.code {
+</a><a href="#h3-0-318" id="h3-0-318" class="i">+                                if let Some(ref mut b) = buffer {
+</a><a href="#h3-0-319" id="h3-0-319" class="i">+                                    let mut current_line =
+</a><a href="#h3-0-320" id="h3-0-320" class="i">+                                        b.read_line(editor.cursor_line).unwrap_or_default();
+</a><a href="#h3-0-321" id="h3-0-321" class="i">+                                    current_line = current_line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;);
+</a><a href="#h3-0-322" id="h3-0-322" class="i">+                                    current_line.insert(editor.cursor_column, c);
+</a><a href="#h3-0-323" id="h3-0-323" class="i">+                                    b.update_line(editor.cursor_line, current_line);
+</a><a href="#h3-0-324" id="h3-0-324" class="i">+                                    editor.cursor_column += 1;
+</a><a href="#h3-0-325" id="h3-0-325" class="i">+                                }
+</a><a href="#h3-0-326" id="h3-0-326" class="i">+                            } else if let (KeyCode::Backspace, Some(b)) = (key.code, &amp;mut buffer)
+</a><a href="#h3-0-327" id="h3-0-327" class="i">+                                &amp;&amp; editor.cursor_column &gt; 0
+</a><a href="#h3-0-328" id="h3-0-328" class="i">+                            {
+</a><a href="#h3-0-329" id="h3-0-329" class="i">+                                let mut current_line =
+</a><a href="#h3-0-330" id="h3-0-330" class="i">+                                    b.read_line(editor.cursor_line).unwrap_or_default();
+</a><a href="#h3-0-331" id="h3-0-331" class="i">+                                current_line = current_line.replace([&#39;\n&#39;, &#39;\r&#39;], &quot;&quot;);
+</a><a href="#h3-0-332" id="h3-0-332" class="i">+                                current_line.remove(editor.cursor_column - 1);
+</a><a href="#h3-0-333" id="h3-0-333" class="i">+                                b.update_line(editor.cursor_line, current_line);
+</a><a href="#h3-0-334" id="h3-0-334" class="i">+                                editor.cursor_column -= 1;
+</a><a href="#h3-0-335" id="h3-0-335" class="i">+                            }
+</a><a href="#h3-0-336" id="h3-0-336" class="i">+                        }
+</a><a href="#h3-0-337" id="h3-0-337" class="i">+                    }
+</a><a href="#h3-0-338" id="h3-0-338" class="i">+                }
+</a><a href="#h3-0-339" id="h3-0-339" class="i">+            }
+</a><a href="#h3-0-340" id="h3-0-340" class="i">+        }
+</a><a href="#h3-0-341" id="h3-0-341" class="i">+    }
+</a><a href="#h3-0-342" id="h3-0-342" class="i">+    Ok(())
+</a> }
+</pre>
+</div>
+</body>
+</html>

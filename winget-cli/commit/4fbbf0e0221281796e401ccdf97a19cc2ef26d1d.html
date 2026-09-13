@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>More graceful MSIX enumeration failure handling (#5329) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/4fbbf0e0221281796e401ccdf97a19cc2ef26d1d.html">4fbbf0e0221281796e401ccdf97a19cc2ef26d1d</a>
+<b>parent</b> <a href="../commit/aca2fc3d23687ccfebc3e648a3cff1d1a553b9fa.html">aca2fc3d23687ccfebc3e648a3cff1d1a553b9fa</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Fri, 28 Mar 2025 10:18:51 -0700
+
+More graceful MSIX enumeration failure handling (#5329)
+
+Fixes #5318
+Mitigates many other issues getting 0x80070490 from installed package
+enumeration
+
+## Change
+Check for `IPackageManager9` before using it to prevent an AV on older
+Windows versions.
+
+Attempt to `FindPackagesForUserWithPackageTypes` with fewer types if it
+fails with `E_NOT_SET`. While this is an OS issue, enumerating fewer (or
+no) packages is generally better than an error that completely blocks
+usage.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></td><td> | </td><td class="num">40</td><td><span class="i">++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+</table></pre><pre>1 file changed, 38 insertions(+), 2 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -68,14 +68,50 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+             IIterable&lt;Package&gt; packages;
+             PackageManager packageManager;
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a>             if (scope == Manifest::ScopeEnum::Machine)
+             {
+<a href="#h0-0-6" id="h0-0-6" class="d">-                packages = packageManager.FindProvisionedPackages();
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+                // May not be present on our oldest supported systems; simply ignore for the time being.
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+                IPackageManager9 packageManager9 = packageManager.try_as&lt;IPackageManager9&gt;();
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+                if (packageManager9)
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+                {
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+                    packages = packageManager.FindProvisionedPackages();
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+                }
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+                else
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                {
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                    AICLI_LOG(Repo, Warning, &lt;&lt; &quot;FindProvisionedPackages is not available on this version of Windows&quot;);
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                }
+</a>             }
+             else
+             {
+                 // TODO: Consider if Optional packages should also be enumerated
+<a href="#h0-0-21" id="h0-0-21" class="d">-                packages = packageManager.FindPackagesForUserWithPackageTypes({}, PackageTypes::Main | PackageTypes::Framework);
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+                for (PackageTypes types : { PackageTypes::Main | PackageTypes::Framework, PackageTypes::Main, PackageTypes::Framework })
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+                {
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+                    try
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+                    {
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+                        packages = packageManager.FindPackagesForUserWithPackageTypes({}, types);
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+                        break;
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+                    }
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+                    catch (const winrt::hresult_error&amp; hre)
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+                    {
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+                        if (hre.code() == E_NOT_SET)
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+                        {
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+                            // This OS issue occurs frequently enough that we will attempt to work around it by enumerating progressively fewer packages
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+                            AICLI_LOG(Repo, Warning, &lt;&lt; &quot;FindPackagesForUserWithPackageTypes returned E_NOT_SET for types: &quot; &lt;&lt; ToIntegral(types));
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+                        }
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+                        else
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+                        {
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+                            throw;
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+                        }
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+                    }
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+                }
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+            }
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+            // Failed to retrieve even an empty package list; make sure that these cases have a log to indicate why.
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+            if (!packages)
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+            {
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+                AICLI_LOG(Repo, Warning, &lt;&lt; &quot;MSIX package list not populated&quot;);
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+                return;
+</a>             }
+ 
+             // Reuse the same manifest object, as we will be setting the same values every time.
+</pre>
+</div>
+</body>
+</html>

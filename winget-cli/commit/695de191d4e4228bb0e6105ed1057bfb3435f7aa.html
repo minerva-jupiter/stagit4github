@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Swithc to sqlite3_prepare_v2 as we didn&#39;t really need v3 and it is not on RS3 (#134) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/695de191d4e4228bb0e6105ed1057bfb3435f7aa.html">695de191d4e4228bb0e6105ed1057bfb3435f7aa</a>
+<b>parent</b> <a href="../commit/aa7f136af6f67c2030db0c570137cc5761936960.html">aa7f136af6f67c2030db0c570137cc5761936960</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 12 May 2020 18:07:31 -0700
+
+Swithc to sqlite3_prepare_v2 as we didn&#39;t really need v3 and it is not on RS3 (#134)
+
+v3 is not available on Windows 10 (16299), and we don&#39;t really need or use the persistent statements in a meaningful way.  Fall back to v2 and remove the persistent statement support.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerRepositoryCore/SQLiteStatementBuilder.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/SQLiteStatementBuilder.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/SQLiteWrapper.cpp</a></td><td> | </td><td class="num">20</td><td><span class="i">++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/SQLiteWrapper.h</a></td><td> | </td><td class="num">8</td><td><span class="i">++++</span><span class="d">----</span></td></tr>
+</table></pre><pre>4 files changed, 17 insertions(+), 17 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerRepositoryCore/SQLiteStatementBuilder.cpp.html">src/AppInstallerRepositoryCore/SQLiteStatementBuilder.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/SQLiteStatementBuilder.cpp.html">src/AppInstallerRepositoryCore/SQLiteStatementBuilder.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -689,9 +689,9 @@ namespace AppInstaller::Repository::SQLite::Builder
+</a>         return *this;
+     }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-    Statement StatementBuilder::Prepare(Connection&amp; connection, bool persistent)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+    Statement StatementBuilder::Prepare(Connection&amp; connection)
+</a>     {
+<a href="#h0-0-6" id="h0-0-6" class="d">-        Statement result = Statement::Create(connection, m_stream.str(), persistent);
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+        Statement result = Statement::Create(connection, m_stream.str());
+</a>         for (const auto&amp; f : m_binders)
+         {
+             f(result);
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/SQLiteStatementBuilder.h.html">src/AppInstallerRepositoryCore/SQLiteStatementBuilder.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/SQLiteStatementBuilder.h.html">src/AppInstallerRepositoryCore/SQLiteStatementBuilder.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -334,7 +334,7 @@ namespace AppInstaller::Repository::SQLite::Builder
+</a>         int GetLastBindIndex() const { return m_bindIndex - 1; }
+ 
+         // Prepares and returns the statement, applying any bindings that were requested.
+<a href="#h1-0-3" id="h1-0-3" class="d">-        Statement Prepare(Connection&amp; connection, bool persistent = false);
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        Statement Prepare(Connection&amp; connection);
+</a> 
+         // A convenience function that prepares, binds, and then executes a statement that does not return rows.
+         void Execute(Connection&amp; connection);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/SQLiteWrapper.cpp.html">src/AppInstallerRepositoryCore/SQLiteWrapper.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/SQLiteWrapper.cpp.html">src/AppInstallerRepositoryCore/SQLiteWrapper.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -122,29 +122,29 @@ namespace AppInstaller::Repository::SQLite
+</a>         return sqlite3_changes(m_dbconn.get());
+     }
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-    Statement::Statement(Connection&amp; connection, std::string_view sql, bool persistent)
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    Statement::Statement(Connection&amp; connection, std::string_view sql)
+</a>     {
+         m_id = GetNextStatementId();
+         AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Preparing statement #&quot; &lt;&lt; m_id &lt;&lt; &quot;: &quot; &lt;&lt; sql);
+         // SQL string size should include the null terminator (https://www.sqlite.org/c3ref/prepare.html)
+         assert(sql.data()[sql.size()] == &#39;\0&#39;);
+<a href="#h2-0-10" id="h2-0-10" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3_prepare_v3(connection, sql.data(), static_cast&lt;int&gt;(sql.size() + 1), (persistent ? SQLITE_PREPARE_PERSISTENT : 0), &amp;m_stmt, nullptr));
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3_prepare_v2(connection, sql.data(), static_cast&lt;int&gt;(sql.size() + 1), &amp;m_stmt, nullptr));
+</a>     }
+ 
+<a href="#h2-0-14" id="h2-0-14" class="d">-    Statement Statement::Create(Connection&amp; connection, const std::string&amp; sql, bool persistent)
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+    Statement Statement::Create(Connection&amp; connection, const std::string&amp; sql)
+</a>     {
+<a href="#h2-0-17" id="h2-0-17" class="d">-        return { connection, { sql.c_str(), sql.size() }, persistent };
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+        return { connection, { sql.c_str(), sql.size() } };
+</a>     }
+ 
+<a href="#h2-0-21" id="h2-0-21" class="d">-    Statement Statement::Create(Connection&amp; connection, std::string_view sql, bool persistent)
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+    Statement Statement::Create(Connection&amp; connection, std::string_view sql)
+</a>     {
+         // We need the statement to be null terminated, and the only way to guarantee that with a string_view is to construct a string copy.
+<a href="#h2-0-25" id="h2-0-25" class="d">-        return Create(connection, std::string(sql), persistent);
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+        return Create(connection, std::string(sql));
+</a>     }
+ 
+<a href="#h2-0-29" id="h2-0-29" class="d">-    Statement Statement::Create(Connection&amp; connection, char const* const sql, bool persistent)
+</a><a href="#h2-0-30" id="h2-0-30" class="i">+    Statement Statement::Create(Connection&amp; connection, char const* const sql)
+</a>     {
+<a href="#h2-0-32" id="h2-0-32" class="d">-        return { connection, sql, persistent };
+</a><a href="#h2-0-33" id="h2-0-33" class="i">+        return { connection, sql };
+</a>     }
+ 
+     bool Statement::Step(bool failFastOnError)
+<a href="#h2-1" id="h2-1" class="h">@@ -203,8 +203,8 @@ namespace AppInstaller::Repository::SQLite
+</a>         using namespace std::string_literals;
+ 
+         Statement begin = Statement::Create(connection, &quot;SAVEPOINT [&quot;s + m_name + &quot;]&quot;);
+<a href="#h2-1-3" id="h2-1-3" class="d">-        m_rollbackTo = Statement::Create(connection, &quot;ROLLBACK TO [&quot;s + m_name + &quot;]&quot;, true);
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-        m_release = Statement::Create(connection, &quot;RELEASE [&quot;s + m_name + &quot;]&quot;, true);
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+        m_rollbackTo = Statement::Create(connection, &quot;ROLLBACK TO [&quot;s + m_name + &quot;]&quot;);
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+        m_release = Statement::Create(connection, &quot;RELEASE [&quot;s + m_name + &quot;]&quot;);
+</a> 
+         AICLI_LOG(SQL, Info, &lt;&lt; &quot;Begin savepoint: &quot; &lt;&lt; m_name);
+         begin.Step();
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/SQLiteWrapper.h.html">src/AppInstallerRepositoryCore/SQLiteWrapper.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/SQLiteWrapper.h.html">src/AppInstallerRepositoryCore/SQLiteWrapper.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -155,9 +155,9 @@ namespace AppInstaller::Repository::SQLite
+</a>     // A SQL statement.
+     struct Statement
+     {
+<a href="#h3-0-3" id="h3-0-3" class="d">-        static Statement Create(Connection&amp; connection, const std::string&amp; sql, bool persistent = false);
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-        static Statement Create(Connection&amp; connection, std::string_view sql, bool persistent = false);
+</a><a href="#h3-0-5" id="h3-0-5" class="d">-        static Statement Create(Connection&amp; connection, char const* const sql, bool persistent = false);
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        static Statement Create(Connection&amp; connection, const std::string&amp; sql);
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+        static Statement Create(Connection&amp; connection, std::string_view sql);
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+        static Statement Create(Connection&amp; connection, char const* const sql);
+</a> 
+         Statement() = default;
+ 
+<a href="#h3-1" id="h3-1" class="h">@@ -231,7 +231,7 @@ namespace AppInstaller::Repository::SQLite
+</a>         operator bool() const { return static_cast&lt;bool&gt;(m_stmt); }
+ 
+     private:
+<a href="#h3-1-3" id="h3-1-3" class="d">-        Statement(Connection&amp; connection, std::string_view sql, bool persistent);
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+        Statement(Connection&amp; connection, std::string_view sql);
+</a> 
+         // Helper to receive the integer sequence from the public function.
+         // This is equivalent to calling:
+</pre>
+</div>
+</body>
+</html>

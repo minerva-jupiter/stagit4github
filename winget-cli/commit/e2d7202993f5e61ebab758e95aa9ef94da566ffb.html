@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Use std::variant in ManifestYamlPopulator (#4081) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/e2d7202993f5e61ebab758e95aa9ef94da566ffb.html">e2d7202993f5e61ebab758e95aa9ef94da566ffb</a>
+<b>parent</b> <a href="../commit/231bb787eb6822b06f2921cddf9a9dfb60ef3ec3.html">231bb787eb6822b06f2921cddf9a9dfb60ef3ec3</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 24 Jan 2024 10:41:37 -0800
+
+Use std::variant in ManifestYamlPopulator (#4081)
+
+This PR uses `std::variant` instead of member pointers to manifest
+structs to be references used by the processing functions.
+`std::variant` contains pointers to manifest structs to be populated and
+is passed to the `FieldProcessInfo.ProcessFunc`. Each processing
+function is responsible of calling `std::get` or `std::get_if` with the
+correct pointer type. `ValidateAndProcessFields` takes the
+`std::variant` and pass it to the processing functions.
+
+Processing functions that required the member types now take a pointer
+to the manifest struct. Some of these can go in the anonymous namespace,
+but I didn&#39;t want to add more moves.
+
+The change will make implementing shadow manifests easier.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCommonCore/Manifest/ManifestYamlPopulator.cpp</a></td><td> | </td><td class="num">398</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Public/winget/ManifestYamlPopulator.h</a></td><td> | </td><td class="num">48</td><td><span class="i">+++++++++++++++++</span><span class="d">-------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/pch.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+</table></pre><pre>3 files changed, 224 insertions(+), 223 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCommonCore/Manifest/ManifestYamlPopulator.cpp.html">src/AppInstallerCommonCore/Manifest/ManifestYamlPopulator.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Manifest/ManifestYamlPopulator.cpp.html">src/AppInstallerCommonCore/Manifest/ManifestYamlPopulator.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -11,6 +11,33 @@ namespace AppInstaller::Manifest
+</a> 
+     namespace
+     {
+<a href="#h0-0-3" id="h0-0-3" class="i">+        template &lt;typename Ptr&gt;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        Ptr* variant_ptr(const VariantManifestPtr&amp; v) { return std::get&lt;Ptr*&gt;(v); }
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+        ManifestInstaller* GetManifestInstallerPtrFromManifest(const VariantManifestPtr&amp; v) { return &amp;(variant_ptr&lt;Manifest&gt;(v)-&gt;DefaultInstallerInfo); }
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        ManifestLocalization* GetManifestLocalizationPtrFromManifest(const VariantManifestPtr&amp; v) { return &amp;(variant_ptr&lt;Manifest&gt;(v)-&gt;DefaultLocalization); }
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+        ManifestInstaller* GetManifestInstallerPtr(const VariantManifestPtr&amp; v)
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+        {
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            if (auto installer = std::get_if&lt;ManifestInstaller*&gt;(&amp;v))
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+            {
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                return *installer;
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+            }
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+            return GetManifestInstallerPtrFromManifest(v);
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+        }
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+        ManifestLocalization* GetManifestLocalizationPtr(const VariantManifestPtr&amp; v)
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+        {
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+            if (auto localization = std::get_if&lt;ManifestLocalization*&gt;(&amp;v))
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+            {
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+                return *localization;
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+            }
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+            return GetManifestLocalizationPtrFromManifest(v);
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+        }
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+
+</a>         // Only used in preview manifest
+         std::vector&lt;Manifest::string_t&gt; SplitMultiValueField(const std::string&amp; input)
+         {
+<a href="#h0-1" id="h0-1" class="h">@@ -130,6 +157,15 @@ namespace AppInstaller::Manifest
+</a> 
+             return result;
+         }
+<a href="#h0-1-3" id="h0-1-3" class="i">+
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        void ProcessDependenciesNode(DependencyType type, const YAML::Node&amp; node, DependencyList* dependencyList)
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+        {
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+            const auto&amp; ids = ProcessStringSequenceNode(node);
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+            for (auto id : ids)
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+            {
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+                dependencyList-&gt;Add(Dependency(type, id));
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+            }
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+        }
+</a>     }
+ 
+     std::vector&lt;ManifestYamlPopulator::FieldProcessInfo&gt; ManifestYamlPopulator::GetRootFieldProcessInfo(const ManifestVer&amp; manifestVersion)
+<a href="#h0-2" id="h0-2" class="h">@@ -137,10 +173,11 @@ namespace AppInstaller::Manifest
+</a>         // Common fields across versions
+         std::vector&lt;FieldProcessInfo&gt; result =
+         {
+<a href="#h0-2-3" id="h0-2-3" class="d">-            { &quot;ManifestVersion&quot;, [](const YAML::Node&amp;)-&gt;ValidationErrors { /* ManifestVersion already populated. Field listed here for duplicate and PascalCase check */ return {}; } },
+</a><a href="#h0-2-4" id="h0-2-4" class="d">-            { &quot;Installers&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installersNode = &amp;value; return {}; } },
+</a><a href="#h0-2-5" id="h0-2-5" class="d">-            { &quot;Localization&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localizationsNode = &amp;value; return {}; } },
+</a><a href="#h0-2-6" id="h0-2-6" class="d">-            { &quot;Channel&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_manifest-&gt;Channel = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+            { &quot;ManifestVersion&quot;, [](const YAML::Node&amp;, const VariantManifestPtr&amp;)-&gt;ValidationErrors { /* ManifestVersion already populated. Field listed here for duplicate and PascalCase check */ return {}; } },
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+            { &quot;Installers&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp;)-&gt;ValidationErrors { m_p_installersNode = &amp;value; return {}; } },
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+            { &quot;Localization&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp;)-&gt;ValidationErrors { m_p_localizationsNode = &amp;value; return {}; } },
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+            { &quot;Channel&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Manifest&gt;(v)-&gt;Channel = Utility::Trim(value.as&lt;std::string&gt;()); return {}; }
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+            },
+</a>         };
+ 
+         // Additional version specific fields
+<a href="#h0-3" id="h0-3" class="h">@@ -148,9 +185,9 @@ namespace AppInstaller::Manifest
+</a>         {
+             std::vector&lt;FieldProcessInfo&gt; previewRootFields
+             {
+<a href="#h0-3-3" id="h0-3-3" class="d">-                { &quot;Id&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_manifest-&gt;Id = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-3-4" id="h0-3-4" class="d">-                { &quot;Version&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_manifest-&gt;Version = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-3-5" id="h0-3-5" class="d">-                { &quot;AppMoniker&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors {  m_p_manifest-&gt;Moniker = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+                { &quot;Id&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Manifest&gt;(v)-&gt;Id = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+                { &quot;Version&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Manifest&gt;(v)-&gt;Version = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+                { &quot;AppMoniker&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Manifest&gt;(v)-&gt;Moniker = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a>             };
+ 
+             std::move(previewRootFields.begin(), previewRootFields.end(), std::inserter(result, result.end()));
+<a href="#h0-4" id="h0-4" class="h">@@ -162,10 +199,10 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; v1RootFields
+                 {
+<a href="#h0-4-3" id="h0-4-3" class="d">-                    { &quot;PackageIdentifier&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_manifest-&gt;Id = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-4-4" id="h0-4-4" class="d">-                    { &quot;PackageVersion&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_manifest-&gt;Version = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-4-5" id="h0-4-5" class="d">-                    { &quot;Moniker&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors {  m_p_manifest-&gt;Moniker = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-4-6" id="h0-4-6" class="d">-                    { &quot;ManifestType&quot;, [](const YAML::Node&amp;)-&gt;ValidationErrors { /* ManifestType already checked. Field listed here for duplicate and PascalCase check */ return {}; } },
+</a><a href="#h0-4-7" id="h0-4-7" class="i">+                    { &quot;PackageIdentifier&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Manifest&gt;(v)-&gt;Id = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-4-8" id="h0-4-8" class="i">+                    { &quot;PackageVersion&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Manifest&gt;(v)-&gt;Version = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-4-9" id="h0-4-9" class="i">+                    { &quot;Moniker&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Manifest&gt;(v)-&gt;Moniker = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-4-10" id="h0-4-10" class="i">+                    { &quot;ManifestType&quot;, [](const YAML::Node&amp;, const VariantManifestPtr&amp;)-&gt;ValidationErrors { /* ManifestType already checked. Field listed here for duplicate and PascalCase check */ return {}; } },
+</a>                 };
+ 
+                 std::move(v1RootFields.begin(), v1RootFields.end(), std::inserter(result, result.end()));
+<a href="#h0-5" id="h0-5" class="h">@@ -187,9 +224,9 @@ namespace AppInstaller::Manifest
+</a>         // Common fields across versions
+         std::vector&lt;FieldProcessInfo&gt; result =
+         {
+<a href="#h0-5-3" id="h0-5-3" class="d">-            { &quot;InstallerType&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;BaseInstallerType = ConvertToInstallerTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-5-4" id="h0-5-4" class="d">-            { &quot;PackageFamilyName&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;PackageFamilyName = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-5-5" id="h0-5-5" class="d">-            { &quot;ProductCode&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;ProductCode = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-5-6" id="h0-5-6" class="i">+            { &quot;InstallerType&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;BaseInstallerType = ConvertToInstallerTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-5-7" id="h0-5-7" class="i">+            { &quot;PackageFamilyName&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;PackageFamilyName = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-5-8" id="h0-5-8" class="i">+            { &quot;ProductCode&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;ProductCode = value.as&lt;std::string&gt;(); return {}; } },
+</a>         };
+ 
+         // Additional version specific fields
+<a href="#h0-6" id="h0-6" class="h">@@ -198,8 +235,8 @@ namespace AppInstaller::Manifest
+</a>             // Root level and Localization node level
+             std::vector&lt;FieldProcessInfo&gt; previewCommonFields =
+             {
+<a href="#h0-6-3" id="h0-6-3" class="d">-                { &quot;UpdateBehavior&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;UpdateBehavior = ConvertToUpdateBehaviorEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-6-4" id="h0-6-4" class="d">-                { &quot;Switches&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_switches = &amp;(m_p_installer-&gt;Switches); return ValidateAndProcessFields(value, SwitchesFieldInfos); } },
+</a><a href="#h0-6-5" id="h0-6-5" class="i">+                { &quot;UpdateBehavior&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;UpdateBehavior = ConvertToUpdateBehaviorEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-6-6" id="h0-6-6" class="i">+                { &quot;Switches&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ValidateAndProcessFields(value, SwitchesFieldInfos, VariantManifestPtr(&amp;(GetManifestInstallerPtr(v)-&gt;Switches))); }},
+</a>             };
+ 
+             std::move(previewCommonFields.begin(), previewCommonFields.end(), std::inserter(result, result.end()));
+<a href="#h0-7" id="h0-7" class="h">@@ -209,17 +246,17 @@ namespace AppInstaller::Manifest
+</a>                 // Installer node only
+                 std::vector&lt;FieldProcessInfo&gt; installerOnlyFields =
+                 {
+<a href="#h0-7-3" id="h0-7-3" class="d">-                    { &quot;Arch&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Arch = Utility::ConvertToArchitectureEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-7-4" id="h0-7-4" class="d">-                    { &quot;Url&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Url = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-7-5" id="h0-7-5" class="d">-                    { &quot;Sha256&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Sha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-7-6" id="h0-7-6" class="d">-                    { &quot;SignatureSha256&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;SignatureSha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-7-7" id="h0-7-7" class="d">-                    { &quot;Language&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Locale = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-7-8" id="h0-7-8" class="d">-                    { &quot;Scope&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Scope = ConvertToScopeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-7-9" id="h0-7-9" class="i">+                    { &quot;Arch&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Arch = Utility::ConvertToArchitectureEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-7-10" id="h0-7-10" class="i">+                    { &quot;Url&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Url = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-7-11" id="h0-7-11" class="i">+                    { &quot;Sha256&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Sha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-7-12" id="h0-7-12" class="i">+                    { &quot;SignatureSha256&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;SignatureSha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-7-13" id="h0-7-13" class="i">+                    { &quot;Language&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Locale = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-7-14" id="h0-7-14" class="i">+                    { &quot;Scope&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Scope = ConvertToScopeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a>                 };
+ 
+                 if (manifestVersion.HasExtension(s_MSStoreExtension))
+                 {
+<a href="#h0-7-19" id="h0-7-19" class="d">-                    installerOnlyFields.emplace_back(&quot;ProductId&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;ProductId = value.as&lt;std::string&gt;(); return {}; });
+</a><a href="#h0-7-20" id="h0-7-20" class="i">+                    installerOnlyFields.emplace_back(&quot;ProductId&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;ProductId = value.as&lt;std::string&gt;(); return {}; });
+</a>                 }
+ 
+                 std::move(installerOnlyFields.begin(), installerOnlyFields.end(), std::inserter(result, result.end()));
+<a href="#h0-8" id="h0-8" class="h">@@ -229,10 +266,10 @@ namespace AppInstaller::Manifest
+</a>                 // Root node only
+                 std::vector&lt;FieldProcessInfo&gt; rootOnlyFields =
+                 {
+<a href="#h0-8-3" id="h0-8-3" class="d">-                    { &quot;MinOSVersion&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;MinOSVersion = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-8-4" id="h0-8-4" class="d">-                    { &quot;Commands&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Commands = SplitMultiValueField(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-8-5" id="h0-8-5" class="d">-                    { &quot;Protocols&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Protocols = SplitMultiValueField(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-8-6" id="h0-8-6" class="d">-                    { &quot;FileExtensions&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;FileExtensions = SplitMultiValueField(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-8-7" id="h0-8-7" class="i">+                    { &quot;MinOSVersion&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtrFromManifest(v)-&gt;MinOSVersion = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-8-8" id="h0-8-8" class="i">+                    { &quot;Commands&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtrFromManifest(v)-&gt;Commands = SplitMultiValueField(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-8-9" id="h0-8-9" class="i">+                    { &quot;Protocols&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtrFromManifest(v)-&gt;Protocols = SplitMultiValueField(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-8-10" id="h0-8-10" class="i">+                    { &quot;FileExtensions&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtrFromManifest(v)-&gt;FileExtensions = SplitMultiValueField(value.as&lt;std::string&gt;()); return {}; } },
+</a>                 };
+ 
+                 std::move(rootOnlyFields.begin(), rootOnlyFields.end(), std::inserter(result, result.end()));
+<a href="#h0-9" id="h0-9" class="h">@@ -246,20 +283,20 @@ namespace AppInstaller::Manifest
+</a>                 // Root level and Installer node level
+                 std::vector&lt;FieldProcessInfo&gt; v1CommonFields =
+                 {
+<a href="#h0-9-3" id="h0-9-3" class="d">-                    { &quot;InstallerLocale&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Locale = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-9-4" id="h0-9-4" class="d">-                    { &quot;Platform&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Platform = ProcessPlatformSequenceNode(value); return {}; } },
+</a><a href="#h0-9-5" id="h0-9-5" class="d">-                    { &quot;MinimumOSVersion&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;MinOSVersion = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-9-6" id="h0-9-6" class="d">-                    { &quot;Scope&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Scope = ConvertToScopeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-9-7" id="h0-9-7" class="d">-                    { &quot;InstallModes&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;InstallModes = ProcessInstallModeSequenceNode(value); return {}; } },
+</a><a href="#h0-9-8" id="h0-9-8" class="d">-                    { &quot;InstallerSwitches&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_switches = &amp;(m_p_installer-&gt;Switches); return ValidateAndProcessFields(value, SwitchesFieldInfos); } },
+</a><a href="#h0-9-9" id="h0-9-9" class="d">-                    { &quot;InstallerSuccessCodes&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;InstallerSuccessCodes = ProcessInstallerSuccessCodeSequenceNode(value); return {}; } },
+</a><a href="#h0-9-10" id="h0-9-10" class="d">-                    { &quot;UpgradeBehavior&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;UpdateBehavior = ConvertToUpdateBehaviorEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-9-11" id="h0-9-11" class="d">-                    { &quot;Commands&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Commands = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-12" id="h0-9-12" class="d">-                    { &quot;Protocols&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Protocols = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-13" id="h0-9-13" class="d">-                    { &quot;FileExtensions&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;FileExtensions = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-14" id="h0-9-14" class="d">-                    { &quot;Dependencies&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_dependencyList = &amp;(m_p_installer-&gt;Dependencies); return ValidateAndProcessFields(value, DependenciesFieldInfos); } },
+</a><a href="#h0-9-15" id="h0-9-15" class="d">-                    { &quot;Capabilities&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Capabilities = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-16" id="h0-9-16" class="d">-                    { &quot;RestrictedCapabilities&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;RestrictedCapabilities = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-17" id="h0-9-17" class="i">+                    { &quot;InstallerLocale&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;Locale = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-9-18" id="h0-9-18" class="i">+                    { &quot;Platform&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;Platform = ProcessPlatformSequenceNode(value); return {}; } },
+</a><a href="#h0-9-19" id="h0-9-19" class="i">+                    { &quot;MinimumOSVersion&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;MinOSVersion = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-9-20" id="h0-9-20" class="i">+                    { &quot;Scope&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;Scope = ConvertToScopeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-9-21" id="h0-9-21" class="i">+                    { &quot;InstallModes&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;InstallModes = ProcessInstallModeSequenceNode(value); return {}; } },
+</a><a href="#h0-9-22" id="h0-9-22" class="i">+                    { &quot;InstallerSwitches&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ValidateAndProcessFields(value, SwitchesFieldInfos, VariantManifestPtr(&amp;(GetManifestInstallerPtr(v)-&gt;Switches))); }},
+</a><a href="#h0-9-23" id="h0-9-23" class="i">+                    { &quot;InstallerSuccessCodes&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;InstallerSuccessCodes = ProcessInstallerSuccessCodeSequenceNode(value); return {}; } },
+</a><a href="#h0-9-24" id="h0-9-24" class="i">+                    { &quot;UpgradeBehavior&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;UpdateBehavior = ConvertToUpdateBehaviorEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-9-25" id="h0-9-25" class="i">+                    { &quot;Commands&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;Commands = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-26" id="h0-9-26" class="i">+                    { &quot;Protocols&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;Protocols = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-27" id="h0-9-27" class="i">+                    { &quot;FileExtensions&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;FileExtensions = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-28" id="h0-9-28" class="i">+                    { &quot;Dependencies&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ValidateAndProcessFields(value, DependenciesFieldInfos, VariantManifestPtr(&amp;(GetManifestInstallerPtr(v)-&gt;Dependencies))); }},
+</a><a href="#h0-9-29" id="h0-9-29" class="i">+                    { &quot;Capabilities&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;Capabilities = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-9-30" id="h0-9-30" class="i">+                    { &quot;RestrictedCapabilities&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;RestrictedCapabilities = ProcessStringSequenceNode(value); return {}; } },
+</a>                 };
+ 
+                 std::move(v1CommonFields.begin(), v1CommonFields.end(), std::inserter(result, result.end()));
+<a href="#h0-10" id="h0-10" class="h">@@ -269,10 +306,10 @@ namespace AppInstaller::Manifest
+</a>                     // Installer level only fields
+                     std::vector&lt;FieldProcessInfo&gt; v1InstallerFields =
+                     {
+<a href="#h0-10-3" id="h0-10-3" class="d">-                        { &quot;Architecture&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Arch = Utility::ConvertToArchitectureEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-10-4" id="h0-10-4" class="d">-                        { &quot;InstallerUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Url = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-10-5" id="h0-10-5" class="d">-                        { &quot;InstallerSha256&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;Sha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-10-6" id="h0-10-6" class="d">-                        { &quot;SignatureSha256&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;SignatureSha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-10-7" id="h0-10-7" class="i">+                        { &quot;Architecture&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Arch = Utility::ConvertToArchitectureEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-10-8" id="h0-10-8" class="i">+                        { &quot;InstallerUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Url = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-10-9" id="h0-10-9" class="i">+                        { &quot;InstallerSha256&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;Sha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-10-10" id="h0-10-10" class="i">+                        { &quot;SignatureSha256&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestInstaller&gt;(v)-&gt;SignatureSha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a>                     };
+ 
+                     std::move(v1InstallerFields.begin(), v1InstallerFields.end(), std::inserter(result, result.end()));
+<a href="#h0-11" id="h0-11" class="h">@@ -283,15 +320,15 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_1 =
+                 {
+<a href="#h0-11-3" id="h0-11-3" class="d">-                    { &quot;InstallerAbortsTerminal&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;InstallerAbortsTerminal = value.as&lt;bool&gt;(); return {}; } },
+</a><a href="#h0-11-4" id="h0-11-4" class="d">-                    { &quot;InstallLocationRequired&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;InstallLocationRequired = value.as&lt;bool&gt;(); return {}; } },
+</a><a href="#h0-11-5" id="h0-11-5" class="d">-                    { &quot;RequireExplicitUpgrade&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;RequireExplicitUpgrade = value.as&lt;bool&gt;(); return {}; } },
+</a><a href="#h0-11-6" id="h0-11-6" class="d">-                    { &quot;ReleaseDate&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;ReleaseDate = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-11-7" id="h0-11-7" class="d">-                    { &quot;UnsupportedOSArchitectures&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;UnsupportedOSArchitectures = ProcessArchitectureSequenceNode(value); return {}; } },
+</a><a href="#h0-11-8" id="h0-11-8" class="d">-                    { &quot;ElevationRequirement&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;ElevationRequirement = ConvertToElevationRequirementEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-11-9" id="h0-11-9" class="d">-                    { &quot;Markets&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessMarketsNode(value); } },
+</a><a href="#h0-11-10" id="h0-11-10" class="d">-                    { &quot;AppsAndFeaturesEntries&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessAppsAndFeaturesEntriesNode(value); } },
+</a><a href="#h0-11-11" id="h0-11-11" class="d">-                    { &quot;ExpectedReturnCodes&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessExpectedReturnCodesNode(value); } },
+</a><a href="#h0-11-12" id="h0-11-12" class="i">+                    { &quot;InstallerAbortsTerminal&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;InstallerAbortsTerminal = value.as&lt;bool&gt;(); return {}; } },
+</a><a href="#h0-11-13" id="h0-11-13" class="i">+                    { &quot;InstallLocationRequired&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;InstallLocationRequired = value.as&lt;bool&gt;(); return {}; } },
+</a><a href="#h0-11-14" id="h0-11-14" class="i">+                    { &quot;RequireExplicitUpgrade&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;RequireExplicitUpgrade = value.as&lt;bool&gt;(); return {}; } },
+</a><a href="#h0-11-15" id="h0-11-15" class="i">+                    { &quot;ReleaseDate&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;ReleaseDate = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-11-16" id="h0-11-16" class="i">+                    { &quot;UnsupportedOSArchitectures&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;UnsupportedOSArchitectures = ProcessArchitectureSequenceNode(value); return {}; } },
+</a><a href="#h0-11-17" id="h0-11-17" class="i">+                    { &quot;ElevationRequirement&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;ElevationRequirement = ConvertToElevationRequirementEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-11-18" id="h0-11-18" class="i">+                    { &quot;Markets&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessMarketsNode(value, GetManifestInstallerPtr(v)); } },
+</a><a href="#h0-11-19" id="h0-11-19" class="i">+                    { &quot;AppsAndFeaturesEntries&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessAppsAndFeaturesEntriesNode(value, GetManifestInstallerPtr(v)); } },
+</a><a href="#h0-11-20" id="h0-11-20" class="i">+                    { &quot;ExpectedReturnCodes&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessExpectedReturnCodesNode(value, GetManifestInstallerPtr(v)); } },
+</a>                 };
+ 
+                 std::move(fields_v1_1.begin(), fields_v1_1.end(), std::inserter(result, result.end()));
+<a href="#h0-12" id="h0-12" class="h">@@ -301,8 +338,8 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_2 =
+                 {
+<a href="#h0-12-3" id="h0-12-3" class="d">-                    { &quot;UnsupportedArguments&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;UnsupportedArguments = ProcessUnsupportedArgumentsSequenceNode(value); return {}; } },
+</a><a href="#h0-12-4" id="h0-12-4" class="d">-                    { &quot;DisplayInstallWarnings&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;DisplayInstallWarnings = value.as&lt;bool&gt;(); return {}; } },
+</a><a href="#h0-12-5" id="h0-12-5" class="i">+                    { &quot;UnsupportedArguments&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;UnsupportedArguments = ProcessUnsupportedArgumentsSequenceNode(value); return {}; } },
+</a><a href="#h0-12-6" id="h0-12-6" class="i">+                    { &quot;DisplayInstallWarnings&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;DisplayInstallWarnings = value.as&lt;bool&gt;(); return {}; } },
+</a>                 };
+ 
+                 std::move(fields_v1_2.begin(), fields_v1_2.end(), std::inserter(result, result.end()));
+<a href="#h0-13" id="h0-13" class="h">@@ -312,9 +349,9 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_4 =
+                 {
+<a href="#h0-13-3" id="h0-13-3" class="d">-                    { &quot;NestedInstallerType&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;NestedInstallerType = ConvertToInstallerTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-13-4" id="h0-13-4" class="d">-                    { &quot;NestedInstallerFiles&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessNestedInstallerFilesNode(value); } },
+</a><a href="#h0-13-5" id="h0-13-5" class="d">-                    { &quot;InstallationMetadata&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installationMetadata = &amp;(m_p_installer-&gt;InstallationMetadata); return ValidateAndProcessFields(value, InstallationMetadataFieldInfos); } },
+</a><a href="#h0-13-6" id="h0-13-6" class="i">+                    { &quot;NestedInstallerType&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;NestedInstallerType = ConvertToInstallerTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-13-7" id="h0-13-7" class="i">+                    { &quot;NestedInstallerFiles&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessNestedInstallerFilesNode(value, GetManifestInstallerPtr(v)); } },
+</a><a href="#h0-13-8" id="h0-13-8" class="i">+                    { &quot;InstallationMetadata&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ValidateAndProcessFields(value, InstallationMetadataFieldInfos, VariantManifestPtr(&amp;(GetManifestInstallerPtr(v)-&gt;InstallationMetadata))); }},
+</a>                 };
+ 
+                 std::move(fields_v1_4.begin(), fields_v1_4.end(), std::inserter(result, result.end()));
+<a href="#h0-14" id="h0-14" class="h">@@ -324,7 +361,7 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_6 =
+                 {
+<a href="#h0-14-3" id="h0-14-3" class="d">-                    { &quot;DownloadCommandProhibited&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;DownloadCommandProhibited = value.as&lt;bool&gt;(); return {}; }, true },
+</a><a href="#h0-14-4" id="h0-14-4" class="i">+                    { &quot;DownloadCommandProhibited&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;DownloadCommandProhibited = value.as&lt;bool&gt;(); return {}; }, true },
+</a>                 };
+ 
+                 std::move(fields_v1_6.begin(), fields_v1_6.end(), std::inserter(result, result.end()));
+<a href="#h0-15" id="h0-15" class="h">@@ -334,7 +371,7 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_7 =
+                 {
+<a href="#h0-15-3" id="h0-15-3" class="d">-                    { &quot;RepairBehavior&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installer-&gt;RepairBehavior = ConvertToRepairBehaviorEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-15-4" id="h0-15-4" class="i">+                    { &quot;RepairBehavior&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestInstallerPtr(v)-&gt;RepairBehavior = ConvertToRepairBehaviorEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a>                 };
+ 
+                 std::move(fields_v1_7.begin(), fields_v1_7.end(), std::inserter(result, result.end()));
+<a href="#h0-16" id="h0-16" class="h">@@ -349,28 +386,28 @@ namespace AppInstaller::Manifest
+</a>         // Common fields across versions
+         std::vector&lt;FieldProcessInfo&gt; result =
+         {
+<a href="#h0-16-3" id="h0-16-3" class="d">-            { &quot;Custom&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Custom] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-4" id="h0-16-4" class="d">-            { &quot;Silent&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Silent] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-5" id="h0-16-5" class="d">-            { &quot;SilentWithProgress&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::SilentWithProgress] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-6" id="h0-16-6" class="d">-            { &quot;Interactive&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Interactive] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-7" id="h0-16-7" class="d">-            { &quot;Log&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Log] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-8" id="h0-16-8" class="d">-            { &quot;InstallLocation&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::InstallLocation] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-9" id="h0-16-9" class="i">+            { &quot;Custom&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Custom] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-10" id="h0-16-10" class="i">+            { &quot;Silent&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Silent] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-11" id="h0-16-11" class="i">+            { &quot;SilentWithProgress&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::SilentWithProgress] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-12" id="h0-16-12" class="i">+            { &quot;Interactive&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Interactive] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-13" id="h0-16-13" class="i">+            { &quot;Log&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Log] = value.as&lt;std::string&gt;(); return{}; } },
+</a><a href="#h0-16-14" id="h0-16-14" class="i">+            { &quot;InstallLocation&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::InstallLocation] = value.as&lt;std::string&gt;(); return{}; } },
+</a>         };
+ 
+         // Additional version specific fields
+         if (manifestVersion.Major() == 0)
+         {
+             // Language only exists in preview manifests. Though we don&#39;t use it in our code yet, keep it here to be consistent with schema.
+<a href="#h0-16-21" id="h0-16-21" class="d">-            result.emplace_back(&quot;Language&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Language] = value.as&lt;std::string&gt;(); return{}; });
+</a><a href="#h0-16-22" id="h0-16-22" class="d">-            result.emplace_back(&quot;Update&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Update] = value.as&lt;std::string&gt;(); return{}; });
+</a><a href="#h0-16-23" id="h0-16-23" class="i">+            result.emplace_back(&quot;Language&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Language] = value.as&lt;std::string&gt;(); return{}; });
+</a><a href="#h0-16-24" id="h0-16-24" class="i">+            result.emplace_back(&quot;Update&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Update] = value.as&lt;std::string&gt;(); return{}; });
+</a>         }
+         else if (manifestVersion.Major() == 1)
+         {
+<a href="#h0-16-28" id="h0-16-28" class="d">-            result.emplace_back(&quot;Upgrade&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Update] = value.as&lt;std::string&gt;(); return{}; });
+</a><a href="#h0-16-29" id="h0-16-29" class="i">+            result.emplace_back(&quot;Upgrade&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Update] = value.as&lt;std::string&gt;(); return{}; });
+</a> 
+             if (manifestVersion &gt;= ManifestVer{ s_ManifestVersionV1_7 })
+             {
+<a href="#h0-16-33" id="h0-16-33" class="d">-                result.emplace_back(&quot;Repair&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { (*m_p_switches)[InstallerSwitchType::Repair] = value.as&lt;std::string&gt;(); return{}; });
+</a><a href="#h0-16-34" id="h0-16-34" class="i">+                result.emplace_back(&quot;Repair&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { (*variant_ptr&lt;std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;&gt;(v))[InstallerSwitchType::Repair] = value.as&lt;std::string&gt;(); return{}; });
+</a>             };
+         }
+ 
+<a href="#h0-17" id="h0-17" class="h">@@ -383,13 +420,13 @@ namespace AppInstaller::Manifest
+</a> 
+         if (manifestVersion &gt;= ManifestVer{ s_ManifestVersionV1_1 })
+         {
+<a href="#h0-17-3" id="h0-17-3" class="d">-            result.emplace_back(&quot;InstallerReturnCode&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_expectedReturnCode-&gt;InstallerReturnCode = static_cast&lt;int&gt;(value.as&lt;int&gt;()); return {}; });
+</a><a href="#h0-17-4" id="h0-17-4" class="d">-            result.emplace_back(&quot;ReturnResponse&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_expectedReturnCode-&gt;ReturnResponse = ConvertToExpectedReturnCodeEnum(value.as&lt;std::string&gt;()); return {}; });
+</a><a href="#h0-17-5" id="h0-17-5" class="i">+            result.emplace_back(&quot;InstallerReturnCode&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ExpectedReturnCode&gt;(v)-&gt;InstallerReturnCode = static_cast&lt;int&gt;(value.as&lt;int&gt;()); return {}; });
+</a><a href="#h0-17-6" id="h0-17-6" class="i">+            result.emplace_back(&quot;ReturnResponse&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ExpectedReturnCode&gt;(v)-&gt;ReturnResponse = ConvertToExpectedReturnCodeEnum(value.as&lt;std::string&gt;()); return {}; });
+</a>         }
+ 
+         if (manifestVersion &gt;= ManifestVer{ s_ManifestVersionV1_2 })
+         {
+<a href="#h0-17-11" id="h0-17-11" class="d">-            result.emplace_back(&quot;ReturnResponseUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_expectedReturnCode-&gt;ReturnResponseUrl = value.as&lt;std::string&gt;(); return {}; });
+</a><a href="#h0-17-12" id="h0-17-12" class="i">+            result.emplace_back(&quot;ReturnResponseUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ExpectedReturnCode&gt;(v)-&gt;ReturnResponseUrl = value.as&lt;std::string&gt;(); return {}; });
+</a>         }
+ 
+         return result;
+<a href="#h0-18" id="h0-18" class="h">@@ -400,31 +437,31 @@ namespace AppInstaller::Manifest
+</a>         // Common fields across versions
+         std::vector&lt;FieldProcessInfo&gt; result =
+         {
+<a href="#h0-18-3" id="h0-18-3" class="d">-            { &quot;Description&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Description&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-18-4" id="h0-18-4" class="d">-            { &quot;LicenseUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::LicenseUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-18-5" id="h0-18-5" class="i">+            { &quot;Description&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::Description&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-18-6" id="h0-18-6" class="i">+            { &quot;LicenseUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::LicenseUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a>         };
+ 
+         // Additional version specific fields
+         if (manifestVersion.Major() == 0)
+         {
+             // Root level and Localization node level
+<a href="#h0-18-13" id="h0-18-13" class="d">-            result.emplace_back(&quot;Homepage&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PackageUrl&gt;(value.as&lt;std::string&gt;()); return {}; });
+</a><a href="#h0-18-14" id="h0-18-14" class="i">+            result.emplace_back(&quot;Homepage&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::PackageUrl&gt;(value.as&lt;std::string&gt;()); return {}; });
+</a> 
+             if (!forRootFields)
+             {
+                 // Localization node only
+<a href="#h0-18-19" id="h0-18-19" class="d">-                result.emplace_back(&quot;Language&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Locale = value.as&lt;std::string&gt;(); return {}; });
+</a><a href="#h0-18-20" id="h0-18-20" class="i">+                result.emplace_back(&quot;Language&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;ManifestLocalization&gt;(v)-&gt;Locale = value.as&lt;std::string&gt;(); return {}; });
+</a>             }
+             else
+             {
+                 // Root node only
+                 std::vector&lt;FieldProcessInfo&gt; rootOnlyFields =
+                 {
+<a href="#h0-18-27" id="h0-18-27" class="d">-                    { &quot;Name&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PackageName&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-18-28" id="h0-18-28" class="d">-                    { &quot;Publisher&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Publisher&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-18-29" id="h0-18-29" class="d">-                    { &quot;Author&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Author&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-18-30" id="h0-18-30" class="d">-                    { &quot;License&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::License&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-18-31" id="h0-18-31" class="d">-                    { &quot;Tags&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Tags&gt;(SplitMultiValueField(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-18-32" id="h0-18-32" class="i">+                    { &quot;Name&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtrFromManifest(v)-&gt;Add&lt;Localization::PackageName&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-18-33" id="h0-18-33" class="i">+                    { &quot;Publisher&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtrFromManifest(v)-&gt;Add&lt;Localization::Publisher&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-18-34" id="h0-18-34" class="i">+                    { &quot;Author&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtrFromManifest(v)-&gt;Add&lt;Localization::Author&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-18-35" id="h0-18-35" class="i">+                    { &quot;License&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtrFromManifest(v)-&gt;Add&lt;Localization::License&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-18-36" id="h0-18-36" class="i">+                    { &quot;Tags&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtrFromManifest(v)-&gt;Add&lt;Localization::Tags&gt;(SplitMultiValueField(value.as&lt;std::string&gt;())); return {}; } },
+</a>                 };
+ 
+                 std::move(rootOnlyFields.begin(), rootOnlyFields.end(), std::inserter(result, result.end()));
+<a href="#h0-19" id="h0-19" class="h">@@ -438,19 +475,19 @@ namespace AppInstaller::Manifest
+</a>                 // Root level and Localization node level
+                 std::vector&lt;FieldProcessInfo&gt; v1CommonFields =
+                 {
+<a href="#h0-19-3" id="h0-19-3" class="d">-                    { &quot;PackageLocale&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Locale = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-19-4" id="h0-19-4" class="d">-                    { &quot;Publisher&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Publisher&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-5" id="h0-19-5" class="d">-                    { &quot;PublisherUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PublisherUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-6" id="h0-19-6" class="d">-                    { &quot;PublisherSupportUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PublisherSupportUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-7" id="h0-19-7" class="d">-                    { &quot;PrivacyUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PrivacyUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-8" id="h0-19-8" class="d">-                    { &quot;Author&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Author&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-9" id="h0-19-9" class="d">-                    { &quot;PackageName&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PackageName&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-19-10" id="h0-19-10" class="d">-                    { &quot;PackageUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PackageUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-11" id="h0-19-11" class="d">-                    { &quot;License&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::License&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-12" id="h0-19-12" class="d">-                    { &quot;Copyright&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Copyright&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-13" id="h0-19-13" class="d">-                    { &quot;CopyrightUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::CopyrightUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-14" id="h0-19-14" class="d">-                    { &quot;ShortDescription&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::ShortDescription&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-19-15" id="h0-19-15" class="d">-                    { &quot;Tags&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::Tags&gt;(ProcessStringSequenceNode(value)); return {}; } },
+</a><a href="#h0-19-16" id="h0-19-16" class="i">+                    { &quot;PackageLocale&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Locale = value.as&lt;std::string&gt;(); return {}; } },
+</a><a href="#h0-19-17" id="h0-19-17" class="i">+                    { &quot;Publisher&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::Publisher&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-18" id="h0-19-18" class="i">+                    { &quot;PublisherUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::PublisherUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-19" id="h0-19-19" class="i">+                    { &quot;PublisherSupportUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::PublisherSupportUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-20" id="h0-19-20" class="i">+                    { &quot;PrivacyUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::PrivacyUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-21" id="h0-19-21" class="i">+                    { &quot;Author&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::Author&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-22" id="h0-19-22" class="i">+                    { &quot;PackageName&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::PackageName&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-19-23" id="h0-19-23" class="i">+                    { &quot;PackageUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::PackageUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-24" id="h0-19-24" class="i">+                    { &quot;License&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::License&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-25" id="h0-19-25" class="i">+                    { &quot;Copyright&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::Copyright&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-26" id="h0-19-26" class="i">+                    { &quot;CopyrightUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors{ GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::CopyrightUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-19-27" id="h0-19-27" class="i">+                    { &quot;ShortDescription&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::ShortDescription&gt;(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-19-28" id="h0-19-28" class="i">+                    { &quot;Tags&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::Tags&gt;(ProcessStringSequenceNode(value)); return {}; } },
+</a>                 };
+ 
+                 std::move(v1CommonFields.begin(), v1CommonFields.end(), std::inserter(result, result.end()));
+<a href="#h0-20" id="h0-20" class="h">@@ -460,9 +497,9 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_1 =
+                 {
+<a href="#h0-20-3" id="h0-20-3" class="d">-                    { &quot;Agreements&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessAgreementsNode(value); } },
+</a><a href="#h0-20-4" id="h0-20-4" class="d">-                    { &quot;ReleaseNotes&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::ReleaseNotes&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-20-5" id="h0-20-5" class="d">-                    { &quot;ReleaseNotesUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::ReleaseNotesUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-20-6" id="h0-20-6" class="i">+                    { &quot;Agreements&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessAgreementsNode(value, GetManifestLocalizationPtr(v)); } },
+</a><a href="#h0-20-7" id="h0-20-7" class="i">+                    { &quot;ReleaseNotes&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::ReleaseNotes&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-20-8" id="h0-20-8" class="i">+                    { &quot;ReleaseNotesUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::ReleaseNotesUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a>                 };
+ 
+                 std::move(fields_v1_1.begin(), fields_v1_1.end(), std::inserter(result, result.end()));
+<a href="#h0-21" id="h0-21" class="h">@@ -472,9 +509,9 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_2 =
+                 {
+<a href="#h0-21-3" id="h0-21-3" class="d">-                    { &quot;PurchaseUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::PurchaseUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-21-4" id="h0-21-4" class="d">-                    { &quot;InstallationNotes&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_localization-&gt;Add&lt;Localization::InstallationNotes&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-21-5" id="h0-21-5" class="d">-                    { &quot;Documentations&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessDocumentationsNode(value); }},
+</a><a href="#h0-21-6" id="h0-21-6" class="i">+                    { &quot;PurchaseUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::PurchaseUrl&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-21-7" id="h0-21-7" class="i">+                    { &quot;InstallationNotes&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { GetManifestLocalizationPtr(v)-&gt;Add&lt;Localization::InstallationNotes&gt;(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-21-8" id="h0-21-8" class="i">+                    { &quot;Documentations&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessDocumentationsNode(value, GetManifestLocalizationPtr(v)); } },
+</a>                 };
+ 
+                 std::move(fields_v1_2.begin(), fields_v1_2.end(), std::inserter(result, result.end()));
+<a href="#h0-22" id="h0-22" class="h">@@ -484,7 +521,7 @@ namespace AppInstaller::Manifest
+</a>             {
+                 std::vector&lt;FieldProcessInfo&gt; fields_v1_5 =
+                 {
+<a href="#h0-22-3" id="h0-22-3" class="d">-                    { &quot;Icons&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessIconsNode(value); }, true },
+</a><a href="#h0-22-4" id="h0-22-4" class="i">+                    { &quot;Icons&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessIconsNode(value, GetManifestLocalizationPtr(v)); }, true },
+</a>                 };
+ 
+                 std::move(fields_v1_5.begin(), fields_v1_5.end(), std::inserter(result, result.end()));
+<a href="#h0-23" id="h0-23" class="h">@@ -502,25 +539,16 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-23-3" id="h0-23-3" class="d">-                { &quot;WindowsFeatures&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { ProcessDependenciesNode(DependencyType::WindowsFeature, value); return {}; } },
+</a><a href="#h0-23-4" id="h0-23-4" class="d">-                { &quot;WindowsLibraries&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { ProcessDependenciesNode(DependencyType::WindowsLibrary, value); return {}; } },
+</a><a href="#h0-23-5" id="h0-23-5" class="d">-                { &quot;PackageDependencies&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { ProcessPackageDependenciesNode(value); return {}; } },
+</a><a href="#h0-23-6" id="h0-23-6" class="d">-                { &quot;ExternalDependencies&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { ProcessDependenciesNode(DependencyType::External, value); return {}; } },
+</a><a href="#h0-23-7" id="h0-23-7" class="i">+                { &quot;WindowsFeatures&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { ProcessDependenciesNode(DependencyType::WindowsFeature, value, variant_ptr&lt;DependencyList&gt;(v)); return {}; } },
+</a><a href="#h0-23-8" id="h0-23-8" class="i">+                { &quot;WindowsLibraries&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { ProcessDependenciesNode(DependencyType::WindowsLibrary, value, variant_ptr&lt;DependencyList&gt;(v)); return {}; } },
+</a><a href="#h0-23-9" id="h0-23-9" class="i">+                { &quot;PackageDependencies&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { ProcessPackageDependenciesNode(value, variant_ptr&lt;DependencyList&gt;(v)); return {}; } },
+</a><a href="#h0-23-10" id="h0-23-10" class="i">+                { &quot;ExternalDependencies&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { ProcessDependenciesNode(DependencyType::External, value, variant_ptr&lt;DependencyList&gt;(v)); return {}; } },
+</a>             };
+         }
+ 
+         return result;
+     }
+ 
+<a href="#h0-23-17" id="h0-23-17" class="d">-    void ManifestYamlPopulator::ProcessDependenciesNode(DependencyType type, const YAML::Node&amp; node)
+</a><a href="#h0-23-18" id="h0-23-18" class="d">-    {
+</a><a href="#h0-23-19" id="h0-23-19" class="d">-        const auto&amp; ids = ProcessStringSequenceNode(node);
+</a><a href="#h0-23-20" id="h0-23-20" class="d">-        for (auto id : ids)
+</a><a href="#h0-23-21" id="h0-23-21" class="d">-        {
+</a><a href="#h0-23-22" id="h0-23-22" class="d">-            m_p_dependencyList-&gt;Add(Dependency(type, id));
+</a><a href="#h0-23-23" id="h0-23-23" class="d">-        }
+</a><a href="#h0-23-24" id="h0-23-24" class="d">-    }
+</a><a href="#h0-23-25" id="h0-23-25" class="d">-
+</a>     std::vector&lt;ManifestYamlPopulator::FieldProcessInfo&gt; ManifestYamlPopulator::GetPackageDependenciesFieldProcessInfo(const ManifestVer&amp; manifestVersion)
+     {
+         std::vector&lt;FieldProcessInfo&gt; result = {};
+<a href="#h0-24" id="h0-24" class="h">@@ -529,8 +557,8 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-24-3" id="h0-24-3" class="d">-                { &quot;PackageIdentifier&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_packageDependency-&gt;SetId(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-24-4" id="h0-24-4" class="d">-                { &quot;MinimumVersion&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_packageDependency-&gt;MinVersion = Utility::Version(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-24-5" id="h0-24-5" class="i">+                { &quot;PackageIdentifier&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Dependency&gt;(v)-&gt;SetId(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a><a href="#h0-24-6" id="h0-24-6" class="i">+                { &quot;MinimumVersion&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Dependency&gt;(v)-&gt;MinVersion = Utility::Version(Utility::Trim(value.as&lt;std::string&gt;())); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-25" id="h0-25" class="h">@@ -545,9 +573,9 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-25-3" id="h0-25-3" class="d">-                { &quot;AgreementLabel&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_agreement-&gt;Label = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-25-4" id="h0-25-4" class="d">-                { &quot;Agreement&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_agreement-&gt;AgreementText = Utility::Trim(value.as&lt;std::string&gt;()); return {}; }, true },
+</a><a href="#h0-25-5" id="h0-25-5" class="d">-                { &quot;AgreementUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_agreement-&gt;AgreementUrl = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-25-6" id="h0-25-6" class="i">+                { &quot;AgreementLabel&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Agreement&gt;(v)-&gt;Label = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-25-7" id="h0-25-7" class="i">+                { &quot;Agreement&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Agreement&gt;(v)-&gt;AgreementText = Utility::Trim(value.as&lt;std::string&gt;()); return {}; }, true },
+</a><a href="#h0-25-8" id="h0-25-8" class="i">+                { &quot;AgreementUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Agreement&gt;(v)-&gt;AgreementUrl = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-26" id="h0-26" class="h">@@ -562,8 +590,8 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-26-3" id="h0-26-3" class="d">-                { &quot;AllowedMarkets&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_markets-&gt;AllowedMarkets = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-26-4" id="h0-26-4" class="d">-                { &quot;ExcludedMarkets&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_markets-&gt;ExcludedMarkets = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-26-5" id="h0-26-5" class="i">+                { &quot;AllowedMarkets&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;MarketsInfo&gt;(v)-&gt;AllowedMarkets = ProcessStringSequenceNode(value); return {}; } },
+</a><a href="#h0-26-6" id="h0-26-6" class="i">+                { &quot;ExcludedMarkets&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;MarketsInfo&gt;(v)-&gt;ExcludedMarkets = ProcessStringSequenceNode(value); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-27" id="h0-27" class="h">@@ -578,12 +606,12 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-27-3" id="h0-27-3" class="d">-                { &quot;DisplayName&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_appsAndFeaturesEntry-&gt;DisplayName = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-4" id="h0-27-4" class="d">-                { &quot;Publisher&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_appsAndFeaturesEntry-&gt;Publisher = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-5" id="h0-27-5" class="d">-                { &quot;DisplayVersion&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_appsAndFeaturesEntry-&gt;DisplayVersion = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-6" id="h0-27-6" class="d">-                { &quot;ProductCode&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_appsAndFeaturesEntry-&gt;ProductCode = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-7" id="h0-27-7" class="d">-                { &quot;UpgradeCode&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_appsAndFeaturesEntry-&gt;UpgradeCode = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-8" id="h0-27-8" class="d">-                { &quot;InstallerType&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_appsAndFeaturesEntry-&gt;InstallerType = ConvertToInstallerTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-9" id="h0-27-9" class="i">+                { &quot;DisplayName&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;AppsAndFeaturesEntry&gt;(v)-&gt;DisplayName = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-10" id="h0-27-10" class="i">+                { &quot;Publisher&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;AppsAndFeaturesEntry&gt;(v)-&gt;Publisher = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-11" id="h0-27-11" class="i">+                { &quot;DisplayVersion&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;AppsAndFeaturesEntry&gt;(v)-&gt;DisplayVersion = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-12" id="h0-27-12" class="i">+                { &quot;ProductCode&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;AppsAndFeaturesEntry&gt;(v)-&gt;ProductCode = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-13" id="h0-27-13" class="i">+                { &quot;UpgradeCode&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;AppsAndFeaturesEntry&gt;(v)-&gt;UpgradeCode = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-27-14" id="h0-27-14" class="i">+                { &quot;InstallerType&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;AppsAndFeaturesEntry&gt;(v)-&gt;InstallerType = ConvertToInstallerTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-28" id="h0-28" class="h">@@ -598,8 +626,8 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-28-3" id="h0-28-3" class="d">-                { &quot;DocumentLabel&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_documentation-&gt;DocumentLabel = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-28-4" id="h0-28-4" class="d">-                { &quot;DocumentUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_documentation-&gt;DocumentUrl = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-28-5" id="h0-28-5" class="i">+                { &quot;DocumentLabel&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Documentation&gt;(v)-&gt;DocumentLabel = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-28-6" id="h0-28-6" class="i">+                { &quot;DocumentUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Documentation&gt;(v)-&gt;DocumentUrl = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-29" id="h0-29" class="h">@@ -614,11 +642,11 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-29-3" id="h0-29-3" class="d">-                { &quot;IconUrl&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_icon-&gt;Url = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-4" id="h0-29-4" class="d">-                { &quot;IconFileType&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_icon-&gt;FileType = ConvertToIconFileTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-5" id="h0-29-5" class="d">-                { &quot;IconResolution&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_icon-&gt;Resolution = ConvertToIconResolutionEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-6" id="h0-29-6" class="d">-                { &quot;IconTheme&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_icon-&gt;Theme = ConvertToIconThemeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-7" id="h0-29-7" class="d">-                { &quot;IconSha256&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_icon-&gt;Sha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-8" id="h0-29-8" class="i">+                { &quot;IconUrl&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Icon&gt;(v)-&gt;Url = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-9" id="h0-29-9" class="i">+                { &quot;IconFileType&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Icon&gt;(v)-&gt;FileType = ConvertToIconFileTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-10" id="h0-29-10" class="i">+                { &quot;IconResolution&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Icon&gt;(v)-&gt;Resolution = ConvertToIconResolutionEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-11" id="h0-29-11" class="i">+                { &quot;IconTheme&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Icon&gt;(v)-&gt;Theme = ConvertToIconThemeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-29-12" id="h0-29-12" class="i">+                { &quot;IconSha256&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;Icon&gt;(v)-&gt;Sha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-30" id="h0-30" class="h">@@ -633,8 +661,8 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-30-3" id="h0-30-3" class="d">-                { &quot;RelativeFilePath&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_nestedInstallerFile-&gt;RelativeFilePath = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-30-4" id="h0-30-4" class="d">-                { &quot;PortableCommandAlias&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_nestedInstallerFile-&gt;PortableCommandAlias = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-30-5" id="h0-30-5" class="i">+                { &quot;RelativeFilePath&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;NestedInstallerFile&gt;(v)-&gt;RelativeFilePath = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-30-6" id="h0-30-6" class="i">+                { &quot;PortableCommandAlias&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;NestedInstallerFile&gt;(v)-&gt;PortableCommandAlias = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-31" id="h0-31" class="h">@@ -649,8 +677,8 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-31-3" id="h0-31-3" class="d">-                { &quot;DefaultInstallLocation&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installationMetadata-&gt;DefaultInstallLocation = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-31-4" id="h0-31-4" class="d">-                { &quot;Files&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { return ProcessInstallationMetadataFilesNode(value); } },
+</a><a href="#h0-31-5" id="h0-31-5" class="i">+                { &quot;DefaultInstallLocation&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;InstallationMetadataInfo&gt;(v)-&gt;DefaultInstallLocation = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-31-6" id="h0-31-6" class="i">+                { &quot;Files&quot;, [this](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { return ProcessInstallationMetadataFilesNode(value, variant_ptr&lt;InstallationMetadataInfo&gt;(v)); } },
+</a>             };
+         }
+ 
+<a href="#h0-32" id="h0-32" class="h">@@ -665,11 +693,11 @@ namespace AppInstaller::Manifest
+</a>         {
+             result =
+             {
+<a href="#h0-32-3" id="h0-32-3" class="d">-                { &quot;RelativeFilePath&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installedFile-&gt;RelativeFilePath = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-4" id="h0-32-4" class="d">-                { &quot;FileSha256&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installedFile-&gt;FileSha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-5" id="h0-32-5" class="d">-                { &quot;FileType&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installedFile-&gt;FileType = ConvertToInstalledFileTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-6" id="h0-32-6" class="d">-                { &quot;InvocationParameter&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installedFile-&gt;InvocationParameter = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-7" id="h0-32-7" class="d">-                { &quot;DisplayName&quot;, [this](const YAML::Node&amp; value)-&gt;ValidationErrors { m_p_installedFile-&gt;DisplayName = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-8" id="h0-32-8" class="i">+                { &quot;RelativeFilePath&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;InstalledFile&gt;(v)-&gt;RelativeFilePath = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-9" id="h0-32-9" class="i">+                { &quot;FileSha256&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;InstalledFile&gt;(v)-&gt;FileSha256 = Utility::SHA256::ConvertToBytes(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-10" id="h0-32-10" class="i">+                { &quot;FileType&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;InstalledFile&gt;(v)-&gt;FileType = ConvertToInstalledFileTypeEnum(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-11" id="h0-32-11" class="i">+                { &quot;InvocationParameter&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;InstalledFile&gt;(v)-&gt;InvocationParameter = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a><a href="#h0-32-12" id="h0-32-12" class="i">+                { &quot;DisplayName&quot;, [](const YAML::Node&amp; value, const VariantManifestPtr&amp; v)-&gt;ValidationErrors { variant_ptr&lt;InstalledFile&gt;(v)-&gt;DisplayName = Utility::Trim(value.as&lt;std::string&gt;()); return {}; } },
+</a>             };
+         }
+ 
+<a href="#h0-33" id="h0-33" class="h">@@ -678,7 +706,8 @@ namespace AppInstaller::Manifest
+</a> 
+     ValidationErrors ManifestYamlPopulator::ValidateAndProcessFields(
+         const YAML::Node&amp; rootNode,
+<a href="#h0-33-3" id="h0-33-3" class="d">-        const std::vector&lt;FieldProcessInfo&gt;&amp; fieldInfos)
+</a><a href="#h0-33-4" id="h0-33-4" class="i">+        const std::vector&lt;FieldProcessInfo&gt;&amp; fieldInfos,
+</a><a href="#h0-33-5" id="h0-33-5" class="i">+        const VariantManifestPtr&amp; v)
+</a>     {
+         ValidationErrors resultErrors;
+ 
+<a href="#h0-34" id="h0-34" class="h">@@ -730,7 +759,7 @@ namespace AppInstaller::Manifest
+</a>                 {
+                     try
+                     {
+<a href="#h0-34-3" id="h0-34-3" class="d">-                        auto errors = fieldInfo.ProcessFunc(valueNode);
+</a><a href="#h0-34-4" id="h0-34-4" class="i">+                        auto errors = fieldInfo.ProcessFunc(valueNode, v);
+</a>                         std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+                     }
+                     catch (const std::exception&amp;)
+<a href="#h0-35" id="h0-35" class="h">@@ -752,23 +781,22 @@ namespace AppInstaller::Manifest
+</a>         return resultErrors;
+     }
+ 
+<a href="#h0-35-3" id="h0-35-3" class="d">-    ValidationErrors ManifestYamlPopulator::ProcessPackageDependenciesNode(const YAML::Node&amp; rootNode)
+</a><a href="#h0-35-4" id="h0-35-4" class="i">+    ValidationErrors ManifestYamlPopulator::ProcessPackageDependenciesNode(const YAML::Node&amp; rootNode, DependencyList* dependencyList)
+</a>     {
+         ValidationErrors resultErrors;
+ 
+         for (auto const&amp; entry : rootNode.Sequence())
+         {
+             Dependency packageDependency = Dependency(DependencyType::Package);
+<a href="#h0-35-11" id="h0-35-11" class="d">-            m_p_packageDependency = &amp;packageDependency;
+</a><a href="#h0-35-12" id="h0-35-12" class="d">-            auto errors = ValidateAndProcessFields(entry, PackageDependenciesFieldInfos);
+</a><a href="#h0-35-13" id="h0-35-13" class="i">+            auto errors = ValidateAndProcessFields(entry, PackageDependenciesFieldInfos, VariantManifestPtr(&amp;packageDependency));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+<a href="#h0-35-15" id="h0-35-15" class="d">-            m_p_dependencyList-&gt;Add(std::move(packageDependency));
+</a><a href="#h0-35-16" id="h0-35-16" class="i">+            dependencyList-&gt;Add(std::move(packageDependency));
+</a>         }
+ 
+         return resultErrors;
+     }
+ 
+<a href="#h0-35-22" id="h0-35-22" class="d">-    ValidationErrors ManifestYamlPopulator::ProcessAgreementsNode(const YAML::Node&amp; agreementsNode)
+</a><a href="#h0-35-23" id="h0-35-23" class="i">+    ValidationErrors ManifestYamlPopulator::ProcessAgreementsNode(const YAML::Node&amp; agreementsNode, ManifestLocalization* localization)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !agreementsNode.IsSequence());
+ 
+<a href="#h0-36" id="h0-36" class="h">@@ -778,30 +806,28 @@ namespace AppInstaller::Manifest
+</a>         for (auto const&amp; entry : agreementsNode.Sequence())
+         {
+             Agreement agreement;
+<a href="#h0-36-3" id="h0-36-3" class="d">-            m_p_agreement = &amp;agreement;
+</a><a href="#h0-36-4" id="h0-36-4" class="d">-            auto errors = ValidateAndProcessFields(entry, AgreementFieldInfos);
+</a><a href="#h0-36-5" id="h0-36-5" class="i">+            auto errors = ValidateAndProcessFields(entry, AgreementFieldInfos, VariantManifestPtr(&amp;agreement));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+             agreements.emplace_back(std::move(agreement));
+         }
+ 
+         if (!agreements.empty())
+         {
+<a href="#h0-36-12" id="h0-36-12" class="d">-            m_p_localization-&gt;Add&lt;Localization::Agreements&gt;(std::move(agreements));
+</a><a href="#h0-36-13" id="h0-36-13" class="i">+            localization-&gt;Add&lt;Localization::Agreements&gt;(std::move(agreements));
+</a>         }
+ 
+         return resultErrors;
+     }
+ 
+<a href="#h0-36-19" id="h0-36-19" class="d">-    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessMarketsNode(const YAML::Node&amp; marketsNode)
+</a><a href="#h0-36-20" id="h0-36-20" class="i">+    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessMarketsNode(const YAML::Node&amp; marketsNode, ManifestInstaller* installer)
+</a>     {
+         MarketsInfo markets;
+<a href="#h0-36-23" id="h0-36-23" class="d">-        m_p_markets = &amp;markets;
+</a><a href="#h0-36-24" id="h0-36-24" class="d">-        auto errors = ValidateAndProcessFields(marketsNode, MarketsFieldInfos);
+</a><a href="#h0-36-25" id="h0-36-25" class="d">-        m_p_installer-&gt;Markets = markets;
+</a><a href="#h0-36-26" id="h0-36-26" class="i">+        auto errors = ValidateAndProcessFields(marketsNode, MarketsFieldInfos, VariantManifestPtr(&amp;markets));
+</a><a href="#h0-36-27" id="h0-36-27" class="i">+        installer-&gt;Markets = markets;
+</a>         return errors;
+     }
+ 
+<a href="#h0-36-31" id="h0-36-31" class="d">-    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessAppsAndFeaturesEntriesNode(const YAML::Node&amp; appsAndFeaturesEntriesNode)
+</a><a href="#h0-36-32" id="h0-36-32" class="i">+    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessAppsAndFeaturesEntriesNode(const YAML::Node&amp; appsAndFeaturesEntriesNode, ManifestInstaller* installer)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !appsAndFeaturesEntriesNode.IsSequence());
+ 
+<a href="#h0-37" id="h0-37" class="h">@@ -811,18 +837,17 @@ namespace AppInstaller::Manifest
+</a>         for (auto const&amp; entry : appsAndFeaturesEntriesNode.Sequence())
+         {
+             AppsAndFeaturesEntry appsAndFeaturesEntry;
+<a href="#h0-37-3" id="h0-37-3" class="d">-            m_p_appsAndFeaturesEntry = &amp;appsAndFeaturesEntry;
+</a><a href="#h0-37-4" id="h0-37-4" class="d">-            auto errors = ValidateAndProcessFields(entry, AppsAndFeaturesEntryFieldInfos);
+</a><a href="#h0-37-5" id="h0-37-5" class="i">+            auto errors = ValidateAndProcessFields(entry, AppsAndFeaturesEntryFieldInfos, VariantManifestPtr(&amp;appsAndFeaturesEntry));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+             appsAndFeaturesEntries.emplace_back(std::move(appsAndFeaturesEntry));
+         }
+ 
+<a href="#h0-37-10" id="h0-37-10" class="d">-        m_p_installer-&gt;AppsAndFeaturesEntries = appsAndFeaturesEntries;
+</a><a href="#h0-37-11" id="h0-37-11" class="i">+        installer-&gt;AppsAndFeaturesEntries = appsAndFeaturesEntries;
+</a> 
+         return resultErrors;
+     }
+ 
+<a href="#h0-37-16" id="h0-37-16" class="d">-    ValidationErrors ManifestYamlPopulator::ProcessExpectedReturnCodesNode(const YAML::Node&amp; returnCodesNode)
+</a><a href="#h0-37-17" id="h0-37-17" class="i">+    ValidationErrors ManifestYamlPopulator::ProcessExpectedReturnCodesNode(const YAML::Node&amp; returnCodesNode, ManifestInstaller* installer)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !returnCodesNode.IsSequence());
+ 
+<a href="#h0-38" id="h0-38" class="h">@@ -832,8 +857,7 @@ namespace AppInstaller::Manifest
+</a>         for (auto const&amp; entry : returnCodesNode.Sequence())
+         {
+             ExpectedReturnCode returnCode;
+<a href="#h0-38-3" id="h0-38-3" class="d">-            m_p_expectedReturnCode = &amp;returnCode;
+</a><a href="#h0-38-4" id="h0-38-4" class="d">-            auto errors = ValidateAndProcessFields(entry, ExpectedReturnCodesFieldInfos);
+</a><a href="#h0-38-5" id="h0-38-5" class="i">+            auto errors = ValidateAndProcessFields(entry, ExpectedReturnCodesFieldInfos, VariantManifestPtr(&amp;returnCode));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+             if (!returnCodes.insert({ returnCode.InstallerReturnCode, {returnCode.ReturnResponse, returnCode.ReturnResponseUrl} }).second)
+             {
+<a href="#h0-39" id="h0-39" class="h">@@ -841,12 +865,12 @@ namespace AppInstaller::Manifest
+</a>             }
+         }
+ 
+<a href="#h0-39-3" id="h0-39-3" class="d">-        m_p_installer-&gt;ExpectedReturnCodes = returnCodes;
+</a><a href="#h0-39-4" id="h0-39-4" class="i">+        installer-&gt;ExpectedReturnCodes = returnCodes;
+</a> 
+         return resultErrors;
+     }
+ 
+<a href="#h0-39-9" id="h0-39-9" class="d">-    ValidationErrors ManifestYamlPopulator::ProcessDocumentationsNode(const YAML::Node&amp; documentationsNode)
+</a><a href="#h0-39-10" id="h0-39-10" class="i">+    ValidationErrors ManifestYamlPopulator::ProcessDocumentationsNode(const YAML::Node&amp; documentationsNode, ManifestLocalization* localization)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !documentationsNode.IsSequence());
+ 
+<a href="#h0-40" id="h0-40" class="h">@@ -856,21 +880,20 @@ namespace AppInstaller::Manifest
+</a>         for (auto const&amp; entry : documentationsNode.Sequence())
+         {
+             Documentation documentation;
+<a href="#h0-40-3" id="h0-40-3" class="d">-            m_p_documentation = &amp;documentation;
+</a><a href="#h0-40-4" id="h0-40-4" class="d">-            auto errors = ValidateAndProcessFields(entry, DocumentationFieldInfos);
+</a><a href="#h0-40-5" id="h0-40-5" class="i">+            auto errors = ValidateAndProcessFields(entry, DocumentationFieldInfos, VariantManifestPtr(&amp;documentation));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+             documentations.emplace_back(std::move(documentation));
+         }
+ 
+         if (!documentations.empty())
+         {
+<a href="#h0-40-12" id="h0-40-12" class="d">-            m_p_localization-&gt;Add&lt;Localization::Documentations&gt;(std::move(documentations));
+</a><a href="#h0-40-13" id="h0-40-13" class="i">+            localization-&gt;Add&lt;Localization::Documentations&gt;(std::move(documentations));
+</a>         }
+         
+         return resultErrors;
+     }
+ 
+<a href="#h0-40-19" id="h0-40-19" class="d">-    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessIconsNode(const YAML::Node&amp; iconsNode)
+</a><a href="#h0-40-20" id="h0-40-20" class="i">+    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessIconsNode(const YAML::Node&amp; iconsNode, ManifestLocalization* localization)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !iconsNode.IsSequence());
+ 
+<a href="#h0-41" id="h0-41" class="h">@@ -880,21 +903,20 @@ namespace AppInstaller::Manifest
+</a>         for (auto const&amp; entry : iconsNode.Sequence())
+         {
+             Icon icon;
+<a href="#h0-41-3" id="h0-41-3" class="d">-            m_p_icon = &amp;icon;
+</a><a href="#h0-41-4" id="h0-41-4" class="d">-            auto errors = ValidateAndProcessFields(entry, IconFieldInfos);
+</a><a href="#h0-41-5" id="h0-41-5" class="i">+            auto errors = ValidateAndProcessFields(entry, IconFieldInfos, VariantManifestPtr(&amp;icon));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+             icons.emplace_back(std::move(icon));
+         }
+ 
+         if (!icons.empty())
+         {
+<a href="#h0-41-12" id="h0-41-12" class="d">-            m_p_localization-&gt;Add&lt;Localization::Icons&gt;(std::move(icons));
+</a><a href="#h0-41-13" id="h0-41-13" class="i">+            localization-&gt;Add&lt;Localization::Icons&gt;(std::move(icons));
+</a>         }
+ 
+         return resultErrors;
+     }
+ 
+<a href="#h0-41-19" id="h0-41-19" class="d">-    ValidationErrors ManifestYamlPopulator::ProcessNestedInstallerFilesNode(const YAML::Node&amp; nestedInstallerFilesNode)
+</a><a href="#h0-41-20" id="h0-41-20" class="i">+    ValidationErrors ManifestYamlPopulator::ProcessNestedInstallerFilesNode(const YAML::Node&amp; nestedInstallerFilesNode, ManifestInstaller* installer)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !nestedInstallerFilesNode.IsSequence());
+ 
+<a href="#h0-42" id="h0-42" class="h">@@ -904,21 +926,20 @@ namespace AppInstaller::Manifest
+</a>         for (auto const&amp; entry : nestedInstallerFilesNode.Sequence())
+         {
+             NestedInstallerFile nestedInstallerFile;
+<a href="#h0-42-3" id="h0-42-3" class="d">-            m_p_nestedInstallerFile = &amp;nestedInstallerFile;
+</a><a href="#h0-42-4" id="h0-42-4" class="d">-            auto errors = ValidateAndProcessFields(entry, NestedInstallerFileFieldInfos);
+</a><a href="#h0-42-5" id="h0-42-5" class="i">+            auto errors = ValidateAndProcessFields(entry, NestedInstallerFileFieldInfos, VariantManifestPtr(&amp;nestedInstallerFile));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+             nestedInstallerFiles.emplace_back(std::move(nestedInstallerFile));
+         }
+ 
+         if (!nestedInstallerFiles.empty())
+         {
+<a href="#h0-42-12" id="h0-42-12" class="d">-            m_p_installer-&gt;NestedInstallerFiles = nestedInstallerFiles;
+</a><a href="#h0-42-13" id="h0-42-13" class="i">+            installer-&gt;NestedInstallerFiles = nestedInstallerFiles;
+</a>         }
+ 
+         return resultErrors;
+     }
+ 
+<a href="#h0-42-19" id="h0-42-19" class="d">-    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessInstallationMetadataFilesNode(const YAML::Node&amp; installedFilesNode)
+</a><a href="#h0-42-20" id="h0-42-20" class="i">+    std::vector&lt;ValidationError&gt; ManifestYamlPopulator::ProcessInstallationMetadataFilesNode(const YAML::Node&amp; installedFilesNode, InstallationMetadataInfo* installationMetadata)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, !installedFilesNode.IsSequence());
+ 
+<a href="#h0-43" id="h0-43" class="h">@@ -928,15 +949,14 @@ namespace AppInstaller::Manifest
+</a>         for (auto const&amp; entry : installedFilesNode.Sequence())
+         {
+             InstalledFile installedFile;
+<a href="#h0-43-3" id="h0-43-3" class="d">-            m_p_installedFile = &amp;installedFile;
+</a><a href="#h0-43-4" id="h0-43-4" class="d">-            auto errors = ValidateAndProcessFields(entry, InstallationMetadataFilesFieldInfos);
+</a><a href="#h0-43-5" id="h0-43-5" class="i">+            auto errors = ValidateAndProcessFields(entry, InstallationMetadataFilesFieldInfos, VariantManifestPtr(&amp;installedFile));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+             installedFiles.emplace_back(std::move(installedFile));
+         }
+ 
+         if (!installedFiles.empty())
+         {
+<a href="#h0-43-12" id="h0-43-12" class="d">-            m_p_installationMetadata-&gt;Files = installedFiles;
+</a><a href="#h0-43-13" id="h0-43-13" class="i">+            installationMetadata-&gt;Files = installedFiles;
+</a>         }
+ 
+         return resultErrors;
+<a href="#h0-44" id="h0-44" class="h">@@ -971,11 +991,7 @@ namespace AppInstaller::Manifest
+</a>         InstallationMetadataFieldInfos = GetInstallationMetadataFieldProcessInfo(manifestVersion);
+         InstallationMetadataFilesFieldInfos = GetInstallationMetadataFilesFieldProcessInfo(manifestVersion);
+ 
+<a href="#h0-44-3" id="h0-44-3" class="d">-        // Populate root
+</a><a href="#h0-44-4" id="h0-44-4" class="d">-        m_p_manifest = &amp;manifest;
+</a><a href="#h0-44-5" id="h0-44-5" class="d">-        m_p_installer = &amp;(manifest.DefaultInstallerInfo);
+</a><a href="#h0-44-6" id="h0-44-6" class="d">-        m_p_localization = &amp;(manifest.DefaultLocalization);
+</a><a href="#h0-44-7" id="h0-44-7" class="d">-        resultErrors = ValidateAndProcessFields(rootNode, RootFieldInfos);
+</a><a href="#h0-44-8" id="h0-44-8" class="i">+        resultErrors = ValidateAndProcessFields(rootNode, RootFieldInfos, VariantManifestPtr(&amp;manifest));
+</a> 
+         if (!m_p_installersNode)
+         {
+<a href="#h0-45" id="h0-45" class="h">@@ -997,8 +1013,7 @@ namespace AppInstaller::Manifest
+</a>             installer.NestedInstallerType = InstallerTypeEnum::Unknown;
+             installer.NestedInstallerFiles.clear();
+ 
+<a href="#h0-45-3" id="h0-45-3" class="d">-            m_p_installer = &amp;installer;
+</a><a href="#h0-45-4" id="h0-45-4" class="d">-            auto errors = ValidateAndProcessFields(entry, InstallerFieldInfos);
+</a><a href="#h0-45-5" id="h0-45-5" class="i">+            auto errors = ValidateAndProcessFields(entry, InstallerFieldInfos, VariantManifestPtr(&amp;installer));
+</a>             std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+ 
+             // Copy in system reference strings from the root if not set in the installer and appropriate
+<a href="#h0-46" id="h0-46" class="h">@@ -1066,8 +1081,7 @@ namespace AppInstaller::Manifest
+</a>             for (auto const&amp; entry : m_p_localizationsNode-&gt;Sequence())
+             {
+                 ManifestLocalization localization;
+<a href="#h0-46-3" id="h0-46-3" class="d">-                m_p_localization = &amp;localization;
+</a><a href="#h0-46-4" id="h0-46-4" class="d">-                auto errors = ValidateAndProcessFields(entry, LocalizationFieldInfos);
+</a><a href="#h0-46-5" id="h0-46-5" class="i">+                auto errors = ValidateAndProcessFields(entry, LocalizationFieldInfos, VariantManifestPtr(&amp;localization));
+</a>                 std::move(errors.begin(), errors.end(), std::inserter(resultErrors, resultErrors.end()));
+                 manifest.Localizations.emplace_back(std::move(std::move(localization)));
+             }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Public/winget/ManifestYamlPopulator.h.html">src/AppInstallerCommonCore/Public/winget/ManifestYamlPopulator.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/ManifestYamlPopulator.h.html">src/AppInstallerCommonCore/Public/winget/ManifestYamlPopulator.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -7,6 +7,9 @@
+</a> 
+ namespace AppInstaller::Manifest
+ {
+<a href="#h1-0-3" id="h1-0-3" class="i">+    // Add here new manifest pointer types.
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    using VariantManifestPtr = std::variant&lt;Agreement*, AppsAndFeaturesEntry*, Dependency*, DependencyList*, Documentation*, ExpectedReturnCode*, Icon*, InstallationMetadataInfo*, InstalledFile*, Manifest*, ManifestInstaller*, ManifestLocalization*, MarketsInfo*, NestedInstallerFile*, std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;*&gt;;
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+
+</a>     struct ManifestYamlPopulator
+     {
+         static std::vector&lt;ValidationError&gt; PopulateManifest(
+<a href="#h1-1" id="h1-1" class="h">@@ -23,11 +26,11 @@ namespace AppInstaller::Manifest
+</a>         // Struct mapping a manifest field to its population logic
+         struct FieldProcessInfo
+         {
+<a href="#h1-1-3" id="h1-1-3" class="d">-            FieldProcessInfo(std::string name, std::function&lt;std::vector&lt;ValidationError&gt;(const YAML::Node&amp;)&gt; func, bool requireVerifiedPublisher = false) :
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+            FieldProcessInfo(std::string name, std::function&lt;std::vector&lt;ValidationError&gt;(const YAML::Node&amp;, const VariantManifestPtr&amp; v)&gt; func, bool requireVerifiedPublisher = false) :
+</a>                 Name(std::move(name)), ProcessFunc(func), RequireVerifiedPublisher(requireVerifiedPublisher) {}
+ 
+             std::string Name;
+<a href="#h1-1-8" id="h1-1-8" class="d">-            std::function&lt;std::vector&lt;ValidationError&gt;(const YAML::Node&amp;)&gt; ProcessFunc;
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+            std::function&lt;std::vector&lt;ValidationError&gt;(const YAML::Node&amp;, const VariantManifestPtr&amp; v)&gt; ProcessFunc;
+</a>             bool RequireVerifiedPublisher = false;
+         };
+ 
+<a href="#h1-2" id="h1-2" class="h">@@ -47,22 +50,6 @@ namespace AppInstaller::Manifest
+</a>         std::vector&lt;FieldProcessInfo&gt; InstallationMetadataFieldInfos;
+         std::vector&lt;FieldProcessInfo&gt; InstallationMetadataFilesFieldInfos;
+ 
+<a href="#h1-2-3" id="h1-2-3" class="d">-        // These pointers are referenced in the processing functions in manifest field process info table.
+</a><a href="#h1-2-4" id="h1-2-4" class="d">-        AppInstaller::Manifest::Manifest* m_p_manifest = nullptr;
+</a><a href="#h1-2-5" id="h1-2-5" class="d">-        AppInstaller::Manifest::ManifestInstaller* m_p_installer = nullptr;
+</a><a href="#h1-2-6" id="h1-2-6" class="d">-        std::map&lt;InstallerSwitchType, Utility::NormalizedString&gt;* m_p_switches = nullptr;
+</a><a href="#h1-2-7" id="h1-2-7" class="d">-        AppInstaller::Manifest::ExpectedReturnCode* m_p_expectedReturnCode = nullptr;
+</a><a href="#h1-2-8" id="h1-2-8" class="d">-        AppInstaller::Manifest::DependencyList* m_p_dependencyList = nullptr;
+</a><a href="#h1-2-9" id="h1-2-9" class="d">-        AppInstaller::Manifest::Dependency* m_p_packageDependency = nullptr;
+</a><a href="#h1-2-10" id="h1-2-10" class="d">-        AppInstaller::Manifest::ManifestLocalization* m_p_localization = nullptr;
+</a><a href="#h1-2-11" id="h1-2-11" class="d">-        AppInstaller::Manifest::Agreement* m_p_agreement = nullptr;
+</a><a href="#h1-2-12" id="h1-2-12" class="d">-        AppInstaller::Manifest::MarketsInfo* m_p_markets = nullptr;
+</a><a href="#h1-2-13" id="h1-2-13" class="d">-        AppInstaller::Manifest::AppsAndFeaturesEntry* m_p_appsAndFeaturesEntry = nullptr;
+</a><a href="#h1-2-14" id="h1-2-14" class="d">-        AppInstaller::Manifest::Documentation* m_p_documentation = nullptr;
+</a><a href="#h1-2-15" id="h1-2-15" class="d">-        AppInstaller::Manifest::Icon* m_p_icon = nullptr;
+</a><a href="#h1-2-16" id="h1-2-16" class="d">-        AppInstaller::Manifest::NestedInstallerFile* m_p_nestedInstallerFile = nullptr;
+</a><a href="#h1-2-17" id="h1-2-17" class="d">-        AppInstaller::Manifest::InstallationMetadataInfo* m_p_installationMetadata = nullptr;
+</a><a href="#h1-2-18" id="h1-2-18" class="d">-        AppInstaller::Manifest::InstalledFile* m_p_installedFile = nullptr;
+</a> 
+         // Cache of Installers node and Localization node
+         YAML::Node const* m_p_installersNode = nullptr;
+<a href="#h1-3" id="h1-3" class="h">@@ -90,18 +77,18 @@ namespace AppInstaller::Manifest
+</a>         // pair ourselves. This also helps with generating aggregated error rather than throwing on first failure.
+         std::vector&lt;ValidationError&gt; ValidateAndProcessFields(
+             const YAML::Node&amp; rootNode,
+<a href="#h1-3-3" id="h1-3-3" class="d">-            const std::vector&lt;FieldProcessInfo&gt;&amp; fieldInfos);
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+            const std::vector&lt;FieldProcessInfo&gt;&amp; fieldInfos,
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+            const VariantManifestPtr&amp; v);
+</a> 
+<a href="#h1-3-7" id="h1-3-7" class="d">-        void ProcessDependenciesNode(DependencyType type, const YAML::Node&amp; rootNode);
+</a><a href="#h1-3-8" id="h1-3-8" class="d">-        std::vector&lt;ValidationError&gt; ProcessPackageDependenciesNode(const YAML::Node&amp; rootNode);
+</a><a href="#h1-3-9" id="h1-3-9" class="d">-        std::vector&lt;ValidationError&gt; ProcessAgreementsNode(const YAML::Node&amp; agreementsNode);
+</a><a href="#h1-3-10" id="h1-3-10" class="d">-        std::vector&lt;ValidationError&gt; ProcessMarketsNode(const YAML::Node&amp; marketsNode);
+</a><a href="#h1-3-11" id="h1-3-11" class="d">-        std::vector&lt;ValidationError&gt; ProcessAppsAndFeaturesEntriesNode(const YAML::Node&amp; appsAndFeaturesEntriesNode);
+</a><a href="#h1-3-12" id="h1-3-12" class="d">-        std::vector&lt;ValidationError&gt; ProcessExpectedReturnCodesNode(const YAML::Node&amp; returnCodesNode);
+</a><a href="#h1-3-13" id="h1-3-13" class="d">-        std::vector&lt;ValidationError&gt; ProcessDocumentationsNode(const YAML::Node&amp; documentationsNode);
+</a><a href="#h1-3-14" id="h1-3-14" class="d">-        std::vector&lt;ValidationError&gt; ProcessIconsNode(const YAML::Node&amp; iconsNode);
+</a><a href="#h1-3-15" id="h1-3-15" class="d">-        std::vector&lt;ValidationError&gt; ProcessNestedInstallerFilesNode(const YAML::Node&amp; nestedInstallerFilesNode);
+</a><a href="#h1-3-16" id="h1-3-16" class="d">-        std::vector&lt;ValidationError&gt; ProcessInstallationMetadataFilesNode(const YAML::Node&amp; installedFilesNode);
+</a><a href="#h1-3-17" id="h1-3-17" class="i">+        std::vector&lt;ValidationError&gt; ProcessPackageDependenciesNode(const YAML::Node&amp; rootNode, DependencyList* dependencyList);
+</a><a href="#h1-3-18" id="h1-3-18" class="i">+        std::vector&lt;ValidationError&gt; ProcessAgreementsNode(const YAML::Node&amp; agreementsNode, ManifestLocalization* localization);
+</a><a href="#h1-3-19" id="h1-3-19" class="i">+        std::vector&lt;ValidationError&gt; ProcessMarketsNode(const YAML::Node&amp; marketsNode, AppInstaller::Manifest::ManifestInstaller* installer);
+</a><a href="#h1-3-20" id="h1-3-20" class="i">+        std::vector&lt;ValidationError&gt; ProcessAppsAndFeaturesEntriesNode(const YAML::Node&amp; appsAndFeaturesEntriesNode, AppInstaller::Manifest::ManifestInstaller* installer);
+</a><a href="#h1-3-21" id="h1-3-21" class="i">+        std::vector&lt;ValidationError&gt; ProcessExpectedReturnCodesNode(const YAML::Node&amp; returnCodesNode, AppInstaller::Manifest::ManifestInstaller* installer);
+</a><a href="#h1-3-22" id="h1-3-22" class="i">+        std::vector&lt;ValidationError&gt; ProcessDocumentationsNode(const YAML::Node&amp; documentationsNode, ManifestLocalization* localization);
+</a><a href="#h1-3-23" id="h1-3-23" class="i">+        std::vector&lt;ValidationError&gt; ProcessIconsNode(const YAML::Node&amp; iconsNode, ManifestLocalization* localization);
+</a><a href="#h1-3-24" id="h1-3-24" class="i">+        std::vector&lt;ValidationError&gt; ProcessNestedInstallerFilesNode(const YAML::Node&amp; nestedInstallerFilesNode, AppInstaller::Manifest::ManifestInstaller* installer);
+</a><a href="#h1-3-25" id="h1-3-25" class="i">+        std::vector&lt;ValidationError&gt; ProcessInstallationMetadataFilesNode(const YAML::Node&amp; installedFilesNode, InstallationMetadataInfo* installationMetadata);
+</a> 
+         std::vector&lt;ValidationError&gt; PopulateManifestInternal(
+             const YAML::Node&amp; rootNode,
+<a href="#h1-4" id="h1-4" class="h">@@ -109,4 +96,4 @@ namespace AppInstaller::Manifest
+</a>             const ManifestVer&amp; manifestVersion,
+             ManifestValidateOption validateOption);
+     };
+<a href="#h1-4-3" id="h1-4-3" class="d">-}</a><a href="#h1-4-4" id="h1-4-4" class="d">-
+\ No newline at end of file
+</a><a href="#h1-4-5" id="h1-4-5" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/pch.h.html">src/AppInstallerCommonCore/pch.h</a> b/<a href="../file/src/AppInstallerCommonCore/pch.h.html">src/AppInstallerCommonCore/pch.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -59,6 +59,7 @@
+</a> #include &lt;type_traits&gt;
+ #include &lt;unordered_set&gt;
+ #include &lt;vector&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+#include &lt;variant&gt;
+</a> 
+ #pragma warning( push )
+ #pragma warning ( disable : 6001 6285 6287 6340 6387 6388 26451 26495 28196 )
+</pre>
+</div>
+</body>
+</html>

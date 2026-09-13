@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Use more recent version for libyaml (#5455) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/cefeec71e5b41ed06e7be9dd0da39e8a1e5c04d9.html">cefeec71e5b41ed06e7be9dd0da39e8a1e5c04d9</a>
+<b>parent</b> <a href="../commit/5896420ae7c79503b2f00ba72001e1be8d215bbe.html">5896420ae7c79503b2f00ba72001e1be8d215bbe</a>
+<b>Author:</b> Flor Chacón &lt;<a href="mailto:14323496+florelis@users.noreply.github.com">14323496+florelis@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue, 13 May 2025 10:45:27 -0700
+
+Use more recent version for libyaml (#5455)
+
+We have a Component Governance alert for libyaml. There is no release of
+libyaml with this issue fixed, so the guidance was to apply the patch
+manually, and that&#39;s what I did when moving to vcpkg, but that doesn&#39;t
+play nicely with CG because it can&#39;t determine that the patch to fix the
+vulnerability was applied.
+
+Instead of manually patching, this PR uses a more recent commit of
+libyaml (without an official release), which already has the changes we
+want. It uses the same commit from the last time we did a subtree update
+in #4583
+
+---------
+
+Co-authored-by: JohnMcPMS &lt;johnmcp@microsoft.com&gt;
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">cgmanifest.json</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/VcpkgPortOverlay/CreatePortOverlay.ps1</a></td><td> | </td><td class="num">87</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/VcpkgPortOverlay/README.md</a></td><td> | </td><td class="num">17</td><td><span class="i">+++++++++</span><span class="d">--------</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h3">src/VcpkgPortOverlay/libyaml/fix-parser-nesting.patch</a></td><td> | </td><td class="num">229</td><td><span class="i"></span><span class="d">-------------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/VcpkgPortOverlay/libyaml/portfile.cmake</a></td><td> | </td><td class="num">5</td><td><span class="i">++</span><span class="d">---</span></td></tr>
+</table></pre><pre>5 files changed, 80 insertions(+), 260 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/cgmanifest.json.html">cgmanifest.json</a> b/<a href="../file/cgmanifest.json.html">cgmanifest.json</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -42,7 +42,7 @@
+</a>         &quot;type&quot;: &quot;git&quot;,
+         &quot;git&quot;: {
+           &quot;repositoryUrl&quot;: &quot;https://github.com/yaml/libyaml.git&quot;,
+<a href="#h0-0-3" id="h0-0-3" class="d">-          &quot;commitHash&quot;: &quot;2c891fc7a770e8ba2fec34fc6b545c672beb37e6&quot;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+          &quot;commitHash&quot;: &quot;840b65c40675e2d06bf40405ad3f12dec7f35923&quot;
+</a>         }
+       }
+     }
+<b>diff --git a/<a id="h1" href="../file/src/VcpkgPortOverlay/CreatePortOverlay.ps1.html">src/VcpkgPortOverlay/CreatePortOverlay.ps1</a> b/<a href="../file/src/VcpkgPortOverlay/CreatePortOverlay.ps1.html">src/VcpkgPortOverlay/CreatePortOverlay.ps1</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -99,6 +99,21 @@ function Select-DirectoryInPatch
+</a>     return $result
+ }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+&lt;#
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    When updating a portfile, we look for a section that looks like this:
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        vcpkg_from_github(
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+            OUT_SOURCE_PATH SOURCE_PATH
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+            REPO &lt;user/repo&gt;
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+            REF &lt;commith hash&gt;
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+            SHA512 &lt;code .tar.gz hash&gt;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+            HEAD_REF master
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+            PATCHES
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+                patch-1.patch
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+                patch-2.patch
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+        )
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+#&gt;
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+
+</a> # Adds a patch to a portfile.cmake
+ function Add-PatchToPortFile
+ {
+<a href="#h1-1" id="h1-1" class="h">@@ -109,22 +124,7 @@ function Add-PatchToPortFile
+</a>         [string]$PatchName
+     )
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-    &lt;#
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-        We&#39;re looking for a section that looks like this:
+</a><a href="#h1-1-5" id="h1-1-5" class="d">-
+</a><a href="#h1-1-6" id="h1-1-6" class="d">-            vcpkg_from_github(
+</a><a href="#h1-1-7" id="h1-1-7" class="d">-                OUT_SOURCE_PATH SOURCE_PATH
+</a><a href="#h1-1-8" id="h1-1-8" class="d">-                REPO &lt;user/repo&gt;
+</a><a href="#h1-1-9" id="h1-1-9" class="d">-                REF &lt;commith hash&gt;
+</a><a href="#h1-1-10" id="h1-1-10" class="d">-                SHA512 &lt;hash&gt;
+</a><a href="#h1-1-11" id="h1-1-11" class="d">-                HEAD_REF master
+</a><a href="#h1-1-12" id="h1-1-12" class="d">-                PATCHES
+</a><a href="#h1-1-13" id="h1-1-13" class="d">-                    patch-1.patch
+</a><a href="#h1-1-14" id="h1-1-14" class="d">-                    patch-2.patch
+</a><a href="#h1-1-15" id="h1-1-15" class="d">-            )
+</a><a href="#h1-1-16" id="h1-1-16" class="d">-
+</a><a href="#h1-1-17" id="h1-1-17" class="d">-        We look for the line that says &quot;PATCHES&quot; and add the new patch before the closing parenthesis
+</a><a href="#h1-1-18" id="h1-1-18" class="d">-    #&gt;
+</a><a href="#h1-1-19" id="h1-1-19" class="i">+    # Look for the line that says &quot;PATCHES&quot; and add the new patch before the closing parenthesis
+</a> 
+     $portFilePath = Join-Path $OverlayRoot $Port &quot;portfile.cmake&quot;
+     $originalPortFile = Get-Content $portFilePath
+<a href="#h1-2" id="h1-2" class="h">@@ -179,8 +179,57 @@ function Add-PatchToPort
+</a>     Add-PatchToPortFile -Port $Port -PatchName $PatchName
+ }
+ 
+<a href="#h1-2-3" id="h1-2-3" class="i">+# Sets the value of an existing function parameter.
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+# For example, REF in vcpkg_from_github
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+function Set-ParameterInPortFile
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+{
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+    param(
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+        [string]$Port,
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+        [string]$ParameterName,
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+        [string]$CurrentValuePattern,
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+        [string]$NewValue
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+    )
+</a><a href="#h1-2-17" id="h1-2-17" class="i">+
+</a><a href="#h1-2-18" id="h1-2-18" class="i">+    $portFilePath = Join-Path $OverlayRoot $Port &#39;portfile.cmake&#39;
+</a><a href="#h1-2-19" id="h1-2-19" class="i">+    $originalPortFile = Get-Content $portFilePath
+</a><a href="#h1-2-20" id="h1-2-20" class="i">+
+</a><a href="#h1-2-21" id="h1-2-21" class="i">+    # Explanation for the regex:
+</a><a href="#h1-2-22" id="h1-2-22" class="i">+    # &#39;(?&lt;=)&#39; - lookbehind without matching
+</a><a href="#h1-2-23" id="h1-2-23" class="i">+    # &#39;^ +&#39;   - the parameter is only preceeded by spaces (and followed by a single space)
+</a><a href="#h1-2-24" id="h1-2-24" class="i">+    # &#39;(?=)&#39;  - lookahead without matching
+</a><a href="#h1-2-25" id="h1-2-25" class="i">+    # &#39; |$&#39;   - the parameter may be the end of the line, or be followed by something else after a space (e.g. a comment)
+</a><a href="#h1-2-26" id="h1-2-26" class="i">+    $regex = &quot;(?&lt;=^ +$ParameterName )$CurrentValuePattern(?= |$)&quot;
+</a><a href="#h1-2-27" id="h1-2-27" class="i">+
+</a><a href="#h1-2-28" id="h1-2-28" class="i">+    $modifiedPortFile = $originalPortFile -replace $regex, $NewValue
+</a><a href="#h1-2-29" id="h1-2-29" class="i">+    $modifiedPortFile | Out-File $portFilePath
+</a><a href="#h1-2-30" id="h1-2-30" class="i">+}
+</a><a href="#h1-2-31" id="h1-2-31" class="i">+
+</a><a href="#h1-2-32" id="h1-2-32" class="i">+# Updates the source commit used for a port.
+</a><a href="#h1-2-33" id="h1-2-33" class="i">+# Takes the commit hash, and the hash of the archive with the code that vcpkg will download.
+</a><a href="#h1-2-34" id="h1-2-34" class="i">+function Update-PortSource
+</a><a href="#h1-2-35" id="h1-2-35" class="i">+{
+</a><a href="#h1-2-36" id="h1-2-36" class="i">+    param(
+</a><a href="#h1-2-37" id="h1-2-37" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h1-2-38" id="h1-2-38" class="i">+        [string]$Port,
+</a><a href="#h1-2-39" id="h1-2-39" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h1-2-40" id="h1-2-40" class="i">+        [string]$Commit,
+</a><a href="#h1-2-41" id="h1-2-41" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h1-2-42" id="h1-2-42" class="i">+        [string]$SourceHash
+</a><a href="#h1-2-43" id="h1-2-43" class="i">+    )
+</a><a href="#h1-2-44" id="h1-2-44" class="i">+
+</a><a href="#h1-2-45" id="h1-2-45" class="i">+    $portDir = Join-Path $OverlayRoot $Port
+</a><a href="#h1-2-46" id="h1-2-46" class="i">+
+</a><a href="#h1-2-47" id="h1-2-47" class="i">+    Set-ParameterInPortFile $Port -ParameterName &#39;REF&#39; -CurrentValuePattern &#39;[0-9a-f]{40}&#39; -NewValue $Commit
+</a><a href="#h1-2-48" id="h1-2-48" class="i">+    Set-ParameterInPortFile $Port -ParameterName &#39;SHA512&#39; -CurrentValuePattern &#39;[0-9a-f]{128}&#39; -NewValue $SourceHash
+</a><a href="#h1-2-49" id="h1-2-49" class="i">+}
+</a><a href="#h1-2-50" id="h1-2-50" class="i">+
+</a><a href="#h1-2-51" id="h1-2-51" class="i">+
+</a> New-PortOverlay cpprestsdk
+<a href="#h1-2-53" id="h1-2-53" class="d">-Add-PatchToPort cpprestsdk -PatchRepo &quot;microsoft/winget-cli&quot; -PatchCommit &quot;888b4ed8f4f7d25cb05a47210e083fe29348163b&quot; -PatchName &quot;add-server-certificate-validation.patch&quot; -PatchRoot &quot;src/cpprestsdk/cpprestsdk&quot;
+</a><a href="#h1-2-54" id="h1-2-54" class="i">+Add-PatchToPort cpprestsdk -PatchRepo &#39;microsoft/winget-cli&#39; -PatchCommit &#39;888b4ed8f4f7d25cb05a47210e083fe29348163b&#39; -PatchName &#39;add-server-certificate-validation.patch&#39; -PatchRoot &#39;src/cpprestsdk/cpprestsdk&#39;
+</a> 
+ New-PortOverlay libyaml
+<a href="#h1-2-57" id="h1-2-57" class="d">-Add-PatchToPort libyaml -PatchRepo &quot;yaml/libyaml&quot; -PatchCommit &quot;51843fe48257c6b7b6e70cdec1db634f64a40818&quot; -PatchName &quot;fix-parser-nesting.patch&quot;</a><a href="#h1-2-58" id="h1-2-58" class="d">-
+\ No newline at end of file
+</a><a href="#h1-2-59" id="h1-2-59" class="i">+Update-PortSource libyaml -Commit &#39;840b65c40675e2d06bf40405ad3f12dec7f35923&#39; -SourceHash &#39;de85560312d53a007a2ddf1fe403676bbd34620480b1ba446b8c16bb366524ba7a6ed08f6316dd783bf980d9e26603a9efc82f134eb0235917b3be1d3eb4b302&#39;</a><a href="#h1-2-60" id="h1-2-60" class="i">+
+\ No newline at end of file
+</a><b>diff --git a/<a id="h2" href="../file/src/VcpkgPortOverlay/README.md.html">src/VcpkgPortOverlay/README.md</a> b/<a href="../file/src/VcpkgPortOverlay/README.md.html">src/VcpkgPortOverlay/README.md</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -1,7 +1,7 @@
+</a> # Overlay ports
+ 
+<a href="#h2-0-2" id="h2-0-2" class="d">-This directory contains an overlay for vcpkg ports, for cases where we need to apply local patches.
+</a><a href="#h2-0-3" id="h2-0-3" class="d">-In all cases, most of the recipe is taken from the [official vcpkg registry](https://github.com/Microsoft/vcpkg), and we only add a patch.
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+This directory contains an overlay for vcpkg ports, for cases where we need local modifications to a port.
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+In all cases, most of the recipe is taken from the [official vcpkg registry](https://github.com/Microsoft/vcpkg), and we only make small changes.
+</a> 
+ The whole directory can be re-created with `.\CreatePortOverlay.ps1`
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -9,12 +9,13 @@ The whole directory can be re-created with `.\CreatePortOverlay.ps1`
+</a> 
+ We add support for certificate pinning.
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-Patch file: `add-server-certificate-validation.patch`
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-Source for the change: https://github.com/microsoft/winget-cli/commit/888b4ed8f4f7d25cb05a47210e083fe29348163b
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+Changes:
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+* Add patch file: `add-server-certificate-validation.patch`
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+  Patch source: https://github.com/microsoft/winget-cli/commit/888b4ed8f4f7d25cb05a47210e083fe29348163b
+</a> 
+ ## libyaml
+ 
+<a href="#h2-1-11" id="h2-1-11" class="d">-We apply a patch for a vulnerability.
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+We use an unreleased version that fixes a vulnerability.
+</a> 
+<a href="#h2-1-14" id="h2-1-14" class="d">-Patch file: `fix-parser-nesting.patch`
+</a><a href="#h2-1-15" id="h2-1-15" class="d">-Source for the change: https://github.com/yaml/libyaml/commit/51843fe48257c6b7b6e70cdec1db634f64a40818</a><a href="#h2-1-16" id="h2-1-16" class="d">-
+\ No newline at end of file
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+Changes:
+</a><a href="#h2-1-18" id="h2-1-18" class="i">+* New source commit: https://github.com/yaml/libyaml/commit/840b65c40675e2d06bf40405ad3f12dec7f35923</a><a href="#h2-1-19" id="h2-1-19" class="i">+
+\ No newline at end of file
+</a><b>diff --git a/<a id="h3" href="../file/src/VcpkgPortOverlay/libyaml/fix-parser-nesting.patch.html">src/VcpkgPortOverlay/libyaml/fix-parser-nesting.patch</a> b/<a href="../file/src/VcpkgPortOverlay/libyaml/fix-parser-nesting.patch.html">src/VcpkgPortOverlay/libyaml/fix-parser-nesting.patch</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -1,229 +0,0 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="d">-From 51843fe48257c6b7b6e70cdec1db634f64a40818 Mon Sep 17 00:00:00 2001
+</a><a href="#h3-0-1" id="h3-0-1" class="d">-From: =?UTF-8?q?Tina=20M=C3=BCller?= &lt;cpan2@tinita.de&gt;
+</a><a href="#h3-0-2" id="h3-0-2" class="d">-Date: Tue, 2 Apr 2024 00:50:40 +0200
+</a><a href="#h3-0-3" id="h3-0-3" class="d">-Subject: [PATCH] Limit depth of nesting by default
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-
+</a><a href="#h3-0-5" id="h3-0-5" class="d">-Each nesting level increases the stack and the number of previous
+</a><a href="#h3-0-6" id="h3-0-6" class="d">-starting events that the parser has to check.
+</a><a href="#h3-0-7" id="h3-0-7" class="d">-
+</a><a href="#h3-0-8" id="h3-0-8" class="d">-The default maximum is 1000 and can be set via yaml_set_max_nest_level()
+</a><a href="#h3-0-9" id="h3-0-9" class="d">-
+</a><a href="#h3-0-10" id="h3-0-10" class="d">-I also added new options to run-parser and run-parser-test-suite:
+</a><a href="#h3-0-11" id="h3-0-11" class="d">-* --max-level: you can now try out this feature on the command line
+</a><a href="#h3-0-12" id="h3-0-12" class="d">-* --show-error: By default, run-parser doesn&#39;t show errors. The new option
+</a><a href="#h3-0-13" id="h3-0-13" class="d">-  helps with debugging
+</a><a href="#h3-0-14" id="h3-0-14" class="d">----
+</a><a href="#h3-0-15" id="h3-0-15" class="d">- include/yaml.h                | 14 ++++++++++++++
+</a><a href="#h3-0-16" id="h3-0-16" class="d">- src/parser.c                  | 36 +++++++++++++++++++++++++++++++++++
+</a><a href="#h3-0-17" id="h3-0-17" class="d">- tests/run-parser-test-suite.c |  9 ++++++++-
+</a><a href="#h3-0-18" id="h3-0-18" class="d">- tests/run-parser.c            | 31 +++++++++++++++++++++++++++---
+</a><a href="#h3-0-19" id="h3-0-19" class="d">- 4 files changed, 86 insertions(+), 4 deletions(-)
+</a><a href="#h3-0-20" id="h3-0-20" class="d">-
+</a><a href="#h3-0-21" id="h3-0-21" class="d">-diff --git a/include/yaml.h b/include/yaml.h
+</a><a href="#h3-0-22" id="h3-0-22" class="d">-index 89050e4f..e1467b0b 100644
+</a><a href="#h3-0-23" id="h3-0-23" class="d">---- a/include/yaml.h
+</a><a href="#h3-0-24" id="h3-0-24" class="d">-+++ b/include/yaml.h
+</a><a href="#h3-0-25" id="h3-0-25" class="d">-@@ -1456,6 +1456,20 @@ yaml_parser_parse(yaml_parser_t *parser, yaml_event_t *event);
+</a><a href="#h3-0-26" id="h3-0-26" class="d">- YAML_DECLARE(int)
+</a><a href="#h3-0-27" id="h3-0-27" class="d">- yaml_parser_load(yaml_parser_t *parser, yaml_document_t *document);
+</a><a href="#h3-0-28" id="h3-0-28" class="d">- 
+</a><a href="#h3-0-29" id="h3-0-29" class="d">-+/**
+</a><a href="#h3-0-30" id="h3-0-30" class="d">-+ * Set the maximum depth of nesting.
+</a><a href="#h3-0-31" id="h3-0-31" class="d">-+ *
+</a><a href="#h3-0-32" id="h3-0-32" class="d">-+ * Default: 1000
+</a><a href="#h3-0-33" id="h3-0-33" class="d">-+ *
+</a><a href="#h3-0-34" id="h3-0-34" class="d">-+ * Each nesting level increases the stack and the number of previous
+</a><a href="#h3-0-35" id="h3-0-35" class="d">-+ * starting events that the parser has to check.
+</a><a href="#h3-0-36" id="h3-0-36" class="d">-+ *
+</a><a href="#h3-0-37" id="h3-0-37" class="d">-+ * @param[in]       max         The maximum number of allowed nested events
+</a><a href="#h3-0-38" id="h3-0-38" class="d">-+ */
+</a><a href="#h3-0-39" id="h3-0-39" class="d">-+
+</a><a href="#h3-0-40" id="h3-0-40" class="d">-+YAML_DECLARE(void)
+</a><a href="#h3-0-41" id="h3-0-41" class="d">-+yaml_set_max_nest_level(int max);
+</a><a href="#h3-0-42" id="h3-0-42" class="d">-+
+</a><a href="#h3-0-43" id="h3-0-43" class="d">- /** @} */
+</a><a href="#h3-0-44" id="h3-0-44" class="d">- 
+</a><a href="#h3-0-45" id="h3-0-45" class="d">- /**
+</a><a href="#h3-0-46" id="h3-0-46" class="d">-diff --git a/src/parser.c b/src/parser.c
+</a><a href="#h3-0-47" id="h3-0-47" class="d">-index ec2f8d3e..9c266de6 100644
+</a><a href="#h3-0-48" id="h3-0-48" class="d">---- a/src/parser.c
+</a><a href="#h3-0-49" id="h3-0-49" class="d">-+++ b/src/parser.c
+</a><a href="#h3-0-50" id="h3-0-50" class="d">-@@ -64,6 +64,8 @@
+</a><a href="#h3-0-51" id="h3-0-51" class="d">-  * Public API declarations.
+</a><a href="#h3-0-52" id="h3-0-52" class="d">-  */
+</a><a href="#h3-0-53" id="h3-0-53" class="d">- 
+</a><a href="#h3-0-54" id="h3-0-54" class="d">-+int MAX_NESTING_LEVEL = 1000;
+</a><a href="#h3-0-55" id="h3-0-55" class="d">-+
+</a><a href="#h3-0-56" id="h3-0-56" class="d">- YAML_DECLARE(int)
+</a><a href="#h3-0-57" id="h3-0-57" class="d">- yaml_parser_parse(yaml_parser_t *parser, yaml_event_t *event);
+</a><a href="#h3-0-58" id="h3-0-58" class="d">- 
+</a><a href="#h3-0-59" id="h3-0-59" class="d">-@@ -80,6 +82,10 @@ yaml_parser_set_parser_error_context(yaml_parser_t *parser,
+</a><a href="#h3-0-60" id="h3-0-60" class="d">-         const char *context, yaml_mark_t context_mark,
+</a><a href="#h3-0-61" id="h3-0-61" class="d">-         const char *problem, yaml_mark_t problem_mark);
+</a><a href="#h3-0-62" id="h3-0-62" class="d">- 
+</a><a href="#h3-0-63" id="h3-0-63" class="d">-+static int
+</a><a href="#h3-0-64" id="h3-0-64" class="d">-+yaml_maximum_level_reached(yaml_parser_t *parser,
+</a><a href="#h3-0-65" id="h3-0-65" class="d">-+        yaml_mark_t context_mark, yaml_mark_t problem_mark);
+</a><a href="#h3-0-66" id="h3-0-66" class="d">-+
+</a><a href="#h3-0-67" id="h3-0-67" class="d">- /*
+</a><a href="#h3-0-68" id="h3-0-68" class="d">-  * State functions.
+</a><a href="#h3-0-69" id="h3-0-69" class="d">-  */
+</a><a href="#h3-0-70" id="h3-0-70" class="d">-@@ -162,6 +168,12 @@ static int
+</a><a href="#h3-0-71" id="h3-0-71" class="d">- yaml_parser_append_tag_directive(yaml_parser_t *parser,
+</a><a href="#h3-0-72" id="h3-0-72" class="d">-         yaml_tag_directive_t value, int allow_duplicates, yaml_mark_t mark);
+</a><a href="#h3-0-73" id="h3-0-73" class="d">- 
+</a><a href="#h3-0-74" id="h3-0-74" class="d">-+YAML_DECLARE(void)
+</a><a href="#h3-0-75" id="h3-0-75" class="d">-+yaml_set_max_nest_level(int max)
+</a><a href="#h3-0-76" id="h3-0-76" class="d">-+{
+</a><a href="#h3-0-77" id="h3-0-77" class="d">-+    MAX_NESTING_LEVEL = max;
+</a><a href="#h3-0-78" id="h3-0-78" class="d">-+}
+</a><a href="#h3-0-79" id="h3-0-79" class="d">-+
+</a><a href="#h3-0-80" id="h3-0-80" class="d">- /*
+</a><a href="#h3-0-81" id="h3-0-81" class="d">-  * Get the next event.
+</a><a href="#h3-0-82" id="h3-0-82" class="d">-  */
+</a><a href="#h3-0-83" id="h3-0-83" class="d">-@@ -217,6 +229,14 @@ yaml_parser_set_parser_error_context(yaml_parser_t *parser,
+</a><a href="#h3-0-84" id="h3-0-84" class="d">-     return 0;
+</a><a href="#h3-0-85" id="h3-0-85" class="d">- }
+</a><a href="#h3-0-86" id="h3-0-86" class="d">- 
+</a><a href="#h3-0-87" id="h3-0-87" class="d">-+static int
+</a><a href="#h3-0-88" id="h3-0-88" class="d">-+yaml_maximum_level_reached(yaml_parser_t *parser,
+</a><a href="#h3-0-89" id="h3-0-89" class="d">-+        yaml_mark_t context_mark, yaml_mark_t problem_mark)
+</a><a href="#h3-0-90" id="h3-0-90" class="d">-+{
+</a><a href="#h3-0-91" id="h3-0-91" class="d">-+    yaml_parser_set_parser_error_context(parser,
+</a><a href="#h3-0-92" id="h3-0-92" class="d">-+            &quot;while parsing&quot;, context_mark, &quot;Maximum nesting level reached, set with yaml_set_max_nest_level())&quot;, problem_mark);
+</a><a href="#h3-0-93" id="h3-0-93" class="d">-+    return 0;
+</a><a href="#h3-0-94" id="h3-0-94" class="d">-+}
+</a><a href="#h3-0-95" id="h3-0-95" class="d">- 
+</a><a href="#h3-0-96" id="h3-0-96" class="d">- /*
+</a><a href="#h3-0-97" id="h3-0-97" class="d">-  * State dispatcher.
+</a><a href="#h3-0-98" id="h3-0-98" class="d">-@@ -657,6 +677,10 @@ yaml_parser_parse_node(yaml_parser_t *parser, yaml_event_t *event,
+</a><a href="#h3-0-99" id="h3-0-99" class="d">-                 return 1;
+</a><a href="#h3-0-100" id="h3-0-100" class="d">-             }
+</a><a href="#h3-0-101" id="h3-0-101" class="d">-             else if (token-&gt;type == YAML_FLOW_SEQUENCE_START_TOKEN) {
+</a><a href="#h3-0-102" id="h3-0-102" class="d">-+                if (!STACK_LIMIT(parser, parser-&gt;indents, MAX_NESTING_LEVEL - parser-&gt;flow_level)) {
+</a><a href="#h3-0-103" id="h3-0-103" class="d">-+                    yaml_maximum_level_reached(parser, start_mark, token-&gt;start_mark);
+</a><a href="#h3-0-104" id="h3-0-104" class="d">-+                    goto error;
+</a><a href="#h3-0-105" id="h3-0-105" class="d">-+                }
+</a><a href="#h3-0-106" id="h3-0-106" class="d">-                 end_mark = token-&gt;end_mark;
+</a><a href="#h3-0-107" id="h3-0-107" class="d">-                 parser-&gt;state = YAML_PARSE_FLOW_SEQUENCE_FIRST_ENTRY_STATE;
+</a><a href="#h3-0-108" id="h3-0-108" class="d">-                 SEQUENCE_START_EVENT_INIT(*event, anchor, tag, implicit,
+</a><a href="#h3-0-109" id="h3-0-109" class="d">-@@ -664,6 +688,10 @@ yaml_parser_parse_node(yaml_parser_t *parser, yaml_event_t *event,
+</a><a href="#h3-0-110" id="h3-0-110" class="d">-                 return 1;
+</a><a href="#h3-0-111" id="h3-0-111" class="d">-             }
+</a><a href="#h3-0-112" id="h3-0-112" class="d">-             else if (token-&gt;type == YAML_FLOW_MAPPING_START_TOKEN) {
+</a><a href="#h3-0-113" id="h3-0-113" class="d">-+                if (!STACK_LIMIT(parser, parser-&gt;indents, MAX_NESTING_LEVEL - parser-&gt;flow_level)) {
+</a><a href="#h3-0-114" id="h3-0-114" class="d">-+                    yaml_maximum_level_reached(parser, start_mark, token-&gt;start_mark);
+</a><a href="#h3-0-115" id="h3-0-115" class="d">-+                    goto error;
+</a><a href="#h3-0-116" id="h3-0-116" class="d">-+                }
+</a><a href="#h3-0-117" id="h3-0-117" class="d">-                 end_mark = token-&gt;end_mark;
+</a><a href="#h3-0-118" id="h3-0-118" class="d">-                 parser-&gt;state = YAML_PARSE_FLOW_MAPPING_FIRST_KEY_STATE;
+</a><a href="#h3-0-119" id="h3-0-119" class="d">-                 MAPPING_START_EVENT_INIT(*event, anchor, tag, implicit,
+</a><a href="#h3-0-120" id="h3-0-120" class="d">-@@ -671,6 +699,10 @@ yaml_parser_parse_node(yaml_parser_t *parser, yaml_event_t *event,
+</a><a href="#h3-0-121" id="h3-0-121" class="d">-                 return 1;
+</a><a href="#h3-0-122" id="h3-0-122" class="d">-             }
+</a><a href="#h3-0-123" id="h3-0-123" class="d">-             else if (block &amp;&amp; token-&gt;type == YAML_BLOCK_SEQUENCE_START_TOKEN) {
+</a><a href="#h3-0-124" id="h3-0-124" class="d">-+                if (!STACK_LIMIT(parser, parser-&gt;indents, MAX_NESTING_LEVEL - parser-&gt;flow_level)) {
+</a><a href="#h3-0-125" id="h3-0-125" class="d">-+                    yaml_maximum_level_reached(parser, start_mark, token-&gt;start_mark);
+</a><a href="#h3-0-126" id="h3-0-126" class="d">-+                    goto error;
+</a><a href="#h3-0-127" id="h3-0-127" class="d">-+                }
+</a><a href="#h3-0-128" id="h3-0-128" class="d">-                 end_mark = token-&gt;end_mark;
+</a><a href="#h3-0-129" id="h3-0-129" class="d">-                 parser-&gt;state = YAML_PARSE_BLOCK_SEQUENCE_FIRST_ENTRY_STATE;
+</a><a href="#h3-0-130" id="h3-0-130" class="d">-                 SEQUENCE_START_EVENT_INIT(*event, anchor, tag, implicit,
+</a><a href="#h3-0-131" id="h3-0-131" class="d">-@@ -678,6 +710,10 @@ yaml_parser_parse_node(yaml_parser_t *parser, yaml_event_t *event,
+</a><a href="#h3-0-132" id="h3-0-132" class="d">-                 return 1;
+</a><a href="#h3-0-133" id="h3-0-133" class="d">-             }
+</a><a href="#h3-0-134" id="h3-0-134" class="d">-             else if (block &amp;&amp; token-&gt;type == YAML_BLOCK_MAPPING_START_TOKEN) {
+</a><a href="#h3-0-135" id="h3-0-135" class="d">-+                if (!STACK_LIMIT(parser, parser-&gt;indents, MAX_NESTING_LEVEL - parser-&gt;flow_level)) {
+</a><a href="#h3-0-136" id="h3-0-136" class="d">-+                    yaml_maximum_level_reached(parser, start_mark, token-&gt;start_mark);
+</a><a href="#h3-0-137" id="h3-0-137" class="d">-+                    goto error;
+</a><a href="#h3-0-138" id="h3-0-138" class="d">-+                }
+</a><a href="#h3-0-139" id="h3-0-139" class="d">-                 end_mark = token-&gt;end_mark;
+</a><a href="#h3-0-140" id="h3-0-140" class="d">-                 parser-&gt;state = YAML_PARSE_BLOCK_MAPPING_FIRST_KEY_STATE;
+</a><a href="#h3-0-141" id="h3-0-141" class="d">-                 MAPPING_START_EVENT_INIT(*event, anchor, tag, implicit,
+</a><a href="#h3-0-142" id="h3-0-142" class="d">-diff --git a/tests/run-parser-test-suite.c b/tests/run-parser-test-suite.c
+</a><a href="#h3-0-143" id="h3-0-143" class="d">-index 5bdd6623..5e29caff 100644
+</a><a href="#h3-0-144" id="h3-0-144" class="d">---- a/tests/run-parser-test-suite.c
+</a><a href="#h3-0-145" id="h3-0-145" class="d">-+++ b/tests/run-parser-test-suite.c
+</a><a href="#h3-0-146" id="h3-0-146" class="d">-@@ -14,9 +14,16 @@ int main(int argc, char *argv[])
+</a><a href="#h3-0-147" id="h3-0-147" class="d">-     int flow = -1; /** default no flow style collections */
+</a><a href="#h3-0-148" id="h3-0-148" class="d">-     int i = 0;
+</a><a href="#h3-0-149" id="h3-0-149" class="d">-     int foundfile = 0;
+</a><a href="#h3-0-150" id="h3-0-150" class="d">-+    int max_level;
+</a><a href="#h3-0-151" id="h3-0-151" class="d">-+    char *output;
+</a><a href="#h3-0-152" id="h3-0-152" class="d">- 
+</a><a href="#h3-0-153" id="h3-0-153" class="d">-     for (i = 1; i &lt; argc; i++) {
+</a><a href="#h3-0-154" id="h3-0-154" class="d">--        if (strncmp(argv[i], &quot;--flow&quot;, 6) == 0) {
+</a><a href="#h3-0-155" id="h3-0-155" class="d">-+        if (strncmp(argv[i], &quot;--max-level&quot;, 11) == 0) {
+</a><a href="#h3-0-156" id="h3-0-156" class="d">-+            i++;
+</a><a href="#h3-0-157" id="h3-0-157" class="d">-+            max_level = strtol(argv[i], &amp;output, 10);
+</a><a href="#h3-0-158" id="h3-0-158" class="d">-+            yaml_set_max_nest_level(max_level);
+</a><a href="#h3-0-159" id="h3-0-159" class="d">-+        }
+</a><a href="#h3-0-160" id="h3-0-160" class="d">-+        else if (strncmp(argv[i], &quot;--flow&quot;, 6) == 0) {
+</a><a href="#h3-0-161" id="h3-0-161" class="d">-             if (i+1 == argc)
+</a><a href="#h3-0-162" id="h3-0-162" class="d">-                 return usage(1);
+</a><a href="#h3-0-163" id="h3-0-163" class="d">-             i++;
+</a><a href="#h3-0-164" id="h3-0-164" class="d">-diff --git a/tests/run-parser.c b/tests/run-parser.c
+</a><a href="#h3-0-165" id="h3-0-165" class="d">-index 13031121..9e382504 100644
+</a><a href="#h3-0-166" id="h3-0-166" class="d">---- a/tests/run-parser.c
+</a><a href="#h3-0-167" id="h3-0-167" class="d">-+++ b/tests/run-parser.c
+</a><a href="#h3-0-168" id="h3-0-168" class="d">-@@ -12,13 +12,31 @@ int
+</a><a href="#h3-0-169" id="h3-0-169" class="d">- main(int argc, char *argv[])
+</a><a href="#h3-0-170" id="h3-0-170" class="d">- {
+</a><a href="#h3-0-171" id="h3-0-171" class="d">-     int number;
+</a><a href="#h3-0-172" id="h3-0-172" class="d">-+    int start = 0;
+</a><a href="#h3-0-173" id="h3-0-173" class="d">-+    int i = 0;
+</a><a href="#h3-0-174" id="h3-0-174" class="d">-+    char *filename;
+</a><a href="#h3-0-175" id="h3-0-175" class="d">-+    char *output;
+</a><a href="#h3-0-176" id="h3-0-176" class="d">-+    int max_level;
+</a><a href="#h3-0-177" id="h3-0-177" class="d">-+    int show_error = 0;
+</a><a href="#h3-0-178" id="h3-0-178" class="d">- 
+</a><a href="#h3-0-179" id="h3-0-179" class="d">-     if (argc &lt; 2) {
+</a><a href="#h3-0-180" id="h3-0-180" class="d">-         printf(&quot;Usage: %s file1.yaml ...\n&quot;, argv[0]);
+</a><a href="#h3-0-181" id="h3-0-181" class="d">-         return 0;
+</a><a href="#h3-0-182" id="h3-0-182" class="d">-     }
+</a><a href="#h3-0-183" id="h3-0-183" class="d">-+    for (i = 1; i &lt; argc; i++) {
+</a><a href="#h3-0-184" id="h3-0-184" class="d">-+        if (strncmp(argv[i], &quot;--max-level&quot;, 11) == 0) {
+</a><a href="#h3-0-185" id="h3-0-185" class="d">-+            i++;
+</a><a href="#h3-0-186" id="h3-0-186" class="d">-+            max_level = strtol(argv[i], &amp;output, 10);
+</a><a href="#h3-0-187" id="h3-0-187" class="d">-+            yaml_set_max_nest_level(max_level);
+</a><a href="#h3-0-188" id="h3-0-188" class="d">-+            start = i+1;
+</a><a href="#h3-0-189" id="h3-0-189" class="d">-+        }
+</a><a href="#h3-0-190" id="h3-0-190" class="d">-+        else if (strncmp(argv[i], &quot;--show-error&quot;, 12) == 0) {
+</a><a href="#h3-0-191" id="h3-0-191" class="d">-+            show_error = 1;
+</a><a href="#h3-0-192" id="h3-0-192" class="d">-+            start = i+1;
+</a><a href="#h3-0-193" id="h3-0-193" class="d">-+        }
+</a><a href="#h3-0-194" id="h3-0-194" class="d">-+    }
+</a><a href="#h3-0-195" id="h3-0-195" class="d">- 
+</a><a href="#h3-0-196" id="h3-0-196" class="d">--    for (number = 1; number &lt; argc; number ++)
+</a><a href="#h3-0-197" id="h3-0-197" class="d">-+    for (number = start; number &lt; argc; number ++)
+</a><a href="#h3-0-198" id="h3-0-198" class="d">-     {
+</a><a href="#h3-0-199" id="h3-0-199" class="d">-         FILE *file;
+</a><a href="#h3-0-200" id="h3-0-200" class="d">-         yaml_parser_t parser;
+</a><a href="#h3-0-201" id="h3-0-201" class="d">-@@ -27,10 +45,11 @@ main(int argc, char *argv[])
+</a><a href="#h3-0-202" id="h3-0-202" class="d">-         int count = 0;
+</a><a href="#h3-0-203" id="h3-0-203" class="d">-         int error = 0;
+</a><a href="#h3-0-204" id="h3-0-204" class="d">- 
+</a><a href="#h3-0-205" id="h3-0-205" class="d">--        printf(&quot;[%d] Parsing &#39;%s&#39;: &quot;, number, argv[number]);
+</a><a href="#h3-0-206" id="h3-0-206" class="d">-+        filename = argv[number];
+</a><a href="#h3-0-207" id="h3-0-207" class="d">-+        printf(&quot;[%d] Parsing &#39;%s&#39;: &quot;, number, filename);
+</a><a href="#h3-0-208" id="h3-0-208" class="d">-         fflush(stdout);
+</a><a href="#h3-0-209" id="h3-0-209" class="d">- 
+</a><a href="#h3-0-210" id="h3-0-210" class="d">--        file = fopen(argv[number], &quot;rb&quot;);
+</a><a href="#h3-0-211" id="h3-0-211" class="d">-+        file = fopen(filename, &quot;rb&quot;);
+</a><a href="#h3-0-212" id="h3-0-212" class="d">-         assert(file);
+</a><a href="#h3-0-213" id="h3-0-213" class="d">- 
+</a><a href="#h3-0-214" id="h3-0-214" class="d">-         assert(yaml_parser_initialize(&amp;parser));
+</a><a href="#h3-0-215" id="h3-0-215" class="d">-@@ -41,6 +60,12 @@ main(int argc, char *argv[])
+</a><a href="#h3-0-216" id="h3-0-216" class="d">-         {
+</a><a href="#h3-0-217" id="h3-0-217" class="d">-             if (!yaml_parser_parse(&amp;parser, &amp;event)) {
+</a><a href="#h3-0-218" id="h3-0-218" class="d">-                 error = 1;
+</a><a href="#h3-0-219" id="h3-0-219" class="d">-+                if (show_error) {
+</a><a href="#h3-0-220" id="h3-0-220" class="d">-+                    fprintf(stderr, &quot;Parse error: %s\nLine: %lu Column: %lu\n&quot;,
+</a><a href="#h3-0-221" id="h3-0-221" class="d">-+                        parser.problem,
+</a><a href="#h3-0-222" id="h3-0-222" class="d">-+                        (unsigned long)parser.problem_mark.line + 1,
+</a><a href="#h3-0-223" id="h3-0-223" class="d">-+                        (unsigned long)parser.problem_mark.column + 1);
+</a><a href="#h3-0-224" id="h3-0-224" class="d">-+                }
+</a><a href="#h3-0-225" id="h3-0-225" class="d">-                 break;
+</a><a href="#h3-0-226" id="h3-0-226" class="d">-             }
+</a><a href="#h3-0-227" id="h3-0-227" class="d">- 
+</a><a href="#h3-0-228" id="h3-0-228" class="d">-
+</a><b>diff --git a/<a id="h4" href="../file/src/VcpkgPortOverlay/libyaml/portfile.cmake.html">src/VcpkgPortOverlay/libyaml/portfile.cmake</a> b/<a href="../file/src/VcpkgPortOverlay/libyaml/portfile.cmake.html">src/VcpkgPortOverlay/libyaml/portfile.cmake</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -5,13 +5,12 @@ endif()
+</a> vcpkg_from_github(
+     OUT_SOURCE_PATH SOURCE_PATH
+     REPO yaml/libyaml
+<a href="#h4-0-3" id="h4-0-3" class="d">-    REF 2c891fc7a770e8ba2fec34fc6b545c672beb37e6 # 0.2.5
+</a><a href="#h4-0-4" id="h4-0-4" class="d">-    SHA512 7cdde7b48c937777b851747f7e0b9a74cb7da30173e09305dad931ef83c3fcee3e125e721166690fe6a0987ba897564500530e5518e4b66b1c9b1db8900bf320
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+    REF 840b65c40675e2d06bf40405ad3f12dec7f35923 # Unreleased
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+    SHA512 de85560312d53a007a2ddf1fe403676bbd34620480b1ba446b8c16bb366524ba7a6ed08f6316dd783bf980d9e26603a9efc82f134eb0235917b3be1d3eb4b302
+</a>     HEAD_REF master
+     PATCHES
+         ${PATCHES}
+         export-pkgconfig.patch
+<a href="#h4-0-11" id="h4-0-11" class="d">-        fix-parser-nesting.patch
+</a> )
+ 
+ vcpkg_cmake_configure(
+</pre>
+</div>
+</body>
+</html>

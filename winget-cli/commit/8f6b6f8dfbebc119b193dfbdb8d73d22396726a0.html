@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Add extended error codes to results without them (#4858) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/8f6b6f8dfbebc119b193dfbdb8d73d22396726a0.html">8f6b6f8dfbebc119b193dfbdb8d73d22396726a0</a>
+<b>parent</b> <a href="../commit/8a31bfdf3393e6962e917b07e642907a0e4673fe.html">8a31bfdf3393e6962e917b07e642907a0e4673fe</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Mon,  7 Oct 2024 20:06:34 -0700
+
+Add extended error codes to results without them (#4858)
+
+## Change
+Adds `HRESULT ExtendedErrorCode{ get; };` to the `FindPackagesResult`
+and `ConnectResult` classes that did not have them. They work just like
+the other cases, exposing the raw `HRESULT` value from their respective
+operations.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a></td><td> | </td><td class="num">50</td><td><span class="i">+++++++++++++++++++++++++++++++++++</span><span class="d">---------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/WorkflowBase.h</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Deployment/ConnectResult.cpp</a></td><td> | </td><td class="num">10</td><td><span class="i">++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Deployment/ConnectResult.h</a></td><td> | </td><td class="num">4</td><td><span class="i">+++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Deployment/FindPackagesResult.cpp</a></td><td> | </td><td class="num">9</td><td><span class="i">++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Deployment/FindPackagesResult.h</a></td><td> | </td><td class="num">5</td><td><span class="i">++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/Microsoft.Management.Deployment/PackageCatalog.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/Microsoft.Management.Deployment/PackageCatalogReference.cpp</a></td><td> | </td><td class="num">168</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/Microsoft.Management.Deployment/PackageManager.idl</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>9 files changed, 159 insertions(+), 105 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.cpp.html">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.cpp.html">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -388,7 +388,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         return authArgs;
+     }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-    HRESULT HandleException(Execution::Context&amp; context, std::exception_ptr exception)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+    HRESULT HandleException(Execution::Context* context, std::exception_ptr exception)
+</a>     {
+         try
+         {
+<a href="#h0-1" id="h0-1" class="h">@@ -399,47 +399,67 @@ namespace AppInstaller::CLI::Workflow
+</a>         {
+             // Even though they are logged at their source, log again here for completeness.
+             Logging::Telemetry().LogException(Logging::FailureTypeEnum::ResultException, re.what());
+<a href="#h0-1-3" id="h0-1-3" class="d">-            context.Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-4" id="h0-1-4" class="d">-                Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &#39; &#39; &lt;&lt; std::endl &lt;&lt;
+</a><a href="#h0-1-5" id="h0-1-5" class="d">-                GetUserPresentableMessage(re) &lt;&lt; std::endl;
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+            if (context)
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+            {
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+                context-&gt;Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+                    Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &#39; &#39; &lt;&lt; std::endl &lt;&lt;
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+                    GetUserPresentableMessage(re) &lt;&lt; std::endl;
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+            }
+</a>             return re.GetErrorCode();
+         }
+         catch (const winrt::hresult_error&amp; hre)
+         {
+             std::string message = GetUserPresentableMessage(hre);
+             Logging::Telemetry().LogException(Logging::FailureTypeEnum::WinrtHResultError, message);
+<a href="#h0-1-18" id="h0-1-18" class="d">-            context.Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-19" id="h0-1-19" class="d">-                Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &#39; &#39; &lt;&lt; std::endl &lt;&lt;
+</a><a href="#h0-1-20" id="h0-1-20" class="d">-                message &lt;&lt; std::endl;
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+            if (context)
+</a><a href="#h0-1-22" id="h0-1-22" class="i">+            {
+</a><a href="#h0-1-23" id="h0-1-23" class="i">+                context-&gt;Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-24" id="h0-1-24" class="i">+                    Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &#39; &#39; &lt;&lt; std::endl &lt;&lt;
+</a><a href="#h0-1-25" id="h0-1-25" class="i">+                    message &lt;&lt; std::endl;
+</a><a href="#h0-1-26" id="h0-1-26" class="i">+            }
+</a>             return hre.code();
+         }
+         catch (const Settings::GroupPolicyException&amp; e)
+         {
+<a href="#h0-1-31" id="h0-1-31" class="d">-            auto policy = Settings::TogglePolicy::GetPolicy(e.Policy());
+</a><a href="#h0-1-32" id="h0-1-32" class="d">-            auto policyNameId = policy.PolicyName();
+</a><a href="#h0-1-33" id="h0-1-33" class="d">-            context.Reporter.Error() &lt;&lt; Resource::String::DisabledByGroupPolicy(policyNameId) &lt;&lt; std::endl;
+</a><a href="#h0-1-34" id="h0-1-34" class="i">+            if (context)
+</a><a href="#h0-1-35" id="h0-1-35" class="i">+            {
+</a><a href="#h0-1-36" id="h0-1-36" class="i">+                auto policy = Settings::TogglePolicy::GetPolicy(e.Policy());
+</a><a href="#h0-1-37" id="h0-1-37" class="i">+                auto policyNameId = policy.PolicyName();
+</a><a href="#h0-1-38" id="h0-1-38" class="i">+                context-&gt;Reporter.Error() &lt;&lt; Resource::String::DisabledByGroupPolicy(policyNameId) &lt;&lt; std::endl;
+</a><a href="#h0-1-39" id="h0-1-39" class="i">+            }
+</a>             return APPINSTALLER_CLI_ERROR_BLOCKED_BY_POLICY;
+         }
+         catch (const std::exception&amp; e)
+         {
+             Logging::Telemetry().LogException(Logging::FailureTypeEnum::StdException, e.what());
+<a href="#h0-1-45" id="h0-1-45" class="d">-            context.Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-46" id="h0-1-46" class="d">-                Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &#39; &#39; &lt;&lt; std::endl &lt;&lt;
+</a><a href="#h0-1-47" id="h0-1-47" class="d">-                GetUserPresentableMessage(e) &lt;&lt; std::endl;
+</a><a href="#h0-1-48" id="h0-1-48" class="i">+            if (context)
+</a><a href="#h0-1-49" id="h0-1-49" class="i">+            {
+</a><a href="#h0-1-50" id="h0-1-50" class="i">+                context-&gt;Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-51" id="h0-1-51" class="i">+                    Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &#39; &#39; &lt;&lt; std::endl &lt;&lt;
+</a><a href="#h0-1-52" id="h0-1-52" class="i">+                    GetUserPresentableMessage(e) &lt;&lt; std::endl;
+</a><a href="#h0-1-53" id="h0-1-53" class="i">+            }
+</a>             return APPINSTALLER_CLI_ERROR_COMMAND_FAILED;
+         }
+         catch (...)
+         {
+             LOG_CAUGHT_EXCEPTION();
+             Logging::Telemetry().LogException(Logging::FailureTypeEnum::Unknown, {});
+<a href="#h0-1-60" id="h0-1-60" class="d">-            context.Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-61" id="h0-1-61" class="d">-                Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &quot; ???&quot;_liv &lt;&lt; std::endl;
+</a><a href="#h0-1-62" id="h0-1-62" class="i">+            if (context)
+</a><a href="#h0-1-63" id="h0-1-63" class="i">+            {
+</a><a href="#h0-1-64" id="h0-1-64" class="i">+                context-&gt;Reporter.Error() &lt;&lt;
+</a><a href="#h0-1-65" id="h0-1-65" class="i">+                    Resource::String::UnexpectedErrorExecutingCommand &lt;&lt; &quot; ???&quot;_liv &lt;&lt; std::endl;
+</a><a href="#h0-1-66" id="h0-1-66" class="i">+            }
+</a>             return APPINSTALLER_CLI_ERROR_COMMAND_FAILED;
+         }
+ 
+         return E_UNEXPECTED;
+     }
+ 
+<a href="#h0-1-73" id="h0-1-73" class="i">+    HRESULT HandleException(Execution::Context&amp; context, std::exception_ptr exception)
+</a><a href="#h0-1-74" id="h0-1-74" class="i">+    {
+</a><a href="#h0-1-75" id="h0-1-75" class="i">+        return HandleException(&amp;context, exception);
+</a><a href="#h0-1-76" id="h0-1-76" class="i">+    }
+</a><a href="#h0-1-77" id="h0-1-77" class="i">+
+</a>     void OpenSource::operator()(Execution::Context&amp; context) const
+     {
+         std::string_view sourceName;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.h.html">src/AppInstallerCLICore/Workflows/WorkflowBase.h</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.h.html">src/AppInstallerCLICore/Workflows/WorkflowBase.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -85,6 +85,10 @@ namespace AppInstaller::CLI::Workflow
+</a>     Authentication::AuthenticationArguments GetAuthenticationArguments(const Execution::Context&amp; context);
+ 
+     // Helper to report exceptions and return the HRESULT.
+<a href="#h1-0-3" id="h1-0-3" class="i">+    // If context is null, no output will be attempted.
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    HRESULT HandleException(Execution::Context* context, std::exception_ptr exception);
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    // Helper to report exceptions and return the HRESULT.
+</a>     HRESULT HandleException(Execution::Context&amp; context, std::exception_ptr exception);
+ 
+     // Creates the source object.
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Deployment/ConnectResult.cpp.html">src/Microsoft.Management.Deployment/ConnectResult.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/ConnectResult.cpp.html">src/Microsoft.Management.Deployment/ConnectResult.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -6,10 +6,11 @@
+</a> 
+ namespace winrt::Microsoft::Management::Deployment::implementation
+ {
+<a href="#h2-0-3" id="h2-0-3" class="d">-    void ConnectResult::Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus status, winrt::Microsoft::Management::Deployment::PackageCatalog packageCatalog)
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    void ConnectResult::Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus status, winrt::Microsoft::Management::Deployment::PackageCatalog packageCatalog, winrt::hresult extendedErrorCode)
+</a>     {
+         m_status = status;
+<a href="#h2-0-7" id="h2-0-7" class="d">-        m_packageCatalog = packageCatalog;
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+        m_packageCatalog = packageCatalog;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+        m_extendedErrorCode = extendedErrorCode;
+</a>     }
+     winrt::Microsoft::Management::Deployment::ConnectResultStatus ConnectResult::Status()
+     {
+<a href="#h2-1" id="h2-1" class="h">@@ -18,5 +19,10 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>     winrt::Microsoft::Management::Deployment::PackageCatalog ConnectResult::PackageCatalog()
+     {
+         return m_packageCatalog;
+<a href="#h2-1-3" id="h2-1-3" class="i">+    }
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+    winrt::hresult ConnectResult::ExtendedErrorCode()
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+    {
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+        return m_extendedErrorCode;
+</a>     }
+ }
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Deployment/ConnectResult.h.html">src/Microsoft.Management.Deployment/ConnectResult.h</a> b/<a href="../file/src/Microsoft.Management.Deployment/ConnectResult.h.html">src/Microsoft.Management.Deployment/ConnectResult.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -10,16 +10,18 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         ConnectResult() = default;
+         
+ #if !defined(INCLUDE_ONLY_INTERFACE_METHODS)
+<a href="#h3-0-3" id="h3-0-3" class="d">-        void Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus status, winrt::Microsoft::Management::Deployment::PackageCatalog packageCatalog);
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        void Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus status, winrt::Microsoft::Management::Deployment::PackageCatalog packageCatalog, winrt::hresult extendedErrorCode);
+</a> #endif
+ 
+         winrt::Microsoft::Management::Deployment::ConnectResultStatus Status();
+         winrt::Microsoft::Management::Deployment::PackageCatalog PackageCatalog();
+<a href="#h3-0-9" id="h3-0-9" class="i">+        winrt::hresult ExtendedErrorCode();
+</a> 
+ #if !defined(INCLUDE_ONLY_INTERFACE_METHODS)
+     private:
+         winrt::Microsoft::Management::Deployment::ConnectResultStatus m_status = winrt::Microsoft::Management::Deployment::ConnectResultStatus::Ok;
+         winrt::Microsoft::Management::Deployment::PackageCatalog m_packageCatalog{ nullptr };
+<a href="#h3-0-15" id="h3-0-15" class="i">+        winrt::hresult m_extendedErrorCode = S_OK;
+</a> #endif
+     };
+ }
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Deployment/FindPackagesResult.cpp.html">src/Microsoft.Management.Deployment/FindPackagesResult.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/FindPackagesResult.cpp.html">src/Microsoft.Management.Deployment/FindPackagesResult.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -10,11 +10,13 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>     void FindPackagesResult::Initialize(
+         winrt::Microsoft::Management::Deployment::FindPackagesResultStatus status,
+         bool wasLimitExceeded, 
+<a href="#h4-0-3" id="h4-0-3" class="d">-        Windows::Foundation::Collections::IVector&lt;Microsoft::Management::Deployment::MatchResult&gt; matches)
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        Windows::Foundation::Collections::IVector&lt;Microsoft::Management::Deployment::MatchResult&gt; matches,
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+        winrt::hresult extendedErrorCode)
+</a>     {
+         m_status = status;
+         m_matches = matches;
+         m_wasLimitExceeded = wasLimitExceeded;
+<a href="#h4-0-10" id="h4-0-10" class="i">+        m_extendedErrorCode = extendedErrorCode;
+</a>     }
+     winrt::Microsoft::Management::Deployment::FindPackagesResultStatus FindPackagesResult::Status()
+     {
+<a href="#h4-1" id="h4-1" class="h">@@ -28,4 +30,9 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>     {
+         return m_wasLimitExceeded;
+     }
+<a href="#h4-1-3" id="h4-1-3" class="i">+
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+    winrt::hresult FindPackagesResult::ExtendedErrorCode()
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+    {
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+        return m_extendedErrorCode;
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Deployment/FindPackagesResult.h.html">src/Microsoft.Management.Deployment/FindPackagesResult.h</a> b/<a href="../file/src/Microsoft.Management.Deployment/FindPackagesResult.h.html">src/Microsoft.Management.Deployment/FindPackagesResult.h</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -14,12 +14,14 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         void Initialize(
+             winrt::Microsoft::Management::Deployment::FindPackagesResultStatus status,
+             bool wasLimitExceeded, 
+<a href="#h5-0-3" id="h5-0-3" class="d">-            Windows::Foundation::Collections::IVector&lt;winrt::Microsoft::Management::Deployment::MatchResult&gt; matches);
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+            Windows::Foundation::Collections::IVector&lt;winrt::Microsoft::Management::Deployment::MatchResult&gt; matches,
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+            winrt::hresult extendedErrorCode);
+</a> #endif
+ 
+         winrt::Microsoft::Management::Deployment::FindPackagesResultStatus Status();
+         winrt::Windows::Foundation::Collections::IVectorView&lt;winrt::Microsoft::Management::Deployment::MatchResult&gt; Matches();
+         bool WasLimitExceeded();
+<a href="#h5-0-11" id="h5-0-11" class="i">+        winrt::hresult ExtendedErrorCode();
+</a> 
+ #if !defined(INCLUDE_ONLY_INTERFACE_METHODS)
+     private:
+<a href="#h5-1" id="h5-1" class="h">@@ -27,6 +29,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         Windows::Foundation::Collections::IVector&lt;winrt::Microsoft::Management::Deployment::MatchResult&gt; m_matches{ 
+             winrt::single_threaded_vector&lt;winrt::Microsoft::Management::Deployment::MatchResult&gt;() };
+         bool m_wasLimitExceeded = false;
+<a href="#h5-1-3" id="h5-1-3" class="i">+        winrt::hresult m_extendedErrorCode = S_OK;
+</a> #endif
+     };
+ }
+<b>diff --git a/<a id="h6" href="../file/src/Microsoft.Management.Deployment/PackageCatalog.cpp.html">src/Microsoft.Management.Deployment/PackageCatalog.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageCatalog.cpp.html">src/Microsoft.Management.Deployment/PackageCatalog.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -115,7 +115,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             winrt::Microsoft::Management::Deployment::implementation::FindPackagesResult&gt;&gt;();
+         // TODO: Add search timeout and error code.
+         winrt::Microsoft::Management::Deployment::FindPackagesResultStatus status = FindPackagesResultStatus(hr);
+<a href="#h6-0-3" id="h6-0-3" class="d">-        findPackagesResult-&gt;Initialize(status, isTruncated, matches);
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+        findPackagesResult-&gt;Initialize(status, isTruncated, matches, hr);
+</a>         return *findPackagesResult;
+     }
+ 
+<b>diff --git a/<a id="h7" href="../file/src/Microsoft.Management.Deployment/PackageCatalogReference.cpp.html">src/Microsoft.Management.Deployment/PackageCatalogReference.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageCatalogReference.cpp.html">src/Microsoft.Management.Deployment/PackageCatalogReference.cpp</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -60,124 +60,124 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>     {
+         co_return Connect();
+     }
+<a href="#h7-0-3" id="h7-0-3" class="d">-    winrt::Microsoft::Management::Deployment::ConnectResult GetConnectCatalogErrorResult()
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+    winrt::Microsoft::Management::Deployment::ConnectResult GetConnectCatalogErrorResult(hresult hr)
+</a>     {
+         auto connectResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::ConnectResult&gt;&gt;();
+<a href="#h7-0-7" id="h7-0-7" class="d">-        connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::CatalogError, nullptr);
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+        connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::CatalogError, nullptr, hr);
+</a>         return *connectResult;
+     }
+     winrt::Microsoft::Management::Deployment::ConnectResult GetConnectSourceAgreementsNotAcceptedErrorResult()
+     {
+         auto connectResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::ConnectResult&gt;&gt;();
+<a href="#h7-0-14" id="h7-0-14" class="d">-        connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::SourceAgreementsNotAccepted, nullptr);
+</a><a href="#h7-0-15" id="h7-0-15" class="i">+        connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::SourceAgreementsNotAccepted, nullptr, APPINSTALLER_CLI_ERROR_SOURCE_AGREEMENTS_NOT_ACCEPTED);
+</a>         return *connectResult;
+     }
+<a href="#h7-0-18" id="h7-0-18" class="d">-    winrt::Microsoft::Management::Deployment::ConnectResult PackageCatalogReference::Connect()
+</a><a href="#h7-0-19" id="h7-0-19" class="i">+    winrt::Microsoft::Management::Deployment::ConnectResult PackageCatalogReference::Connect() try
+</a>     {
+<a href="#h7-0-21" id="h7-0-21" class="d">-        try
+</a><a href="#h7-0-22" id="h7-0-22" class="i">+        HRESULT hr = EnsureComCallerHasCapability(Capability::PackageQuery);
+</a><a href="#h7-0-23" id="h7-0-23" class="i">+        if (FAILED(hr))
+</a>         {
+<a href="#h7-0-25" id="h7-0-25" class="d">-            if (FAILED(EnsureComCallerHasCapability(Capability::PackageQuery)))
+</a><a href="#h7-0-26" id="h7-0-26" class="d">-            {
+</a><a href="#h7-0-27" id="h7-0-27" class="d">-                // TODO: When more error codes are added, this should go back as something other than CatalogError.
+</a><a href="#h7-0-28" id="h7-0-28" class="d">-                return GetConnectCatalogErrorResult();
+</a><a href="#h7-0-29" id="h7-0-29" class="d">-            }
+</a><a href="#h7-0-30" id="h7-0-30" class="i">+            // TODO: When more error codes are added, this should go back as something other than CatalogError.
+</a><a href="#h7-0-31" id="h7-0-31" class="i">+            return GetConnectCatalogErrorResult(hr);
+</a><a href="#h7-0-32" id="h7-0-32" class="i">+        }
+</a> 
+<a href="#h7-0-34" id="h7-0-34" class="d">-            std::string callerName = GetCallerName();
+</a><a href="#h7-0-35" id="h7-0-35" class="i">+        std::string callerName = GetCallerName();
+</a> 
+<a href="#h7-0-37" id="h7-0-37" class="d">-            ::AppInstaller::ProgressCallback progress;
+</a><a href="#h7-0-38" id="h7-0-38" class="d">-            ::AppInstaller::Repository::Source source;
+</a><a href="#h7-0-39" id="h7-0-39" class="d">-            if (m_compositePackageCatalogOptions)
+</a><a href="#h7-0-40" id="h7-0-40" class="d">-            {
+</a><a href="#h7-0-41" id="h7-0-41" class="d">-                std::vector&lt;::AppInstaller::Repository::Source&gt; remoteSources;
+</a><a href="#h7-0-42" id="h7-0-42" class="i">+        ::AppInstaller::ProgressCallback progress;
+</a><a href="#h7-0-43" id="h7-0-43" class="i">+        ::AppInstaller::Repository::Source source;
+</a><a href="#h7-0-44" id="h7-0-44" class="i">+        if (m_compositePackageCatalogOptions)
+</a><a href="#h7-0-45" id="h7-0-45" class="i">+        {
+</a><a href="#h7-0-46" id="h7-0-46" class="i">+            std::vector&lt;::AppInstaller::Repository::Source&gt; remoteSources;
+</a> 
+<a href="#h7-0-48" id="h7-0-48" class="d">-                for (uint32_t i = 0; i &lt; m_compositePackageCatalogOptions.Catalogs().Size(); ++i)
+</a><a href="#h7-0-49" id="h7-0-49" class="i">+            for (uint32_t i = 0; i &lt; m_compositePackageCatalogOptions.Catalogs().Size(); ++i)
+</a><a href="#h7-0-50" id="h7-0-50" class="i">+            {
+</a><a href="#h7-0-51" id="h7-0-51" class="i">+                auto catalog = m_compositePackageCatalogOptions.Catalogs().GetAt(i);
+</a><a href="#h7-0-52" id="h7-0-52" class="i">+                if (!catalog.AcceptSourceAgreements() &amp;&amp; catalog.SourceAgreements().Size() != 0)
+</a>                 {
+<a href="#h7-0-54" id="h7-0-54" class="d">-                    auto catalog = m_compositePackageCatalogOptions.Catalogs().GetAt(i);
+</a><a href="#h7-0-55" id="h7-0-55" class="d">-                    if (!catalog.AcceptSourceAgreements() &amp;&amp; catalog.SourceAgreements().Size() != 0)
+</a><a href="#h7-0-56" id="h7-0-56" class="d">-                    {
+</a><a href="#h7-0-57" id="h7-0-57" class="d">-                        return GetConnectSourceAgreementsNotAcceptedErrorResult();
+</a><a href="#h7-0-58" id="h7-0-58" class="d">-                    }
+</a><a href="#h7-0-59" id="h7-0-59" class="i">+                    return GetConnectSourceAgreementsNotAcceptedErrorResult();
+</a><a href="#h7-0-60" id="h7-0-60" class="i">+                }
+</a> 
+<a href="#h7-0-62" id="h7-0-62" class="d">-                    winrt::Microsoft::Management::Deployment::implementation::PackageCatalogReference* catalogImpl = get_self&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalogReference&gt;(catalog);
+</a><a href="#h7-0-63" id="h7-0-63" class="d">-                    auto copy = catalogImpl-&gt;m_sourceReference;
+</a><a href="#h7-0-64" id="h7-0-64" class="d">-                    copy.SetCaller(callerName);
+</a><a href="#h7-0-65" id="h7-0-65" class="d">-                    copy.SetBackgroundUpdateInterval(catalog.PackageCatalogBackgroundUpdateInterval());
+</a><a href="#h7-0-66" id="h7-0-66" class="d">-                    copy.InstalledPackageInformationOnly(catalog.InstalledPackageInformationOnly());
+</a><a href="#h7-0-67" id="h7-0-67" class="d">-                    if (catalog.AuthenticationInfo().AuthenticationType() != winrt::Microsoft::Management::Deployment::AuthenticationType::None)
+</a><a href="#h7-0-68" id="h7-0-68" class="d">-                    {
+</a><a href="#h7-0-69" id="h7-0-69" class="d">-                        copy.SetAuthenticationArguments(GetAuthenticationArguments(catalog.AuthenticationArguments()));
+</a><a href="#h7-0-70" id="h7-0-70" class="d">-                    }
+</a><a href="#h7-0-71" id="h7-0-71" class="d">-                    copy.Open(progress);
+</a><a href="#h7-0-72" id="h7-0-72" class="d">-                    remoteSources.emplace_back(std::move(copy));
+</a><a href="#h7-0-73" id="h7-0-73" class="i">+                winrt::Microsoft::Management::Deployment::implementation::PackageCatalogReference* catalogImpl = get_self&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalogReference&gt;(catalog);
+</a><a href="#h7-0-74" id="h7-0-74" class="i">+                auto copy = catalogImpl-&gt;m_sourceReference;
+</a><a href="#h7-0-75" id="h7-0-75" class="i">+                copy.SetCaller(callerName);
+</a><a href="#h7-0-76" id="h7-0-76" class="i">+                copy.SetBackgroundUpdateInterval(catalog.PackageCatalogBackgroundUpdateInterval());
+</a><a href="#h7-0-77" id="h7-0-77" class="i">+                copy.InstalledPackageInformationOnly(catalog.InstalledPackageInformationOnly());
+</a><a href="#h7-0-78" id="h7-0-78" class="i">+                if (catalog.AuthenticationInfo().AuthenticationType() != winrt::Microsoft::Management::Deployment::AuthenticationType::None)
+</a><a href="#h7-0-79" id="h7-0-79" class="i">+                {
+</a><a href="#h7-0-80" id="h7-0-80" class="i">+                    copy.SetAuthenticationArguments(GetAuthenticationArguments(catalog.AuthenticationArguments()));
+</a>                 }
+<a href="#h7-0-82" id="h7-0-82" class="i">+                copy.Open(progress);
+</a><a href="#h7-0-83" id="h7-0-83" class="i">+                remoteSources.emplace_back(std::move(copy));
+</a><a href="#h7-0-84" id="h7-0-84" class="i">+            }
+</a> 
+<a href="#h7-0-86" id="h7-0-86" class="d">-                // Create the aggregated source.
+</a><a href="#h7-0-87" id="h7-0-87" class="d">-                source = ::AppInstaller::Repository::Source{ remoteSources };
+</a><a href="#h7-0-88" id="h7-0-88" class="i">+            // Create the aggregated source.
+</a><a href="#h7-0-89" id="h7-0-89" class="i">+            source = ::AppInstaller::Repository::Source{ remoteSources };
+</a> 
+<a href="#h7-0-91" id="h7-0-91" class="d">-                // Create composite with installed source if needed.
+</a><a href="#h7-0-92" id="h7-0-92" class="d">-                ::AppInstaller::Repository::CompositeSearchBehavior searchBehavior = GetRepositoryCompositeSearchBehavior(m_compositePackageCatalogOptions.CompositeSearchBehavior());
+</a><a href="#h7-0-93" id="h7-0-93" class="i">+            // Create composite with installed source if needed.
+</a><a href="#h7-0-94" id="h7-0-94" class="i">+            ::AppInstaller::Repository::CompositeSearchBehavior searchBehavior = GetRepositoryCompositeSearchBehavior(m_compositePackageCatalogOptions.CompositeSearchBehavior());
+</a> 
+<a href="#h7-0-96" id="h7-0-96" class="d">-                // Check if search behavior indicates that the caller does not want to do local correlation.
+</a><a href="#h7-0-97" id="h7-0-97" class="d">-                if (m_compositePackageCatalogOptions.CompositeSearchBehavior() != Microsoft::Management::Deployment::CompositeSearchBehavior::RemotePackagesFromRemoteCatalogs)
+</a><a href="#h7-0-98" id="h7-0-98" class="i">+            // Check if search behavior indicates that the caller does not want to do local correlation.
+</a><a href="#h7-0-99" id="h7-0-99" class="i">+            if (m_compositePackageCatalogOptions.CompositeSearchBehavior() != Microsoft::Management::Deployment::CompositeSearchBehavior::RemotePackagesFromRemoteCatalogs)
+</a><a href="#h7-0-100" id="h7-0-100" class="i">+            {
+</a><a href="#h7-0-101" id="h7-0-101" class="i">+                ::AppInstaller::Repository::Source installedSource;
+</a><a href="#h7-0-102" id="h7-0-102" class="i">+                auto manifestInstalledScope = GetManifestScope(m_compositePackageCatalogOptions.InstalledScope()).first;
+</a><a href="#h7-0-103" id="h7-0-103" class="i">+                if (manifestInstalledScope == ::AppInstaller::Manifest::ScopeEnum::User)
+</a>                 {
+<a href="#h7-0-105" id="h7-0-105" class="d">-                    ::AppInstaller::Repository::Source installedSource;
+</a><a href="#h7-0-106" id="h7-0-106" class="d">-                    auto manifestInstalledScope = GetManifestScope(m_compositePackageCatalogOptions.InstalledScope()).first;
+</a><a href="#h7-0-107" id="h7-0-107" class="d">-                    if (manifestInstalledScope == ::AppInstaller::Manifest::ScopeEnum::User)
+</a><a href="#h7-0-108" id="h7-0-108" class="d">-                    {
+</a><a href="#h7-0-109" id="h7-0-109" class="d">-                        installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::InstalledUser };
+</a><a href="#h7-0-110" id="h7-0-110" class="d">-                    }
+</a><a href="#h7-0-111" id="h7-0-111" class="d">-                    else if (manifestInstalledScope == ::AppInstaller::Manifest::ScopeEnum::Machine)
+</a><a href="#h7-0-112" id="h7-0-112" class="d">-                    {
+</a><a href="#h7-0-113" id="h7-0-113" class="d">-                        installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::InstalledMachine };
+</a><a href="#h7-0-114" id="h7-0-114" class="d">-                    }
+</a><a href="#h7-0-115" id="h7-0-115" class="d">-                    else
+</a><a href="#h7-0-116" id="h7-0-116" class="d">-                    {
+</a><a href="#h7-0-117" id="h7-0-117" class="d">-                        installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::Installed };
+</a><a href="#h7-0-118" id="h7-0-118" class="d">-                    }
+</a><a href="#h7-0-119" id="h7-0-119" class="d">-
+</a><a href="#h7-0-120" id="h7-0-120" class="d">-                    installedSource.Open(progress);
+</a><a href="#h7-0-121" id="h7-0-121" class="d">-                    source = ::AppInstaller::Repository::Source{ installedSource, source, searchBehavior };
+</a><a href="#h7-0-122" id="h7-0-122" class="i">+                    installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::InstalledUser };
+</a>                 }
+<a href="#h7-0-124" id="h7-0-124" class="d">-            }
+</a><a href="#h7-0-125" id="h7-0-125" class="d">-            else
+</a><a href="#h7-0-126" id="h7-0-126" class="d">-            {
+</a><a href="#h7-0-127" id="h7-0-127" class="d">-                if (!AcceptSourceAgreements() &amp;&amp; SourceAgreements().Size() != 0)
+</a><a href="#h7-0-128" id="h7-0-128" class="i">+                else if (manifestInstalledScope == ::AppInstaller::Manifest::ScopeEnum::Machine)
+</a>                 {
+<a href="#h7-0-130" id="h7-0-130" class="d">-                    return GetConnectSourceAgreementsNotAcceptedErrorResult();
+</a><a href="#h7-0-131" id="h7-0-131" class="i">+                    installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::InstalledMachine };
+</a>                 }
+<a href="#h7-0-133" id="h7-0-133" class="d">-
+</a><a href="#h7-0-134" id="h7-0-134" class="d">-                source = m_sourceReference;
+</a><a href="#h7-0-135" id="h7-0-135" class="d">-                source.SetCaller(callerName);
+</a><a href="#h7-0-136" id="h7-0-136" class="d">-                source.SetBackgroundUpdateInterval(PackageCatalogBackgroundUpdateInterval());
+</a><a href="#h7-0-137" id="h7-0-137" class="d">-                source.InstalledPackageInformationOnly(m_installedPackageInformationOnly);
+</a><a href="#h7-0-138" id="h7-0-138" class="d">-                if (AuthenticationInfo().AuthenticationType() != winrt::Microsoft::Management::Deployment::AuthenticationType::None)
+</a><a href="#h7-0-139" id="h7-0-139" class="i">+                else
+</a>                 {
+<a href="#h7-0-141" id="h7-0-141" class="d">-                    source.SetAuthenticationArguments(GetAuthenticationArguments(m_authenticationArguments));
+</a><a href="#h7-0-142" id="h7-0-142" class="i">+                    installedSource = ::AppInstaller::Repository::Source{ ::AppInstaller::Repository::PredefinedSource::Installed };
+</a>                 }
+<a href="#h7-0-144" id="h7-0-144" class="d">-                source.Open(progress);
+</a><a href="#h7-0-145" id="h7-0-145" class="d">-            }
+</a> 
+<a href="#h7-0-147" id="h7-0-147" class="d">-            if (!source)
+</a><a href="#h7-0-148" id="h7-0-148" class="i">+                installedSource.Open(progress);
+</a><a href="#h7-0-149" id="h7-0-149" class="i">+                source = ::AppInstaller::Repository::Source{ installedSource, source, searchBehavior };
+</a><a href="#h7-0-150" id="h7-0-150" class="i">+            }
+</a><a href="#h7-0-151" id="h7-0-151" class="i">+        }
+</a><a href="#h7-0-152" id="h7-0-152" class="i">+        else
+</a><a href="#h7-0-153" id="h7-0-153" class="i">+        {
+</a><a href="#h7-0-154" id="h7-0-154" class="i">+            if (!AcceptSourceAgreements() &amp;&amp; SourceAgreements().Size() != 0)
+</a>             {
+<a href="#h7-0-156" id="h7-0-156" class="d">-                // If source is null, return the error. There&#39;s no way to get the hresult that caused the error right now.
+</a><a href="#h7-0-157" id="h7-0-157" class="d">-                return GetConnectCatalogErrorResult();
+</a><a href="#h7-0-158" id="h7-0-158" class="i">+                return GetConnectSourceAgreementsNotAcceptedErrorResult();
+</a>             }
+ 
+<a href="#h7-0-161" id="h7-0-161" class="d">-            // Have to make another package catalog info because source-&gt;GetDetails has more fields than m_info does.
+</a><a href="#h7-0-162" id="h7-0-162" class="d">-            // Specifically, Rest sources do not have the Ids filled in m_info since they only get the id from the rest server after being Opened.
+</a><a href="#h7-0-163" id="h7-0-163" class="d">-            auto packageCatalogInfo = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalogInfo&gt;&gt;();
+</a><a href="#h7-0-164" id="h7-0-164" class="d">-            packageCatalogInfo-&gt;Initialize(source.GetDetails());
+</a><a href="#h7-0-165" id="h7-0-165" class="d">-            auto connectResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::ConnectResult&gt;&gt;();
+</a><a href="#h7-0-166" id="h7-0-166" class="d">-            auto packageCatalog = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalog&gt;&gt;();
+</a><a href="#h7-0-167" id="h7-0-167" class="d">-            packageCatalog-&gt;Initialize(*packageCatalogInfo, source, (m_compositePackageCatalogOptions != nullptr));
+</a><a href="#h7-0-168" id="h7-0-168" class="d">-            connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::Ok, *packageCatalog);
+</a><a href="#h7-0-169" id="h7-0-169" class="d">-            return *connectResult;
+</a><a href="#h7-0-170" id="h7-0-170" class="i">+            source = m_sourceReference;
+</a><a href="#h7-0-171" id="h7-0-171" class="i">+            source.SetCaller(callerName);
+</a><a href="#h7-0-172" id="h7-0-172" class="i">+            source.SetBackgroundUpdateInterval(PackageCatalogBackgroundUpdateInterval());
+</a><a href="#h7-0-173" id="h7-0-173" class="i">+            source.InstalledPackageInformationOnly(m_installedPackageInformationOnly);
+</a><a href="#h7-0-174" id="h7-0-174" class="i">+            if (AuthenticationInfo().AuthenticationType() != winrt::Microsoft::Management::Deployment::AuthenticationType::None)
+</a><a href="#h7-0-175" id="h7-0-175" class="i">+            {
+</a><a href="#h7-0-176" id="h7-0-176" class="i">+                source.SetAuthenticationArguments(GetAuthenticationArguments(m_authenticationArguments));
+</a><a href="#h7-0-177" id="h7-0-177" class="i">+            }
+</a><a href="#h7-0-178" id="h7-0-178" class="i">+            source.Open(progress);
+</a>         }
+<a href="#h7-0-180" id="h7-0-180" class="d">-        catch (...)
+</a><a href="#h7-0-181" id="h7-0-181" class="i">+
+</a><a href="#h7-0-182" id="h7-0-182" class="i">+        if (!source)
+</a>         {
+<a href="#h7-0-184" id="h7-0-184" class="i">+            // We call `Open` on each individual source above, meaning that they should throw any error that occurs.
+</a><a href="#h7-0-185" id="h7-0-185" class="i">+            // If the source is still not open at this point it is a bug.
+</a><a href="#h7-0-186" id="h7-0-186" class="i">+            return GetConnectCatalogErrorResult(E_UNEXPECTED);
+</a>         }
+<a href="#h7-0-188" id="h7-0-188" class="d">-        return GetConnectCatalogErrorResult();
+</a><a href="#h7-0-189" id="h7-0-189" class="i">+
+</a><a href="#h7-0-190" id="h7-0-190" class="i">+        // Have to make another package catalog info because source-&gt;GetDetails has more fields than m_info does.
+</a><a href="#h7-0-191" id="h7-0-191" class="i">+        // Specifically, Rest sources do not have the Ids filled in m_info since they only get the id from the rest server after being Opened.
+</a><a href="#h7-0-192" id="h7-0-192" class="i">+        auto packageCatalogInfo = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalogInfo&gt;&gt;();
+</a><a href="#h7-0-193" id="h7-0-193" class="i">+        packageCatalogInfo-&gt;Initialize(source.GetDetails());
+</a><a href="#h7-0-194" id="h7-0-194" class="i">+        auto connectResult = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::ConnectResult&gt;&gt;();
+</a><a href="#h7-0-195" id="h7-0-195" class="i">+        auto packageCatalog = winrt::make_self&lt;wil::details::module_count_wrapper&lt;winrt::Microsoft::Management::Deployment::implementation::PackageCatalog&gt;&gt;();
+</a><a href="#h7-0-196" id="h7-0-196" class="i">+        packageCatalog-&gt;Initialize(*packageCatalogInfo, source, (m_compositePackageCatalogOptions != nullptr));
+</a><a href="#h7-0-197" id="h7-0-197" class="i">+        connectResult-&gt;Initialize(winrt::Microsoft::Management::Deployment::ConnectResultStatus::Ok, *packageCatalog, S_OK);
+</a><a href="#h7-0-198" id="h7-0-198" class="i">+        return *connectResult;
+</a>     }
+<a href="#h7-0-200" id="h7-0-200" class="i">+    catch (...)
+</a><a href="#h7-0-201" id="h7-0-201" class="i">+    {
+</a><a href="#h7-0-202" id="h7-0-202" class="i">+        return GetConnectCatalogErrorResult(AppInstaller::CLI::Workflow::HandleException(nullptr, std::current_exception()));
+</a><a href="#h7-0-203" id="h7-0-203" class="i">+    }
+</a><a href="#h7-0-204" id="h7-0-204" class="i">+
+</a>     winrt::Windows::Foundation::Collections::IVectorView&lt;winrt::Microsoft::Management::Deployment::SourceAgreement&gt; PackageCatalogReference::SourceAgreements()
+     {
+         std::call_once(m_sourceAgreementsOnceFlag,
+<b>diff --git a/<a id="h8" href="../file/src/Microsoft.Management.Deployment/PackageManager.idl.html">src/Microsoft.Management.Deployment/PackageManager.idl</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageManager.idl.html">src/Microsoft.Management.Deployment/PackageManager.idl</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -730,6 +730,12 @@ namespace Microsoft.Management.Deployment
+</a>         /// USAGE NOTE: Windows Package Manager does not support result pagination, there is no way to continue 
+         /// getting more results.
+         Boolean WasLimitExceeded { get; };
+<a href="#h8-0-3" id="h8-0-3" class="i">+
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+        [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 11)]
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+        {
+</a><a href="#h8-0-6" id="h8-0-6" class="i">+            /// The error code of the operation.
+</a><a href="#h8-0-7" id="h8-0-7" class="i">+            HRESULT ExtendedErrorCode{ get; };
+</a><a href="#h8-0-8" id="h8-0-8" class="i">+        }
+</a>     }
+ 
+     /// Options for FindPackages
+<a href="#h8-1" id="h8-1" class="h">@@ -849,6 +855,12 @@ namespace Microsoft.Management.Deployment
+</a>         ConnectResultStatus Status { get; };
+ 
+         PackageCatalog PackageCatalog { get; };
+<a href="#h8-1-3" id="h8-1-3" class="i">+
+</a><a href="#h8-1-4" id="h8-1-4" class="i">+        [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 11)]
+</a><a href="#h8-1-5" id="h8-1-5" class="i">+        {
+</a><a href="#h8-1-6" id="h8-1-6" class="i">+            /// The error code of the operation.
+</a><a href="#h8-1-7" id="h8-1-7" class="i">+            HRESULT ExtendedErrorCode{ get; };
+</a><a href="#h8-1-8" id="h8-1-8" class="i">+        }
+</a>     }
+ 
+     /// A reference to a catalog that callers can try to Connect.
+</pre>
+</div>
+</body>
+</html>

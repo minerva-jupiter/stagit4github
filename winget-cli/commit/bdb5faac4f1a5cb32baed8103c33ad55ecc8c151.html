@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Add validation option for portable installer type in archives (#5237) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/bdb5faac4f1a5cb32baed8103c33ad55ecc8c151.html">bdb5faac4f1a5cb32baed8103c33ad55ecc8c151</a>
+<b>parent</b> <a href="../commit/f0d8fa996651778fba3f50c20c1054fb0ce722cb.html">f0d8fa996651778fba3f50c20c1054fb0ce722cb</a>
+<b>Author:</b> Kaleb Luedtke &lt;<a href="mailto:trenlymc@gmail.com">trenlymc@gmail.com</a>&gt;
+<b>Date:</b>   Wed, 12 Mar 2025 16:00:54 -0500
+
+Add validation option for portable installer type in archives (#5237)
+
+## Description
+For the `portable` installer type, the `winget-pkgs` repository has a
+policy of not allowing scripts as installers. This includes `.bat`,
+`.ps1`, and `.cmd` files.
+
+In addition to the policy at `winget-pkgs`, the client itself is not
+designed to handle portable files that are not `.exe` types. Issues have
+been filed asking for WinGet to support these in the future, but it
+currently does not -
+* https://github.com/microsoft/winget-cli/issues/5083
+* https://github.com/microsoft/winget-cli/issues/5086
+* https://github.com/microsoft/winget-cli/issues/5087
+
+This PR adds a validation option which validates the `RelativeFilePath`
+within a zip file is always a `.exe`, but can be extended to include
+additional formats as the requests above are addressed. This was added
+as a validation option (similar to the Schema Header Validation) as
+private repositories may want to not have the file type restrictions
+that `winget-pkgs` does - as described in these issues -
+* https://github.com/microsoft/winget-cli/issues/5084
+* https://github.com/microsoft/winget-cli/issues/5085
+
+This should allow for the validation pipeline at `winget-pkgs` to
+automatically reject manifests that contain `NestedInstallerFiles` that
+are not supported, while allowing maintainers of private repositories to
+suppress the restriction by turning the validation option to false.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></td><td> | </td><td class="num">9</td><td><span class="i">+++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></td><td> | </td><td class="num">14</td><td><span class="i">+++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h2">src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h3">src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h4">src/AppInstallerCLITests/TestData/Manifest-Good-InstallerTypeZip-PortableExe.yaml</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLITests/YamlManifest.cpp</a></td><td> | </td><td class="num">25</td><td><span class="i">+++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCommonCore/Manifest/ManifestValidation.cpp</a></td><td> | </td><td class="num">11</td><td><span class="i">+++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCommonCore/Public/winget/ManifestValidation.h</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+</table></pre><pre>8 files changed, 117 insertions(+), 3 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1040,6 +1040,15 @@
+</a>     &lt;CopyFileToFolders Include=&quot;TestData\ManifestV1_10-Bad-SchemaHeaderURLPatternMismatch.yaml&quot;&gt;
+       &lt;DeploymentContent&gt;true&lt;/DeploymentContent&gt;
+     &lt;/CopyFileToFolders&gt;
+<a href="#h0-0-3" id="h0-0-3" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\Manifest-Good-InstallerTypeZip-PortableExe.yaml&quot;&gt;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+      &lt;DeploymentContent&gt;true&lt;/DeploymentContent&gt;
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+    &lt;/CopyFileToFolders&gt;
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml&quot;&gt;
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+      &lt;DeploymentContent&gt;true&lt;/DeploymentContent&gt;
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+    &lt;/CopyFileToFolders&gt;
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml&quot;&gt;
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+      &lt;DeploymentContent&gt;true&lt;/DeploymentContent&gt;
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+    &lt;/CopyFileToFolders&gt;
+</a>   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;ProjectReference Include=&quot;..\AppInstallerCLICore\AppInstallerCLICore.vcxproj&quot;&gt;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,4 +1,4 @@
+</a><a href="#h1-0-0" id="h1-0-0" class="d">-﻿&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;
+</a><a href="#h1-0-1" id="h1-0-1" class="i">+&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;
+</a> &lt;Project ToolsVersion=&quot;4.0&quot; xmlns=&quot;http://schemas.microsoft.com/developer/msbuild/2003&quot;&gt;
+   &lt;ItemGroup&gt;
+     &lt;Filter Include=&quot;Source Files&quot;&gt;
+<a href="#h1-1" id="h1-1" class="h">@@ -1071,5 +1071,14 @@
+</a>     &lt;CopyFileToFolders Include=&quot;TestData\ManifestV1_10-Bad-SchemaHeaderURLPatternMismatch.yaml&quot;&gt;
+       &lt;Filter&gt;TestData&lt;/Filter&gt;
+     &lt;/CopyFileToFolders&gt;
+<a href="#h1-1-3" id="h1-1-3" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\Manifest-Good-InstallerTypeZip-PortableExe.yaml&quot;&gt;
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+      &lt;Filter&gt;TestData&lt;/Filter&gt;
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+    &lt;/CopyFileToFolders&gt;
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml&quot;&gt;
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+      &lt;Filter&gt;TestData&lt;/Filter&gt;
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+    &lt;/CopyFileToFolders&gt;
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml&quot;&gt;
+</a><a href="#h1-1-10" id="h1-1-10" class="i">+      &lt;Filter&gt;TestData&lt;/Filter&gt;
+</a><a href="#h1-1-11" id="h1-1-11" class="i">+    &lt;/CopyFileToFolders&gt;
+</a>   &lt;/ItemGroup&gt;
+<a href="#h1-1-13" id="h1-1-13" class="d">-&lt;/Project&gt;</a><a href="#h1-1-14" id="h1-1-14" class="d">-
+\ No newline at end of file
+</a><a href="#h1-1-15" id="h1-1-15" class="i">+&lt;/Project&gt;
+</a><b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml.html">src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml</a> b/<a href="../file/src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml.html">src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -0,0 +1,19 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="i">+# Bad manifest. Installer type zip with NestedInstallerType portable should only allow .exe files
+</a><a href="#h2-0-1" id="h2-0-1" class="i">+PackageIdentifier: microsoft.msixsdk
+</a><a href="#h2-0-2" id="h2-0-2" class="i">+PackageVersion: 1.0.0.0
+</a><a href="#h2-0-3" id="h2-0-3" class="i">+PackageLocale: en-US
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+PackageName: AppInstaller Test Installer
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+Publisher: Microsoft Corporation
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+Moniker: AICLITestExe
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+License: Test
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+ShortDescription: Test installer for zip without nestedInstallers specified
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+Installers:
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+  - Architecture: x64
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+    InstallerUrl: https://ThisIsNotUsed
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+    InstallerType: zip
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+    NestedInstallerType: portable
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+    InstallerSha256: 65DB2F2AC2686C7F2FD69D4A4C6683B888DC55BFA20A0E32CA9F838B51689A3B
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+    NestedInstallerFiles:
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+      - RelativeFilePath: ScriptedApplication.bat
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+ManifestType: singleton
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+ManifestVersion: 1.9.0
+</a><b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml.html">src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml</a> b/<a href="../file/src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml.html">src/AppInstallerCLITests/TestData/Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -0,0 +1,19 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="i">+# Bad manifest. Installer type zip with NestedInstallerType portable should only allow .exe files
+</a><a href="#h3-0-1" id="h3-0-1" class="i">+PackageIdentifier: microsoft.msixsdk
+</a><a href="#h3-0-2" id="h3-0-2" class="i">+PackageVersion: 1.0.0.0
+</a><a href="#h3-0-3" id="h3-0-3" class="i">+PackageLocale: en-US
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+PackageName: AppInstaller Test Installer
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+Publisher: Microsoft Corporation
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+Moniker: AICLITestExe
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+License: Test
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+ShortDescription: Test installer for zip without nestedInstallers specified
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+InstallerType: zip
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+NestedInstallerType: portable
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+NestedInstallerFiles:
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+  - RelativeFilePath: ScriptedApplication.bat
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+Installers:
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+  - Architecture: x64
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+    InstallerUrl: https://ThisIsNotUsed
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+    InstallerSha256: 65DB2F2AC2686C7F2FD69D4A4C6683B888DC55BFA20A0E32CA9F838B51689A3B
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+ManifestType: singleton
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+ManifestVersion: 1.9.0
+</a><b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLITests/TestData/Manifest-Good-InstallerTypeZip-PortableExe.yaml.html">src/AppInstallerCLITests/TestData/Manifest-Good-InstallerTypeZip-PortableExe.yaml</a> b/<a href="../file/src/AppInstallerCLITests/TestData/Manifest-Good-InstallerTypeZip-PortableExe.yaml.html">src/AppInstallerCLITests/TestData/Manifest-Good-InstallerTypeZip-PortableExe.yaml</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -0,0 +1,19 @@
+</a><a href="#h4-0-0" id="h4-0-0" class="i">+# Bad manifest. Installer type zip with NestedInstallerType portable should only allow .exe files
+</a><a href="#h4-0-1" id="h4-0-1" class="i">+PackageIdentifier: microsoft.msixsdk
+</a><a href="#h4-0-2" id="h4-0-2" class="i">+PackageVersion: 1.0.0.0
+</a><a href="#h4-0-3" id="h4-0-3" class="i">+PackageLocale: en-US
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+PackageName: AppInstaller Test Installer
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+Publisher: Microsoft Corporation
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+Moniker: AICLITestExe
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+License: Test
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+ShortDescription: Test installer for zip without nestedInstallers specified
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+Installers:
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+  - Architecture: x64
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+    InstallerUrl: https://ThisIsNotUsed
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+    InstallerType: zip
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+    NestedInstallerType: portable
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+    InstallerSha256: 65DB2F2AC2686C7F2FD69D4A4C6683B888DC55BFA20A0E32CA9F838B51689A3B
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+    NestedInstallerFiles:
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+      - RelativeFilePath: GoodApplication.exe
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+ManifestType: singleton
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+ManifestVersion: 1.9.0
+</a><b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLITests/YamlManifest.cpp.html">src/AppInstallerCLITests/YamlManifest.cpp</a> b/<a href="../file/src/AppInstallerCLITests/YamlManifest.cpp.html">src/AppInstallerCLITests/YamlManifest.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -768,6 +768,7 @@ TEST_CASE(&quot;ReadGoodManifests&quot;, &quot;[ManifestValidation]&quot;)
+</a>         { &quot;Manifest-Good-Minimum-InstallerType.yaml&quot; },
+         { &quot;Manifest-Good-Switches.yaml&quot; },
+         { &quot;Manifest-Good-DefaultExpectedReturnCodeInInstallerSuccessCodes.yaml&quot; },
+<a href="#h5-0-3" id="h5-0-3" class="i">+        { &quot;Manifest-Good-InstallerTypeZip-PortableExe.yaml&quot; },
+</a>     };
+ 
+     for (auto const&amp; testCase : TestCases)
+<a href="#h5-1" id="h5-1" class="h">@@ -839,6 +840,8 @@ TEST_CASE(&quot;ReadBadManifests&quot;, &quot;[ManifestValidation]&quot;)
+</a>         { &quot;InstallFlowTest_LicenseAgreement.yaml&quot;, &quot;Field usage requires verified publishers. [Agreement]&quot;, false, GetTestManifestValidateOption(false, true) },
+         { &quot;Manifest-Bad-ApproximateVersionInPackageVersion.yaml&quot;, &quot;Approximate version not allowed. [PackageVersion]&quot; },
+         { &quot;Manifest-Bad-ApproximateVersionInArpVersion.yaml&quot;, &quot;Approximate version not allowed. [DisplayVersion]&quot; },
+<a href="#h5-1-3" id="h5-1-3" class="i">+        { &quot;Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml&quot;, &quot;The file type of the referenced file is not allowed. [RelativeFilePath] Value: ScriptedApplication.bat&quot; },
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+        { &quot;Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml&quot;, &quot;The file type of the referenced file is not allowed. [RelativeFilePath] Value: ScriptedApplication.bat&quot; },
+</a>     };
+ 
+     for (auto const&amp; testCase : TestCases)
+<a href="#h5-2" id="h5-2" class="h">@@ -1619,6 +1622,28 @@ TEST_CASE(&quot;ManifestLocalizationValidation&quot;, &quot;[ManifestValidation]&quot;)
+</a>     REQUIRE(errors.at(0).ErrorLevel == ValidationError::Level::Warning);
+ }
+ 
+<a href="#h5-2-3" id="h5-2-3" class="i">+TEST_CASE(&quot;PortableFileTypeValidation&quot;, &quot;[ManifestValidation]&quot;)
+</a><a href="#h5-2-4" id="h5-2-4" class="i">+{
+</a><a href="#h5-2-5" id="h5-2-5" class="i">+    Manifest installerManifest = YamlParser::CreateFromPath(TestDataFile(&quot;Manifest-Bad-InstallerTypeZip-PortableNotExe.yaml&quot;));
+</a><a href="#h5-2-6" id="h5-2-6" class="i">+    Manifest rootManifest = YamlParser::CreateFromPath(TestDataFile(&quot;Manifest-Bad-InstallerTypeZip-PortableNotExe_Root.yaml&quot;));
+</a><a href="#h5-2-7" id="h5-2-7" class="i">+
+</a><a href="#h5-2-8" id="h5-2-8" class="i">+    // Regular validation should detect as error
+</a><a href="#h5-2-9" id="h5-2-9" class="i">+    auto errors = ValidateManifest(installerManifest, true);
+</a><a href="#h5-2-10" id="h5-2-10" class="i">+    REQUIRE(errors.size() == 1);
+</a><a href="#h5-2-11" id="h5-2-11" class="i">+    REQUIRE(errors.at(0).ErrorLevel == ValidationError::Level::Error);
+</a><a href="#h5-2-12" id="h5-2-12" class="i">+
+</a><a href="#h5-2-13" id="h5-2-13" class="i">+    errors = ValidateManifest(rootManifest, true);
+</a><a href="#h5-2-14" id="h5-2-14" class="i">+    REQUIRE(errors.size() == 1);
+</a><a href="#h5-2-15" id="h5-2-15" class="i">+    REQUIRE(errors.at(0).ErrorLevel == ValidationError::Level::Error);
+</a><a href="#h5-2-16" id="h5-2-16" class="i">+
+</a><a href="#h5-2-17" id="h5-2-17" class="i">+    // Should not error when full validation is set to false
+</a><a href="#h5-2-18" id="h5-2-18" class="i">+    errors = ValidateManifest(installerManifest, false);
+</a><a href="#h5-2-19" id="h5-2-19" class="i">+    REQUIRE(errors.size() == 0);
+</a><a href="#h5-2-20" id="h5-2-20" class="i">+
+</a><a href="#h5-2-21" id="h5-2-21" class="i">+    errors = ValidateManifest(rootManifest, false);
+</a><a href="#h5-2-22" id="h5-2-22" class="i">+    REQUIRE(errors.size() == 0);
+</a><a href="#h5-2-23" id="h5-2-23" class="i">+}
+</a><a href="#h5-2-24" id="h5-2-24" class="i">+
+</a> TEST_CASE(&quot;ReadManifestAndValidateMsixInstallers_Success&quot;, &quot;[ManifestValidation]&quot;)
+ {
+     TestDataFile testFile(&quot;Manifest-Good-MsixInstaller.yaml&quot;);
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCommonCore/Manifest/ManifestValidation.cpp.html">src/AppInstallerCommonCore/Manifest/ManifestValidation.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Manifest/ManifestValidation.cpp.html">src/AppInstallerCommonCore/Manifest/ManifestValidation.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -71,6 +71,7 @@ namespace AppInstaller::Manifest
+</a>                 { AppInstaller::Manifest::ManifestError::SchemaHeaderManifestTypeMismatch , &quot;The manifest type in the schema header does not match the ManifestType property value in the manifest.&quot;sv },
+                 { AppInstaller::Manifest::ManifestError::SchemaHeaderManifestVersionMismatch, &quot;The manifest version in the schema header does not match the ManifestVersion property value in the manifest.&quot;sv },
+                 { AppInstaller::Manifest::ManifestError::SchemaHeaderUrlPatternMismatch, &quot;The schema header URL does not match the expected pattern.&quot;sv },
+<a href="#h6-0-3" id="h6-0-3" class="i">+                { AppInstaller::Manifest::ManifestError::InvalidPortableFiletype, &quot;The file type of the referenced file is not allowed.&quot;sv },
+</a>             };
+ 
+             return ErrorIdToMessageMap;
+<a href="#h6-1" id="h6-1" class="h">@@ -301,6 +302,7 @@ namespace AppInstaller::Manifest
+</a> 
+                 std::set&lt;std::string&gt; commandAliasSet;
+                 std::set&lt;std::string&gt; relativeFilePathSet;
+<a href="#h6-1-3" id="h6-1-3" class="i">+                bool isPortable = installer.NestedInstallerType == InstallerTypeEnum::Portable;
+</a> 
+                 for (const auto&amp; nestedInstallerFile : installer.NestedInstallerFiles)
+                 {
+<a href="#h6-2" id="h6-2" class="h">@@ -331,6 +333,15 @@ namespace AppInstaller::Manifest
+</a>                         resultErrors.emplace_back(ManifestError::DuplicatePortableCommandAlias, &quot;PortableCommandAlias&quot;);
+                         break;
+                     }
+<a href="#h6-2-3" id="h6-2-3" class="i">+
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+                    // If running full validation, check filetype
+</a><a href="#h6-2-5" id="h6-2-5" class="i">+                    if (fullValidation &amp;&amp; isPortable)
+</a><a href="#h6-2-6" id="h6-2-6" class="i">+                    {
+</a><a href="#h6-2-7" id="h6-2-7" class="i">+                        if (fullPath.has_extension() &amp;&amp; s_AllowedPortableFiletypes.find(fullPath.extension()) == s_AllowedPortableFiletypes.end())
+</a><a href="#h6-2-8" id="h6-2-8" class="i">+                        {
+</a><a href="#h6-2-9" id="h6-2-9" class="i">+                            resultErrors.emplace_back(ManifestError::InvalidPortableFiletype, &quot;RelativeFilePath&quot;, nestedInstallerFile.RelativeFilePath);
+</a><a href="#h6-2-10" id="h6-2-10" class="i">+                        }
+</a><a href="#h6-2-11" id="h6-2-11" class="i">+                    }
+</a>                 }
+             }
+ 
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCommonCore/Public/winget/ManifestValidation.h.html">src/AppInstallerCommonCore/Public/winget/ManifestValidation.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/ManifestValidation.h.html">src/AppInstallerCommonCore/Public/winget/ManifestValidation.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -7,6 +7,7 @@
+</a> 
+ #include &lt;wil/result.h&gt;
+ #include &lt;functional&gt;
+<a href="#h7-0-3" id="h7-0-3" class="i">+#include &lt;unordered_set&gt;
+</a> 
+ namespace YAML { class Node; }
+ 
+<a href="#h7-1" id="h7-1" class="h">@@ -73,6 +74,7 @@ namespace AppInstaller::Manifest
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(SchemaHeaderManifestTypeMismatch);
+         WINGET_DEFINE_RESOURCE_STRINGID(SchemaHeaderManifestVersionMismatch);
+         WINGET_DEFINE_RESOURCE_STRINGID(SchemaHeaderUrlPatternMismatch);
+<a href="#h7-1-3" id="h7-1-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(InvalidPortableFiletype);
+</a>     }
+ 
+     struct ValidationError
+<a href="#h7-2" id="h7-2" class="h">@@ -249,6 +251,8 @@ namespace AppInstaller::Manifest
+</a>         bool m_warningOnly;
+     };
+ 
+<a href="#h7-2-3" id="h7-2-3" class="i">+    static const std::unordered_set&lt;std::filesystem::path&gt; s_AllowedPortableFiletypes = { L&quot;.exe&quot; };
+</a><a href="#h7-2-4" id="h7-2-4" class="i">+
+</a>     // fullValidation: bool to set if manifest validation should perform extra validation that is not required for reading a manifest.
+     std::vector&lt;ValidationError&gt; ValidateManifest(const Manifest&amp; manifest, bool fullValidation = true);
+     std::vector&lt;ValidationError&gt; ValidateManifestLocalization(const ManifestLocalization&amp; localization, bool treatErrorAsWarning = false);
+</pre>
+</div>
+</body>
+</html>

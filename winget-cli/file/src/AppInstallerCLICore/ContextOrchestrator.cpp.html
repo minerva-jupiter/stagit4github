@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>ContextOrchestrator.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> ContextOrchestrator.cpp (23715B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;ExecutionContext.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;ContextOrchestrator.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;COMContext.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Commands/COMCommand.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;Public/ShutdownMonitoring.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;winget/UserSettings.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;Commands/RootCommand.h&gt;
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> namespace AppInstaller::CLI::Execution
+<a href="#l13" class="line" id="l13">     13</a> {
+<a href="#l14" class="line" id="l14">     14</a>     namespace
+<a href="#l15" class="line" id="l15">     15</a>     {
+<a href="#l16" class="line" id="l16">     16</a>         // Operation command queue used by install, uninstall and repair commands.
+<a href="#l17" class="line" id="l17">     17</a>         constexpr static std::string_view OperationCommandQueueName = &quot;operation&quot;sv;
+<a href="#l18" class="line" id="l18">     18</a> 
+<a href="#l19" class="line" id="l19">     19</a>         // Callback function used by worker threads in the queue.
+<a href="#l20" class="line" id="l20">     20</a>         // context must be a pointer to a queue item.
+<a href="#l21" class="line" id="l21">     21</a>         void CALLBACK OrchestratorQueueWorkCallback(PTP_CALLBACK_INSTANCE, PVOID context, PTP_WORK)
+<a href="#l22" class="line" id="l22">     22</a>         {
+<a href="#l23" class="line" id="l23">     23</a>             auto queueItem = reinterpret_cast&lt;OrchestratorQueueItem*&gt;(context);
+<a href="#l24" class="line" id="l24">     24</a>             auto queue = queueItem-&gt;GetCurrentQueue();
+<a href="#l25" class="line" id="l25">     25</a>             if (queue)
+<a href="#l26" class="line" id="l26">     26</a>             {
+<a href="#l27" class="line" id="l27">     27</a>                 queue-&gt;RunItem(queueItem-&gt;GetId());
+<a href="#l28" class="line" id="l28">     28</a>             }
+<a href="#l29" class="line" id="l29">     29</a>         }
+<a href="#l30" class="line" id="l30">     30</a> 
+<a href="#l31" class="line" id="l31">     31</a>         // Get command queue name based on command name.
+<a href="#l32" class="line" id="l32">     32</a>         std::string_view GetCommandQueueName(std::string_view commandName)
+<a href="#l33" class="line" id="l33">     33</a>         {
+<a href="#l34" class="line" id="l34">     34</a>             if (commandName == COMInstallCommand::CommandName || commandName == COMUninstallCommand::CommandName || commandName == COMRepairCommand::CommandName)
+<a href="#l35" class="line" id="l35">     35</a>             {
+<a href="#l36" class="line" id="l36">     36</a>                 return OperationCommandQueueName;
+<a href="#l37" class="line" id="l37">     37</a>             }
+<a href="#l38" class="line" id="l38">     38</a> 
+<a href="#l39" class="line" id="l39">     39</a>             return commandName;
+<a href="#l40" class="line" id="l40">     40</a>         }
+<a href="#l41" class="line" id="l41">     41</a>     }
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a>     ContextOrchestrator&amp; ContextOrchestrator::Instance()
+<a href="#l44" class="line" id="l44">     44</a>     {
+<a href="#l45" class="line" id="l45">     45</a>         static ContextOrchestrator s_instance;
+<a href="#l46" class="line" id="l46">     46</a>         return s_instance;
+<a href="#l47" class="line" id="l47">     47</a>     }
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a>     ContextOrchestrator::ContextOrchestrator() : ContextOrchestrator(std::thread::hardware_concurrency()) {}
+<a href="#l50" class="line" id="l50">     50</a> 
+<a href="#l51" class="line" id="l51">     51</a>     ContextOrchestrator::ContextOrchestrator(unsigned int hardwareConcurrency)
+<a href="#l52" class="line" id="l52">     52</a>     {
+<a href="#l53" class="line" id="l53">     53</a>         ProgressCallback progress;
+<a href="#l54" class="line" id="l54">     54</a>         m_installingWriteableSource = Repository::Source(Repository::PredefinedSource::Installing);
+<a href="#l55" class="line" id="l55">     55</a>         m_installingWriteableSource.Open(progress);
+<a href="#l56" class="line" id="l56">     56</a> 
+<a href="#l57" class="line" id="l57">     57</a>         // Decide how many threads to use for each command.
+<a href="#l58" class="line" id="l58">     58</a>         // We always allow only one install at a time.
+<a href="#l59" class="line" id="l59">     59</a>         // For download, if we can find the number of supported concurrent threads,
+<a href="#l60" class="line" id="l60">     60</a>         // use that as the maximum (up to 3); otherwise use a single thread.
+<a href="#l61" class="line" id="l61">     61</a>         const UINT32 maxDownloadThreads = 3;
+<a href="#l62" class="line" id="l62">     62</a>         const UINT32 operationThreads = 1;
+<a href="#l63" class="line" id="l63">     63</a>         const UINT32 downloadThreads = std::min(hardwareConcurrency &gt; 1 ? hardwareConcurrency - 1 : 1, maxDownloadThreads);
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a>         AddCommandQueue(COMDownloadCommand::CommandName, downloadThreads);
+<a href="#l66" class="line" id="l66">     66</a>         AddCommandQueue(OperationCommandQueueName, operationThreads);
+<a href="#l67" class="line" id="l67">     67</a>     }
+<a href="#l68" class="line" id="l68">     68</a> 
+<a href="#l69" class="line" id="l69">     69</a>     void ContextOrchestrator::AddCommandQueue(std::string_view commandName, UINT32 allowedThreads)
+<a href="#l70" class="line" id="l70">     70</a>     {
+<a href="#l71" class="line" id="l71">     71</a>         std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+<a href="#l72" class="line" id="l72">     72</a>         m_commandQueues.emplace(commandName, std::make_unique&lt;OrchestratorQueue&gt;(*this, commandName, allowedThreads));
+<a href="#l73" class="line" id="l73">     73</a>     }
+<a href="#l74" class="line" id="l74">     74</a> 
+<a href="#l75" class="line" id="l75">     75</a>     _Requires_lock_held_(m_queueLock)
+<a href="#l76" class="line" id="l76">     76</a>     std::shared_ptr&lt;OrchestratorQueueItem&gt; ContextOrchestrator::FindById(const OrchestratorQueueItemId&amp; comparisonQueueItemId)
+<a href="#l77" class="line" id="l77">     77</a>     {
+<a href="#l78" class="line" id="l78">     78</a>         for (const auto&amp; queue : m_commandQueues)
+<a href="#l79" class="line" id="l79">     79</a>         {
+<a href="#l80" class="line" id="l80">     80</a>             auto item = queue.second-&gt;FindById(comparisonQueueItemId);
+<a href="#l81" class="line" id="l81">     81</a>             if (item)
+<a href="#l82" class="line" id="l82">     82</a>             {
+<a href="#l83" class="line" id="l83">     83</a>                 return item;
+<a href="#l84" class="line" id="l84">     84</a>             }
+<a href="#l85" class="line" id="l85">     85</a>         }
+<a href="#l86" class="line" id="l86">     86</a> 
+<a href="#l87" class="line" id="l87">     87</a>         return {};
+<a href="#l88" class="line" id="l88">     88</a>     }
+<a href="#l89" class="line" id="l89">     89</a> 
+<a href="#l90" class="line" id="l90">     90</a>     void ContextOrchestrator::EnqueueAndRunItem(const std::shared_ptr&lt;OrchestratorQueueItem&gt;&amp; item)
+<a href="#l91" class="line" id="l91">     91</a>     {
+<a href="#l92" class="line" id="l92">     92</a>         std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+<a href="#l93" class="line" id="l93">     93</a> 
+<a href="#l94" class="line" id="l94">     94</a>         if (item-&gt;IsOnFirstCommand())
+<a href="#l95" class="line" id="l95">     95</a>         {
+<a href="#l96" class="line" id="l96">     96</a>             // Directly error on attempting to enqueue first time
+<a href="#l97" class="line" id="l97">     97</a>             THROW_HR_IF(ToHRESULT(m_disabledReason), !m_enabled);
+<a href="#l98" class="line" id="l98">     98</a> 
+<a href="#l99" class="line" id="l99">     99</a>             THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_INSTALL_ALREADY_RUNNING), FindById(item-&gt;GetId()));
+<a href="#l100" class="line" id="l100">    100</a> 
+<a href="#l101" class="line" id="l101">    101</a>             // Log the beginning of the item
+<a href="#l102" class="line" id="l102">    102</a>             item-&gt;GetContext().GetThreadGlobals().GetTelemetryLogger().LogCommand(item-&gt;GetItemCommandName());
+<a href="#l103" class="line" id="l103">    103</a>         }
+<a href="#l104" class="line" id="l104">    104</a>         else if (!m_enabled)
+<a href="#l105" class="line" id="l105">    105</a>         {
+<a href="#l106" class="line" id="l106">    106</a>             // On subsequent command enqueues, cancel and complete the item
+<a href="#l107" class="line" id="l107">    107</a>             item-&gt;GetContext().Cancel(m_disabledReason, true);
+<a href="#l108" class="line" id="l108">    108</a>             item-&gt;HandleItemCompletion(*this);
+<a href="#l109" class="line" id="l109">    109</a>         }
+<a href="#l110" class="line" id="l110">    110</a> 
+<a href="#l111" class="line" id="l111">    111</a>         std::string commandQueueName{ GetCommandQueueName(item-&gt;GetNextCommand().Name()) };
+<a href="#l112" class="line" id="l112">    112</a>         m_commandQueues.at(commandQueueName)-&gt;EnqueueAndRunItem(item);
+<a href="#l113" class="line" id="l113">    113</a>     }
+<a href="#l114" class="line" id="l114">    114</a> 
+<a href="#l115" class="line" id="l115">    115</a>     void ContextOrchestrator::RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state)
+<a href="#l116" class="line" id="l116">    116</a>     {
+<a href="#l117" class="line" id="l117">    117</a>         std::lock_guard&lt;std::mutex&gt; lockQueue{ m_queueLock };
+<a href="#l118" class="line" id="l118">    118</a>         for (const auto&amp; queue : m_commandQueues)
+<a href="#l119" class="line" id="l119">    119</a>         {
+<a href="#l120" class="line" id="l120">    120</a>             if (queue.second-&gt;RemoveItemInState(item, state, true))
+<a href="#l121" class="line" id="l121">    121</a>             {
+<a href="#l122" class="line" id="l122">    122</a>                 return;
+<a href="#l123" class="line" id="l123">    123</a>             }
+<a href="#l124" class="line" id="l124">    124</a>         }
+<a href="#l125" class="line" id="l125">    125</a>     }
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a>     void ContextOrchestrator::CancelQueueItem(const OrchestratorQueueItem&amp; item)
+<a href="#l128" class="line" id="l128">    128</a>     {
+<a href="#l129" class="line" id="l129">    129</a>         // Always cancel the item, even if it isn&#39;t running yet, to get the terminationHR set correctly.
+<a href="#l130" class="line" id="l130">    130</a>         item.GetContext().Cancel(CancelReason::Abort, true);
+<a href="#l131" class="line" id="l131">    131</a> 
+<a href="#l132" class="line" id="l132">    132</a>         RemoveItemInState(item, OrchestratorQueueItemState::Queued);
+<a href="#l133" class="line" id="l133">    133</a>     }
+<a href="#l134" class="line" id="l134">    134</a> 
+<a href="#l135" class="line" id="l135">    135</a>     std::shared_ptr&lt;OrchestratorQueueItem&gt; ContextOrchestrator::GetQueueItem(const OrchestratorQueueItemId&amp; queueItemId)
+<a href="#l136" class="line" id="l136">    136</a>     {
+<a href="#l137" class="line" id="l137">    137</a>         std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+<a href="#l138" class="line" id="l138">    138</a> 
+<a href="#l139" class="line" id="l139">    139</a>         return FindById(queueItemId);
+<a href="#l140" class="line" id="l140">    140</a>     }
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>     void ContextOrchestrator::AddItemManifestToInstallingSource(const OrchestratorQueueItem&amp; queueItem)
+<a href="#l143" class="line" id="l143">    143</a>     {
+<a href="#l144" class="line" id="l144">    144</a>         if (queueItem.IsApplicableForInstallingSource())
+<a href="#l145" class="line" id="l145">    145</a>         {
+<a href="#l146" class="line" id="l146">    146</a>             const auto&amp; manifest = queueItem.GetContext().Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l147" class="line" id="l147">    147</a>             m_installingWriteableSource.AddPackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+<a href="#l148" class="line" id="l148">    148</a>         }
+<a href="#l149" class="line" id="l149">    149</a>     }
+<a href="#l150" class="line" id="l150">    150</a> 
+<a href="#l151" class="line" id="l151">    151</a>     void ContextOrchestrator::RemoveItemManifestFromInstallingSource(const OrchestratorQueueItem&amp; queueItem)
+<a href="#l152" class="line" id="l152">    152</a>     {
+<a href="#l153" class="line" id="l153">    153</a>         if (queueItem.IsApplicableForInstallingSource())
+<a href="#l154" class="line" id="l154">    154</a>         {
+<a href="#l155" class="line" id="l155">    155</a>             const auto&amp; manifest = queueItem.GetContext().Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l156" class="line" id="l156">    156</a>             m_installingWriteableSource.RemovePackageVersion(manifest, std::filesystem::path{ manifest.Id + &#39;.&#39; + manifest.Version });
+<a href="#l157" class="line" id="l157">    157</a>         }
+<a href="#l158" class="line" id="l158">    158</a>     }
+<a href="#l159" class="line" id="l159">    159</a> 
+<a href="#l160" class="line" id="l160">    160</a>     void ContextOrchestrator::RegisterForShutdownSynchronization()
+<a href="#l161" class="line" id="l161">    161</a>     {
+<a href="#l162" class="line" id="l162">    162</a>         static std::once_flag registerComponentOnceFlag;
+<a href="#l163" class="line" id="l163">    163</a>         std::call_once(registerComponentOnceFlag,
+<a href="#l164" class="line" id="l164">    164</a>             [&amp;]()
+<a href="#l165" class="line" id="l165">    165</a>             {
+<a href="#l166" class="line" id="l166">    166</a>                 using namespace ShutdownMonitoring;
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a>                 ServerShutdownSynchronization::ComponentSystem component;
+<a href="#l169" class="line" id="l169">    169</a>                 component.BlockNewWork = StaticDisable;
+<a href="#l170" class="line" id="l170">    170</a>                 component.BeginShutdown = StaticCancelQueuedItems;
+<a href="#l171" class="line" id="l171">    171</a>                 component.Wait = StaticWaitForRunningItems;
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a>                 ServerShutdownSynchronization::AddComponent(component);
+<a href="#l174" class="line" id="l174">    174</a>             });
+<a href="#l175" class="line" id="l175">    175</a>     }
+<a href="#l176" class="line" id="l176">    176</a> 
+<a href="#l177" class="line" id="l177">    177</a>     void ContextOrchestrator::StaticDisable(CancelReason reason)
+<a href="#l178" class="line" id="l178">    178</a>     {
+<a href="#l179" class="line" id="l179">    179</a>         Instance().Disable(reason);
+<a href="#l180" class="line" id="l180">    180</a>     }
+<a href="#l181" class="line" id="l181">    181</a> 
+<a href="#l182" class="line" id="l182">    182</a>     void ContextOrchestrator::StaticCancelQueuedItems(CancelReason reason)
+<a href="#l183" class="line" id="l183">    183</a>     {
+<a href="#l184" class="line" id="l184">    184</a>         Instance().CancelQueuedItems(reason);
+<a href="#l185" class="line" id="l185">    185</a>     }
+<a href="#l186" class="line" id="l186">    186</a> 
+<a href="#l187" class="line" id="l187">    187</a>     void ContextOrchestrator::StaticWaitForRunningItems()
+<a href="#l188" class="line" id="l188">    188</a>     {
+<a href="#l189" class="line" id="l189">    189</a>         Instance().WaitForRunningItems();
+<a href="#l190" class="line" id="l190">    190</a>     }
+<a href="#l191" class="line" id="l191">    191</a> 
+<a href="#l192" class="line" id="l192">    192</a>     void ContextOrchestrator::Disable(CancelReason reason)
+<a href="#l193" class="line" id="l193">    193</a>     {
+<a href="#l194" class="line" id="l194">    194</a>         std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+<a href="#l195" class="line" id="l195">    195</a>         m_enabled = false;
+<a href="#l196" class="line" id="l196">    196</a>         m_disabledReason = reason;
+<a href="#l197" class="line" id="l197">    197</a>     }
+<a href="#l198" class="line" id="l198">    198</a> 
+<a href="#l199" class="line" id="l199">    199</a>     void ContextOrchestrator::CancelQueuedItems(CancelReason reason)
+<a href="#l200" class="line" id="l200">    200</a>     {
+<a href="#l201" class="line" id="l201">    201</a>         std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+<a href="#l202" class="line" id="l202">    202</a>         for (const auto&amp; queue : m_commandQueues)
+<a href="#l203" class="line" id="l203">    203</a>         {
+<a href="#l204" class="line" id="l204">    204</a>             queue.second-&gt;CancelAllItems(reason);
+<a href="#l205" class="line" id="l205">    205</a>         }
+<a href="#l206" class="line" id="l206">    206</a>     }
+<a href="#l207" class="line" id="l207">    207</a> 
+<a href="#l208" class="line" id="l208">    208</a>     void ContextOrchestrator::WaitForRunningItems()
+<a href="#l209" class="line" id="l209">    209</a>     {
+<a href="#l210" class="line" id="l210">    210</a>         std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+<a href="#l211" class="line" id="l211">    211</a>         for (const auto&amp; queue : m_commandQueues)
+<a href="#l212" class="line" id="l212">    212</a>         {
+<a href="#l213" class="line" id="l213">    213</a>             queue.second-&gt;WaitForEmptyQueue();
+<a href="#l214" class="line" id="l214">    214</a>         }
+<a href="#l215" class="line" id="l215">    215</a>     }
+<a href="#l216" class="line" id="l216">    216</a> 
+<a href="#l217" class="line" id="l217">    217</a>     bool ContextOrchestrator::WaitForRunningItems(DWORD timeoutMilliseconds)
+<a href="#l218" class="line" id="l218">    218</a>     {
+<a href="#l219" class="line" id="l219">    219</a>         std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+<a href="#l220" class="line" id="l220">    220</a>         for (const auto&amp; queue : m_commandQueues)
+<a href="#l221" class="line" id="l221">    221</a>         {
+<a href="#l222" class="line" id="l222">    222</a>             if (!queue.second-&gt;WaitForEmptyQueue(timeoutMilliseconds))
+<a href="#l223" class="line" id="l223">    223</a>             {
+<a href="#l224" class="line" id="l224">    224</a>                 return false;
+<a href="#l225" class="line" id="l225">    225</a>             }
+<a href="#l226" class="line" id="l226">    226</a>         }
+<a href="#l227" class="line" id="l227">    227</a> 
+<a href="#l228" class="line" id="l228">    228</a>         return true;
+<a href="#l229" class="line" id="l229">    229</a>     }
+<a href="#l230" class="line" id="l230">    230</a> 
+<a href="#l231" class="line" id="l231">    231</a>     std::string ContextOrchestrator::GetStatusString()
+<a href="#l232" class="line" id="l232">    232</a>     {
+<a href="#l233" class="line" id="l233">    233</a>         std::ostringstream stream;
+<a href="#l234" class="line" id="l234">    234</a> 
+<a href="#l235" class="line" id="l235">    235</a>         std::lock_guard&lt;std::mutex&gt; lock{ m_queueLock };
+<a href="#l236" class="line" id="l236">    236</a> 
+<a href="#l237" class="line" id="l237">    237</a>         if (!m_enabled)
+<a href="#l238" class="line" id="l238">    238</a>         {
+<a href="#l239" class="line" id="l239">    239</a>             stream &lt;&lt; &quot;Disabled due to &quot; &lt;&lt; ToIntegral(m_disabledReason) &lt;&lt; std::endl;
+<a href="#l240" class="line" id="l240">    240</a>         }
+<a href="#l241" class="line" id="l241">    241</a> 
+<a href="#l242" class="line" id="l242">    242</a>         for (const auto&amp; queue : m_commandQueues)
+<a href="#l243" class="line" id="l243">    243</a>         {
+<a href="#l244" class="line" id="l244">    244</a>             stream &lt;&lt; queue.second-&gt;GetStatusString();
+<a href="#l245" class="line" id="l245">    245</a>         }
+<a href="#l246" class="line" id="l246">    246</a> 
+<a href="#l247" class="line" id="l247">    247</a>         return stream.str();
+<a href="#l248" class="line" id="l248">    248</a>     }
+<a href="#l249" class="line" id="l249">    249</a> 
+<a href="#l250" class="line" id="l250">    250</a>     _Requires_lock_held_(m_itemLock)
+<a href="#l251" class="line" id="l251">    251</a>     std::deque&lt;std::shared_ptr&lt;OrchestratorQueueItem&gt;&gt;::iterator OrchestratorQueue::FindIteratorById(const OrchestratorQueueItemId&amp; comparisonQueueItemId)
+<a href="#l252" class="line" id="l252">    252</a>     {
+<a href="#l253" class="line" id="l253">    253</a>         return std::find_if(m_queueItems.begin(), m_queueItems.end(), [&amp;comparisonQueueItemId](const std::shared_ptr&lt;OrchestratorQueueItem&gt;&amp; item) {return (item-&gt;GetId().IsSame(comparisonQueueItemId)); });
+<a href="#l254" class="line" id="l254">    254</a>     }
+<a href="#l255" class="line" id="l255">    255</a> 
+<a href="#l256" class="line" id="l256">    256</a>     _Requires_lock_held_(m_itemLock)
+<a href="#l257" class="line" id="l257">    257</a>     std::shared_ptr&lt;OrchestratorQueueItem&gt; OrchestratorQueue::FindById(const OrchestratorQueueItemId&amp; comparisonQueueItemId)
+<a href="#l258" class="line" id="l258">    258</a>     {
+<a href="#l259" class="line" id="l259">    259</a>         auto itr = FindIteratorById(comparisonQueueItemId);
+<a href="#l260" class="line" id="l260">    260</a>         if (itr != m_queueItems.end())
+<a href="#l261" class="line" id="l261">    261</a>         {
+<a href="#l262" class="line" id="l262">    262</a>             return *itr;
+<a href="#l263" class="line" id="l263">    263</a>         }
+<a href="#l264" class="line" id="l264">    264</a> 
+<a href="#l265" class="line" id="l265">    265</a>         return {};
+<a href="#l266" class="line" id="l266">    266</a>     }
+<a href="#l267" class="line" id="l267">    267</a> 
+<a href="#l268" class="line" id="l268">    268</a>     void OrchestratorQueue::EnqueueItem(const std::shared_ptr&lt;OrchestratorQueueItem&gt;&amp; item)
+<a href="#l269" class="line" id="l269">    269</a>     {
+<a href="#l270" class="line" id="l270">    270</a>         {
+<a href="#l271" class="line" id="l271">    271</a>             std::lock_guard&lt;std::mutex&gt; lockQueue{ m_itemLock };
+<a href="#l272" class="line" id="l272">    272</a>             m_queueItems.push_back(item);
+<a href="#l273" class="line" id="l273">    273</a>             m_queueEmpty.ResetEvent();
+<a href="#l274" class="line" id="l274">    274</a>         }
+<a href="#l275" class="line" id="l275">    275</a> 
+<a href="#l276" class="line" id="l276">    276</a>         // Add the package to the Installing source so that it can be queried using the Source interface.
+<a href="#l277" class="line" id="l277">    277</a>         // Only do this the first time the item is queued.
+<a href="#l278" class="line" id="l278">    278</a>         if (item-&gt;IsOnFirstCommand())
+<a href="#l279" class="line" id="l279">    279</a>         {
+<a href="#l280" class="line" id="l280">    280</a>             try
+<a href="#l281" class="line" id="l281">    281</a>             {
+<a href="#l282" class="line" id="l282">    282</a>                 m_orchestrator.AddItemManifestToInstallingSource(*item);
+<a href="#l283" class="line" id="l283">    283</a>             }
+<a href="#l284" class="line" id="l284">    284</a>             catch (...)
+<a href="#l285" class="line" id="l285">    285</a>             {
+<a href="#l286" class="line" id="l286">    286</a>                 std::lock_guard&lt;std::mutex&gt; lockQueue{ m_itemLock };
+<a href="#l287" class="line" id="l287">    287</a>                 auto itr = FindIteratorById(item-&gt;GetId());
+<a href="#l288" class="line" id="l288">    288</a>                 if (itr != m_queueItems.end())
+<a href="#l289" class="line" id="l289">    289</a>                 {
+<a href="#l290" class="line" id="l290">    290</a>                     m_queueItems.erase(itr);
+<a href="#l291" class="line" id="l291">    291</a> 
+<a href="#l292" class="line" id="l292">    292</a>                     if (m_queueItems.empty())
+<a href="#l293" class="line" id="l293">    293</a>                     {
+<a href="#l294" class="line" id="l294">    294</a>                         m_queueEmpty.SetEvent();
+<a href="#l295" class="line" id="l295">    295</a>                     }
+<a href="#l296" class="line" id="l296">    296</a>                 }
+<a href="#l297" class="line" id="l297">    297</a>                 throw;
+<a href="#l298" class="line" id="l298">    298</a>             }
+<a href="#l299" class="line" id="l299">    299</a>         }
+<a href="#l300" class="line" id="l300">    300</a> 
+<a href="#l301" class="line" id="l301">    301</a>         {
+<a href="#l302" class="line" id="l302">    302</a>             std::lock_guard&lt;std::mutex&gt; lockQueue{ m_itemLock };
+<a href="#l303" class="line" id="l303">    303</a>             item-&gt;SetState(OrchestratorQueueItemState::Queued);
+<a href="#l304" class="line" id="l304">    304</a>         }
+<a href="#l305" class="line" id="l305">    305</a>     }
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>     OrchestratorQueue::OrchestratorQueue(ContextOrchestrator&amp; orchestrator, std::string_view commandName, UINT32 allowedThreads) :
+<a href="#l308" class="line" id="l308">    308</a>         m_orchestrator(orchestrator), m_commandName(commandName), m_allowedThreads(allowedThreads)
+<a href="#l309" class="line" id="l309">    309</a>     {
+<a href="#l310" class="line" id="l310">    310</a>         m_threadPool.reset(CreateThreadpool(nullptr));
+<a href="#l311" class="line" id="l311">    311</a>         THROW_LAST_ERROR_IF_NULL(m_threadPool);
+<a href="#l312" class="line" id="l312">    312</a>         m_threadPoolCleanupGroup.reset(CreateThreadpoolCleanupGroup());
+<a href="#l313" class="line" id="l313">    313</a>         THROW_LAST_ERROR_IF_NULL(m_threadPoolCleanupGroup);
+<a href="#l314" class="line" id="l314">    314</a>         InitializeThreadpoolEnvironment(&amp;m_threadPoolCallbackEnviron);
+<a href="#l315" class="line" id="l315">    315</a>         SetThreadpoolCallbackPool(&amp;m_threadPoolCallbackEnviron, m_threadPool.get());
+<a href="#l316" class="line" id="l316">    316</a>         SetThreadpoolCallbackCleanupGroup(&amp;m_threadPoolCallbackEnviron, m_threadPoolCleanupGroup.get(), nullptr);
+<a href="#l317" class="line" id="l317">    317</a> 
+<a href="#l318" class="line" id="l318">    318</a>         SetThreadpoolThreadMaximum(m_threadPool.get(), m_allowedThreads);
+<a href="#l319" class="line" id="l319">    319</a>         THROW_LAST_ERROR_IF(!SetThreadpoolThreadMinimum(m_threadPool.get(), 1));
+<a href="#l320" class="line" id="l320">    320</a>     }
+<a href="#l321" class="line" id="l321">    321</a> 
+<a href="#l322" class="line" id="l322">    322</a>     OrchestratorQueue::~OrchestratorQueue()
+<a href="#l323" class="line" id="l323">    323</a>     {
+<a href="#l324" class="line" id="l324">    324</a>         CloseThreadpoolCleanupGroupMembers(m_threadPoolCleanupGroup.get(), false, nullptr);
+<a href="#l325" class="line" id="l325">    325</a>     }
+<a href="#l326" class="line" id="l326">    326</a> 
+<a href="#l327" class="line" id="l327">    327</a>     void OrchestratorQueue::EnqueueAndRunItem(const std::shared_ptr&lt;OrchestratorQueueItem&gt;&amp; item)
+<a href="#l328" class="line" id="l328">    328</a>     {
+<a href="#l329" class="line" id="l329">    329</a>         EnqueueItem(item);
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>         item-&gt;SetCurrentQueue(this);
+<a href="#l332" class="line" id="l332">    332</a>         auto work = CreateThreadpoolWork(OrchestratorQueueWorkCallback, item.get(), &amp;m_threadPoolCallbackEnviron);
+<a href="#l333" class="line" id="l333">    333</a>         SubmitThreadpoolWork(work);
+<a href="#l334" class="line" id="l334">    334</a>     }
+<a href="#l335" class="line" id="l335">    335</a> 
+<a href="#l336" class="line" id="l336">    336</a>     void OrchestratorQueue::RunItem(const OrchestratorQueueItemId&amp; itemId)
+<a href="#l337" class="line" id="l337">    337</a>     {
+<a href="#l338" class="line" id="l338">    338</a>         try
+<a href="#l339" class="line" id="l339">    339</a>         {
+<a href="#l340" class="line" id="l340">    340</a>             std::shared_ptr&lt;OrchestratorQueueItem&gt; item;
+<a href="#l341" class="line" id="l341">    341</a>             bool isCancelled = false;
+<a href="#l342" class="line" id="l342">    342</a> 
+<a href="#l343" class="line" id="l343">    343</a>             // Try to find the item in the queue.
+<a href="#l344" class="line" id="l344">    344</a>             {
+<a href="#l345" class="line" id="l345">    345</a>                 std::lock_guard&lt;std::mutex&gt; lockQueue{ m_itemLock };
+<a href="#l346" class="line" id="l346">    346</a>                 item = FindById(itemId);
+<a href="#l347" class="line" id="l347">    347</a> 
+<a href="#l348" class="line" id="l348">    348</a>                 if (!item)
+<a href="#l349" class="line" id="l349">    349</a>                 {
+<a href="#l350" class="line" id="l350">    350</a>                     // Item should be in the queue; this shouldn&#39;t happen.
+<a href="#l351" class="line" id="l351">    351</a>                     return;
+<a href="#l352" class="line" id="l352">    352</a>                 }
+<a href="#l353" class="line" id="l353">    353</a> 
+<a href="#l354" class="line" id="l354">    354</a>                 // Only run if the item is queued and not cancelled.
+<a href="#l355" class="line" id="l355">    355</a>                 if (item-&gt;GetState() == OrchestratorQueueItemState::Queued)
+<a href="#l356" class="line" id="l356">    356</a>                 {
+<a href="#l357" class="line" id="l357">    357</a>                     // Mark it as running so that it cannot be cancelled by other threads.
+<a href="#l358" class="line" id="l358">    358</a>                     item-&gt;SetState(OrchestratorQueueItemState::Running);
+<a href="#l359" class="line" id="l359">    359</a>                 }
+<a href="#l360" class="line" id="l360">    360</a>                 else if (item-&gt;GetState() == OrchestratorQueueItemState::Cancelled)
+<a href="#l361" class="line" id="l361">    361</a>                 {
+<a href="#l362" class="line" id="l362">    362</a>                     isCancelled = true;
+<a href="#l363" class="line" id="l363">    363</a>                 }
+<a href="#l364" class="line" id="l364">    364</a>             }
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>             if (isCancelled)
+<a href="#l367" class="line" id="l367">    367</a>             {
+<a href="#l368" class="line" id="l368">    368</a>                 // Do this separate from above block as the Remove function needs to manage the lock.
+<a href="#l369" class="line" id="l369">    369</a>                 RemoveItemInState(*item, OrchestratorQueueItemState::Cancelled, true);
+<a href="#l370" class="line" id="l370">    370</a>             }
+<a href="#l371" class="line" id="l371">    371</a> 
+<a href="#l372" class="line" id="l372">    372</a>             // Get the item&#39;s command and execute it.
+<a href="#l373" class="line" id="l373">    373</a>             HRESULT exceptionHR = S_OK;
+<a href="#l374" class="line" id="l374">    374</a>             try
+<a href="#l375" class="line" id="l375">    375</a>             {
+<a href="#l376" class="line" id="l376">    376</a>                 std::unique_ptr&lt;Command&gt; command = item-&gt;PopNextCommand();
+<a href="#l377" class="line" id="l377">    377</a> 
+<a href="#l378" class="line" id="l378">    378</a>                 std::unique_ptr&lt;AppInstaller::ThreadLocalStorage::PreviousThreadGlobals&gt; setThreadGlobalsToPreviousState = item-&gt;GetContext().SetForCurrentThread();
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>                 command-&gt;ValidateArguments(item-&gt;GetContext().Args);
+<a href="#l381" class="line" id="l381">    381</a> 
+<a href="#l382" class="line" id="l382">    382</a>                 item-&gt;GetContext().EnableSignalTerminationHandler();
+<a href="#l383" class="line" id="l383">    383</a> 
+<a href="#l384" class="line" id="l384">    384</a>                 ::AppInstaller::CLI::ExecuteWithoutLoggingSuccess(item-&gt;GetContext(), command.get());
+<a href="#l385" class="line" id="l385">    385</a>             }
+<a href="#l386" class="line" id="l386">    386</a>             WINGET_CATCH_STORE(exceptionHR, APPINSTALLER_CLI_ERROR_COMMAND_FAILED);
+<a href="#l387" class="line" id="l387">    387</a> 
+<a href="#l388" class="line" id="l388">    388</a>             if (FAILED(exceptionHR))
+<a href="#l389" class="line" id="l389">    389</a>             {
+<a href="#l390" class="line" id="l390">    390</a>                 // Set the termination hr directly from any exception that escaped so that the context always 
+<a href="#l391" class="line" id="l391">    391</a>                 // has the result of the operation no matter how it failed.
+<a href="#l392" class="line" id="l392">    392</a>                 item-&gt;GetContext().SetTerminationHR(exceptionHR);
+<a href="#l393" class="line" id="l393">    393</a>             }
+<a href="#l394" class="line" id="l394">    394</a> 
+<a href="#l395" class="line" id="l395">    395</a>             item-&gt;GetContext().EnableSignalTerminationHandler(false);
+<a href="#l396" class="line" id="l396">    396</a> 
+<a href="#l397" class="line" id="l397">    397</a>             if (FAILED(item-&gt;GetContext().GetTerminationHR()) || item-&gt;IsComplete())
+<a href="#l398" class="line" id="l398">    398</a>             {
+<a href="#l399" class="line" id="l399">    399</a>                 if (SUCCEEDED(item-&gt;GetContext().GetTerminationHR()))
+<a href="#l400" class="line" id="l400">    400</a>                 {
+<a href="#l401" class="line" id="l401">    401</a>                     item-&gt;GetContext().GetThreadGlobals().GetTelemetryLogger().LogCommandSuccess(item-&gt;GetItemCommandName());
+<a href="#l402" class="line" id="l402">    402</a>                 }
+<a href="#l403" class="line" id="l403">    403</a> 
+<a href="#l404" class="line" id="l404">    404</a>                 RemoveItemInState(*item, OrchestratorQueueItemState::Running, true);
+<a href="#l405" class="line" id="l405">    405</a>             }
+<a href="#l406" class="line" id="l406">    406</a>             else
+<a href="#l407" class="line" id="l407">    407</a>             {
+<a href="#l408" class="line" id="l408">    408</a>                 // Remove item from this queue and add it to the queue for the next command.
+<a href="#l409" class="line" id="l409">    409</a>                 RemoveItemInState(*item, OrchestratorQueueItemState::Running, false);
+<a href="#l410" class="line" id="l410">    410</a>                 m_orchestrator.EnqueueAndRunItem(item);
+<a href="#l411" class="line" id="l411">    411</a>             }
+<a href="#l412" class="line" id="l412">    412</a>         }
+<a href="#l413" class="line" id="l413">    413</a>         catch (...)
+<a href="#l414" class="line" id="l414">    414</a>         {
+<a href="#l415" class="line" id="l415">    415</a>         }
+<a href="#l416" class="line" id="l416">    416</a>     }
+<a href="#l417" class="line" id="l417">    417</a> 
+<a href="#l418" class="line" id="l418">    418</a>     void OrchestratorQueue::CancelAllItems(CancelReason reason)
+<a href="#l419" class="line" id="l419">    419</a>     {
+<a href="#l420" class="line" id="l420">    420</a>         std::lock_guard&lt;std::mutex&gt; lockQueue{ m_itemLock };
+<a href="#l421" class="line" id="l421">    421</a> 
+<a href="#l422" class="line" id="l422">    422</a>         for (auto itr = m_queueItems.begin(); itr != m_queueItems.end(); itr++)
+<a href="#l423" class="line" id="l423">    423</a>         {
+<a href="#l424" class="line" id="l424">    424</a>             auto&amp; item = *itr;
+<a href="#l425" class="line" id="l425">    425</a> 
+<a href="#l426" class="line" id="l426">    426</a>             item-&gt;GetContext().Cancel(reason, true);
+<a href="#l427" class="line" id="l427">    427</a> 
+<a href="#l428" class="line" id="l428">    428</a>             // This mimics ContextOrchestrator::CancelQueueItem, which speeds up the process of cancelling queued items
+<a href="#l429" class="line" id="l429">    429</a>             if (item-&gt;GetState() == OrchestratorQueueItemState::Queued)
+<a href="#l430" class="line" id="l430">    430</a>             {
+<a href="#l431" class="line" id="l431">    431</a>                 item-&gt;SetState(OrchestratorQueueItemState::Cancelled);
+<a href="#l432" class="line" id="l432">    432</a>                 item-&gt;HandleItemCompletion(m_orchestrator);
+<a href="#l433" class="line" id="l433">    433</a>             }
+<a href="#l434" class="line" id="l434">    434</a>         }
+<a href="#l435" class="line" id="l435">    435</a>     }
+<a href="#l436" class="line" id="l436">    436</a> 
+<a href="#l437" class="line" id="l437">    437</a>     void OrchestratorQueue::WaitForEmptyQueue()
+<a href="#l438" class="line" id="l438">    438</a>     {
+<a href="#l439" class="line" id="l439">    439</a>         m_queueEmpty.wait();
+<a href="#l440" class="line" id="l440">    440</a>     }
+<a href="#l441" class="line" id="l441">    441</a> 
+<a href="#l442" class="line" id="l442">    442</a>     bool OrchestratorQueue::WaitForEmptyQueue(DWORD timeoutMilliseconds)
+<a href="#l443" class="line" id="l443">    443</a>     {
+<a href="#l444" class="line" id="l444">    444</a>         return m_queueEmpty.wait(timeoutMilliseconds);
+<a href="#l445" class="line" id="l445">    445</a>     }
+<a href="#l446" class="line" id="l446">    446</a> 
+<a href="#l447" class="line" id="l447">    447</a>     std::string OrchestratorQueue::GetStatusString()
+<a href="#l448" class="line" id="l448">    448</a>     {
+<a href="#l449" class="line" id="l449">    449</a>         std::ostringstream stream;
+<a href="#l450" class="line" id="l450">    450</a>         stream &lt;&lt; m_commandName &lt;&lt; &#39;[&#39; &lt;&lt; m_allowedThreads &lt;&lt; &quot;]\n&quot;;
+<a href="#l451" class="line" id="l451">    451</a> 
+<a href="#l452" class="line" id="l452">    452</a>         std::map&lt;OrchestratorQueueItemState, size_t&gt; stateCounts;
+<a href="#l453" class="line" id="l453">    453</a>         stateCounts[OrchestratorQueueItemState::NotQueued] = 0;
+<a href="#l454" class="line" id="l454">    454</a>         stateCounts[OrchestratorQueueItemState::Queued] = 0;
+<a href="#l455" class="line" id="l455">    455</a>         stateCounts[OrchestratorQueueItemState::Running] = 0;
+<a href="#l456" class="line" id="l456">    456</a>         stateCounts[OrchestratorQueueItemState::Cancelled] = 0;
+<a href="#l457" class="line" id="l457">    457</a> 
+<a href="#l458" class="line" id="l458">    458</a>         {
+<a href="#l459" class="line" id="l459">    459</a>             std::lock_guard&lt;std::mutex&gt; lock{ m_itemLock };
+<a href="#l460" class="line" id="l460">    460</a> 
+<a href="#l461" class="line" id="l461">    461</a>             for (const auto&amp; item : m_queueItems)
+<a href="#l462" class="line" id="l462">    462</a>             {
+<a href="#l463" class="line" id="l463">    463</a>                 stateCounts[item-&gt;GetState()] += 1;
+<a href="#l464" class="line" id="l464">    464</a>             }
+<a href="#l465" class="line" id="l465">    465</a>         }
+<a href="#l466" class="line" id="l466">    466</a> 
+<a href="#l467" class="line" id="l467">    467</a>         for (const auto&amp; stateCount : stateCounts)
+<a href="#l468" class="line" id="l468">    468</a>         {
+<a href="#l469" class="line" id="l469">    469</a>             stream &lt;&lt; &quot;  &quot; &lt;&lt; ToString(stateCount.first) &lt;&lt; &quot; : &quot; &lt;&lt; stateCount.second &lt;&lt; std::endl;
+<a href="#l470" class="line" id="l470">    470</a>         }
+<a href="#l471" class="line" id="l471">    471</a> 
+<a href="#l472" class="line" id="l472">    472</a>         return stream.str();
+<a href="#l473" class="line" id="l473">    473</a>     }
+<a href="#l474" class="line" id="l474">    474</a> 
+<a href="#l475" class="line" id="l475">    475</a>     bool OrchestratorQueue::RemoveItemInState(const OrchestratorQueueItem&amp; item, OrchestratorQueueItemState state, bool isGlobalRemove)
+<a href="#l476" class="line" id="l476">    476</a>     {
+<a href="#l477" class="line" id="l477">    477</a>         // OrchestratorQueueItemState::Running items should only be removed by the thread that ran the item.
+<a href="#l478" class="line" id="l478">    478</a>         // Queued items can be removed by any thread.
+<a href="#l479" class="line" id="l479">    479</a>         // NotQueued items should not be removed since, if found in the queue, they are in the process of being queued by another thread.
+<a href="#l480" class="line" id="l480">    480</a>         bool foundItem = false;
+<a href="#l481" class="line" id="l481">    481</a> 
+<a href="#l482" class="line" id="l482">    482</a>         {
+<a href="#l483" class="line" id="l483">    483</a>             std::lock_guard&lt;std::mutex&gt; lockQueue{ m_itemLock };
+<a href="#l484" class="line" id="l484">    484</a> 
+<a href="#l485" class="line" id="l485">    485</a>             // Look for the item. It&#39;s ok if the item is not found since multiple listeners may try to remove the same item.
+<a href="#l486" class="line" id="l486">    486</a>             auto itr = FindIteratorById(item.GetId());
+<a href="#l487" class="line" id="l487">    487</a>             if (itr != m_queueItems.end() &amp;&amp; (*itr)-&gt;GetState() == state)
+<a href="#l488" class="line" id="l488">    488</a>             {
+<a href="#l489" class="line" id="l489">    489</a>                 foundItem = true;
+<a href="#l490" class="line" id="l490">    490</a> 
+<a href="#l491" class="line" id="l491">    491</a>                 // The item must only be removed from the queue by the thread that runs
+<a href="#l492" class="line" id="l492">    492</a>                 // it, because the callback uses it. If any other thread tries to remove
+<a href="#l493" class="line" id="l493">    493</a>                 // it, we simply mark it as cancelled.
+<a href="#l494" class="line" id="l494">    494</a>                 if (state == OrchestratorQueueItemState::Running || state == OrchestratorQueueItemState::Cancelled)
+<a href="#l495" class="line" id="l495">    495</a>                 {
+<a href="#l496" class="line" id="l496">    496</a>                     (*itr)-&gt;SetCurrentQueue(nullptr);
+<a href="#l497" class="line" id="l497">    497</a>                     m_queueItems.erase(itr);
+<a href="#l498" class="line" id="l498">    498</a> 
+<a href="#l499" class="line" id="l499">    499</a>                     if (m_queueItems.empty())
+<a href="#l500" class="line" id="l500">    500</a>                     {
+<a href="#l501" class="line" id="l501">    501</a>                         m_queueEmpty.SetEvent();
+<a href="#l502" class="line" id="l502">    502</a>                     }
+<a href="#l503" class="line" id="l503">    503</a>                 }
+<a href="#l504" class="line" id="l504">    504</a>                 else if (state == OrchestratorQueueItemState::Queued)
+<a href="#l505" class="line" id="l505">    505</a>                 {
+<a href="#l506" class="line" id="l506">    506</a>                     (*itr)-&gt;SetState(OrchestratorQueueItemState::Cancelled);
+<a href="#l507" class="line" id="l507">    507</a>                 }
+<a href="#l508" class="line" id="l508">    508</a>             }
+<a href="#l509" class="line" id="l509">    509</a>         }
+<a href="#l510" class="line" id="l510">    510</a> 
+<a href="#l511" class="line" id="l511">    511</a>         if (foundItem &amp;&amp; isGlobalRemove)
+<a href="#l512" class="line" id="l512">    512</a>         {
+<a href="#l513" class="line" id="l513">    513</a>             item.HandleItemCompletion(m_orchestrator);
+<a href="#l514" class="line" id="l514">    514</a>         }
+<a href="#l515" class="line" id="l515">    515</a> 
+<a href="#l516" class="line" id="l516">    516</a>         return foundItem;
+<a href="#l517" class="line" id="l517">    517</a>     }
+<a href="#l518" class="line" id="l518">    518</a> 
+<a href="#l519" class="line" id="l519">    519</a>     bool OrchestratorQueueItemId::IsSame(const OrchestratorQueueItemId&amp; comparedId) const
+<a href="#l520" class="line" id="l520">    520</a>     {
+<a href="#l521" class="line" id="l521">    521</a>         return ((GetPackageId() == comparedId.GetPackageId()) &amp;&amp; 
+<a href="#l522" class="line" id="l522">    522</a>                 (GetSourceId() == comparedId.GetSourceId()));
+<a href="#l523" class="line" id="l523">    523</a>     }
+<a href="#l524" class="line" id="l524">    524</a> 
+<a href="#l525" class="line" id="l525">    525</a>     std::string_view OrchestratorQueueItem::GetItemCommandName() const
+<a href="#l526" class="line" id="l526">    526</a>     {
+<a href="#l527" class="line" id="l527">    527</a>         // The goal is that these should match the winget.exe commands for easy correlation.
+<a href="#l528" class="line" id="l528">    528</a>         switch (m_operationType)
+<a href="#l529" class="line" id="l529">    529</a>         {
+<a href="#l530" class="line" id="l530">    530</a>         case PackageOperationType::Search: return &quot;root:search&quot;sv;
+<a href="#l531" class="line" id="l531">    531</a>         case PackageOperationType::Install: return &quot;root:install&quot;sv;
+<a href="#l532" class="line" id="l532">    532</a>         case PackageOperationType::Upgrade: return &quot;root:upgrade&quot;sv;
+<a href="#l533" class="line" id="l533">    533</a>         case PackageOperationType::Uninstall: return &quot;root:uninstall&quot;sv;
+<a href="#l534" class="line" id="l534">    534</a>         case PackageOperationType::Download: return &quot;root:download&quot;sv;
+<a href="#l535" class="line" id="l535">    535</a>         case PackageOperationType::Repair: return &quot;root:repair&quot;sv;
+<a href="#l536" class="line" id="l536">    536</a>         default: return &quot;unknown&quot;;
+<a href="#l537" class="line" id="l537">    537</a>         }
+<a href="#l538" class="line" id="l538">    538</a>     }
+<a href="#l539" class="line" id="l539">    539</a> 
+<a href="#l540" class="line" id="l540">    540</a>     void OrchestratorQueueItem::HandleItemCompletion(ContextOrchestrator&amp; orchestrator) const
+<a href="#l541" class="line" id="l541">    541</a>     {
+<a href="#l542" class="line" id="l542">    542</a>         orchestrator.RemoveItemManifestFromInstallingSource(*this);
+<a href="#l543" class="line" id="l543">    543</a>         GetCompletedEvent().SetEvent();
+<a href="#l544" class="line" id="l544">    544</a>     }
+<a href="#l545" class="line" id="l545">    545</a> 
+<a href="#l546" class="line" id="l546">    546</a>     std::unique_ptr&lt;OrchestratorQueueItem&gt; OrchestratorQueueItemFactory::CreateItemForInstall(std::wstring packageId, std::wstring sourceId, std::unique_ptr&lt;COMContext&gt; context, bool isUpgrade)
+<a href="#l547" class="line" id="l547">    547</a>     {
+<a href="#l548" class="line" id="l548">    548</a>         std::unique_ptr&lt;OrchestratorQueueItem&gt; item = std::make_unique&lt;OrchestratorQueueItem&gt;(OrchestratorQueueItemId(std::move(packageId), std::move(sourceId)), std::move(context), isUpgrade ? PackageOperationType::Upgrade : PackageOperationType::Install);
+<a href="#l549" class="line" id="l549">    549</a>         item-&gt;AddCommand(std::make_unique&lt;::AppInstaller::CLI::COMDownloadCommand&gt;(RootCommand::CommandName));
+<a href="#l550" class="line" id="l550">    550</a>         item-&gt;AddCommand(std::make_unique&lt;::AppInstaller::CLI::COMInstallCommand&gt;(RootCommand::CommandName));
+<a href="#l551" class="line" id="l551">    551</a>         return item;
+<a href="#l552" class="line" id="l552">    552</a>     }
+<a href="#l553" class="line" id="l553">    553</a> 
+<a href="#l554" class="line" id="l554">    554</a>     std::unique_ptr&lt;OrchestratorQueueItem&gt; OrchestratorQueueItemFactory::CreateItemForUninstall(std::wstring packageId, std::wstring sourceId, std::unique_ptr&lt;COMContext&gt; context)
+<a href="#l555" class="line" id="l555">    555</a>     {
+<a href="#l556" class="line" id="l556">    556</a>         std::unique_ptr&lt;OrchestratorQueueItem&gt; item = std::make_unique&lt;OrchestratorQueueItem&gt;(OrchestratorQueueItemId(std::move(packageId), std::move(sourceId)), std::move(context), PackageOperationType::Uninstall);
+<a href="#l557" class="line" id="l557">    557</a>         item-&gt;AddCommand(std::make_unique&lt;::AppInstaller::CLI::COMUninstallCommand&gt;(RootCommand::CommandName));
+<a href="#l558" class="line" id="l558">    558</a>         return item;
+<a href="#l559" class="line" id="l559">    559</a>     }
+<a href="#l560" class="line" id="l560">    560</a> 
+<a href="#l561" class="line" id="l561">    561</a>     std::unique_ptr&lt;OrchestratorQueueItem&gt; OrchestratorQueueItemFactory::CreateItemForSearch(std::wstring packageId, std::wstring sourceId, std::unique_ptr&lt;COMContext&gt; context)
+<a href="#l562" class="line" id="l562">    562</a>     {
+<a href="#l563" class="line" id="l563">    563</a>         std::unique_ptr&lt;OrchestratorQueueItem&gt; item = std::make_unique&lt;OrchestratorQueueItem&gt;(OrchestratorQueueItemId(std::move(packageId), std::move(sourceId)), std::move(context), PackageOperationType::Search);
+<a href="#l564" class="line" id="l564">    564</a>         return item;
+<a href="#l565" class="line" id="l565">    565</a>     }
+<a href="#l566" class="line" id="l566">    566</a> 
+<a href="#l567" class="line" id="l567">    567</a>     std::unique_ptr&lt;OrchestratorQueueItem&gt; OrchestratorQueueItemFactory::CreateItemForDownload(std::wstring packageId, std::wstring sourceId, std::unique_ptr&lt;COMContext&gt; context)
+<a href="#l568" class="line" id="l568">    568</a>     {
+<a href="#l569" class="line" id="l569">    569</a>         std::unique_ptr&lt;OrchestratorQueueItem&gt; item = std::make_unique&lt;OrchestratorQueueItem&gt;(OrchestratorQueueItemId(std::move(packageId), std::move(sourceId)), std::move(context), PackageOperationType::Download);
+<a href="#l570" class="line" id="l570">    570</a>         item-&gt;AddCommand(std::make_unique&lt;::AppInstaller::CLI::COMDownloadCommand&gt;(RootCommand::CommandName));
+<a href="#l571" class="line" id="l571">    571</a>         return item;
+<a href="#l572" class="line" id="l572">    572</a>     }
+<a href="#l573" class="line" id="l573">    573</a> 
+<a href="#l574" class="line" id="l574">    574</a>     std::unique_ptr&lt;OrchestratorQueueItem&gt; OrchestratorQueueItemFactory::CreateItemForRepair(std::wstring packageId, std::wstring sourceId, std::unique_ptr&lt;COMContext&gt; context)
+<a href="#l575" class="line" id="l575">    575</a>     {
+<a href="#l576" class="line" id="l576">    576</a>         std::unique_ptr&lt;OrchestratorQueueItem&gt; item = std::make_unique&lt;OrchestratorQueueItem&gt;(OrchestratorQueueItemId(std::move(packageId), std::move(sourceId)), std::move(context), PackageOperationType::Repair);
+<a href="#l577" class="line" id="l577">    577</a>         item-&gt;AddCommand(std::make_unique&lt;::AppInstaller::CLI::COMRepairCommand&gt;(RootCommand::CommandName));
+<a href="#l578" class="line" id="l578">    578</a>         return item;
+<a href="#l579" class="line" id="l579">    579</a>     }
+<a href="#l580" class="line" id="l580">    580</a> 
+<a href="#l581" class="line" id="l581">    581</a>     std::string_view ToString(OrchestratorQueueItemState state)
+<a href="#l582" class="line" id="l582">    582</a>     {
+<a href="#l583" class="line" id="l583">    583</a>         switch (state)
+<a href="#l584" class="line" id="l584">    584</a>         {
+<a href="#l585" class="line" id="l585">    585</a>         case OrchestratorQueueItemState::NotQueued: return &quot;NotQueued&quot;;
+<a href="#l586" class="line" id="l586">    586</a>         case OrchestratorQueueItemState::Queued: return &quot;Queued&quot;;
+<a href="#l587" class="line" id="l587">    587</a>         case OrchestratorQueueItemState::Running: return &quot;Running&quot;;
+<a href="#l588" class="line" id="l588">    588</a>         case OrchestratorQueueItemState::Cancelled: return &quot;Cancelled&quot;;
+<a href="#l589" class="line" id="l589">    589</a>         default: return &quot;Unknown&quot;;
+<a href="#l590" class="line" id="l590">    590</a>         }
+<a href="#l591" class="line" id="l591">    591</a>     }
+<a href="#l592" class="line" id="l592">    592</a> }
+</pre>
+</div>
+</body>
+</html>

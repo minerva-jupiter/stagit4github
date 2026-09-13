@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Rewrite ApplyACL to allow for SYSTEM to participate. Grant SYSTEM full access to Temp as that is where we install from. (#2370) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/1180ae60a6d654e37672f73720e97861b4f5db75.html">1180ae60a6d654e37672f73720e97861b4f5db75</a>
+<b>parent</b> <a href="../commit/0a66b935c728292b03d0e606483ac351cfeddb10.html">0a66b935c728292b03d0e606483ac351cfeddb10</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 26 Jul 2022 16:41:05 -0700
+
+Rewrite ApplyACL to allow for SYSTEM to participate. Grant SYSTEM full access to Temp as that is where we install from. (#2370)
+
+Add support for `SYSTEM` to the explicit ACLs, and give `SYSTEM` full control on the `Temp` directory.
+
+`ApplyACL` and the data that it uses are basically re-written to support a more dynamic list of ACEs.  Also ensures that if the process is running as `SYSTEM`, it doesn&#39;t attempt to write the same ACE multiple times.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/Runtime.cpp</a></td><td> | </td><td class="num">23</td><td><span class="i">++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a></td><td> | </td><td class="num">21</td><td><span class="i">++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Runtime.cpp</a></td><td> | </td><td class="num">121</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------------------</span></td></tr>
+</table></pre><pre>3 files changed, 108 insertions(+), 57 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/Runtime.cpp.html">src/AppInstallerCLITests/Runtime.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Runtime.cpp.html">src/AppInstallerCLITests/Runtime.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -31,7 +31,7 @@ TEST_CASE(&quot;ApplyACL_CurrentUserOwner&quot;, &quot;[runtime]&quot;)
+</a>     TempDirectory directory(&quot;CurrentUserOwner&quot;);
+     PathDetails details;
+     details.Path = directory;
+<a href="#h0-0-3" id="h0-0-3" class="d">-    details.CurrentUser = ACEPermissions::Owner;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+    details.SetOwner(ACEPrincipal::CurrentUser);
+</a> 
+     details.ApplyACL();
+ 
+<a href="#h0-1" id="h0-1" class="h">@@ -43,7 +43,7 @@ TEST_CASE(&quot;ApplyACL_RemoveWriteForUser&quot;, &quot;[runtime]&quot;)
+</a>     TempDirectory directory(&quot;CurrentUserCantWrite&quot;);
+     PathDetails details;
+     details.Path = directory;
+<a href="#h0-1-3" id="h0-1-3" class="d">-    details.CurrentUser = ACEPermissions::ReadExecute;
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+    details.ACL[ACEPrincipal::CurrentUser] = ACEPermissions::ReadExecute;
+</a> 
+     details.ApplyACL();
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -55,7 +55,7 @@ TEST_CASE(&quot;ApplyACL_AdminOwner&quot;, &quot;[runtime]&quot;)
+</a>     TempDirectory directory(&quot;AdminOwner&quot;);
+     PathDetails details;
+     details.Path = directory;
+<a href="#h0-2-3" id="h0-2-3" class="d">-    details.Admins = ACEPermissions::Owner;
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+    details.SetOwner(ACEPrincipal::Admins);
+</a> 
+     if (IsRunningAsAdmin())
+     {
+<a href="#h0-3" id="h0-3" class="h">@@ -75,9 +75,22 @@ TEST_CASE(&quot;ApplyACL_BothOwners&quot;, &quot;[runtime]&quot;)
+</a>     TempDirectory directory(&quot;AdminOwner&quot;);
+     PathDetails details;
+     details.Path = directory;
+<a href="#h0-3-3" id="h0-3-3" class="d">-    details.CurrentUser = ACEPermissions::Owner;
+</a><a href="#h0-3-4" id="h0-3-4" class="d">-    details.Admins = ACEPermissions::Owner;
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+    details.ACL[ACEPrincipal::CurrentUser] = ACEPermissions::ReadExecute;
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+    details.ACL[ACEPrincipal::System] = ACEPermissions::All;
+</a> 
+     // Both cannot be owners
+     REQUIRE_THROWS_HR(details.ApplyACL(), HRESULT_FROM_WIN32(ERROR_INVALID_STATE));
+ }
+<a href="#h0-3-11" id="h0-3-11" class="i">+
+</a><a href="#h0-3-12" id="h0-3-12" class="i">+TEST_CASE(&quot;ApplyACL_CurrentUserOwner_SystemAll&quot;, &quot;[runtime]&quot;)
+</a><a href="#h0-3-13" id="h0-3-13" class="i">+{
+</a><a href="#h0-3-14" id="h0-3-14" class="i">+    TempDirectory directory(&quot;UserAndSystem&quot;);
+</a><a href="#h0-3-15" id="h0-3-15" class="i">+    PathDetails details;
+</a><a href="#h0-3-16" id="h0-3-16" class="i">+    details.Path = directory;
+</a><a href="#h0-3-17" id="h0-3-17" class="i">+    details.SetOwner(ACEPrincipal::CurrentUser);
+</a><a href="#h0-3-18" id="h0-3-18" class="i">+    details.ACL[ACEPrincipal::System] = ACEPermissions::All;
+</a><a href="#h0-3-19" id="h0-3-19" class="i">+
+</a><a href="#h0-3-20" id="h0-3-20" class="i">+    details.ApplyACL();
+</a><a href="#h0-3-21" id="h0-3-21" class="i">+
+</a><a href="#h0-3-22" id="h0-3-22" class="i">+    REQUIRE(CanWriteToPath(directory));
+</a><a href="#h0-3-23" id="h0-3-23" class="i">+}
+</a><b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Public/AppInstallerRuntime.h.html">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerRuntime.h.html">src/AppInstallerCommonCore/Public/AppInstallerRuntime.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -64,6 +64,14 @@ namespace AppInstaller::Runtime
+</a>         PortableLinksMachineLocation,
+     };
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+    // The principal that an ACE applies to.
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    enum class ACEPrincipal : uint32_t
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    {
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        CurrentUser,
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+        Admins,
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        System,
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    };
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+
+</a>     // The permissions granted to a specific ACE.
+     enum class ACEPermissions : uint32_t
+     {
+<a href="#h1-1" id="h1-1" class="h">@@ -75,8 +83,8 @@ namespace AppInstaller::Runtime
+</a>         ReadWrite = Read | Write,
+         ReadExecute = Read | Execute,
+         ReadWriteExecute = Read | Write | Execute,
+<a href="#h1-1-3" id="h1-1-3" class="d">-        // Owner means that full control will be granted
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-        Owner = 0xFFFFFFFF
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+        // All means that full control will be granted
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+        All = 0xFFFFFFFF
+</a>     };
+ 
+     DEFINE_ENUM_FLAG_OPERATORS(ACEPermissions);
+<a href="#h1-2" id="h1-2" class="h">@@ -85,10 +93,13 @@ namespace AppInstaller::Runtime
+</a>     struct PathDetails
+     {
+         std::filesystem::path Path;
+<a href="#h1-2-3" id="h1-2-3" class="d">-        // Default to creating the directory with inherited permissions
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+        // Default to creating the directory with inherited ownership and permissions
+</a>         bool Create = true;
+<a href="#h1-2-6" id="h1-2-6" class="d">-        ACEPermissions CurrentUser = ACEPermissions::None;
+</a><a href="#h1-2-7" id="h1-2-7" class="d">-        ACEPermissions Admins = ACEPermissions::None;
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        std::optional&lt;ACEPrincipal&gt; Owner;
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+        std::map&lt;ACEPrincipal, ACEPermissions&gt; ACL;
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+        // Shorthand for setting Owner and giving them ACEPermissions::All
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+        void SetOwner(ACEPrincipal owner);
+</a> 
+         // Determines if the ACL should be applied.
+         bool ShouldApplyACL() const;
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -198,7 +198,7 @@ namespace AppInstaller::Runtime
+</a>         {
+             DWORD result = 0;
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-            if (permissions == ACEPermissions::Owner)
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+            if (permissions == ACEPermissions::All)
+</a>             {
+                 result |= GENERIC_ALL;
+             }
+<a href="#h2-1" id="h2-1" class="h">@@ -222,6 +222,14 @@ namespace AppInstaller::Runtime
+</a> 
+             return result;
+         }
+<a href="#h2-1-3" id="h2-1-3" class="i">+
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        // Contains the information about an ACE entry for a given principal.
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+        struct ACEDetails
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+        {
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+            ACEPrincipal Principal;
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+            PSID SID;
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+            TRUSTEE_TYPE TrusteeType;
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+        };
+</a>     }
+ 
+     bool IsRunningInPackagedContext()
+<a href="#h2-2" id="h2-2" class="h">@@ -329,69 +337,86 @@ namespace AppInstaller::Runtime
+</a>         s_runtimePathStateName.emplace(std::move(suitablePathPart));
+     }
+ 
+<a href="#h2-2-3" id="h2-2-3" class="i">+    void PathDetails::SetOwner(ACEPrincipal owner)
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+    {
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+        Owner = owner;
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+        ACL[owner] = ACEPermissions::All;
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+    }
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+
+</a>     bool PathDetails::ShouldApplyACL() const
+     {
+         // Could be expanded to actually check the current owner/ACL on the path, but isn&#39;t worth it currently
+<a href="#h2-2-12" id="h2-2-12" class="d">-        return (CurrentUser != ACEPermissions::None || Admins != ACEPermissions::None);
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+        return !ACL.empty();
+</a>     }
+ 
+     void PathDetails::ApplyACL() const
+     {
+<a href="#h2-2-18" id="h2-2-18" class="d">-        THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_INVALID_STATE), CurrentUser == ACEPermissions::Owner &amp;&amp; Admins == ACEPermissions::Owner);
+</a><a href="#h2-2-19" id="h2-2-19" class="i">+        bool hasCurrentUser = ACL.count(ACEPrincipal::CurrentUser) != 0;
+</a><a href="#h2-2-20" id="h2-2-20" class="i">+        bool hasSystem = ACL.count(ACEPrincipal::System) != 0;
+</a> 
+<a href="#h2-2-22" id="h2-2-22" class="d">-        ULONG entriesCount = 0;
+</a><a href="#h2-2-23" id="h2-2-23" class="d">-        EXPLICIT_ACCESS_W explicitAccess[2];
+</a><a href="#h2-2-24" id="h2-2-24" class="i">+        // Configuring permissions for both CurrentUser and SYSTEM while not having owner set as one of them is not valid because
+</a><a href="#h2-2-25" id="h2-2-25" class="i">+        // below we use only the owner permissions in the case of running as SYSTEM.
+</a><a href="#h2-2-26" id="h2-2-26" class="i">+        if ((hasCurrentUser &amp;&amp; hasSystem) &amp;&amp;
+</a><a href="#h2-2-27" id="h2-2-27" class="i">+            (!Owner || (Owner.value() != ACEPrincipal::CurrentUser &amp;&amp; Owner.value() != ACEPrincipal::System)))
+</a><a href="#h2-2-28" id="h2-2-28" class="i">+        {
+</a><a href="#h2-2-29" id="h2-2-29" class="i">+            THROW_HR(HRESULT_FROM_WIN32(ERROR_INVALID_STATE));
+</a><a href="#h2-2-30" id="h2-2-30" class="i">+        }
+</a> 
+<a href="#h2-2-32" id="h2-2-32" class="d">-        decltype(wil::get_token_information&lt;TOKEN_USER&gt;()) userToken;
+</a><a href="#h2-2-33" id="h2-2-33" class="i">+        auto userToken = wil::get_token_information&lt;TOKEN_USER&gt;();
+</a>         auto adminSID = wil::make_static_sid(SECURITY_NT_AUTHORITY, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS);
+<a href="#h2-2-35" id="h2-2-35" class="i">+        auto systemSID = wil::make_static_sid(SECURITY_NT_AUTHORITY, SECURITY_LOCAL_SYSTEM_RID);
+</a>         PSID ownerSID = nullptr;
+ 
+<a href="#h2-2-38" id="h2-2-38" class="d">-        if (CurrentUser != ACEPermissions::None)
+</a><a href="#h2-2-39" id="h2-2-39" class="i">+        ACEDetails aceDetails[] =
+</a>         {
+<a href="#h2-2-41" id="h2-2-41" class="d">-            userToken = wil::get_token_information&lt;TOKEN_USER&gt;();
+</a><a href="#h2-2-42" id="h2-2-42" class="i">+            { ACEPrincipal::CurrentUser, userToken-&gt;User.Sid, TRUSTEE_IS_USER },
+</a><a href="#h2-2-43" id="h2-2-43" class="i">+            { ACEPrincipal::Admins, adminSID.get(), TRUSTEE_IS_WELL_KNOWN_GROUP},
+</a><a href="#h2-2-44" id="h2-2-44" class="i">+            { ACEPrincipal::System, systemSID.get(), TRUSTEE_IS_USER},
+</a><a href="#h2-2-45" id="h2-2-45" class="i">+        };
+</a> 
+<a href="#h2-2-47" id="h2-2-47" class="d">-            if (CurrentUser == ACEPermissions::Owner)
+</a><a href="#h2-2-48" id="h2-2-48" class="d">-            {
+</a><a href="#h2-2-49" id="h2-2-49" class="d">-                ownerSID = userToken-&gt;User.Sid;
+</a><a href="#h2-2-50" id="h2-2-50" class="d">-            }
+</a><a href="#h2-2-51" id="h2-2-51" class="d">-
+</a><a href="#h2-2-52" id="h2-2-52" class="d">-            EXPLICIT_ACCESS_W&amp; entry = explicitAccess[entriesCount++];
+</a><a href="#h2-2-53" id="h2-2-53" class="d">-            entry = {};
+</a><a href="#h2-2-54" id="h2-2-54" class="d">-
+</a><a href="#h2-2-55" id="h2-2-55" class="d">-            entry.grfAccessPermissions = AccessPermissionsFrom(CurrentUser);
+</a><a href="#h2-2-56" id="h2-2-56" class="d">-            entry.grfAccessMode = SET_ACCESS;
+</a><a href="#h2-2-57" id="h2-2-57" class="d">-            entry.grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+</a><a href="#h2-2-58" id="h2-2-58" class="i">+        ULONG entriesCount = 0;
+</a><a href="#h2-2-59" id="h2-2-59" class="i">+        std::array&lt;EXPLICIT_ACCESS_W, ARRAYSIZE(aceDetails)&gt; explicitAccess;
+</a> 
+<a href="#h2-2-61" id="h2-2-61" class="d">-            entry.Trustee.pMultipleTrustee = nullptr;
+</a><a href="#h2-2-62" id="h2-2-62" class="d">-            entry.Trustee.MultipleTrusteeOperation = NO_MULTIPLE_TRUSTEE;
+</a><a href="#h2-2-63" id="h2-2-63" class="d">-            entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+</a><a href="#h2-2-64" id="h2-2-64" class="d">-            entry.Trustee.TrusteeType = TRUSTEE_IS_USER;
+</a><a href="#h2-2-65" id="h2-2-65" class="d">-            entry.Trustee.ptstrName = reinterpret_cast&lt;LPWCH&gt;(userToken-&gt;User.Sid);
+</a><a href="#h2-2-66" id="h2-2-66" class="i">+        // If the current user is SYSTEM, we want to take either the owner or the only configured set of permissions.
+</a><a href="#h2-2-67" id="h2-2-67" class="i">+        // The check above should prevent us from getting into situations outside of the ones below.
+</a><a href="#h2-2-68" id="h2-2-68" class="i">+        std::optional&lt;ACEPrincipal&gt; principalToIgnore;
+</a><a href="#h2-2-69" id="h2-2-69" class="i">+        if (hasCurrentUser &amp;&amp; hasSystem &amp;&amp; EqualSid(userToken-&gt;User.Sid, systemSID.get()))
+</a><a href="#h2-2-70" id="h2-2-70" class="i">+        {
+</a><a href="#h2-2-71" id="h2-2-71" class="i">+            principalToIgnore = (Owner.value() == ACEPrincipal::CurrentUser ? ACEPrincipal::System : ACEPrincipal::CurrentUser);
+</a>         }
+ 
+<a href="#h2-2-74" id="h2-2-74" class="d">-        if (Admins != ACEPermissions::None)
+</a><a href="#h2-2-75" id="h2-2-75" class="i">+        for (const auto&amp; ace : aceDetails)
+</a>         {
+<a href="#h2-2-77" id="h2-2-77" class="d">-            if (Admins == ACEPermissions::Owner)
+</a><a href="#h2-2-78" id="h2-2-78" class="i">+            if (principalToIgnore &amp;&amp; principalToIgnore.value() == ace.Principal)
+</a>             {
+<a href="#h2-2-80" id="h2-2-80" class="d">-                ownerSID = adminSID.get();
+</a><a href="#h2-2-81" id="h2-2-81" class="i">+                continue;
+</a>             }
+ 
+<a href="#h2-2-84" id="h2-2-84" class="d">-            EXPLICIT_ACCESS_W&amp; entry = explicitAccess[entriesCount++];
+</a><a href="#h2-2-85" id="h2-2-85" class="d">-            entry = {};
+</a><a href="#h2-2-86" id="h2-2-86" class="d">-
+</a><a href="#h2-2-87" id="h2-2-87" class="d">-            entry.grfAccessPermissions = AccessPermissionsFrom(Admins);
+</a><a href="#h2-2-88" id="h2-2-88" class="d">-            entry.grfAccessMode = SET_ACCESS;
+</a><a href="#h2-2-89" id="h2-2-89" class="d">-            entry.grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+</a><a href="#h2-2-90" id="h2-2-90" class="i">+            if (Owner &amp;&amp; Owner.value() == ace.Principal)
+</a><a href="#h2-2-91" id="h2-2-91" class="i">+            {
+</a><a href="#h2-2-92" id="h2-2-92" class="i">+                ownerSID = ace.SID;
+</a><a href="#h2-2-93" id="h2-2-93" class="i">+            }
+</a> 
+<a href="#h2-2-95" id="h2-2-95" class="d">-            entry.Trustee.pMultipleTrustee = nullptr;
+</a><a href="#h2-2-96" id="h2-2-96" class="d">-            entry.Trustee.MultipleTrusteeOperation = NO_MULTIPLE_TRUSTEE;
+</a><a href="#h2-2-97" id="h2-2-97" class="d">-            entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+</a><a href="#h2-2-98" id="h2-2-98" class="d">-            entry.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+</a><a href="#h2-2-99" id="h2-2-99" class="d">-            entry.Trustee.ptstrName = reinterpret_cast&lt;LPWCH&gt;(adminSID.get());
+</a><a href="#h2-2-100" id="h2-2-100" class="i">+            auto itr = ACL.find(ace.Principal);
+</a><a href="#h2-2-101" id="h2-2-101" class="i">+            if (itr != ACL.end())
+</a><a href="#h2-2-102" id="h2-2-102" class="i">+            {
+</a><a href="#h2-2-103" id="h2-2-103" class="i">+                EXPLICIT_ACCESS_W&amp; entry = explicitAccess[entriesCount++];
+</a><a href="#h2-2-104" id="h2-2-104" class="i">+                entry = {};
+</a><a href="#h2-2-105" id="h2-2-105" class="i">+
+</a><a href="#h2-2-106" id="h2-2-106" class="i">+                entry.grfAccessPermissions = AccessPermissionsFrom(itr-&gt;second);
+</a><a href="#h2-2-107" id="h2-2-107" class="i">+                entry.grfAccessMode = SET_ACCESS;
+</a><a href="#h2-2-108" id="h2-2-108" class="i">+                entry.grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+</a><a href="#h2-2-109" id="h2-2-109" class="i">+
+</a><a href="#h2-2-110" id="h2-2-110" class="i">+                entry.Trustee.pMultipleTrustee = nullptr;
+</a><a href="#h2-2-111" id="h2-2-111" class="i">+                entry.Trustee.MultipleTrusteeOperation = NO_MULTIPLE_TRUSTEE;
+</a><a href="#h2-2-112" id="h2-2-112" class="i">+                entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+</a><a href="#h2-2-113" id="h2-2-113" class="i">+                entry.Trustee.TrusteeType = ace.TrusteeType;
+</a><a href="#h2-2-114" id="h2-2-114" class="i">+                entry.Trustee.ptstrName = reinterpret_cast&lt;LPWCH&gt;(ace.SID);
+</a><a href="#h2-2-115" id="h2-2-115" class="i">+            }
+</a>         }
+ 
+         wil::unique_any&lt;PACL, decltype(&amp;::LocalFree), ::LocalFree&gt; acl;
+<a href="#h2-2-119" id="h2-2-119" class="d">-        THROW_IF_WIN32_ERROR(SetEntriesInAclW(entriesCount, explicitAccess, nullptr, &amp;acl));
+</a><a href="#h2-2-120" id="h2-2-120" class="i">+        THROW_IF_WIN32_ERROR(SetEntriesInAclW(entriesCount, explicitAccess.data(), nullptr, &amp;acl));
+</a> 
+         std::wstring path = Path.wstring();
+         SECURITY_INFORMATION securityInformation = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
+<a href="#h2-3" id="h2-3" class="h">@@ -472,7 +497,8 @@ namespace AppInstaller::Runtime
+</a>         {
+         case PathName::Temp:
+             result.Path = GetPathToUserTemp() / s_DefaultTempDirectory;
+<a href="#h2-3-3" id="h2-3-3" class="d">-            result.CurrentUser = ACEPermissions::Owner;
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+            result.SetOwner(ACEPrincipal::CurrentUser);
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+            result.ACL[ACEPrincipal::System] = ACEPermissions::All;
+</a>             break;
+         case PathName::LocalState:
+         case PathName::UserFileSettings:
+<a href="#h2-4" id="h2-4" class="h">@@ -502,8 +528,8 @@ namespace AppInstaller::Runtime
+</a>             result.Path /= GetPackageName();
+             if (path == PathName::SecureSettingsForWrite)
+             {
+<a href="#h2-4-3" id="h2-4-3" class="d">-                result.Admins = ACEPermissions::Owner;
+</a><a href="#h2-4-4" id="h2-4-4" class="d">-                result.CurrentUser = ACEPermissions::ReadExecute;
+</a><a href="#h2-4-5" id="h2-4-5" class="i">+                result.SetOwner(ACEPrincipal::Admins);
+</a><a href="#h2-4-6" id="h2-4-6" class="i">+                result.ACL[ACEPrincipal::CurrentUser] = ACEPermissions::ReadExecute;
+</a>             }
+             else
+             {
+<a href="#h2-5" id="h2-5" class="h">@@ -540,7 +566,8 @@ namespace AppInstaller::Runtime
+</a>             result.Path /= GetRuntimePathStateName();
+             if (path == PathName::Temp)
+             {
+<a href="#h2-5-3" id="h2-5-3" class="d">-                result.CurrentUser = ACEPermissions::Owner;
+</a><a href="#h2-5-4" id="h2-5-4" class="i">+                result.SetOwner(ACEPrincipal::CurrentUser);
+</a><a href="#h2-5-5" id="h2-5-5" class="i">+                result.ACL[ACEPrincipal::System] = ACEPermissions::All;
+</a>             }
+         }
+         break;
+<a href="#h2-6" id="h2-6" class="h">@@ -553,13 +580,13 @@ namespace AppInstaller::Runtime
+</a>         case PathName::LocalState:
+             result.Path = GetPathToAppDataDir(s_AppDataDir_State);
+             result.Path /= GetRuntimePathStateName();
+<a href="#h2-6-3" id="h2-6-3" class="d">-            result.CurrentUser = ACEPermissions::Owner;
+</a><a href="#h2-6-4" id="h2-6-4" class="i">+            result.SetOwner(ACEPrincipal::CurrentUser);
+</a>             break;
+         case PathName::StandardSettings:
+         case PathName::UserFileSettings:
+             result.Path = GetPathToAppDataDir(s_AppDataDir_Settings);
+             result.Path /= GetRuntimePathStateName();
+<a href="#h2-6-10" id="h2-6-10" class="d">-            result.CurrentUser = ACEPermissions::Owner;
+</a><a href="#h2-6-11" id="h2-6-11" class="i">+            result.SetOwner(ACEPrincipal::CurrentUser);
+</a>             break;
+         case PathName::SecureSettingsForRead:
+         case PathName::SecureSettingsForWrite:
+<a href="#h2-7" id="h2-7" class="h">@@ -571,8 +598,8 @@ namespace AppInstaller::Runtime
+</a>             result.Path /= GetRuntimePathStateName();
+             if (path == PathName::SecureSettingsForWrite)
+             {
+<a href="#h2-7-3" id="h2-7-3" class="d">-                result.Admins = ACEPermissions::Owner;
+</a><a href="#h2-7-4" id="h2-7-4" class="d">-                result.CurrentUser = ACEPermissions::ReadExecute;
+</a><a href="#h2-7-5" id="h2-7-5" class="i">+                result.SetOwner(ACEPrincipal::Admins);
+</a><a href="#h2-7-6" id="h2-7-6" class="i">+                result.ACL[ACEPrincipal::CurrentUser] = ACEPermissions::ReadExecute;
+</a>             }
+             else
+             {
+</pre>
+</div>
+</body>
+</html>

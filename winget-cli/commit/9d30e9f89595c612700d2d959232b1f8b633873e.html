@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Download MSIX installer during manifest validation (if necessary) (#2587) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/9d30e9f89595c612700d2d959232b1f8b633873e.html">9d30e9f89595c612700d2d959232b1f8b633873e</a>
+<b>parent</b> <a href="../commit/a8a19c76bff9c2be1e394287ebafe23df16501ff.html">a8a19c76bff9c2be1e394287ebafe23df16501ff</a>
+<b>Author:</b> AmirMS &lt;<a href="mailto:104940545+AmelBawa-msft@users.noreply.github.com">104940545+AmelBawa-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue, 11 Oct 2022 14:25:14 -0700
+
+Download MSIX installer during manifest validation (if necessary) (#2587)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCommonCore/Manifest/MsixManifestValidation.cpp</a></td><td> | </td><td class="num">105</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Public/winget/MsixManifestValidation.h</a></td><td> | </td><td class="num">20</td><td><span class="i">+++++++++++++++</span><span class="d">-----</span></td></tr>
+</table></pre><pre>2 files changed, 105 insertions(+), 20 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCommonCore/Manifest/MsixManifestValidation.cpp.html">src/AppInstallerCommonCore/Manifest/MsixManifestValidation.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Manifest/MsixManifestValidation.cpp.html">src/AppInstallerCommonCore/Manifest/MsixManifestValidation.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -2,6 +2,8 @@
+</a> // Licensed under the MIT License.
+ #include &quot;pch.h&quot;
+ #include &quot;AppInstallerLogging.h&quot;
+<a href="#h0-0-3" id="h0-0-3" class="i">+#include &quot;AppInstallerRuntime.h&quot;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+#include &quot;AppInstallerDownloader.h&quot;
+</a> #include &quot;winget/MsixManifestValidation.h&quot;
+ 
+ namespace AppInstaller::Manifest
+<a href="#h0-1" id="h0-1" class="h">@@ -12,7 +14,7 @@ namespace AppInstaller::Manifest
+</a>     {
+         std::vector&lt;ValidationError&gt; errors;
+         Msix::PackageVersion packageVersion(manifest.Version);
+<a href="#h0-1-3" id="h0-1-3" class="d">-        auto msixInfo = GetMsixInfo(installer.Url, errors);
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        auto msixInfo = GetMsixInfo(installer.Url);
+</a>         if (msixInfo)
+         {
+             ValidateMsixManifestSignatureHash(msixInfo, installer.SignatureSha256, errors);
+<a href="#h0-2" id="h0-2" class="h">@@ -26,37 +28,110 @@ namespace AppInstaller::Manifest
+</a>                 ValidateMsixManifestMinOSVersion(msixManifest.GetMinimumOSVersionForSupportedPlatforms(), installerMinOSVersion, installer.Url, errors);
+             }
+         }
+<a href="#h0-2-3" id="h0-2-3" class="i">+        else
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+        {
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+            errors.emplace_back(ManifestError::InstallerFailedToProcess, &quot;InstallerUrl&quot;, installer.Url);
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+        }
+</a> 
+         return errors;
+     }
+ 
+<a href="#h0-2-11" id="h0-2-11" class="d">-    std::shared_ptr&lt;Msix::MsixInfo&gt; MsixManifestValidation::GetMsixInfo(
+</a><a href="#h0-2-12" id="h0-2-12" class="d">-        std::string installerUrl,
+</a><a href="#h0-2-13" id="h0-2-13" class="d">-        std::vector&lt;ValidationError&gt; &amp;errors)
+</a><a href="#h0-2-14" id="h0-2-14" class="i">+    std::optional&lt;std::filesystem::path&gt; MsixManifestValidation::DownloadInstaller(std::string installerUrl, int retryCount)
+</a><a href="#h0-2-15" id="h0-2-15" class="i">+    {
+</a><a href="#h0-2-16" id="h0-2-16" class="i">+        while (retryCount-- &gt; 0)
+</a><a href="#h0-2-17" id="h0-2-17" class="i">+        {
+</a><a href="#h0-2-18" id="h0-2-18" class="i">+            try
+</a><a href="#h0-2-19" id="h0-2-19" class="i">+            {
+</a><a href="#h0-2-20" id="h0-2-20" class="i">+                AICLI_LOG(Core, Info, &lt;&lt; &quot;Start downloading installer&quot;);
+</a><a href="#h0-2-21" id="h0-2-21" class="i">+                auto tempFile = Runtime::GetNewTempFilePath();
+</a><a href="#h0-2-22" id="h0-2-22" class="i">+                ProgressCallback callback;
+</a><a href="#h0-2-23" id="h0-2-23" class="i">+                Utility::Download(installerUrl, tempFile, Utility::DownloadType::Installer, callback);
+</a><a href="#h0-2-24" id="h0-2-24" class="i">+                return tempFile;
+</a><a href="#h0-2-25" id="h0-2-25" class="i">+            }
+</a><a href="#h0-2-26" id="h0-2-26" class="i">+            catch (...)
+</a><a href="#h0-2-27" id="h0-2-27" class="i">+            {
+</a><a href="#h0-2-28" id="h0-2-28" class="i">+                AICLI_LOG(Core, Error, &lt;&lt; &quot;Downloading installer failed. Remaining attempts: &quot; &lt;&lt; retryCount);
+</a><a href="#h0-2-29" id="h0-2-29" class="i">+            }
+</a><a href="#h0-2-30" id="h0-2-30" class="i">+        }
+</a><a href="#h0-2-31" id="h0-2-31" class="i">+
+</a><a href="#h0-2-32" id="h0-2-32" class="i">+        return std::nullopt;
+</a><a href="#h0-2-33" id="h0-2-33" class="i">+    }
+</a><a href="#h0-2-34" id="h0-2-34" class="i">+
+</a><a href="#h0-2-35" id="h0-2-35" class="i">+    std::shared_ptr&lt;Msix::MsixInfo&gt; MsixManifestValidation::GetMsixInfoFromUrl(std::string installerUrl)
+</a>     {
+<a href="#h0-2-37" id="h0-2-37" class="d">-        std::shared_ptr&lt;Msix::MsixInfo&gt; msixInfo;
+</a>         try
+         {
+<a href="#h0-2-40" id="h0-2-40" class="d">-            // Cache Msix info for new installer url
+</a><a href="#h0-2-41" id="h0-2-41" class="d">-            auto findMsixInfo = m_msixInfoCache.find(installerUrl);
+</a><a href="#h0-2-42" id="h0-2-42" class="d">-            if (findMsixInfo == m_msixInfoCache.end())
+</a><a href="#h0-2-43" id="h0-2-43" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Fetching Msix info from installer url&quot;);
+</a><a href="#h0-2-44" id="h0-2-44" class="i">+            return std::make_shared&lt;Msix::MsixInfo&gt;(installerUrl);
+</a><a href="#h0-2-45" id="h0-2-45" class="i">+        }
+</a><a href="#h0-2-46" id="h0-2-46" class="i">+        catch (...)
+</a><a href="#h0-2-47" id="h0-2-47" class="i">+        {
+</a><a href="#h0-2-48" id="h0-2-48" class="i">+            AICLI_LOG(Core, Error, &lt;&lt; &quot;Error fetching Msix info from the installer url.&quot;);
+</a><a href="#h0-2-49" id="h0-2-49" class="i">+            return nullptr;
+</a><a href="#h0-2-50" id="h0-2-50" class="i">+        }
+</a><a href="#h0-2-51" id="h0-2-51" class="i">+    }
+</a><a href="#h0-2-52" id="h0-2-52" class="i">+
+</a><a href="#h0-2-53" id="h0-2-53" class="i">+    std::shared_ptr&lt;Msix::MsixInfo&gt; MsixManifestValidation::GetMsixInfoFromLocalPath(std::string installerUrl)
+</a><a href="#h0-2-54" id="h0-2-54" class="i">+    {
+</a><a href="#h0-2-55" id="h0-2-55" class="i">+        int maxRetry = 3;
+</a><a href="#h0-2-56" id="h0-2-56" class="i">+        std::shared_ptr&lt;Msix::MsixInfo&gt; msixInfo;
+</a><a href="#h0-2-57" id="h0-2-57" class="i">+        auto installerPath = DownloadInstaller(installerUrl, maxRetry);
+</a><a href="#h0-2-58" id="h0-2-58" class="i">+        if (installerPath.has_value())
+</a><a href="#h0-2-59" id="h0-2-59" class="i">+        {
+</a><a href="#h0-2-60" id="h0-2-60" class="i">+            try
+</a><a href="#h0-2-61" id="h0-2-61" class="i">+            {
+</a><a href="#h0-2-62" id="h0-2-62" class="i">+                AICLI_LOG(Core, Info, &lt;&lt; &quot;Fetching Msix info from installer local path&quot;);
+</a><a href="#h0-2-63" id="h0-2-63" class="i">+                msixInfo = std::make_shared&lt;Msix::MsixInfo&gt;(installerPath.value());
+</a><a href="#h0-2-64" id="h0-2-64" class="i">+            }
+</a><a href="#h0-2-65" id="h0-2-65" class="i">+            catch (...)
+</a><a href="#h0-2-66" id="h0-2-66" class="i">+            {
+</a><a href="#h0-2-67" id="h0-2-67" class="i">+                AICLI_LOG(Core, Error, &lt;&lt; &quot;Error fetching Msix info from the installer local path.&quot;);
+</a><a href="#h0-2-68" id="h0-2-68" class="i">+            }
+</a><a href="#h0-2-69" id="h0-2-69" class="i">+
+</a><a href="#h0-2-70" id="h0-2-70" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Removing downloaded installer&quot;);
+</a><a href="#h0-2-71" id="h0-2-71" class="i">+            if (!std::filesystem::remove(installerPath.value()))
+</a><a href="#h0-2-72" id="h0-2-72" class="i">+            {
+</a><a href="#h0-2-73" id="h0-2-73" class="i">+                AICLI_LOG(Core, Warning, &lt;&lt; &quot;Failed to remove downloaded installer&quot;);
+</a><a href="#h0-2-74" id="h0-2-74" class="i">+            }
+</a><a href="#h0-2-75" id="h0-2-75" class="i">+        }
+</a><a href="#h0-2-76" id="h0-2-76" class="i">+        else
+</a><a href="#h0-2-77" id="h0-2-77" class="i">+        {
+</a><a href="#h0-2-78" id="h0-2-78" class="i">+            AICLI_LOG(Core, Error, &lt;&lt; &quot;Failed to download installer.&quot;);
+</a><a href="#h0-2-79" id="h0-2-79" class="i">+        }
+</a><a href="#h0-2-80" id="h0-2-80" class="i">+
+</a><a href="#h0-2-81" id="h0-2-81" class="i">+        return msixInfo;
+</a><a href="#h0-2-82" id="h0-2-82" class="i">+    }
+</a><a href="#h0-2-83" id="h0-2-83" class="i">+
+</a><a href="#h0-2-84" id="h0-2-84" class="i">+    std::shared_ptr&lt;Msix::MsixInfo&gt; MsixManifestValidation::GetMsixInfo(std::string installerUrl)
+</a><a href="#h0-2-85" id="h0-2-85" class="i">+    {
+</a><a href="#h0-2-86" id="h0-2-86" class="i">+        std::shared_ptr&lt;Msix::MsixInfo&gt; msixInfo;
+</a><a href="#h0-2-87" id="h0-2-87" class="i">+        // Cache Msix info for new installer url
+</a><a href="#h0-2-88" id="h0-2-88" class="i">+        auto findMsixInfo = m_msixInfoCache.find(installerUrl);
+</a><a href="#h0-2-89" id="h0-2-89" class="i">+        if (findMsixInfo == m_msixInfoCache.end())
+</a><a href="#h0-2-90" id="h0-2-90" class="i">+        {
+</a><a href="#h0-2-91" id="h0-2-91" class="i">+            msixInfo = GetMsixInfoFromUrl(installerUrl);
+</a><a href="#h0-2-92" id="h0-2-92" class="i">+            if (!msixInfo)
+</a><a href="#h0-2-93" id="h0-2-93" class="i">+            {
+</a><a href="#h0-2-94" id="h0-2-94" class="i">+                AICLI_LOG(Core, Warning, &lt;&lt; &quot;Failed to get Msix info directly from the installer url. &quot;
+</a><a href="#h0-2-95" id="h0-2-95" class="i">+                    &lt;&lt; &quot;Downloading installer instead.&quot;);
+</a><a href="#h0-2-96" id="h0-2-96" class="i">+                msixInfo = GetMsixInfoFromLocalPath(installerUrl);
+</a><a href="#h0-2-97" id="h0-2-97" class="i">+            }
+</a><a href="#h0-2-98" id="h0-2-98" class="i">+
+</a><a href="#h0-2-99" id="h0-2-99" class="i">+            if (msixInfo)
+</a>             {
+<a href="#h0-2-101" id="h0-2-101" class="d">-                msixInfo = std::make_shared&lt;Msix::MsixInfo&gt;(installerUrl);
+</a>                 m_msixInfoCache.insert({ installerUrl, msixInfo });
+             }
+             else
+             {
+<a href="#h0-2-106" id="h0-2-106" class="d">-                msixInfo = findMsixInfo-&gt;second;
+</a><a href="#h0-2-107" id="h0-2-107" class="i">+                AICLI_LOG(Core, Error, &lt;&lt; &quot;Msix info could not be obtained.&quot;);
+</a>             }
+<a href="#h0-2-109" id="h0-2-109" class="d">-
+</a><a href="#h0-2-110" id="h0-2-110" class="d">-            return msixInfo;
+</a>         }
+<a href="#h0-2-112" id="h0-2-112" class="d">-        catch (...)
+</a><a href="#h0-2-113" id="h0-2-113" class="i">+        else
+</a>         {
+<a href="#h0-2-115" id="h0-2-115" class="d">-            errors.emplace_back(ManifestError::InstallerFailedToProcess, &quot;InstallerUrl&quot;, installerUrl);
+</a><a href="#h0-2-116" id="h0-2-116" class="i">+            msixInfo = findMsixInfo-&gt;second;
+</a>         }
+ 
+<a href="#h0-2-119" id="h0-2-119" class="d">-        return nullptr;
+</a><a href="#h0-2-120" id="h0-2-120" class="i">+        return msixInfo;
+</a>     }
+ 
+     std::optional&lt;Msix::OSVersion&gt; MsixManifestValidation::GetManifestInstallerMinOSVersion(
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Public/winget/MsixManifestValidation.h.html">src/AppInstallerCommonCore/Public/winget/MsixManifestValidation.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/MsixManifestValidation.h.html">src/AppInstallerCommonCore/Public/winget/MsixManifestValidation.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -20,11 +20,21 @@ namespace AppInstaller::Manifest
+</a>         std::map&lt;std::string, std::shared_ptr&lt;Msix::MsixInfo&gt;&gt; m_msixInfoCache;
+         ValidationError::Level m_validationErrorLevel;
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        // Get Msix info from installer url, or load it from cache. Return null
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-        // pointer if failed to process installer url.
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-        std::shared_ptr&lt;Msix::MsixInfo&gt; GetMsixInfo(
+</a><a href="#h1-0-6" id="h1-0-6" class="d">-            std::string installerUrl,
+</a><a href="#h1-0-7" id="h1-0-7" class="d">-            std::vector&lt;ValidationError&gt;&amp; errors);
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        // Get Msix info from url/local path, or load it from cache.
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+        // Return null pointer if operation failed.
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+        std::shared_ptr&lt;Msix::MsixInfo&gt; GetMsixInfo(std::string installerUrl);
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+        // Get Msix info from installer url.
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+        // Return null pointer if operation failed.
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+        std::shared_ptr&lt;Msix::MsixInfo&gt; GetMsixInfoFromUrl(std::string installerUrl);
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+        // Download and get msix info from installer local path.
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+        // Return null pointer if operation failed.
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+        std::shared_ptr&lt;Msix::MsixInfo&gt; GetMsixInfoFromLocalPath(std::string installerUrl);
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+        // Download the installer.
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+        // If the download was successful, return the destination path.
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+        std::optional&lt;std::filesystem::path&gt; DownloadInstaller(std::string installerUrl, int retryCount);
+</a> 
+         // Get manifest installer minimum OS version or nullopt if failed to
+         // parse input.
+</pre>
+</div>
+</body>
+</html>

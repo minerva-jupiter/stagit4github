@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Only forward the verbose property if it has been set (#5449) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/d16646c0f1a61e2f4ba071c5492cbe6347abd014.html">d16646c0f1a61e2f4ba071c5492cbe6347abd014</a>
+<b>parent</b> <a href="../commit/aa15afbfdbe243f2b814761d573af15df4db4508.html">aa15afbfdbe243f2b814761d573af15df4db4508</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Mon, 12 May 2025 08:56:35 -0700
+
+Only forward the verbose property if it has been set (#5449)
+
+## Change
+To prevent an error from attempting to parse a boolean from an empty
+string, only forward the diagnostics (verbose) property if it has been
+set.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></td><td> | </td><td class="num">17</td><td><span class="i">++++++++++</span><span class="d">-------</span></td></tr>
+</table></pre><pre>1 file changed, 10 insertions(+), 7 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -130,10 +130,10 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                 return m_processorEngine;
+             }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-            winrt::hstring GetFactoryMapValue(winrt::hstring key)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            std::optional&lt;winrt::hstring&gt; GetFactoryMapValue(winrt::hstring key)
+</a>             {
+                 auto itr = m_factoryMapValues.find(key);
+<a href="#h0-0-7" id="h0-0-7" class="d">-                return itr != m_factoryMapValues.end() ? itr-&gt;second : winrt::hstring{};
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+                return itr != m_factoryMapValues.end() ? std::make_optional(itr-&gt;second) : std::nullopt;
+</a>             }
+ 
+         private:
+<a href="#h0-1" id="h0-1" class="h">@@ -340,21 +340,21 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                 if (m_dynamicFactory-&gt;Engine() == ProcessorEngine::DSCv3)
+                 {
+                     winrt::hstring dscExecutablePathPropertyName = ToHString(PropertyName::DscExecutablePath);
+<a href="#h0-1-3" id="h0-1-3" class="d">-                    winrt::hstring dscExecutablePath = m_dynamicFactory-&gt;GetFactoryMapValue(dscExecutablePathPropertyName);
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+                    std::optional&lt;winrt::hstring&gt; dscExecutablePath = m_dynamicFactory-&gt;GetFactoryMapValue(dscExecutablePathPropertyName);
+</a> 
+<a href="#h0-1-6" id="h0-1-6" class="d">-                    if (dscExecutablePath.empty())
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+                    if (!dscExecutablePath)
+</a>                     {
+                         dscExecutablePath = m_dynamicFactory-&gt;Lookup(ToHString(PropertyName::FoundDscExecutablePath));
+                     }
+ 
+<a href="#h0-1-12" id="h0-1-12" class="d">-                    if (dscExecutablePath.empty())
+</a><a href="#h0-1-13" id="h0-1-13" class="i">+                    if (dscExecutablePath-&gt;empty())
+</a>                     {
+                         // This is backstop to prevent a case where dsc.exe not found.
+                         AICLI_LOG(Config, Error, &lt;&lt; &quot;Could not find dsc.exe, it must be provided by the user.&quot;);
+                         THROW_WIN32(ERROR_FILE_NOT_FOUND);
+                     }
+ 
+<a href="#h0-1-20" id="h0-1-20" class="d">-                    json[&quot;processorPath&quot;] = Utility::ConvertToUTF8(dscExecutablePath);
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+                    json[&quot;processorPath&quot;] = Utility::ConvertToUTF8(dscExecutablePath.value());
+</a>                 }
+ 
+                 Json::StreamWriterBuilder writerBuilder;
+<a href="#h0-2" id="h0-2" class="h">@@ -437,7 +437,10 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                         });
+ 
+                     winrt::hstring propertyName = ConfigurationRemoting::ToHString(ConfigurationRemoting::PropertyName::DiagnosticTraceEnabled);
+<a href="#h0-2-3" id="h0-2-3" class="d">-                    factory.as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;().Insert(propertyName, m_dynamicFactory-&gt;GetFactoryMapValue(propertyName));
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+                    if (auto propertyValue = m_dynamicFactory-&gt;GetFactoryMapValue(propertyName))
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+                    {
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+                        factory.as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;().Insert(propertyName, propertyValue.value());
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+                    }
+</a>                 }
+ 
+                 return m_setProcessors.emplace(integrityLevel, DynamicProcessorInfo{ factory, factory.CreateSetProcessor(m_configurationSet), std::move(factoryDiagnosticsEventRevoker) }).first;
+</pre>
+</div>
+</body>
+</html>

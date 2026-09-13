@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Consume all input during extract sequence (#4882) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/fa62b8bf54cb2d2c9f503c5ead6da2a6247ec3a2.html">fa62b8bf54cb2d2c9f503c5ead6da2a6247ec3a2</a>
+<b>parent</b> <a href="../commit/1b251584211e344c756b8bad10f71db57019aa39.html">1b251584211e344c756b8bad10f71db57019aa39</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 16 Oct 2024 08:46:06 -0700
+
+Consume all input during extract sequence (#4882)
+
+## Change
+When extracting a sequence, consume all (up to 1KB really) input even if
+it doesn&#39;t start with an escape character.
+
+This was spurred by an issue where the `peek` call was not returning
+(waiting for input). Pressing Enter broke it out of that wait, but other
+input was now at the front and blocked future attempts to extract the
+sequence.
+
+The best solution to this would be to move all input handling to its own
+dedicated thread, but that is a much larger change.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/VTSupport.cpp</a></td><td> | </td><td class="num">40</td><td><span class="i">++++++++++++++++++++</span><span class="d">--------------------</span></td></tr>
+</table></pre><pre>1 file changed, 20 insertions(+), 20 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/VTSupport.cpp.html">src/AppInstallerCLICore/VTSupport.cpp</a> b/<a href="../file/src/AppInstallerCLICore/VTSupport.cpp.html">src/AppInstallerCLICore/VTSupport.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -61,31 +61,31 @@ namespace AppInstaller::CLI::VirtualTerminal
+</a>         // Extracts a VT sequence, expected one of the form ESCAPE + prefix + result + suffix, returning the result part.
+         std::string ExtractSequence(std::istream&amp; inStream, std::string_view prefix, std::string_view suffix)
+         {
+<a href="#h0-0-3" id="h0-0-3" class="d">-            std::string result;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            // Force discovery of available input
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+            std::ignore = inStream.peek();
+</a> 
+<a href="#h0-0-7" id="h0-0-7" class="d">-            if (inStream.peek() == AICLI_VT_ESCAPE[0])
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-            {
+</a><a href="#h0-0-9" id="h0-0-9" class="d">-                result.resize(4095);
+</a><a href="#h0-0-10" id="h0-0-10" class="d">-                inStream.readsome(&amp;result[0], result.size());
+</a><a href="#h0-0-11" id="h0-0-11" class="d">-                THROW_HR_IF(E_UNEXPECTED, static_cast&lt;size_t&gt;(inStream.gcount()) &gt;= result.size());
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            static constexpr std::streamsize s_bufferSize = 1024;
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+            char buffer[s_bufferSize];
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+            std::streamsize bytesRead = inStream.readsome(buffer, s_bufferSize);
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+            THROW_HR_IF(E_UNEXPECTED, bytesRead &gt;= s_bufferSize);
+</a> 
+<a href="#h0-0-17" id="h0-0-17" class="d">-                result.resize(static_cast&lt;size_t&gt;(inStream.gcount()));
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+            std::string_view resultView{ buffer, static_cast&lt;size_t&gt;(bytesRead) };
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+            size_t escapeIndex = resultView.find(AICLI_VT_ESCAPE[0]);
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+            if (escapeIndex == std::string_view::npos)
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+            {
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+                return {};
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+            }
+</a> 
+<a href="#h0-0-25" id="h0-0-25" class="d">-                std::string_view resultView = result;
+</a><a href="#h0-0-26" id="h0-0-26" class="d">-                size_t overheadLength = 1 + prefix.length() + suffix.length();
+</a><a href="#h0-0-27" id="h0-0-27" class="d">-                if (resultView.length() &lt;= overheadLength ||
+</a><a href="#h0-0-28" id="h0-0-28" class="d">-                    resultView.substr(1, prefix.length()) != prefix ||
+</a><a href="#h0-0-29" id="h0-0-29" class="d">-                    resultView.substr(resultView.length() - suffix.length()) != suffix)
+</a><a href="#h0-0-30" id="h0-0-30" class="d">-                {
+</a><a href="#h0-0-31" id="h0-0-31" class="d">-                    result.clear();
+</a><a href="#h0-0-32" id="h0-0-32" class="d">-                }
+</a><a href="#h0-0-33" id="h0-0-33" class="d">-                else
+</a><a href="#h0-0-34" id="h0-0-34" class="d">-                {
+</a><a href="#h0-0-35" id="h0-0-35" class="d">-                    result = result.substr(1 + prefix.length(), result.length() - overheadLength);
+</a><a href="#h0-0-36" id="h0-0-36" class="d">-                }
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+            resultView = resultView.substr(escapeIndex);
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+            size_t overheadLength = 1 + prefix.length() + suffix.length();
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+            if (resultView.length() &lt;= overheadLength ||
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+                resultView.substr(1, prefix.length()) != prefix ||
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+                resultView.substr(resultView.length() - suffix.length()) != suffix)
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+            {
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+                return {};
+</a>             }
+ 
+<a href="#h0-0-46" id="h0-0-46" class="d">-            return result;
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+            return std::string{ resultView.substr(1 + prefix.length(), resultView.length() - overheadLength) };
+</a>         }
+     }
+ 
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>ManifestValidation.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../"><img src="../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../log.html">Log</a> | <a href="../../../../files.html">Files</a> | <a href="../../../../refs.html">Refs</a> | <a href="../../../../file/README.md.html">README</a> | <a href="../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> ManifestValidation.cpp (29819B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;AppInstallerLogging.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;AppInstallerMsixInfo.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;winget/MsixManifest.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;winget/ManifestValidation.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;winget/MsixManifestValidation.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;winget/Locale.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> #include &quot;winget/Filesystem.h&quot;
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> namespace AppInstaller::Manifest
+<a href="#l13" class="line" id="l13">     13</a> {
+<a href="#l14" class="line" id="l14">     14</a>     namespace
+<a href="#l15" class="line" id="l15">     15</a>     {
+<a href="#l16" class="line" id="l16">     16</a>         constexpr std::array&lt;std::wstring_view, 1&gt; s_AllowedPortableFiletypes = {
+<a href="#l17" class="line" id="l17">     17</a>             L&quot;.exe&quot;,
+<a href="#l18" class="line" id="l18">     18</a>         };
+<a href="#l19" class="line" id="l19">     19</a> 
+<a href="#l20" class="line" id="l20">     20</a>         constexpr std::array&lt;std::wstring_view, 5&gt; s_AllowedFontFiletypes = {
+<a href="#l21" class="line" id="l21">     21</a>             L&quot;.otf&quot;,         // OpenType Font
+<a href="#l22" class="line" id="l22">     22</a>             L&quot;.ttf&quot;,         // TrueType Font
+<a href="#l23" class="line" id="l23">     23</a>             L&quot;.fnt&quot;,         // Font
+<a href="#l24" class="line" id="l24">     24</a>             L&quot;.ttc&quot;,         // TrueType Font Collection
+<a href="#l25" class="line" id="l25">     25</a>             L&quot;.otc&quot;,         // OpenType Font Collection
+<a href="#l26" class="line" id="l26">     26</a>         };
+<a href="#l27" class="line" id="l27">     27</a> 
+<a href="#l28" class="line" id="l28">     28</a>         const auto&amp; GetErrorIdToMessageMap()
+<a href="#l29" class="line" id="l29">     29</a>         {
+<a href="#l30" class="line" id="l30">     30</a>             static std::map&lt;AppInstaller::StringResource::StringId, std::string_view&gt; ErrorIdToMessageMap = {
+<a href="#l31" class="line" id="l31">     31</a>                 { AppInstaller::Manifest::ManifestError::InvalidRootNode, &quot;Encountered unexpected root node.&quot;sv },
+<a href="#l32" class="line" id="l32">     32</a>                 { AppInstaller::Manifest::ManifestError::FieldUnknown, &quot;Unknown field.&quot;sv },
+<a href="#l33" class="line" id="l33">     33</a>                 { AppInstaller::Manifest::ManifestError::FieldIsNotPascalCase, &quot;All field names should be PascalCased.&quot;sv },
+<a href="#l34" class="line" id="l34">     34</a>                 { AppInstaller::Manifest::ManifestError::FieldDuplicate, &quot;Duplicate field found in the manifest.&quot;sv },
+<a href="#l35" class="line" id="l35">     35</a>                 { AppInstaller::Manifest::ManifestError::RequiredFieldEmpty, &quot;Required field with empty value.&quot;sv },
+<a href="#l36" class="line" id="l36">     36</a>                 { AppInstaller::Manifest::ManifestError::RequiredFieldMissing,  &quot;Required field missing.&quot;sv },
+<a href="#l37" class="line" id="l37">     37</a>                 { AppInstaller::Manifest::ManifestError::InvalidFieldValue, &quot;Invalid field value.&quot;sv },
+<a href="#l38" class="line" id="l38">     38</a>                 { AppInstaller::Manifest::ManifestError::ExeInstallerMissingSilentSwitches, &quot;Silent and SilentWithProgress switches are not specified for InstallerType exe. Please make sure the installer can run unattended.&quot;sv },
+<a href="#l39" class="line" id="l39">     39</a>                 { AppInstaller::Manifest::ManifestError::FieldNotSupported, &quot;Field is not supported.&quot;sv },
+<a href="#l40" class="line" id="l40">     40</a>                 { AppInstaller::Manifest::ManifestError::FieldValueNotSupported, &quot;Field value is not supported.&quot;sv },
+<a href="#l41" class="line" id="l41">     41</a>                 { AppInstaller::Manifest::ManifestError::DuplicateInstallerEntry, &quot;Duplicate installer entry found.&quot;sv },
+<a href="#l42" class="line" id="l42">     42</a>                 { AppInstaller::Manifest::ManifestError::DuplicateInstallerHash, &quot;Multiple Installer URLs found with the same InstallerSha256. Please ensure the accuracy of the URLs.&quot;sv },
+<a href="#l43" class="line" id="l43">     43</a>                 { AppInstaller::Manifest::ManifestError::InstallerTypeDoesNotSupportPackageFamilyName, &quot;The specified installer type does not support PackageFamilyName.&quot;sv },
+<a href="#l44" class="line" id="l44">     44</a>                 { AppInstaller::Manifest::ManifestError::InstallerTypeDoesNotSupportProductCode, &quot;The specified installer type does not support ProductCode.&quot;sv },
+<a href="#l45" class="line" id="l45">     45</a>                 { AppInstaller::Manifest::ManifestError::InstallerTypeDoesNotWriteAppsAndFeaturesEntry, &quot;The specified installer type does not write to Apps and Features entry.&quot;sv },
+<a href="#l46" class="line" id="l46">     46</a>                 { AppInstaller::Manifest::ManifestError::IncompleteMultiFileManifest, &quot;The multi file manifest is incomplete.A multi file manifest must contain at least version, installer and defaultLocale manifest.&quot;sv },
+<a href="#l47" class="line" id="l47">     47</a>                 { AppInstaller::Manifest::ManifestError::InconsistentMultiFileManifestFieldValue, &quot;The multi file manifest has inconsistent field values.&quot;sv },
+<a href="#l48" class="line" id="l48">     48</a>                 { AppInstaller::Manifest::ManifestError::DuplicatePortableCommandAlias, &quot;Duplicate portable command alias found.&quot;sv },
+<a href="#l49" class="line" id="l49">     49</a>                 { AppInstaller::Manifest::ManifestError::DuplicateRelativeFilePath, &quot;Duplicate relative file path found.&quot;sv },
+<a href="#l50" class="line" id="l50">     50</a>                 { AppInstaller::Manifest::ManifestError::DuplicateMultiFileManifestType, &quot;The multi file manifest should contain only one file with the particular ManifestType.&quot;sv },
+<a href="#l51" class="line" id="l51">     51</a>                 { AppInstaller::Manifest::ManifestError::DuplicateMultiFileManifestLocale, &quot;The multi file manifest contains duplicate PackageLocale.&quot;sv },
+<a href="#l52" class="line" id="l52">     52</a>                 { AppInstaller::Manifest::ManifestError::UnsupportedMultiFileManifestType, &quot;The multi file manifest should not contain file with the particular ManifestType.&quot;sv },
+<a href="#l53" class="line" id="l53">     53</a>                 { AppInstaller::Manifest::ManifestError::InconsistentInstallerHash, &quot;The values of InstallerSha256 do not match for all instances of the same InstallerUrl.&quot;sv },
+<a href="#l54" class="line" id="l54">     54</a>                 { AppInstaller::Manifest::ManifestError::InconsistentMultiFileManifestDefaultLocale, &quot;DefaultLocale value in version manifest does not match PackageLocale value in defaultLocale manifest.&quot;sv },
+<a href="#l55" class="line" id="l55">     55</a>                 { AppInstaller::Manifest::ManifestError::FieldFailedToProcess, &quot;Failed to process field.&quot;sv },
+<a href="#l56" class="line" id="l56">     56</a>                 { AppInstaller::Manifest::ManifestError::InvalidBcp47Value, &quot;The locale value is not a well formed bcp47 language tag.&quot;sv },
+<a href="#l57" class="line" id="l57">     57</a>                 { AppInstaller::Manifest::ManifestError::BothAllowedAndExcludedMarketsDefined, &quot;Both AllowedMarkets and ExcludedMarkets defined.&quot;sv },
+<a href="#l58" class="line" id="l58">     58</a>                 { AppInstaller::Manifest::ManifestError::DuplicateReturnCodeEntry, &quot;Duplicate installer return code found.&quot;sv },
+<a href="#l59" class="line" id="l59">     59</a>                 { AppInstaller::Manifest::ManifestError::FieldRequireVerifiedPublisher, &quot;Field usage requires verified publishers.&quot;sv },
+<a href="#l60" class="line" id="l60">     60</a>                 { AppInstaller::Manifest::ManifestError::SingleManifestPackageHasDependencies, &quot;Package has a single manifest and is a dependency of other manifests.&quot;sv },
+<a href="#l61" class="line" id="l61">     61</a>                 { AppInstaller::Manifest::ManifestError::MultiManifestPackageHasDependencies, &quot;Deleting the manifest will be break the following dependencies.&quot;sv },
+<a href="#l62" class="line" id="l62">     62</a>                 { AppInstaller::Manifest::ManifestError::MissingManifestDependenciesNode, &quot;Dependency not found: &quot;sv },
+<a href="#l63" class="line" id="l63">     63</a>                 { AppInstaller::Manifest::ManifestError::NoSuitableMinVersionDependency,&quot;No Suitable Minimum Version: &quot;sv },
+<a href="#l64" class="line" id="l64">     64</a>                 { AppInstaller::Manifest::ManifestError::FoundDependencyLoop, &quot;Loop found.&quot;sv },
+<a href="#l65" class="line" id="l65">     65</a>                 { AppInstaller::Manifest::ManifestError::ExceededAppsAndFeaturesEntryLimit, &quot;Only zero or one entry for Apps and Features may be specified for InstallerType portable.&quot;sv },
+<a href="#l66" class="line" id="l66">     66</a>                 { AppInstaller::Manifest::ManifestError::ExceededCommandsLimit, &quot;Only zero or one value for Commands may be specified for InstallerType portable.&quot;sv },
+<a href="#l67" class="line" id="l67">     67</a>                 { AppInstaller::Manifest::ManifestError::ScopeNotSupported, &quot;Scope is not supported for InstallerType portable.&quot;sv },
+<a href="#l68" class="line" id="l68">     68</a>                 { AppInstaller::Manifest::ManifestError::InstallerMsixInconsistencies, &quot;Inconsistent value in the manifest.&quot;sv },
+<a href="#l69" class="line" id="l69">     69</a>                 { AppInstaller::Manifest::ManifestError::OptionalFieldMissing, &quot;Optional field missing.&quot;sv },
+<a href="#l70" class="line" id="l70">     70</a>                 { AppInstaller::Manifest::ManifestError::InstallerFailedToProcess, &quot;Failed to process installer.&quot;sv },
+<a href="#l71" class="line" id="l71">     71</a>                 { AppInstaller::Manifest::ManifestError::NoSupportedPlatforms, &quot;No supported platforms.&quot;sv },
+<a href="#l72" class="line" id="l72">     72</a>                 { AppInstaller::Manifest::ManifestError::ApproximateVersionNotAllowed, &quot;Approximate version not allowed.&quot;sv },
+<a href="#l73" class="line" id="l73">     73</a>                 { AppInstaller::Manifest::ManifestError::ArpVersionOverlapWithIndex, &quot;DisplayVersion declared in the manifest has overlap with existing DisplayVersion range in the index. Existing DisplayVersion range in index: &quot;sv },
+<a href="#l74" class="line" id="l74">     74</a>                 { AppInstaller::Manifest::ManifestError::ArpVersionValidationInternalError, &quot;Internal error while validating DisplayVersion against index.&quot;sv },
+<a href="#l75" class="line" id="l75">     75</a>                 { AppInstaller::Manifest::ManifestError::ExceededNestedInstallerFilesLimit, &quot;Only one entry for NestedInstallerFiles can be specified for non-portable InstallerTypes.&quot;sv },
+<a href="#l76" class="line" id="l76">     76</a>                 { AppInstaller::Manifest::ManifestError::RelativeFilePathEscapesDirectory, &quot;Relative file path must not point to a location outside of archive directory.&quot;sv },
+<a href="#l77" class="line" id="l77">     77</a>                 { AppInstaller::Manifest::ManifestError::ArpValidationError, &quot;Arp Validation Error.&quot;sv },
+<a href="#l78" class="line" id="l78">     78</a>                 { AppInstaller::Manifest::ManifestError::SchemaError, &quot;Schema Error.&quot;sv },
+<a href="#l79" class="line" id="l79">     79</a>                 { AppInstaller::Manifest::ManifestError::MsixSignatureHashFailed, &quot;Failed to calculate MSIX signature hash.Please verify that the input file is a valid, signed MSIX.&quot;sv },
+<a href="#l80" class="line" id="l80">     80</a>                 { AppInstaller::Manifest::ManifestError::ShadowManifestNotAllowed, &quot;Shadow manifest is not allowed.&quot; },
+<a href="#l81" class="line" id="l81">     81</a>                 { AppInstaller::Manifest::ManifestError::SchemaHeaderNotFound, &quot;Schema header not found.&quot; },
+<a href="#l82" class="line" id="l82">     82</a>                 { AppInstaller::Manifest::ManifestError::InvalidSchemaHeader , &quot;The schema header is invalid. Please verify that the schema header is present and formatted correctly.&quot;sv },
+<a href="#l83" class="line" id="l83">     83</a>                 { AppInstaller::Manifest::ManifestError::SchemaHeaderManifestTypeMismatch , &quot;The manifest type in the schema header does not match the ManifestType property value in the manifest.&quot;sv },
+<a href="#l84" class="line" id="l84">     84</a>                 { AppInstaller::Manifest::ManifestError::SchemaHeaderManifestVersionMismatch, &quot;The manifest version in the schema header does not match the ManifestVersion property value in the manifest.&quot;sv },
+<a href="#l85" class="line" id="l85">     85</a>                 { AppInstaller::Manifest::ManifestError::SchemaHeaderUrlPatternMismatch, &quot;The schema header URL does not match the expected pattern.&quot;sv },
+<a href="#l86" class="line" id="l86">     86</a>                 { AppInstaller::Manifest::ManifestError::InvalidPortableFiletype, &quot;The file type of the referenced file is not allowed.&quot;sv },
+<a href="#l87" class="line" id="l87">     87</a>                 { AppInstaller::Manifest::ManifestError::InvalidFontFiletype, &quot;The file type of the referenced file is not a supported font file type.&quot;sv },
+<a href="#l88" class="line" id="l88">     88</a>             };
+<a href="#l89" class="line" id="l89">     89</a> 
+<a href="#l90" class="line" id="l90">     90</a>             return ErrorIdToMessageMap;
+<a href="#l91" class="line" id="l91">     91</a>         }
+<a href="#l92" class="line" id="l92">     92</a>     }
+<a href="#l93" class="line" id="l93">     93</a>     std::vector&lt;ValidationError&gt; ValidateManifest(const Manifest&amp; manifest, bool fullValidation)
+<a href="#l94" class="line" id="l94">     94</a>     {
+<a href="#l95" class="line" id="l95">     95</a>         std::vector&lt;ValidationError&gt; resultErrors;
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>         // Channel is not supported currently
+<a href="#l98" class="line" id="l98">     98</a>         if (!manifest.Channel.empty())
+<a href="#l99" class="line" id="l99">     99</a>         {
+<a href="#l100" class="line" id="l100">    100</a>             resultErrors.emplace_back(ManifestError::FieldNotSupported, &quot;Channel&quot;, manifest.Channel);
+<a href="#l101" class="line" id="l101">    101</a>         }
+<a href="#l102" class="line" id="l102">    102</a> 
+<a href="#l103" class="line" id="l103">    103</a>         try
+<a href="#l104" class="line" id="l104">    104</a>         {
+<a href="#l105" class="line" id="l105">    105</a>             // Version value should be successfully parsed
+<a href="#l106" class="line" id="l106">    106</a>             Utility::Version testVersion{ manifest.Version };
+<a href="#l107" class="line" id="l107">    107</a>             if (testVersion.IsApproximate())
+<a href="#l108" class="line" id="l108">    108</a>             {
+<a href="#l109" class="line" id="l109">    109</a>                 resultErrors.emplace_back(ManifestError::ApproximateVersionNotAllowed, &quot;PackageVersion&quot;, manifest.Version);
+<a href="#l110" class="line" id="l110">    110</a>             }
+<a href="#l111" class="line" id="l111">    111</a>         }
+<a href="#l112" class="line" id="l112">    112</a>         catch (const std::exception&amp;)
+<a href="#l113" class="line" id="l113">    113</a>         {
+<a href="#l114" class="line" id="l114">    114</a>             resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;PackageVersion&quot;, manifest.Version);
+<a href="#l115" class="line" id="l115">    115</a>         }
+<a href="#l116" class="line" id="l116">    116</a> 
+<a href="#l117" class="line" id="l117">    117</a>         auto defaultLocErrors = ValidateManifestLocalization(manifest.DefaultLocalization, !fullValidation);
+<a href="#l118" class="line" id="l118">    118</a>         std::move(defaultLocErrors.begin(), defaultLocErrors.end(), std::inserter(resultErrors, resultErrors.end()));
+<a href="#l119" class="line" id="l119">    119</a> 
+<a href="#l120" class="line" id="l120">    120</a>         // Comparison function to check duplicate installer entry. {installerType, arch, language and scope} combination is the key.
+<a href="#l121" class="line" id="l121">    121</a>         // Todo: use the comparator from ManifestComparator when that one is fully implemented.
+<a href="#l122" class="line" id="l122">    122</a>         auto installerCmp = [](const ManifestInstaller&amp; in1, const ManifestInstaller&amp; in2)
+<a href="#l123" class="line" id="l123">    123</a>         {
+<a href="#l124" class="line" id="l124">    124</a>             if (in1.BaseInstallerType != in2.BaseInstallerType)
+<a href="#l125" class="line" id="l125">    125</a>             {
+<a href="#l126" class="line" id="l126">    126</a>                 return in1.BaseInstallerType &lt; in2.BaseInstallerType;
+<a href="#l127" class="line" id="l127">    127</a>             }
+<a href="#l128" class="line" id="l128">    128</a>             else if (IsArchiveType(in1.BaseInstallerType))
+<a href="#l129" class="line" id="l129">    129</a>             {
+<a href="#l130" class="line" id="l130">    130</a>                 // Compare nested installer type if base installer type is archive.
+<a href="#l131" class="line" id="l131">    131</a>                 if (in1.NestedInstallerType != in2.NestedInstallerType)
+<a href="#l132" class="line" id="l132">    132</a>                 {
+<a href="#l133" class="line" id="l133">    133</a>                     return in1.NestedInstallerType &lt; in2.NestedInstallerType;
+<a href="#l134" class="line" id="l134">    134</a>                 }
+<a href="#l135" class="line" id="l135">    135</a>             }
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>             if (in1.Arch != in2.Arch)
+<a href="#l138" class="line" id="l138">    138</a>             {
+<a href="#l139" class="line" id="l139">    139</a>                 return in1.Arch &lt; in2.Arch;
+<a href="#l140" class="line" id="l140">    140</a>             }
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>             if (in1.Locale != in2.Locale)
+<a href="#l143" class="line" id="l143">    143</a>             {
+<a href="#l144" class="line" id="l144">    144</a>                 return in1.Locale &lt; in2.Locale;
+<a href="#l145" class="line" id="l145">    145</a>             }
+<a href="#l146" class="line" id="l146">    146</a> 
+<a href="#l147" class="line" id="l147">    147</a>             // Unknown is considered equal to all other values for uniqueness.
+<a href="#l148" class="line" id="l148">    148</a>             // If either value is unknown, don&#39;t compare them.
+<a href="#l149" class="line" id="l149">    149</a>             if (in1.Scope != in2.Scope &amp;&amp; in1.Scope != ScopeEnum::Unknown &amp;&amp; in2.Scope != ScopeEnum::Unknown)
+<a href="#l150" class="line" id="l150">    150</a>             {
+<a href="#l151" class="line" id="l151">    151</a>                 return in1.Scope &lt; in2.Scope;
+<a href="#l152" class="line" id="l152">    152</a>             }
+<a href="#l153" class="line" id="l153">    153</a> 
+<a href="#l154" class="line" id="l154">    154</a>             return false;
+<a href="#l155" class="line" id="l155">    155</a>         };
+<a href="#l156" class="line" id="l156">    156</a> 
+<a href="#l157" class="line" id="l157">    157</a>         std::set&lt;ManifestInstaller, decltype(installerCmp)&gt; installerSet(installerCmp);
+<a href="#l158" class="line" id="l158">    158</a>         bool duplicateInstallerFound = false;
+<a href="#l159" class="line" id="l159">    159</a> 
+<a href="#l160" class="line" id="l160">    160</a>         // Set up maps for checking uniqueness across hash &lt;-&gt; url pairs
+<a href="#l161" class="line" id="l161">    161</a>         std::unordered_map&lt;std::string, std::string&gt; urlToChecksum;
+<a href="#l162" class="line" id="l162">    162</a>         std::unordered_map&lt;std::string, std::string&gt; checksumToUrl;
+<a href="#l163" class="line" id="l163">    163</a> 
+<a href="#l164" class="line" id="l164">    164</a>         // Validate installers
+<a href="#l165" class="line" id="l165">    165</a>         for (auto const&amp; installer : manifest.Installers)
+<a href="#l166" class="line" id="l166">    166</a>         {
+<a href="#l167" class="line" id="l167">    167</a>             // If not full validation, for future compatibility, skip validating unknown installers.
+<a href="#l168" class="line" id="l168">    168</a>             if (installer.EffectiveInstallerType() == InstallerTypeEnum::Unknown &amp;&amp; !fullValidation)
+<a href="#l169" class="line" id="l169">    169</a>             {
+<a href="#l170" class="line" id="l170">    170</a>                 continue;
+<a href="#l171" class="line" id="l171">    171</a>             }
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a>             if (!duplicateInstallerFound &amp;&amp; !installerSet.insert(installer).second)
+<a href="#l174" class="line" id="l174">    174</a>             {
+<a href="#l175" class="line" id="l175">    175</a>                 AICLI_LOG(Core, Error, &lt;&lt; &quot;Duplicate installer: Type [&quot; &lt;&lt; InstallerTypeToString(installer.EffectiveInstallerType()) &lt;&lt;
+<a href="#l176" class="line" id="l176">    176</a>                     &quot;], Architecture [&quot; &lt;&lt; Utility::ToString(installer.Arch) &lt;&lt; &quot;], Locale [&quot; &lt;&lt; installer.Locale &lt;&lt;
+<a href="#l177" class="line" id="l177">    177</a>                     &quot;], Scope [&quot; &lt;&lt; ScopeToString(installer.Scope) &lt;&lt; &quot;]&quot;);
+<a href="#l178" class="line" id="l178">    178</a> 
+<a href="#l179" class="line" id="l179">    179</a>                 resultErrors.emplace_back(ManifestError::DuplicateInstallerEntry);
+<a href="#l180" class="line" id="l180">    180</a>                 duplicateInstallerFound = true;
+<a href="#l181" class="line" id="l181">    181</a>             }
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a>             if (installer.Arch == Utility::Architecture::Unknown)
+<a href="#l184" class="line" id="l184">    184</a>             {
+<a href="#l185" class="line" id="l185">    185</a>                 resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;Architecture&quot;);
+<a href="#l186" class="line" id="l186">    186</a>             }
+<a href="#l187" class="line" id="l187">    187</a> 
+<a href="#l188" class="line" id="l188">    188</a>             if (installer.EffectiveInstallerType() == InstallerTypeEnum::Unknown)
+<a href="#l189" class="line" id="l189">    189</a>             {
+<a href="#l190" class="line" id="l190">    190</a>                 resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;InstallerType&quot;);
+<a href="#l191" class="line" id="l191">    191</a>             }
+<a href="#l192" class="line" id="l192">    192</a> 
+<a href="#l193" class="line" id="l193">    193</a>             if (installer.UpdateBehavior == UpdateBehaviorEnum::Unknown)
+<a href="#l194" class="line" id="l194">    194</a>             {
+<a href="#l195" class="line" id="l195">    195</a>                 resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;UpgradeBehavior&quot;);
+<a href="#l196" class="line" id="l196">    196</a>             }
+<a href="#l197" class="line" id="l197">    197</a> 
+<a href="#l198" class="line" id="l198">    198</a>             // Validate system reference strings if they are set at the installer level
+<a href="#l199" class="line" id="l199">    199</a>             // Allow PackageFamilyName to be declared with non msix installers to support nested installer scenarios. But still report as warning to notify user of this uncommon case.
+<a href="#l200" class="line" id="l200">    200</a>             if (!installer.PackageFamilyName.empty() &amp;&amp; !DoesInstallerTypeUsePackageFamilyName(installer.EffectiveInstallerType()))
+<a href="#l201" class="line" id="l201">    201</a>             {
+<a href="#l202" class="line" id="l202">    202</a>                 resultErrors.emplace_back(ManifestError::InstallerTypeDoesNotSupportPackageFamilyName, &quot;InstallerType&quot;, std::string{ InstallerTypeToString(installer.EffectiveInstallerType()) }, ValidationError::Level::Warning);
+<a href="#l203" class="line" id="l203">    203</a>             }
+<a href="#l204" class="line" id="l204">    204</a> 
+<a href="#l205" class="line" id="l205">    205</a>             if (!installer.ProductCode.empty() &amp;&amp; !DoesInstallerTypeUseProductCode(installer.EffectiveInstallerType()))
+<a href="#l206" class="line" id="l206">    206</a>             {
+<a href="#l207" class="line" id="l207">    207</a>                 resultErrors.emplace_back(ManifestError::InstallerTypeDoesNotSupportProductCode, &quot;InstallerType&quot;, InstallerTypeToString(installer.EffectiveInstallerType()));
+<a href="#l208" class="line" id="l208">    208</a>             }
+<a href="#l209" class="line" id="l209">    209</a> 
+<a href="#l210" class="line" id="l210">    210</a>             if (!installer.AppsAndFeaturesEntries.empty() &amp;&amp; !DoesInstallerTypeWriteAppsAndFeaturesEntry(installer.EffectiveInstallerType()))
+<a href="#l211" class="line" id="l211">    211</a>             {
+<a href="#l212" class="line" id="l212">    212</a>                 resultErrors.emplace_back(ManifestError::InstallerTypeDoesNotWriteAppsAndFeaturesEntry, &quot;InstallerType&quot;, InstallerTypeToString(installer.EffectiveInstallerType()));
+<a href="#l213" class="line" id="l213">    213</a>             }
+<a href="#l214" class="line" id="l214">    214</a> 
+<a href="#l215" class="line" id="l215">    215</a>             if (installer.EffectiveInstallerType() == InstallerTypeEnum::MSStore)
+<a href="#l216" class="line" id="l216">    216</a>             {
+<a href="#l217" class="line" id="l217">    217</a>                 if (fullValidation)
+<a href="#l218" class="line" id="l218">    218</a>                 {
+<a href="#l219" class="line" id="l219">    219</a>                     // MSStore type is not supported in community repo
+<a href="#l220" class="line" id="l220">    220</a>                     resultErrors.emplace_back(
+<a href="#l221" class="line" id="l221">    221</a>                         ManifestError::FieldValueNotSupported, &quot;InstallerType&quot;,
+<a href="#l222" class="line" id="l222">    222</a>                         InstallerTypeToString(installer.EffectiveInstallerType()));
+<a href="#l223" class="line" id="l223">    223</a>                 }
+<a href="#l224" class="line" id="l224">    224</a> 
+<a href="#l225" class="line" id="l225">    225</a>                 if (installer.ProductId.empty())
+<a href="#l226" class="line" id="l226">    226</a>                 {
+<a href="#l227" class="line" id="l227">    227</a>                     resultErrors.emplace_back(ManifestError::RequiredFieldMissing, &quot;ProductId&quot;);
+<a href="#l228" class="line" id="l228">    228</a>                 }
+<a href="#l229" class="line" id="l229">    229</a>             }
+<a href="#l230" class="line" id="l230">    230</a>             else
+<a href="#l231" class="line" id="l231">    231</a>             {
+<a href="#l232" class="line" id="l232">    232</a>                 // For other types, Url and Sha256 are required
+<a href="#l233" class="line" id="l233">    233</a>                 if (installer.Url.empty())
+<a href="#l234" class="line" id="l234">    234</a>                 {
+<a href="#l235" class="line" id="l235">    235</a>                     resultErrors.emplace_back(ManifestError::RequiredFieldMissing, &quot;InstallerUrl&quot;);
+<a href="#l236" class="line" id="l236">    236</a>                 }
+<a href="#l237" class="line" id="l237">    237</a>                 if (installer.Sha256.empty())
+<a href="#l238" class="line" id="l238">    238</a>                 {
+<a href="#l239" class="line" id="l239">    239</a>                     resultErrors.emplace_back(ManifestError::RequiredFieldMissing, &quot;InstallerSha256&quot;);
+<a href="#l240" class="line" id="l240">    240</a>                 }
+<a href="#l241" class="line" id="l241">    241</a>                 // ProductId should not be used
+<a href="#l242" class="line" id="l242">    242</a>                 if (!installer.ProductId.empty())
+<a href="#l243" class="line" id="l243">    243</a>                 {
+<a href="#l244" class="line" id="l244">    244</a>                     resultErrors.emplace_back(ManifestError::FieldNotSupported, &quot;ProductId&quot;);
+<a href="#l245" class="line" id="l245">    245</a>                 }
+<a href="#l246" class="line" id="l246">    246</a> 
+<a href="#l247" class="line" id="l247">    247</a>                 // Ensure that each URL has a one to one mapping with a Sha256 and
+<a href="#l248" class="line" id="l248">    248</a>                 // warn if a Sha256 has a one to many mapping with a URL
+<a href="#l249" class="line" id="l249">    249</a>                 if (fullValidation &amp;&amp; !installer.Url.empty() &amp;&amp; !installer.Sha256.empty())
+<a href="#l250" class="line" id="l250">    250</a>                 {
+<a href="#l251" class="line" id="l251">    251</a>                     std::string checksum = Utility::SHA256::ConvertToString(installer.Sha256);
+<a href="#l252" class="line" id="l252">    252</a>                     std::string url = installer.Url;
+<a href="#l253" class="line" id="l253">    253</a> 
+<a href="#l254" class="line" id="l254">    254</a>                     auto [urlIterator, urlInserted] = urlToChecksum.try_emplace(url, checksum);
+<a href="#l255" class="line" id="l255">    255</a>                     auto [checksumIterator, checksumInserted] = checksumToUrl.try_emplace(checksum, url);
+<a href="#l256" class="line" id="l256">    256</a> 
+<a href="#l257" class="line" id="l257">    257</a>                     if (!urlInserted &amp;&amp; urlIterator-&gt;second != checksum)
+<a href="#l258" class="line" id="l258">    258</a>                     {
+<a href="#l259" class="line" id="l259">    259</a>                         // If the URL was not inserted, and the value in the map does not match the current Sha256, then
+<a href="#l260" class="line" id="l260">    260</a>                         // a single URL corresponds to multiple SHA256 and an error should be thrown
+<a href="#l261" class="line" id="l261">    261</a>                         resultErrors.emplace_back(ManifestError::InconsistentInstallerHash, &quot;InstallerUrl&quot;, url);
+<a href="#l262" class="line" id="l262">    262</a>                     }
+<a href="#l263" class="line" id="l263">    263</a> 
+<a href="#l264" class="line" id="l264">    264</a>                     if (!checksumInserted &amp;&amp; checksumIterator-&gt;second != url)
+<a href="#l265" class="line" id="l265">    265</a>                     {
+<a href="#l266" class="line" id="l266">    266</a>                         // If the SHA256 was not inserted, and the value in the map does not match the current URL, then
+<a href="#l267" class="line" id="l267">    267</a>                         // a single SHA256 corresponds to multiple URLS and a warning should be thrown
+<a href="#l268" class="line" id="l268">    268</a>                         resultErrors.emplace_back(ManifestError::DuplicateInstallerHash, &quot;InstallerSha256&quot;, checksum, ValidationError::Level::Warning);
+<a href="#l269" class="line" id="l269">    269</a>                     }
+<a href="#l270" class="line" id="l270">    270</a>                 }
+<a href="#l271" class="line" id="l271">    271</a>             }
+<a href="#l272" class="line" id="l272">    272</a> 
+<a href="#l273" class="line" id="l273">    273</a>             if (installer.EffectiveInstallerType() == InstallerTypeEnum::Exe &amp;&amp;
+<a href="#l274" class="line" id="l274">    274</a>                 (installer.Switches.find(InstallerSwitchType::SilentWithProgress) == installer.Switches.end() ||
+<a href="#l275" class="line" id="l275">    275</a>                  installer.Switches.find(InstallerSwitchType::Silent) == installer.Switches.end()))
+<a href="#l276" class="line" id="l276">    276</a>             {
+<a href="#l277" class="line" id="l277">    277</a>                 resultErrors.emplace_back(ManifestError::ExeInstallerMissingSilentSwitches, ValidationError::Level::Warning);
+<a href="#l278" class="line" id="l278">    278</a>             }
+<a href="#l279" class="line" id="l279">    279</a> 
+<a href="#l280" class="line" id="l280">    280</a>             // The command field restriction only applies if the base installer type is Portable.
+<a href="#l281" class="line" id="l281">    281</a>             if (installer.BaseInstallerType == InstallerTypeEnum::Portable)
+<a href="#l282" class="line" id="l282">    282</a>             {
+<a href="#l283" class="line" id="l283">    283</a>                 if (installer.Commands.size() &gt; 1)
+<a href="#l284" class="line" id="l284">    284</a>                 {
+<a href="#l285" class="line" id="l285">    285</a>                     resultErrors.emplace_back(ManifestError::ExceededCommandsLimit);
+<a href="#l286" class="line" id="l286">    286</a>                 }
+<a href="#l287" class="line" id="l287">    287</a>             }
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>             if (installer.EffectiveInstallerType() == InstallerTypeEnum::Portable)
+<a href="#l290" class="line" id="l290">    290</a>             {
+<a href="#l291" class="line" id="l291">    291</a>                 if (installer.AppsAndFeaturesEntries.size() &gt; 1)
+<a href="#l292" class="line" id="l292">    292</a>                 {
+<a href="#l293" class="line" id="l293">    293</a>                     resultErrors.emplace_back(ManifestError::ExceededAppsAndFeaturesEntryLimit);
+<a href="#l294" class="line" id="l294">    294</a>                 }
+<a href="#l295" class="line" id="l295">    295</a>                 if (installer.Scope != ScopeEnum::Unknown)
+<a href="#l296" class="line" id="l296">    296</a>                 {
+<a href="#l297" class="line" id="l297">    297</a>                     resultErrors.emplace_back(ManifestError::ScopeNotSupported, ValidationError::Level::Warning);
+<a href="#l298" class="line" id="l298">    298</a>                 }
+<a href="#l299" class="line" id="l299">    299</a>             }
+<a href="#l300" class="line" id="l300">    300</a> 
+<a href="#l301" class="line" id="l301">    301</a>             if (IsArchiveType(installer.BaseInstallerType))
+<a href="#l302" class="line" id="l302">    302</a>             {
+<a href="#l303" class="line" id="l303">    303</a>                 bool isPortable = installer.NestedInstallerType == InstallerTypeEnum::Portable;
+<a href="#l304" class="line" id="l304">    304</a>                 bool isFont = installer.NestedInstallerType == InstallerTypeEnum::Font;
+<a href="#l305" class="line" id="l305">    305</a> 
+<a href="#l306" class="line" id="l306">    306</a>                 if (installer.NestedInstallerType == InstallerTypeEnum::Unknown)
+<a href="#l307" class="line" id="l307">    307</a>                 {
+<a href="#l308" class="line" id="l308">    308</a>                     resultErrors.emplace_back(ManifestError::RequiredFieldMissing, &quot;NestedInstallerType&quot;);
+<a href="#l309" class="line" id="l309">    309</a>                 }
+<a href="#l310" class="line" id="l310">    310</a>                 if (installer.NestedInstallerFiles.size() == 0)
+<a href="#l311" class="line" id="l311">    311</a>                 {
+<a href="#l312" class="line" id="l312">    312</a>                     resultErrors.emplace_back(ManifestError::RequiredFieldMissing, &quot;NestedInstallerFiles&quot;);
+<a href="#l313" class="line" id="l313">    313</a>                 }
+<a href="#l314" class="line" id="l314">    314</a>                 if (!isPortable &amp;&amp; !isFont &amp;&amp; installer.NestedInstallerFiles.size() != 1)
+<a href="#l315" class="line" id="l315">    315</a>                 {
+<a href="#l316" class="line" id="l316">    316</a>                     resultErrors.emplace_back(ManifestError::ExceededNestedInstallerFilesLimit, &quot;NestedInstallerFiles&quot;);
+<a href="#l317" class="line" id="l317">    317</a>                 }
+<a href="#l318" class="line" id="l318">    318</a> 
+<a href="#l319" class="line" id="l319">    319</a>                 std::set&lt;std::string&gt; commandAliasSet;
+<a href="#l320" class="line" id="l320">    320</a>                 std::set&lt;std::string&gt; relativeFilePathSet;
+<a href="#l321" class="line" id="l321">    321</a> 
+<a href="#l322" class="line" id="l322">    322</a>                 for (const auto&amp; nestedInstallerFile : installer.NestedInstallerFiles)
+<a href="#l323" class="line" id="l323">    323</a>                 {
+<a href="#l324" class="line" id="l324">    324</a>                     if (nestedInstallerFile.RelativeFilePath.empty())
+<a href="#l325" class="line" id="l325">    325</a>                     {
+<a href="#l326" class="line" id="l326">    326</a>                         resultErrors.emplace_back(ManifestError::RequiredFieldMissing, &quot;RelativeFilePath&quot;);
+<a href="#l327" class="line" id="l327">    327</a>                         break;
+<a href="#l328" class="line" id="l328">    328</a>                     }
+<a href="#l329" class="line" id="l329">    329</a> 
+<a href="#l330" class="line" id="l330">    330</a>                     // Check that the relative file path does not escape base directory.
+<a href="#l331" class="line" id="l331">    331</a>                     const std::filesystem::path&amp; basePath = std::filesystem::current_path();
+<a href="#l332" class="line" id="l332">    332</a>                     const std::filesystem::path&amp; fullPath = basePath / ConvertToUTF16(nestedInstallerFile.RelativeFilePath);
+<a href="#l333" class="line" id="l333">    333</a>                     if (AppInstaller::Filesystem::PathEscapesBaseDirectory(fullPath, basePath))
+<a href="#l334" class="line" id="l334">    334</a>                     {
+<a href="#l335" class="line" id="l335">    335</a>                         resultErrors.emplace_back(ManifestError::RelativeFilePathEscapesDirectory, &quot;RelativeFilePath&quot;);
+<a href="#l336" class="line" id="l336">    336</a>                     }
+<a href="#l337" class="line" id="l337">    337</a> 
+<a href="#l338" class="line" id="l338">    338</a>                     // Check for duplicate relative filepath values.
+<a href="#l339" class="line" id="l339">    339</a>                     if (!relativeFilePathSet.insert(Utility::ToLower(nestedInstallerFile.RelativeFilePath)).second)
+<a href="#l340" class="line" id="l340">    340</a>                     {
+<a href="#l341" class="line" id="l341">    341</a>                         resultErrors.emplace_back(ManifestError::DuplicateRelativeFilePath, &quot;RelativeFilePath&quot;);
+<a href="#l342" class="line" id="l342">    342</a>                     }
+<a href="#l343" class="line" id="l343">    343</a> 
+<a href="#l344" class="line" id="l344">    344</a>                     // Check for duplicate portable command alias values.
+<a href="#l345" class="line" id="l345">    345</a>                     const auto&amp; alias = Utility::ToLower(nestedInstallerFile.PortableCommandAlias);
+<a href="#l346" class="line" id="l346">    346</a>                     if (!alias.empty() &amp;&amp; !commandAliasSet.insert(alias).second)
+<a href="#l347" class="line" id="l347">    347</a>                     {
+<a href="#l348" class="line" id="l348">    348</a>                         resultErrors.emplace_back(ManifestError::DuplicatePortableCommandAlias, &quot;PortableCommandAlias&quot;);
+<a href="#l349" class="line" id="l349">    349</a>                         break;
+<a href="#l350" class="line" id="l350">    350</a>                     }
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>                     // If running full validation, check filetype
+<a href="#l353" class="line" id="l353">    353</a>                     if (fullValidation)
+<a href="#l354" class="line" id="l354">    354</a>                     {
+<a href="#l355" class="line" id="l355">    355</a>                         if (isPortable)
+<a href="#l356" class="line" id="l356">    356</a>                         {
+<a href="#l357" class="line" id="l357">    357</a>                             if (fullPath.has_extension() &amp;&amp; std::find(s_AllowedPortableFiletypes.begin(), s_AllowedPortableFiletypes.end(), fullPath.extension()) == s_AllowedPortableFiletypes.end())
+<a href="#l358" class="line" id="l358">    358</a>                             {
+<a href="#l359" class="line" id="l359">    359</a>                                 resultErrors.emplace_back(ManifestError::InvalidPortableFiletype, &quot;RelativeFilePath&quot;, nestedInstallerFile.RelativeFilePath);
+<a href="#l360" class="line" id="l360">    360</a>                             }
+<a href="#l361" class="line" id="l361">    361</a>                         }
+<a href="#l362" class="line" id="l362">    362</a> 
+<a href="#l363" class="line" id="l363">    363</a>                         if (isFont)
+<a href="#l364" class="line" id="l364">    364</a>                         {
+<a href="#l365" class="line" id="l365">    365</a>                             if (fullPath.has_extension() &amp;&amp; std::find(s_AllowedFontFiletypes.begin(), s_AllowedFontFiletypes.end(), fullPath.extension()) == s_AllowedFontFiletypes.end())
+<a href="#l366" class="line" id="l366">    366</a>                             {
+<a href="#l367" class="line" id="l367">    367</a>                                 resultErrors.emplace_back(ManifestError::InvalidFontFiletype, &quot;RelativeFilePath&quot;, nestedInstallerFile.RelativeFilePath);
+<a href="#l368" class="line" id="l368">    368</a>                             }
+<a href="#l369" class="line" id="l369">    369</a>                         }
+<a href="#l370" class="line" id="l370">    370</a>                     }
+<a href="#l371" class="line" id="l371">    371</a>                 }
+<a href="#l372" class="line" id="l372">    372</a>             }
+<a href="#l373" class="line" id="l373">    373</a> 
+<a href="#l374" class="line" id="l374">    374</a>             // Check empty string before calling IsValidUrl to avoid duplicate error reporting.
+<a href="#l375" class="line" id="l375">    375</a>             if (!installer.Url.empty() &amp;&amp; IsValidURL(NULL, Utility::ConvertToUTF16(installer.Url).c_str(), 0) == S_FALSE)
+<a href="#l376" class="line" id="l376">    376</a>             {
+<a href="#l377" class="line" id="l377">    377</a>                 resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;InstallerUrl&quot;, installer.Url);
+<a href="#l378" class="line" id="l378">    378</a>             }
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>             if (!installer.Locale.empty() &amp;&amp; !Locale::IsWellFormedBcp47Tag(installer.Locale))
+<a href="#l381" class="line" id="l381">    381</a>             {
+<a href="#l382" class="line" id="l382">    382</a>                 resultErrors.emplace_back(ManifestError::InvalidBcp47Value, &quot;InstallerLocale&quot;, installer.Locale);
+<a href="#l383" class="line" id="l383">    383</a>             }
+<a href="#l384" class="line" id="l384">    384</a> 
+<a href="#l385" class="line" id="l385">    385</a>             if (!installer.Markets.AllowedMarkets.empty() &amp;&amp; !installer.Markets.ExcludedMarkets.empty())
+<a href="#l386" class="line" id="l386">    386</a>             {
+<a href="#l387" class="line" id="l387">    387</a>                 resultErrors.emplace_back(ManifestError::BothAllowedAndExcludedMarketsDefined);
+<a href="#l388" class="line" id="l388">    388</a>             }
+<a href="#l389" class="line" id="l389">    389</a> 
+<a href="#l390" class="line" id="l390">    390</a>             // Check expected return codes for duplicates between successful and expected error codes
+<a href="#l391" class="line" id="l391">    391</a>             std::set&lt;DWORD&gt; returnCodeSet;
+<a href="#l392" class="line" id="l392">    392</a>             returnCodeSet.insert(installer.InstallerSuccessCodes.begin(), installer.InstallerSuccessCodes.end());
+<a href="#l393" class="line" id="l393">    393</a>             for (const auto&amp; code : installer.ExpectedReturnCodes)
+<a href="#l394" class="line" id="l394">    394</a>             {
+<a href="#l395" class="line" id="l395">    395</a>                 if (!returnCodeSet.insert(code.first).second)
+<a href="#l396" class="line" id="l396">    396</a>                 {
+<a href="#l397" class="line" id="l397">    397</a>                     resultErrors.emplace_back(ManifestError::DuplicateReturnCodeEntry);
+<a href="#l398" class="line" id="l398">    398</a> 
+<a href="#l399" class="line" id="l399">    399</a>                     // Stop checking to avoid repeated errors
+<a href="#l400" class="line" id="l400">    400</a>                     break;
+<a href="#l401" class="line" id="l401">    401</a>                 }
+<a href="#l402" class="line" id="l402">    402</a>             }
+<a href="#l403" class="line" id="l403">    403</a> 
+<a href="#l404" class="line" id="l404">    404</a>             // Check no approximate version declared for DisplayVersion in AppsAndFeatureEntries
+<a href="#l405" class="line" id="l405">    405</a>             for (auto const&amp; entry : installer.AppsAndFeaturesEntries)
+<a href="#l406" class="line" id="l406">    406</a>             {
+<a href="#l407" class="line" id="l407">    407</a>                 if (!entry.DisplayVersion.empty())
+<a href="#l408" class="line" id="l408">    408</a>                 {
+<a href="#l409" class="line" id="l409">    409</a>                     try
+<a href="#l410" class="line" id="l410">    410</a>                     {
+<a href="#l411" class="line" id="l411">    411</a>                         Utility::Version displayVersion{ entry.DisplayVersion };
+<a href="#l412" class="line" id="l412">    412</a>                         if (displayVersion.IsApproximate())
+<a href="#l413" class="line" id="l413">    413</a>                         {
+<a href="#l414" class="line" id="l414">    414</a>                             resultErrors.emplace_back(ManifestError::ApproximateVersionNotAllowed, &quot;DisplayVersion&quot;, entry.DisplayVersion);
+<a href="#l415" class="line" id="l415">    415</a>                         }
+<a href="#l416" class="line" id="l416">    416</a>                     }
+<a href="#l417" class="line" id="l417">    417</a>                     catch (const std::exception&amp;)
+<a href="#l418" class="line" id="l418">    418</a>                     {
+<a href="#l419" class="line" id="l419">    419</a>                         resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;DisplayVersion&quot;, entry.DisplayVersion);
+<a href="#l420" class="line" id="l420">    420</a>                     }
+<a href="#l421" class="line" id="l421">    421</a>                 }
+<a href="#l422" class="line" id="l422">    422</a>             }
+<a href="#l423" class="line" id="l423">    423</a> 
+<a href="#l424" class="line" id="l424">    424</a>             // Check AuthInfo validity. For full validation (community repo), authentication type must be none.
+<a href="#l425" class="line" id="l425">    425</a>             if (installer.AuthInfo.Type != Authentication::AuthenticationType::None)
+<a href="#l426" class="line" id="l426">    426</a>             {
+<a href="#l427" class="line" id="l427">    427</a>                 if (fullValidation)
+<a href="#l428" class="line" id="l428">    428</a>                 {
+<a href="#l429" class="line" id="l429">    429</a>                     // Authentication is not supported (must be none) in community repo.
+<a href="#l430" class="line" id="l430">    430</a>                     resultErrors.emplace_back(ManifestError::FieldNotSupported, &quot;Authentication&quot;);
+<a href="#l431" class="line" id="l431">    431</a>                 }
+<a href="#l432" class="line" id="l432">    432</a> 
+<a href="#l433" class="line" id="l433">    433</a>                 if (!installer.AuthInfo.ValidateIntegrity())
+<a href="#l434" class="line" id="l434">    434</a>                 {
+<a href="#l435" class="line" id="l435">    435</a>                     resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;Authentication&quot;);
+<a href="#l436" class="line" id="l436">    436</a>                 }
+<a href="#l437" class="line" id="l437">    437</a>             }
+<a href="#l438" class="line" id="l438">    438</a>         }
+<a href="#l439" class="line" id="l439">    439</a> 
+<a href="#l440" class="line" id="l440">    440</a>         // Validate localizations
+<a href="#l441" class="line" id="l441">    441</a>         for (auto const&amp; localization : manifest.Localizations)
+<a href="#l442" class="line" id="l442">    442</a>         {
+<a href="#l443" class="line" id="l443">    443</a>             auto locErrors = ValidateManifestLocalization(localization, !fullValidation);
+<a href="#l444" class="line" id="l444">    444</a>             std::move(locErrors.begin(), locErrors.end(), std::inserter(resultErrors, resultErrors.end()));
+<a href="#l445" class="line" id="l445">    445</a>         }
+<a href="#l446" class="line" id="l446">    446</a> 
+<a href="#l447" class="line" id="l447">    447</a>         return resultErrors;
+<a href="#l448" class="line" id="l448">    448</a>     }
+<a href="#l449" class="line" id="l449">    449</a> 
+<a href="#l450" class="line" id="l450">    450</a>     std::vector&lt;ValidationError&gt; ValidateManifestLocalization(const ManifestLocalization&amp; localization, bool treatErrorAsWarning)
+<a href="#l451" class="line" id="l451">    451</a>     {
+<a href="#l452" class="line" id="l452">    452</a>         std::vector&lt;ValidationError&gt; resultErrors;
+<a href="#l453" class="line" id="l453">    453</a> 
+<a href="#l454" class="line" id="l454">    454</a>         if (!localization.Locale.empty() &amp;&amp; !Locale::IsWellFormedBcp47Tag(localization.Locale))
+<a href="#l455" class="line" id="l455">    455</a>         {
+<a href="#l456" class="line" id="l456">    456</a>             resultErrors.emplace_back(ManifestError::InvalidBcp47Value, &quot;PackageLocale&quot;, localization.Locale, treatErrorAsWarning ? ValidationError::Level::Warning : ValidationError::Level::Error);
+<a href="#l457" class="line" id="l457">    457</a>         }
+<a href="#l458" class="line" id="l458">    458</a> 
+<a href="#l459" class="line" id="l459">    459</a>         if (localization.Contains(Localization::Agreements))
+<a href="#l460" class="line" id="l460">    460</a>         {
+<a href="#l461" class="line" id="l461">    461</a>             const auto&amp; agreements = localization.Get&lt;Localization::Agreements&gt;();
+<a href="#l462" class="line" id="l462">    462</a>             for (const auto&amp; agreement : agreements)
+<a href="#l463" class="line" id="l463">    463</a>             {
+<a href="#l464" class="line" id="l464">    464</a>                 // At least one must be present
+<a href="#l465" class="line" id="l465">    465</a>                 if (agreement.Label.empty() &amp;&amp; agreement.AgreementText.empty() &amp;&amp; agreement.AgreementUrl.empty())
+<a href="#l466" class="line" id="l466">    466</a>                 {
+<a href="#l467" class="line" id="l467">    467</a>                     resultErrors.emplace_back(ManifestError::InvalidFieldValue, &quot;Agreements&quot;, treatErrorAsWarning ? ValidationError::Level::Warning : ValidationError::Level::Error);
+<a href="#l468" class="line" id="l468">    468</a>                 }
+<a href="#l469" class="line" id="l469">    469</a>             }
+<a href="#l470" class="line" id="l470">    470</a>         }
+<a href="#l471" class="line" id="l471">    471</a> 
+<a href="#l472" class="line" id="l472">    472</a>         return resultErrors;
+<a href="#l473" class="line" id="l473">    473</a>     }
+<a href="#l474" class="line" id="l474">    474</a> 
+<a href="#l475" class="line" id="l475">    475</a>     std::vector&lt;ValidationError&gt; ValidateManifestInstallers(const Manifest&amp; manifest, bool treatErrorAsWarning)
+<a href="#l476" class="line" id="l476">    476</a>     {
+<a href="#l477" class="line" id="l477">    477</a>         std::vector&lt;ValidationError&gt; errors;
+<a href="#l478" class="line" id="l478">    478</a>         auto validationErrorLevel = treatErrorAsWarning ? ValidationError::Level::Warning : ValidationError::Level::Error;
+<a href="#l479" class="line" id="l479">    479</a>         MsixManifestValidation msixManifestValidation(validationErrorLevel);
+<a href="#l480" class="line" id="l480">    480</a>         for (const auto&amp; installer : manifest.Installers)
+<a href="#l481" class="line" id="l481">    481</a>         {
+<a href="#l482" class="line" id="l482">    482</a>             // Installer msix or msixbundle
+<a href="#l483" class="line" id="l483">    483</a>             if (installer.EffectiveInstallerType() == InstallerTypeEnum::Msix)
+<a href="#l484" class="line" id="l484">    484</a>             {
+<a href="#l485" class="line" id="l485">    485</a>                 auto installerErrors = msixManifestValidation.Validate(manifest, installer);
+<a href="#l486" class="line" id="l486">    486</a>                 std::move(installerErrors.begin(), installerErrors.end(), std::inserter(errors, errors.end()));
+<a href="#l487" class="line" id="l487">    487</a>             }
+<a href="#l488" class="line" id="l488">    488</a>         }
+<a href="#l489" class="line" id="l489">    489</a> 
+<a href="#l490" class="line" id="l490">    490</a>         return errors;
+<a href="#l491" class="line" id="l491">    491</a>     }
+<a href="#l492" class="line" id="l492">    492</a> 
+<a href="#l493" class="line" id="l493">    493</a>     std::string ValidationError::GetErrorMessage() const
+<a href="#l494" class="line" id="l494">    494</a>     {
+<a href="#l495" class="line" id="l495">    495</a>         const auto&amp; ErrorIdToMessageMap = GetErrorIdToMessageMap();
+<a href="#l496" class="line" id="l496">    496</a>         const auto itr = ErrorIdToMessageMap.find(Message);
+<a href="#l497" class="line" id="l497">    497</a> 
+<a href="#l498" class="line" id="l498">    498</a>         if (itr != ErrorIdToMessageMap.end())
+<a href="#l499" class="line" id="l499">    499</a>         {
+<a href="#l500" class="line" id="l500">    500</a>             return std::string(itr-&gt;second);
+<a href="#l501" class="line" id="l501">    501</a>         }
+<a href="#l502" class="line" id="l502">    502</a>         
+<a href="#l503" class="line" id="l503">    503</a>         return Utility::ConvertToUTF8(Message);
+<a href="#l504" class="line" id="l504">    504</a>     }
+<a href="#l505" class="line" id="l505">    505</a> }
+</pre>
+</div>
+</body>
+</html>

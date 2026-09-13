@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Improve progress handling for group processor (#4121) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/f6062a574d2243d3a38e5764cd48b558a5bbf9bb.html">f6062a574d2243d3a38e5764cd48b558a5bbf9bb</a>
+<b>parent</b> <a href="../commit/34fbaabe25df5353d92333dbe2c968a5a2feb316.html">34fbaabe25df5353d92333dbe2c968a5a2feb316</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 31 Jan 2024 15:01:15 -0800
+
+Improve progress handling for group processor (#4121)
+
+To prevent the loss of progress events between the group processor and
+the caller, move to a model where these internal interfaces take in an
+`EventHandler` parameter rather than using `...WithProgress`. This will
+make it possible to be confident that no progress events occurred
+between the async method starting and the progress handler being
+attached.
+
+This fixes the flakiness of the tests that were verifying progress
+events.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerSharedLib/Public/winget/AsyncTokens.h</a></td><td> | </td><td class="num">31</td><td><span class="i">+++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationSetGroupProcessor.cs</a></td><td> | </td><td class="num">14</td><td><span class="i">++++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationUnitGroupProcessor.cs</a></td><td> | </td><td class="num">28</td><td><span class="i">++++++++++++++</span><span class="d">--------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationProcessorGroupTests.cs</a></td><td> | </td><td class="num">37</td><td><span class="i">++++++++++++++++++++++</span><span class="d">---------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a></td><td> | </td><td class="num">15</td><td><span class="i">+++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">+</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.cpp</a></td><td> | </td><td class="num">16</td><td><span class="i">++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.h</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+</table></pre><pre>9 files changed, 91 insertions(+), 62 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerSharedLib/Public/winget/AsyncTokens.h.html">src/AppInstallerSharedLib/Public/winget/AsyncTokens.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/AsyncTokens.h.html">src/AppInstallerSharedLib/Public/winget/AsyncTokens.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -118,6 +118,29 @@ namespace AppInstaller::WinRT
+</a>         private:
+             Token m_token;
+         };
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        // Type containing winrt EventHandler.
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        template &lt;typename ResultT, typename ProgressT&gt;
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+        struct AsyncProgressEventHandlerT : public AsyncProgressTypeErasure&lt;ResultT, ProgressT&gt;
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+        {
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+            using Token = winrt::Windows::Foundation::EventHandler&lt;ProgressT&gt;;
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+            AsyncProgressEventHandlerT(Token&amp;&amp; token) : m_token(std::move(token)) {}
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            void Progress(ProgressT const&amp; progress) const override
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+            {
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                m_token(m_result, progress);
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+            }
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+            void Result(ResultT const&amp; result) const override
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+            {
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+                m_result = result;
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+            }
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+        private:
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+            mutable ResultT m_result = nullptr;
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+            Token m_token;
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+        };
+</a>     }
+ 
+     // May hold a progress token and provide the ability to send progress updates.
+<a href="#h0-1" id="h0-1" class="h">@@ -136,6 +159,14 @@ namespace AppInstaller::WinRT
+</a>             m_token = std::make_unique&lt;details::AsyncProgressT&lt;Promise, ResultT, ProgressT&gt;&gt;(std::move(progress));
+         }
+ 
+<a href="#h0-1-3" id="h0-1-3" class="i">+        // Create a progress object from an EventHandler.
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        template &lt;typename Promise&gt;
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+        AsyncProgress(winrt::Windows::Foundation::EventHandler&lt;ProgressT&gt;&amp;&amp; progress, winrt::impl::cancellation_token&lt;Promise&gt;&amp;&amp; cancellation) :
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+            AsyncCancellation(std::move(cancellation))
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+        {
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+            m_token = std::make_unique&lt;details::AsyncProgressEventHandlerT&lt;ResultT, ProgressT&gt;&gt;(std::move(progress));
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+        }
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+
+</a>         // Sends progress if this object is not empty.
+         void Progress(ProgressT const&amp; progress) const
+         {
+<b>diff --git a/<a id="h1" href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationSetGroupProcessor.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationSetGroupProcessor.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationSetGroupProcessor.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationSetGroupProcessor.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -50,10 +50,11 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>         /// &lt;summary&gt;
+         /// Apply settings for the group.
+         /// &lt;/summary&gt;
+<a href="#h1-0-3" id="h1-0-3" class="i">+        /// &lt;param name=&quot;progressHandler&quot;&gt;The progress handler.&lt;/param&gt;
+</a>         /// &lt;returns&gt;The operation to apply settings.&lt;/returns&gt;
+<a href="#h1-0-5" id="h1-0-5" class="d">-        public IAsyncOperationWithProgress&lt;IApplyGroupSettingsResult, IApplyGroupMemberSettingsResult&gt; ApplyGroupSettingsAsync()
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        public IAsyncOperation&lt;IApplyGroupSettingsResult&gt; ApplyGroupSettingsAsync(EventHandler&lt;IApplyGroupMemberSettingsResult&gt; progressHandler)
+</a>         {
+<a href="#h1-0-8" id="h1-0-8" class="d">-            return AsyncInfo.Run((CancellationToken cancellationToken, IProgress&lt;IApplyGroupMemberSettingsResult&gt; progress) =&gt; Task.Run&lt;IApplyGroupSettingsResult&gt;(() =&gt;
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+            return AsyncInfo.Run((CancellationToken cancellationToken) =&gt; Task.Run&lt;IApplyGroupSettingsResult&gt;(() =&gt;
+</a>             {
+                 this.WaitOnAsyncEvent(cancellationToken);
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -62,7 +63,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a> 
+                 if (this.Set != null)
+                 {
+<a href="#h1-1-3" id="h1-1-3" class="d">-                    TestConfigurationUnitGroupProcessor.ApplyGroupSettings(this.Set.Units, progress, result);
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+                    TestConfigurationUnitGroupProcessor.ApplyGroupSettings(this.Set.Units, progressHandler, result);
+</a>                 }
+ 
+                 return result;
+<a href="#h1-2" id="h1-2" class="h">@@ -72,10 +73,11 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>         /// &lt;summary&gt;
+         /// Test settings for the group.
+         /// &lt;/summary&gt;
+<a href="#h1-2-3" id="h1-2-3" class="i">+        /// &lt;param name=&quot;progressHandler&quot;&gt;The progress handler.&lt;/param&gt;
+</a>         /// &lt;returns&gt;The operation to test settings.&lt;/returns&gt;
+<a href="#h1-2-5" id="h1-2-5" class="d">-        public IAsyncOperationWithProgress&lt;ITestGroupSettingsResult, ITestSettingsResult&gt; TestGroupSettingsAsync()
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+        public IAsyncOperation&lt;ITestGroupSettingsResult&gt; TestGroupSettingsAsync(EventHandler&lt;ITestSettingsResult&gt; progressHandler)
+</a>         {
+<a href="#h1-2-8" id="h1-2-8" class="d">-            return AsyncInfo.Run((CancellationToken cancellationToken, IProgress&lt;ITestSettingsResult&gt; progress) =&gt; Task.Run&lt;ITestGroupSettingsResult&gt;(() =&gt;
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+            return AsyncInfo.Run((CancellationToken cancellationToken) =&gt; Task.Run&lt;ITestGroupSettingsResult&gt;(() =&gt;
+</a>             {
+                 this.WaitOnAsyncEvent(cancellationToken);
+ 
+<a href="#h1-3" id="h1-3" class="h">@@ -85,7 +87,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>                 if (this.Set != null)
+                 {
+                     result.TestResult = TestConfigurationUnitGroupProcessor.GetTestResult(this.Set.Metadata);
+<a href="#h1-3-3" id="h1-3-3" class="d">-                    TestConfigurationUnitGroupProcessor.TestGroupSettings(this.Set.Units, progress, result);
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+                    TestConfigurationUnitGroupProcessor.TestGroupSettings(this.Set.Units, progressHandler, result);
+</a>                 }
+ 
+                 return result;
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationUnitGroupProcessor.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationUnitGroupProcessor.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationUnitGroupProcessor.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationUnitGroupProcessor.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -55,17 +55,18 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>         /// &lt;summary&gt;
+         /// Apply settings for the group.
+         /// &lt;/summary&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+        /// &lt;param name=&quot;progressHandler&quot;&gt;The progress handler.&lt;/param&gt;
+</a>         /// &lt;returns&gt;The operation to apply settings.&lt;/returns&gt;
+<a href="#h2-0-5" id="h2-0-5" class="d">-        public IAsyncOperationWithProgress&lt;IApplyGroupSettingsResult, IApplyGroupMemberSettingsResult&gt; ApplyGroupSettingsAsync()
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        public IAsyncOperation&lt;IApplyGroupSettingsResult&gt; ApplyGroupSettingsAsync(EventHandler&lt;IApplyGroupMemberSettingsResult&gt; progressHandler)
+</a>         {
+<a href="#h2-0-8" id="h2-0-8" class="d">-            return AsyncInfo.Run((CancellationToken cancellationToken, IProgress&lt;IApplyGroupMemberSettingsResult&gt; progress) =&gt; Task.Run&lt;IApplyGroupSettingsResult&gt;(() =&gt;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+            return AsyncInfo.Run((CancellationToken cancellationToken) =&gt; Task.Run&lt;IApplyGroupSettingsResult&gt;(() =&gt;
+</a>             {
+                 this.WaitOnAsyncEvent(cancellationToken);
+ 
+                 ApplyGroupSettingsResultInstance result = new (this.Group);
+                 result.UnitResults = new List&lt;IApplyGroupMemberSettingsResult&gt;();
+ 
+<a href="#h2-0-16" id="h2-0-16" class="d">-                ApplyGroupSettings(this.Unit.Units, progress, result);
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+                ApplyGroupSettings(this.Unit.Units, progressHandler, result);
+</a> 
+                 return result;
+             }));
+<a href="#h2-1" id="h2-1" class="h">@@ -74,10 +75,11 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>         /// &lt;summary&gt;
+         /// Test settings for the group.
+         /// &lt;/summary&gt;
+<a href="#h2-1-3" id="h2-1-3" class="i">+        /// &lt;param name=&quot;progressHandler&quot;&gt;The progress handler.&lt;/param&gt;
+</a>         /// &lt;returns&gt;The operation to test settings.&lt;/returns&gt;
+<a href="#h2-1-5" id="h2-1-5" class="d">-        public IAsyncOperationWithProgress&lt;ITestGroupSettingsResult, ITestSettingsResult&gt; TestGroupSettingsAsync()
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+        public IAsyncOperation&lt;ITestGroupSettingsResult&gt; TestGroupSettingsAsync(EventHandler&lt;ITestSettingsResult&gt; progressHandler)
+</a>         {
+<a href="#h2-1-8" id="h2-1-8" class="d">-            return AsyncInfo.Run((CancellationToken cancellationToken, IProgress&lt;ITestSettingsResult&gt; progress) =&gt; Task.Run&lt;ITestGroupSettingsResult&gt;(() =&gt;
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+            return AsyncInfo.Run((CancellationToken cancellationToken) =&gt; Task.Run&lt;ITestGroupSettingsResult&gt;(() =&gt;
+</a>             {
+                 this.WaitOnAsyncEvent(cancellationToken);
+ 
+<a href="#h2-2" id="h2-2" class="h">@@ -85,7 +87,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>                 result.UnitResults = new List&lt;ITestSettingsResult&gt;();
+ 
+                 result.TestResult = GetTestResult(this.Unit.Metadata);
+<a href="#h2-2-3" id="h2-2-3" class="d">-                TestGroupSettings(this.Unit.Units, progress, result);
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+                TestGroupSettings(this.Unit.Units, progressHandler, result);
+</a> 
+                 return result;
+             }));
+<a href="#h2-3" id="h2-3" class="h">@@ -126,16 +128,17 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>         /// &lt;param name=&quot;groupMembers&quot;&gt;The group members.&lt;/param&gt;
+         /// &lt;param name=&quot;progress&quot;&gt;The progress reporting object.&lt;/param&gt;
+         /// &lt;param name=&quot;result&quot;&gt;The result object.&lt;/param&gt;
+<a href="#h2-3-3" id="h2-3-3" class="d">-        internal static void ApplyGroupSettings(IList&lt;ConfigurationUnit&gt;? groupMembers, IProgress&lt;IApplyGroupMemberSettingsResult&gt; progress, ApplyGroupSettingsResultInstance result)
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+        internal static void ApplyGroupSettings(IList&lt;ConfigurationUnit&gt;? groupMembers, EventHandler&lt;IApplyGroupMemberSettingsResult&gt; progress, ApplyGroupSettingsResultInstance result)
+</a>         {
+             if (groupMembers != null)
+             {
+                 foreach (ConfigurationUnit unit in groupMembers)
+                 {
+                     ApplyGroupMemberSettingsResultInstance unitResult = new (unit);
+<a href="#h2-3-11" id="h2-3-11" class="i">+                    result.UnitResults!.Add(unitResult);
+</a> 
+                     unitResult.State = ConfigurationUnitState.InProgress;
+<a href="#h2-3-14" id="h2-3-14" class="d">-                    progress.Report(unitResult);
+</a><a href="#h2-3-15" id="h2-3-15" class="i">+                    progress.Invoke(null, unitResult);
+</a> 
+                     unitResult.PreviouslyInDesiredState = GetTestResult(unit) == ConfigurationTestResult.Positive;
+ 
+<a href="#h2-4" id="h2-4" class="h">@@ -145,9 +148,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>                     }
+ 
+                     unitResult.State = ConfigurationUnitState.Completed;
+<a href="#h2-4-3" id="h2-4-3" class="d">-                    progress.Report(unitResult);
+</a><a href="#h2-4-4" id="h2-4-4" class="d">-
+</a><a href="#h2-4-5" id="h2-4-5" class="d">-                    result.UnitResults!.Add(unitResult);
+</a><a href="#h2-4-6" id="h2-4-6" class="i">+                    progress.Invoke(null, unitResult);
+</a>                 }
+             }
+         }
+<a href="#h2-5" id="h2-5" class="h">@@ -158,7 +159,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>         /// &lt;param name=&quot;groupMembers&quot;&gt;The group members.&lt;/param&gt;
+         /// &lt;param name=&quot;progress&quot;&gt;The progress reporting object.&lt;/param&gt;
+         /// &lt;param name=&quot;result&quot;&gt;The result object.&lt;/param&gt;
+<a href="#h2-5-3" id="h2-5-3" class="d">-        internal static void TestGroupSettings(IList&lt;ConfigurationUnit&gt;? groupMembers, IProgress&lt;ITestSettingsResult&gt; progress, TestGroupSettingsResultInstance result)
+</a><a href="#h2-5-4" id="h2-5-4" class="i">+        internal static void TestGroupSettings(IList&lt;ConfigurationUnit&gt;? groupMembers, EventHandler&lt;ITestSettingsResult&gt; progress, TestGroupSettingsResultInstance result)
+</a>         {
+             if (groupMembers != null)
+             {
+<a href="#h2-6" id="h2-6" class="h">@@ -172,9 +173,8 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>                     }
+ 
+                     unitResult.TestResult = GetTestResult(unit);
+<a href="#h2-6-3" id="h2-6-3" class="d">-                    progress.Report(unitResult);
+</a><a href="#h2-6-4" id="h2-6-4" class="d">-
+</a>                     result.UnitResults!.Add(unitResult);
+<a href="#h2-6-6" id="h2-6-6" class="i">+                    progress.Invoke(null, unitResult);
+</a>                 }
+             }
+         }
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationProcessorGroupTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationProcessorGroupTests.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationProcessorGroupTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationProcessorGroupTests.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -9,6 +9,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>     using System;
+     using System.Collections.Generic;
+     using System.Linq;
+<a href="#h3-0-3" id="h3-0-3" class="i">+    using System.Threading;
+</a>     using Microsoft.Management.Configuration.UnitTests.Fixtures;
+     using Microsoft.Management.Configuration.UnitTests.Helpers;
+     using Xunit;
+<a href="#h3-1" id="h3-1" class="h">@@ -416,16 +417,19 @@ resources:
+</a>             configurationSet.Units = new ConfigurationUnit[] { configurationUnitNegative, configurationUnitPositive };
+ 
+             TestConfigurationProcessorFactory factory = new TestConfigurationProcessorFactory();
+<a href="#h3-1-3" id="h3-1-3" class="d">-            TestConfigurationSetGroupProcessor setProcessor = factory.CreateTestGroupProcessor(configurationSet);
+</a><a href="#h3-1-4" id="h3-1-4" class="d">-            setProcessor.ShouldWaitOnAsyncEvent = true;
+</a><a href="#h3-1-5" id="h3-1-5" class="d">-
+</a>             ConfigurationProcessor processor = this.CreateConfigurationProcessorWithDiagnostics(factory);
+<a href="#h3-1-7" id="h3-1-7" class="d">-            List&lt;ConfigurationSetChangeData&gt; progressValues = new List&lt;ConfigurationSetChangeData&gt;();
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+            ManualResetEvent startProcessing = new ManualResetEvent(false);
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+            factory.CreateSetProcessorDelegate = (f, c) =&gt;
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+            {
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+                startProcessing.WaitOne();
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+                return f.CreateTestGroupProcessor(c);
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+            };
+</a> 
+             var operation = processor.ApplySetAsync(configurationSet, ApplyConfigurationSetFlags.None);
+<a href="#h3-1-16" id="h3-1-16" class="d">-            operation.Progress = (Windows.Foundation.IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt; op, ConfigurationSetChangeData unitResult) =&gt; { progressValues.Add(unitResult); };
+</a><a href="#h3-1-17" id="h3-1-17" class="d">-            setProcessor.SignalAsyncEvent();
+</a> 
+<a href="#h3-1-19" id="h3-1-19" class="i">+            List&lt;ConfigurationSetChangeData&gt; progressValues = new List&lt;ConfigurationSetChangeData&gt;();
+</a><a href="#h3-1-20" id="h3-1-20" class="i">+            operation.Progress = (Windows.Foundation.IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt; op, ConfigurationSetChangeData unitResult) =&gt; { progressValues.Add(unitResult); };
+</a><a href="#h3-1-21" id="h3-1-21" class="i">+            startProcessing.Set();
+</a>             operation.AsTask().Wait();
+             ApplyConfigurationSetResult result = operation.GetResults();
+ 
+<a href="#h3-2" id="h3-2" class="h">@@ -433,7 +437,7 @@ resources:
+</a>             Assert.Null(result.ResultCode);
+             Assert.NotNull(result.UnitResults);
+             Assert.Equal(configurationSet.Units.Count, result.UnitResults.Count);
+<a href="#h3-2-3" id="h3-2-3" class="d">-            Assert.True((configurationSet.Units.Count * 2) + 2 &gt;= progressValues.Count);
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+            Assert.Equal((configurationSet.Units.Count * 2) + 2, progressValues.Count);
+</a> 
+             ApplyConfigurationUnitResult negativeResult = result.UnitResults.First(x =&gt; x.Unit == configurationUnitNegative);
+ 
+<a href="#h3-3" id="h3-3" class="h">@@ -505,16 +509,19 @@ resources:
+</a>             configurationUnitGroup.Units = new ConfigurationUnit[] { configurationUnitGroupMember };
+ 
+             TestConfigurationProcessorFactory factory = new TestConfigurationProcessorFactory();
+<a href="#h3-3-3" id="h3-3-3" class="d">-            TestConfigurationSetGroupProcessor setProcessor = factory.CreateTestGroupProcessor(configurationSet);
+</a><a href="#h3-3-4" id="h3-3-4" class="d">-            setProcessor.ShouldWaitOnAsyncEvent = true;
+</a><a href="#h3-3-5" id="h3-3-5" class="d">-
+</a>             ConfigurationProcessor processor = this.CreateConfigurationProcessorWithDiagnostics(factory);
+<a href="#h3-3-7" id="h3-3-7" class="d">-            List&lt;ConfigurationSetChangeData&gt; progressValues = new List&lt;ConfigurationSetChangeData&gt;();
+</a><a href="#h3-3-8" id="h3-3-8" class="i">+            ManualResetEvent startProcessing = new ManualResetEvent(false);
+</a><a href="#h3-3-9" id="h3-3-9" class="i">+            factory.CreateSetProcessorDelegate = (f, c) =&gt;
+</a><a href="#h3-3-10" id="h3-3-10" class="i">+            {
+</a><a href="#h3-3-11" id="h3-3-11" class="i">+                startProcessing.WaitOne();
+</a><a href="#h3-3-12" id="h3-3-12" class="i">+                return f.CreateTestGroupProcessor(c);
+</a><a href="#h3-3-13" id="h3-3-13" class="i">+            };
+</a> 
+             var operation = processor.ApplySetAsync(configurationSet, ApplyConfigurationSetFlags.None);
+<a href="#h3-3-16" id="h3-3-16" class="d">-            operation.Progress = (Windows.Foundation.IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt; op, ConfigurationSetChangeData unitResult) =&gt; { progressValues.Add(unitResult); };
+</a><a href="#h3-3-17" id="h3-3-17" class="d">-            setProcessor.SignalAsyncEvent();
+</a> 
+<a href="#h3-3-19" id="h3-3-19" class="i">+            List&lt;ConfigurationSetChangeData&gt; progressValues = new List&lt;ConfigurationSetChangeData&gt;();
+</a><a href="#h3-3-20" id="h3-3-20" class="i">+            operation.Progress = (Windows.Foundation.IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt; op, ConfigurationSetChangeData unitResult) =&gt; { progressValues.Add(unitResult); };
+</a><a href="#h3-3-21" id="h3-3-21" class="i">+            startProcessing.Set();
+</a>             operation.AsTask().Wait();
+             ApplyConfigurationSetResult result = operation.GetResults();
+ 
+<a href="#h3-4" id="h3-4" class="h">@@ -522,7 +529,7 @@ resources:
+</a>             Assert.Null(result.ResultCode);
+             Assert.NotNull(result.UnitResults);
+             Assert.Equal(3, result.UnitResults.Count);
+<a href="#h3-4-3" id="h3-4-3" class="d">-            Assert.True(progressValues.Count &lt;= 2 + (3 * 2));
+</a><a href="#h3-4-4" id="h3-4-4" class="i">+            Assert.Equal(2 + (3 * 2), progressValues.Count);
+</a> 
+             foreach (ConfigurationUnit unit in new ConfigurationUnit[] { configurationUnit, configurationUnitGroup, configurationUnitGroupMember })
+             {
+<a href="#h3-5" id="h3-5" class="h">@@ -536,7 +543,7 @@ resources:
+</a>                 Assert.True(unitResult.PreviouslyInDesiredState);
+ 
+                 IEnumerable&lt;ConfigurationSetChangeData&gt; unitProgress = progressValues.Where(x =&gt; x.Unit == unit);
+<a href="#h3-5-3" id="h3-5-3" class="d">-                Assert.True(unitProgress.Count() &lt;= 2);
+</a><a href="#h3-5-4" id="h3-5-4" class="i">+                Assert.Equal(2, unitProgress.Count());
+</a> 
+                 foreach (ConfigurationSetChangeData change in unitProgress)
+                 {
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -499,12 +499,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             }
+             CATCH_LOG();
+ 
+<a href="#h4-0-3" id="h4-0-3" class="d">-            auto applyOperation = groupProcessor.ApplyGroupSettingsAsync();
+</a><a href="#h4-0-4" id="h4-0-4" class="d">-
+</a>             // Forward unit result progress to caller
+<a href="#h4-0-6" id="h4-0-6" class="d">-            applyOperation.Progress([&amp;](const auto&amp;, const IApplyGroupMemberSettingsResult&amp; unitResult)
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+            auto applyOperation = groupProcessor.ApplyGroupSettingsAsync([&amp;](const auto&amp;, const IApplyGroupMemberSettingsResult&amp; unitResult)
+</a>                 {
+<a href="#h4-0-9" id="h4-0-9" class="d">-                    // Update overall result
+</a>                     auto itr = unitResultMap.find(unitResult.Unit().InstanceIdentifier());
+                     if (itr != unitResultMap.end())
+                     {
+<a href="#h4-1" id="h4-1" class="h">@@ -597,13 +594,13 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         try
+         {
+<a href="#h4-1-3" id="h4-1-3" class="d">-            auto testOperation = groupProcessor.TestGroupSettingsAsync();
+</a><a href="#h4-1-4" id="h4-1-4" class="d">-
+</a>             // Forward unit result progress to caller
+<a href="#h4-1-6" id="h4-1-6" class="d">-            testOperation.Progress([&amp;](const auto&amp;, const ITestSettingsResult&amp; unitResult)
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+            auto testOperation = groupProcessor.TestGroupSettingsAsync([&amp;](const auto&amp;, const ITestSettingsResult&amp; unitResult)
+</a>                 {
+                     auto testResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::TestConfigurationUnitResult&gt;&gt;();
+                     testResult-&gt;Initialize(unitResult);
+<a href="#h4-1-11" id="h4-1-11" class="i">+
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+                    result-&gt;AppendUnitResult(*testResult);
+</a>                     progress.Progress(*testResult);
+                 });
+ 
+<a href="#h4-2" id="h4-2" class="h">@@ -612,7 +609,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+             ITestGroupSettingsResult testResult = testOperation.get();
+ 
+<a href="#h4-2-3" id="h4-2-3" class="d">-            // Place all results from the processor into our result
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+            // Send telemetry for all results
+</a>             for (const ITestSettingsResult&amp; unitResult : testResult.UnitResults())
+             {
+                 auto testUnitResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::TestConfigurationUnitResult&gt;&gt;();
+<a href="#h4-3" id="h4-3" class="h">@@ -624,8 +621,6 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>                     ConfigurationUnitIntent::Assert,
+                     TelemetryTraceLogger::TestAction,
+                     testUnitResult-&gt;ResultInformation());
+<a href="#h4-3-3" id="h4-3-3" class="d">-
+</a><a href="#h4-3-4" id="h4-3-4" class="d">-                result-&gt;AppendUnitResult(*testUnitResult);
+</a>             }
+ 
+             m_threadGlobals.GetTelemetryLogger().LogConfigProcessingSummaryForTest(*winrt::get_self&lt;implementation::ConfigurationSet&gt;(configurationSet), *result);
+<b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -423,9 +423,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+                 if (groupProcessor)
+                 {
+<a href="#h5-0-3" id="h5-0-3" class="d">-                    auto applyOperation = groupProcessor.ApplyGroupSettingsAsync();
+</a><a href="#h5-0-4" id="h5-0-4" class="d">-
+</a><a href="#h5-0-5" id="h5-0-5" class="d">-                    applyOperation.Progress([&amp;](const auto&amp;, const IApplyGroupMemberSettingsResult&amp; unitResult)
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+                    auto applyOperation = groupProcessor.ApplyGroupSettingsAsync([&amp;](const auto&amp;, const IApplyGroupMemberSettingsResult&amp; unitResult)
+</a>                         {
+                             m_progress.Progress(unitResult);
+                         });
+<b>diff --git a/<a id="h6" href="../file/src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.cpp.html">src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.cpp.html">src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -33,18 +33,16 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         return m_set;
+     }
+ 
+<a href="#h6-0-3" id="h6-0-3" class="d">-    Windows::Foundation::IAsyncOperationWithProgress&lt;ITestGroupSettingsResult, ITestSettingsResult&gt; DefaultSetGroupProcessor::TestGroupSettingsAsync()
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+    Windows::Foundation::IAsyncOperation&lt;ITestGroupSettingsResult&gt; DefaultSetGroupProcessor::TestGroupSettingsAsync(Windows::Foundation::EventHandler&lt;ITestSettingsResult&gt; progressHandler)
+</a>     {
+         auto strongThis = get_strong();
+         co_await resume_background();
+ 
+<a href="#h6-0-9" id="h6-0-9" class="d">-        auto progress = co_await get_progress_token();
+</a>         auto cancellation = co_await get_cancellation_token();
+         cancellation.enable_propagation();
+ 
+         auto result = make_self&lt;wil::details::module_count_wrapper&lt;implementation::TestGroupSettingsResult&gt;&gt;();
+         result-&gt;Group(m_set);
+<a href="#h6-0-15" id="h6-0-15" class="d">-        progress.set_result(*result);
+</a> 
+         try
+         {
+<a href="#h6-1" id="h6-1" class="h">@@ -80,11 +78,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+                         if (groupProcessor)
+                         {
+<a href="#h6-1-3" id="h6-1-3" class="d">-                            auto testOperation = groupProcessor.TestGroupSettingsAsync();
+</a><a href="#h6-1-4" id="h6-1-4" class="d">-
+</a><a href="#h6-1-5" id="h6-1-5" class="d">-                            testOperation.Progress([&amp;](const auto&amp;, const ITestSettingsResult&amp; unitResult)
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+                            auto testOperation = groupProcessor.TestGroupSettingsAsync([&amp;](const auto&amp;, const ITestSettingsResult&amp; unitResult)
+</a>                                 {
+<a href="#h6-1-8" id="h6-1-8" class="d">-                                    progress(unitResult);
+</a><a href="#h6-1-9" id="h6-1-9" class="i">+                                    progressHandler(nullptr, unitResult);
+</a>                                 });
+ 
+                             ITestGroupSettingsResult groupResult = co_await testOperation;
+<a href="#h6-2" id="h6-2" class="h">@@ -139,7 +135,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+                 try
+                 {
+<a href="#h6-2-3" id="h6-2-3" class="d">-                    progress(settingsResult);
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+                    progressHandler(nullptr, settingsResult);
+</a>                 }
+                 CATCH_LOG();
+             }
+<a href="#h6-3" id="h6-3" class="h">@@ -153,12 +149,12 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         }
+     }
+ 
+<a href="#h6-3-3" id="h6-3-3" class="d">-    Windows::Foundation::IAsyncOperationWithProgress&lt;IApplyGroupSettingsResult, IApplyGroupMemberSettingsResult&gt; DefaultSetGroupProcessor::ApplyGroupSettingsAsync()
+</a><a href="#h6-3-4" id="h6-3-4" class="i">+    Windows::Foundation::IAsyncOperation&lt;IApplyGroupSettingsResult&gt; DefaultSetGroupProcessor::ApplyGroupSettingsAsync(Windows::Foundation::EventHandler&lt;IApplyGroupMemberSettingsResult&gt; progressHandler)
+</a>     {
+         auto strongThis = get_strong();
+         co_await resume_background();
+ 
+<a href="#h6-3-9" id="h6-3-9" class="d">-        ConfigurationSetApplyProcessor applyProcessor{ m_set, m_setProcessor, { co_await winrt::get_progress_token(), co_await winrt::get_cancellation_token() } };
+</a><a href="#h6-3-10" id="h6-3-10" class="i">+        ConfigurationSetApplyProcessor applyProcessor{ m_set, m_setProcessor, { std::move(progressHandler), co_await winrt::get_cancellation_token() } };
+</a>         applyProcessor.Process(m_consistencyCheckOnly);
+ 
+         co_return applyProcessor.Result();
+<b>diff --git a/<a id="h7" href="../file/src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.h.html">src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.h.html">src/Microsoft.Management.Configuration/DefaultSetGroupProcessor.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -17,9 +17,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         IInspectable Group();
+ 
+<a href="#h7-0-3" id="h7-0-3" class="d">-        Windows::Foundation::IAsyncOperationWithProgress&lt;ITestGroupSettingsResult, ITestSettingsResult&gt; TestGroupSettingsAsync();
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+        Windows::Foundation::IAsyncOperation&lt;ITestGroupSettingsResult&gt; TestGroupSettingsAsync(Windows::Foundation::EventHandler&lt;ITestSettingsResult&gt; progressHandler);
+</a> 
+<a href="#h7-0-6" id="h7-0-6" class="d">-        Windows::Foundation::IAsyncOperationWithProgress&lt;IApplyGroupSettingsResult, IApplyGroupMemberSettingsResult&gt; ApplyGroupSettingsAsync();
+</a><a href="#h7-0-7" id="h7-0-7" class="i">+        Windows::Foundation::IAsyncOperation&lt;IApplyGroupSettingsResult&gt; ApplyGroupSettingsAsync(Windows::Foundation::EventHandler&lt;IApplyGroupMemberSettingsResult&gt; progressHandler);
+</a> 
+     private:
+         void ThrowIf(bool cancellation);
+<b>diff --git a/<a id="h8" href="../file/src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl.html">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a> b/<a href="../file/src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl.html">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -572,11 +572,11 @@ namespace Microsoft.Management.Configuration
+</a> 
+         // Determines if the system is already in the state described by the configuration unit group.
+         // Progress is expected for every descendant unit and finally the group unit itself.
+<a href="#h8-0-3" id="h8-0-3" class="d">-        Windows.Foundation.IAsyncOperationWithProgress&lt;ITestGroupSettingsResult, ITestSettingsResult&gt; TestGroupSettingsAsync();
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+        Windows.Foundation.IAsyncOperation&lt;ITestGroupSettingsResult&gt; TestGroupSettingsAsync(Windows.Foundation.EventHandler&lt;ITestSettingsResult&gt; progressHandler);
+</a> 
+         // Applies the state described in the configuration unit group.
+         // Progress is expected for every descendant unit and finally the group unit itself.
+<a href="#h8-0-8" id="h8-0-8" class="d">-        Windows.Foundation.IAsyncOperationWithProgress&lt;IApplyGroupSettingsResult, IApplyGroupMemberSettingsResult&gt; ApplyGroupSettingsAsync();
+</a><a href="#h8-0-9" id="h8-0-9" class="i">+        Windows.Foundation.IAsyncOperation&lt;IApplyGroupSettingsResult&gt; ApplyGroupSettingsAsync(Windows.Foundation.EventHandler&lt;IApplyGroupMemberSettingsResult&gt; progressHandler);
+</a>     }
+ 
+     // The level of the diagnostic information.
+</pre>
+</div>
+</body>
+</html>

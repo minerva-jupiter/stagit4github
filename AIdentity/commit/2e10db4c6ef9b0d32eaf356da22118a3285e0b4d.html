@@ -1,0 +1,1615 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>refactor(audio): Decouple audio playback from global sequencer - AIdentity - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>AIdentity</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/2e10db4c6ef9b0d32eaf356da22118a3285e0b4d.html">2e10db4c6ef9b0d32eaf356da22118a3285e0b4d</a>
+<b>parent</b> <a href="../commit/0189e9951b9408c97d4a48dd782122fd7c0b7650.html">0189e9951b9408c97d4a48dd782122fd7c0b7650</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Sun, 26 Oct 2025 15:54:23 +0900
+
+refactor(audio): Decouple audio playback from global sequencer
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">app/components/1_chat.tsx</a></td><td> | </td><td class="num">567</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">app/components/2_draw.tsx</a></td><td> | </td><td class="num">363</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">app/components/3_vr.tsx</a></td><td> | </td><td class="num">198</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h3">app/components/useAudioSequencer.ts</a></td><td> | </td><td class="num">212</td><td><span class="i"></span><span class="d">-------------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">app/ctrl/page.tsx</a></td><td> | </td><td class="num">10</td><td><span class="i">+</span><span class="d">---------</span></td></tr>
+</table></pre><pre>5 files changed, 657 insertions(+), 693 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/app/components/1_chat.tsx.html">app/components/1_chat.tsx</a> b/<a href="../file/app/components/1_chat.tsx.html">app/components/1_chat.tsx</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -3,266 +3,355 @@
+</a> import React, { useState, useRef, useEffect, KeyboardEvent, useCallback } from &#39;react&#39;;
+ import { StageProps } from &#39;../ctrl/page.tsx&#39;;
+ import init, { chat } from &#39;../../rust-wasm/pkg/rust_wasm.js&#39;;
+<a href="#h0-0-3" id="h0-0-3" class="d">-import useAudioSequencer from &#39;./useAudioSequencer.ts&#39;;
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-const FirstChat: React.FC&lt;StageProps&gt; = ({ onComplete }) =&gt; {
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-	return(
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-		&lt;ChatPage onComplete={onComplete}/&gt;
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-	)
+</a><a href="#h0-0-9" id="h0-0-9" class="d">-};
+</a><a href="#h0-0-10" id="h0-0-10" class="d">-
+</a><a href="#h0-0-11" id="h0-0-11" class="d">-export default FirstChat;
+</a><a href="#h0-0-12" id="h0-0-12" class="d">-
+</a><a href="#h0-0-13" id="h0-0-13" class="d">-const BGM_MAP: {[key:number]:string } = {
+</a><a href="#h0-0-14" id="h0-0-14" class="d">-	1: &#39;/audio/001.wav&#39;,
+</a><a href="#h0-0-15" id="h0-0-15" class="d">-	2: &#39;/audio/002.wav&#39;,
+</a><a href="#h0-0-16" id="h0-0-16" class="d">-	3: &#39;/audio/003.wav&#39;,
+</a><a href="#h0-0-17" id="h0-0-17" class="d">-}
+</a><a href="#h0-0-18" id="h0-0-18" class="d">-
+</a><a href="#h0-0-19" id="h0-0-19" class="d">-const getBgmUrl = (times: number): string | null =&gt; {
+</a><a href="#h0-0-20" id="h0-0-20" class="d">-	const stages = Object.keys(BGM_MAP).map(Number).sort((a,b) =&gt; b - a);
+</a><a href="#h0-0-21" id="h0-0-21" class="d">-	for (const stage of stages) {
+</a><a href="#h0-0-22" id="h0-0-22" class="d">-		if (times &gt;= stage) {
+</a><a href="#h0-0-23" id="h0-0-23" class="d">-			return BGM_MAP[stage];
+</a><a href="#h0-0-24" id="h0-0-24" class="d">-		}
+</a><a href="#h0-0-25" id="h0-0-25" class="d">-	}
+</a><a href="#h0-0-26" id="h0-0-26" class="d">-	return null;
+</a><a href="#h0-0-27" id="h0-0-27" class="d">-}
+</a><a href="#h0-0-28" id="h0-0-28" class="d">-
+</a><a href="#h0-0-29" id="h0-0-29" class="d">-interface Message {
+</a><a href="#h0-0-30" id="h0-0-30" class="d">-	id: number;
+</a><a href="#h0-0-31" id="h0-0-31" class="d">-	text: string;
+</a><a href="#h0-0-32" id="h0-0-32" class="d">-	sender: &#39;user&#39; | &#39;ai&#39;;
+</a><a href="#h0-0-33" id="h0-0-33" class="d">-}
+</a><a href="#h0-0-34" id="h0-0-34" class="d">-
+</a><a href="#h0-0-35" id="h0-0-35" class="d">-const initialMessages: Message[] = [
+</a><a href="#h0-0-36" id="h0-0-36" class="d">-	{ id: 1, text: &#39;そろそろどうするか決めないとだよ？&#39;, sender: &#39;ai&#39; },
+</a><a href="#h0-0-37" id="h0-0-37" class="d">-	{ id: 2, text: &#39;はやく話して。&#39;, sender:&#39;ai&#39;},
+</a><a href="#h0-0-38" id="h0-0-38" class="d">-];
+</a><a href="#h0-0-39" id="h0-0-39" class="d">-
+</a><a href="#h0-0-40" id="h0-0-40" class="d">-const MessageBubble: React.FC&lt;{ message: Message }&gt; = ({ message }) =&gt; {
+</a><a href="#h0-0-41" id="h0-0-41" class="d">-	const isUser = message.sender === &#39;user&#39;;
+</a><a href="#h0-0-42" id="h0-0-42" class="d">-
+</a><a href="#h0-0-43" id="h0-0-43" class="d">-	const bubbleStyle: React.CSSProperties = {
+</a><a href="#h0-0-44" id="h0-0-44" class="d">-		padding: &#39;10px 15px&#39;,
+</a><a href="#h0-0-45" id="h0-0-45" class="d">-		borderRadius: &#39;15px&#39;,
+</a><a href="#h0-0-46" id="h0-0-46" class="d">-		maxWidth: &#39;70%&#39;,
+</a><a href="#h0-0-47" id="h0-0-47" class="d">-		wordBreak: &#39;break-word&#39;,
+</a><a href="#h0-0-48" id="h0-0-48" class="d">-		fontSize: &#39;16px&#39;,
+</a><a href="#h0-0-49" id="h0-0-49" class="d">-		backgroundColor: isUser ? &#39;#3b82f6&#39; : &#39;#e5e7eb&#39;, // blue-500 or gray-200
+</a><a href="#h0-0-50" id="h0-0-50" class="d">-		color: isUser ? &#39;white&#39; : &#39;#1f2937&#39;, // white or gray-800
+</a><a href="#h0-0-51" id="h0-0-51" class="d">-		marginLeft: isUser ? &#39;auto&#39; : &#39;0&#39;,
+</a><a href="#h0-0-52" id="h0-0-52" class="d">-		marginRight: isUser ? &#39;0&#39; : &#39;auto&#39;,
+</a><a href="#h0-0-53" id="h0-0-53" class="d">-	};
+</a> 
+<a href="#h0-0-55" id="h0-0-55" class="d">-	const containerStyle: React.CSSProperties = {
+</a><a href="#h0-0-56" id="h0-0-56" class="d">-		display: &#39;flex&#39;,
+</a><a href="#h0-0-57" id="h0-0-57" class="d">-		marginBottom: &#39;10px&#39;,
+</a><a href="#h0-0-58" id="h0-0-58" class="d">-		justifyContent: isUser ? &#39;flex-end&#39; : &#39;flex-start&#39;,
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+// useWebAudioControllerの代替となるカスタムフックを定義
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+const useAudioPlayback = (
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+	initialTalktime: number,
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+	audioSources: Record&lt;number, string&gt;,
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+	onAudioEnd: () =&gt; void,
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+) =&gt; {
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+		// Audioオブジェクトの参照を保持
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+		const audioRef = useRef&lt;HTMLAudioElement | null&gt;(null);
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+		// 現在のトークタイムを保持し、変更を監視するためのState
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+		const talktimesRef = useRef(initialTalktime);
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+		const [currentAudioUrl, setCurrentAudioUrl] = useState(audioSources[initialTalktime] || &#39;&#39;);
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+		// 外部から再生を停止するための関数
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+		const stop = useCallback(() =&gt; {
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+			if (audioRef.current) {
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+				audioRef.current.pause();
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+				audioRef.current.currentTime = 0; // 最初に戻す
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+			}
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+		}, []);
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+		// 外部からループ設定を変更するための関数（AudioRefのcurrentが更新されるたびに適用される）
+</a><a href="#h0-0-80" id="h0-0-80" class="i">+		const setLoop = useCallback((isLooping: boolean) =&gt; {
+</a><a href="#h0-0-81" id="h0-0-81" class="i">+			// audioRef.currentが存在する場合にのみ設定を試みる
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+			if (audioRef.current) {
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+				audioRef.current.loop = isLooping;
+</a><a href="#h0-0-84" id="h0-0-84" class="i">+			}
+</a><a href="#h0-0-85" id="h0-0-85" class="i">+		}, []); // 依存配列は空でOK
+</a><a href="#h0-0-86" id="h0-0-86" class="i">+
+</a><a href="#h0-0-87" id="h0-0-87" class="i">+		// 1. Audioオブジェクトの初期化、クリーンアップ、および終了イベント処理
+</a><a href="#h0-0-88" id="h0-0-88" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-89" id="h0-0-89" class="i">+			// 古い音源を停止
+</a><a href="#h0-0-90" id="h0-0-90" class="i">+			stop();
+</a><a href="#h0-0-91" id="h0-0-91" class="i">+
+</a><a href="#h0-0-92" id="h0-0-92" class="i">+			const audio = new Audio(currentAudioUrl);
+</a><a href="#h0-0-93" id="h0-0-93" class="i">+			audioRef.current = audio;
+</a><a href="#h0-0-94" id="h0-0-94" class="i">+			audio.volume = 0.5; // 必要に応じて音量を設定
+</a><a href="#h0-0-95" id="h0-0-95" class="i">+
+</a><a href="#h0-0-96" id="h0-0-96" class="i">+			// 常に最新のtalktimesRef.currentに基づいてループ設定
+</a><a href="#h0-0-97" id="h0-0-97" class="i">+			const isLooping = talktimesRef.current &lt; 4;
+</a><a href="#h0-0-98" id="h0-0-98" class="i">+			audio.loop = isLooping;
+</a><a href="#h0-0-99" id="h0-0-99" class="i">+			setLoop(isLooping); // 念のため
+</a><a href="#h0-0-100" id="h0-0-100" class="i">+
+</a><a href="#h0-0-101" id="h0-0-101" class="i">+			// 自動再生の試行 (ユーザーのインタラクションが必要なため、失敗する可能性あり)
+</a><a href="#h0-0-102" id="h0-0-102" class="i">+			audio.play().catch(e =&gt; {
+</a><a href="#h0-0-103" id="h0-0-103" class="i">+				console.error(&quot;Audio playback error on URL change/init:&quot;, e);
+</a><a href="#h0-0-104" id="h0-0-104" class="i">+				// ユーザーのインタラクションがない場合は再生できないため、ここではエラーを無視するか、ユーザーに操作を促す
+</a><a href="#h0-0-105" id="h0-0-105" class="i">+			});
+</a><a href="#h0-0-106" id="h0-0-106" class="i">+
+</a><a href="#h0-0-107" id="h0-0-107" class="i">+
+</a><a href="#h0-0-108" id="h0-0-108" class="i">+			const handleEnded = () =&gt; {
+</a><a href="#h0-0-109" id="h0-0-109" class="i">+				const currentTalktime = talktimesRef.current;
+</a><a href="#h0-0-110" id="h0-0-110" class="i">+
+</a><a href="#h0-0-111" id="h0-0-111" class="i">+				// 終了条件を満たしている場合は停止し、onAudioEndを実行
+</a><a href="#h0-0-112" id="h0-0-112" class="i">+				if (currentTalktime &gt;= 4) {
+</a><a href="#h0-0-113" id="h0-0-113" class="i">+					console.log(&quot;最終音源の再生が終了しました。onAudioEndを実行します。&quot;);
+</a><a href="#h0-0-114" id="h0-0-114" class="i">+					stop();
+</a><a href="#h0-0-115" id="h0-0-115" class="i">+					onAudioEnd();
+</a><a href="#h0-0-116" id="h0-0-116" class="i">+					return;
+</a><a href="#h0-0-117" id="h0-0-117" class="i">+				}
+</a><a href="#h0-0-118" id="h0-0-118" class="i">+
+</a><a href="#h0-0-119" id="h0-0-119" class="i">+				// ループがtrueの場合はonendedは呼ばれないはずだが、フォールバックとして再再生を試みる
+</a><a href="#h0-0-120" id="h0-0-120" class="i">+				if (!audio.loop) {
+</a><a href="#h0-0-121" id="h0-0-121" class="i">+					console.log(`音源 ${currentTalktime} の再生が終了しました。ループ再生を再開します。`);
+</a><a href="#h0-0-122" id="h0-0-122" class="i">+					audio.play().catch(e =&gt; console.error(&quot;Audio playback error on loop restart:&quot;, e));
+</a><a href="#h0-0-123" id="h0-0-123" class="i">+				}
+</a><a href="#h0-0-124" id="h0-0-124" class="i">+			};
+</a><a href="#h0-0-125" id="h0-0-125" class="i">+
+</a><a href="#h0-0-126" id="h0-0-126" class="i">+			audio.addEventListener(&#39;ended&#39;, handleEnded);
+</a><a href="#h0-0-127" id="h0-0-127" class="i">+
+</a><a href="#h0-0-128" id="h0-0-128" class="i">+			// コンポーネントがアンマウントされる際のクリーンアップ
+</a><a href="#h0-0-129" id="h0-0-129" class="i">+			return () =&gt; {
+</a><a href="#h0-0-130" id="h0-0-130" class="i">+				audio.removeEventListener(&#39;ended&#39;, handleEnded);
+</a><a href="#h0-0-131" id="h0-0-131" class="i">+				audio.pause();
+</a><a href="#h0-0-132" id="h0-0-132" class="i">+				// audioRef.current = null; // Audioオブジェクトが再生成されるため、ここではnullにしない
+</a><a href="#h0-0-133" id="h0-0-133" class="i">+			};
+</a><a href="#h0-0-134" id="h0-0-134" class="i">+		}, [currentAudioUrl, onAudioEnd, stop, setLoop]); // currentAudioUrlが変わるとAudioオブジェクトが再生成される
+</a><a href="#h0-0-135" id="h0-0-135" class="i">+
+</a><a href="#h0-0-136" id="h0-0-136" class="i">+		// 2. talktimesRef.currentの変更を監視し、音源の切り替えを行う
+</a><a href="#h0-0-137" id="h0-0-137" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-138" id="h0-0-138" class="i">+			const currentTalktime = talktimesRef.current;
+</a><a href="#h0-0-139" id="h0-0-139" class="i">+			const newAudioUrl = audioSources[currentTalktime];
+</a><a href="#h0-0-140" id="h0-0-140" class="i">+
+</a><a href="#h0-0-141" id="h0-0-141" class="i">+			console.log(&quot;talktimesRef is &quot;, currentTalktime);
+</a><a href="#h0-0-142" id="h0-0-142" class="i">+
+</a><a href="#h0-0-143" id="h0-0-143" class="i">+			if (newAudioUrl &amp;&amp; newAudioUrl !== currentAudioUrl) {
+</a><a href="#h0-0-144" id="h0-0-144" class="i">+				// URLが変わったら、Audioオブジェクトを再生成するためにstateを更新
+</a><a href="#h0-0-145" id="h0-0-145" class="i">+				// 新しいcurrentAudioUrlで上のuseEffectがトリガーされる
+</a><a href="#h0-0-146" id="h0-0-146" class="i">+				setCurrentAudioUrl(newAudioUrl);
+</a><a href="#h0-0-147" id="h0-0-147" class="i">+
+</a><a href="#h0-0-148" id="h0-0-148" class="i">+				// 新しい音源に対するループ設定を即座に更新
+</a><a href="#h0-0-149" id="h0-0-149" class="i">+				const isLooping = currentTalktime &lt; 4;
+</a><a href="#h0-0-150" id="h0-0-150" class="i">+				setLoop(isLooping);
+</a><a href="#h0-0-151" id="h0-0-151" class="i">+			} else if (currentTalktime === initialTalktime &amp;&amp; audioRef.current) {
+</a><a href="#h0-0-152" id="h0-0-152" class="i">+				// 初回ロード時のみ、初期音源を再生（ブラウザの制限のため、ユーザー操作後の初回にのみ有効）
+</a><a href="#h0-0-153" id="h0-0-153" class="i">+				audioRef.current.play().catch(e =&gt; console.error(&quot;Initial audio playback error:&quot;, e));
+</a><a href="#h0-0-154" id="h0-0-154" class="i">+			}
+</a><a href="#h0-0-155" id="h0-0-155" class="i">+
+</a><a href="#h0-0-156" id="h0-0-156" class="i">+		}, [talktimesRef.current]);
+</a><a href="#h0-0-157" id="h0-0-157" class="i">+
+</a><a href="#h0-0-158" id="h0-0-158" class="i">+		// 外部からの更新用にtalktimesRefと制御関数を返す
+</a><a href="#h0-0-159" id="h0-0-159" class="i">+		return { talktimesRef, stop, setLoop, currentAudioUrl };
+</a> 	};
+ 
+<a href="#h0-0-162" id="h0-0-162" class="d">-	return (
+</a><a href="#h0-0-163" id="h0-0-163" class="d">-		&lt;div style={containerStyle}&gt;
+</a><a href="#h0-0-164" id="h0-0-164" class="d">-		&lt;div style={bubbleStyle}&gt;
+</a><a href="#h0-0-165" id="h0-0-165" class="d">-		{message.text}
+</a><a href="#h0-0-166" id="h0-0-166" class="d">-		&lt;/div&gt;
+</a><a href="#h0-0-167" id="h0-0-167" class="d">-		&lt;/div&gt;
+</a><a href="#h0-0-168" id="h0-0-168" class="d">-	);
+</a><a href="#h0-0-169" id="h0-0-169" class="d">-};
+</a><a href="#h0-0-170" id="h0-0-170" class="d">-
+</a><a href="#h0-0-171" id="h0-0-171" class="d">-const MessageInput: React.FC&lt;{ onSend: (text: string) =&gt; void }&gt; = ({ onSend }) =&gt; {
+</a><a href="#h0-0-172" id="h0-0-172" class="d">-	const [input, setInput] = useState(&#39;&#39;);
+</a><a href="#h0-0-173" id="h0-0-173" class="d">-
+</a><a href="#h0-0-174" id="h0-0-174" class="d">-	const handleSend = () =&gt; {
+</a><a href="#h0-0-175" id="h0-0-175" class="d">-		if (input.trim() === &#39;&#39;) return;
+</a><a href="#h0-0-176" id="h0-0-176" class="d">-		onSend(input);
+</a><a href="#h0-0-177" id="h0-0-177" class="d">-		setInput(&#39;&#39;);
+</a><a href="#h0-0-178" id="h0-0-178" class="i">+	const FirstChat: React.FC&lt;StageProps&gt; = ({ onComplete }) =&gt; {
+</a><a href="#h0-0-179" id="h0-0-179" class="i">+		return(
+</a><a href="#h0-0-180" id="h0-0-180" class="i">+			&lt;ChatPage onComplete={onComplete}/&gt;
+</a><a href="#h0-0-181" id="h0-0-181" class="i">+		)
+</a> 	};
+ 
+<a href="#h0-0-184" id="h0-0-184" class="d">-	const handleKeyPress = (e: KeyboardEvent&lt;HTMLInputElement&gt;) =&gt; {
+</a><a href="#h0-0-185" id="h0-0-185" class="d">-		if (e.key === &#39;Enter&#39;) {
+</a><a href="#h0-0-186" id="h0-0-186" class="d">-			e.preventDefault();
+</a><a href="#h0-0-187" id="h0-0-187" class="d">-			handleSend();
+</a><a href="#h0-0-188" id="h0-0-188" class="d">-		}
+</a><a href="#h0-0-189" id="h0-0-189" class="d">-	};
+</a><a href="#h0-0-190" id="h0-0-190" class="i">+	export default FirstChat;
+</a> 
+<a href="#h0-0-192" id="h0-0-192" class="d">-	const inputStyle: React.CSSProperties = {
+</a><a href="#h0-0-193" id="h0-0-193" class="d">-		flexGrow: 1,
+</a><a href="#h0-0-194" id="h0-0-194" class="d">-		padding: &#39;12px&#39;,
+</a><a href="#h0-0-195" id="h0-0-195" class="d">-		border: &#39;1px solid #d1d5db&#39;, // gray-300
+</a><a href="#h0-0-196" id="h0-0-196" class="d">-		borderRadius: &#39;8px&#39;,
+</a><a href="#h0-0-197" id="h0-0-197" class="d">-		marginRight: &#39;10px&#39;,
+</a><a href="#h0-0-198" id="h0-0-198" class="d">-		fontSize: &#39;16px&#39;,
+</a><a href="#h0-0-199" id="h0-0-199" class="d">-		outline: &#39;none&#39;,
+</a><a href="#h0-0-200" id="h0-0-200" class="i">+	const AUDIO_SOURCES: Record&lt;number, string&gt; = {
+</a><a href="#h0-0-201" id="h0-0-201" class="i">+		1: &#39;/audio/001.wav&#39;,
+</a><a href="#h0-0-202" id="h0-0-202" class="i">+		2: &#39;/audio/002.wav&#39;,
+</a><a href="#h0-0-203" id="h0-0-203" class="i">+		3: &#39;/audio/003.wav&#39;,
+</a><a href="#h0-0-204" id="h0-0-204" class="i">+		4: &#39;/audio/004.wav&#39;,
+</a><a href="#h0-0-205" id="h0-0-205" class="i">+		// 5以降は終了条件を満たすため、再生する音源は設定不要
+</a> 	};
+ 
+<a href="#h0-0-208" id="h0-0-208" class="d">-	const buttonStyle: React.CSSProperties = {
+</a><a href="#h0-0-209" id="h0-0-209" class="d">-		backgroundColor: &#39;#3b82f6&#39;, // blue-500
+</a><a href="#h0-0-210" id="h0-0-210" class="d">-		color: &#39;white&#39;,
+</a><a href="#h0-0-211" id="h0-0-211" class="d">-		border: &#39;none&#39;,
+</a><a href="#h0-0-212" id="h0-0-212" class="d">-		padding: &#39;12px 20px&#39;,
+</a><a href="#h0-0-213" id="h0-0-213" class="d">-		borderRadius: &#39;8px&#39;,
+</a><a href="#h0-0-214" id="h0-0-214" class="d">-		cursor: &#39;pointer&#39;,
+</a><a href="#h0-0-215" id="h0-0-215" class="d">-		fontWeight: &#39;bold&#39;,
+</a><a href="#h0-0-216" id="h0-0-216" class="d">-	};
+</a><a href="#h0-0-217" id="h0-0-217" class="i">+	interface Message {
+</a><a href="#h0-0-218" id="h0-0-218" class="i">+		id: number;
+</a><a href="#h0-0-219" id="h0-0-219" class="i">+		text: string;
+</a><a href="#h0-0-220" id="h0-0-220" class="i">+		sender: &#39;user&#39; | &#39;ai&#39;;
+</a><a href="#h0-0-221" id="h0-0-221" class="i">+	}
+</a> 
+<a href="#h0-0-223" id="h0-0-223" class="i">+	const initialMessages: Message[] = [
+</a><a href="#h0-0-224" id="h0-0-224" class="i">+		{ id: 1, text: &#39;そろそろどうするか決めないとだよ？&#39;, sender: &#39;ai&#39; },
+</a><a href="#h0-0-225" id="h0-0-225" class="i">+		{ id: 2, text: &#39;はやく話して。&#39;, sender:&#39;ai&#39;},
+</a><a href="#h0-0-226" id="h0-0-226" class="i">+	];
+</a><a href="#h0-0-227" id="h0-0-227" class="i">+
+</a><a href="#h0-0-228" id="h0-0-228" class="i">+	const MessageBubble: React.FC&lt;{ message: Message }&gt; = ({ message }) =&gt; {
+</a><a href="#h0-0-229" id="h0-0-229" class="i">+		const isUser = message.sender === &#39;user&#39;;
+</a><a href="#h0-0-230" id="h0-0-230" class="i">+
+</a><a href="#h0-0-231" id="h0-0-231" class="i">+		const bubbleStyle: React.CSSProperties = {
+</a><a href="#h0-0-232" id="h0-0-232" class="i">+			padding: &#39;10px 15px&#39;,
+</a><a href="#h0-0-233" id="h0-0-233" class="i">+			borderRadius: &#39;15px&#39;,
+</a><a href="#h0-0-234" id="h0-0-234" class="i">+			maxWidth: &#39;70%&#39;,
+</a><a href="#h0-0-235" id="h0-0-235" class="i">+			wordBreak: &#39;break-word&#39;,
+</a><a href="#h0-0-236" id="h0-0-236" class="i">+			fontSize: &#39;16px&#39;,
+</a><a href="#h0-0-237" id="h0-0-237" class="i">+			backgroundColor: isUser ? &#39;#3b82f6&#39; : &#39;#e5e7eb&#39;, // blue-500 or gray-200
+</a><a href="#h0-0-238" id="h0-0-238" class="i">+			color: isUser ? &#39;white&#39; : &#39;#1f2937&#39;, // white or gray-800
+</a><a href="#h0-0-239" id="h0-0-239" class="i">+			marginLeft: isUser ? &#39;auto&#39; : &#39;0&#39;,
+</a><a href="#h0-0-240" id="h0-0-240" class="i">+			marginRight: isUser ? &#39;0&#39; : &#39;auto&#39;,
+</a><a href="#h0-0-241" id="h0-0-241" class="i">+		};
+</a> 
+<a href="#h0-0-243" id="h0-0-243" class="d">-	return (
+</a><a href="#h0-0-244" id="h0-0-244" class="d">-		&lt;div style={{ padding: &#39;15px&#39;, backgroundColor: &#39;#f9fafb&#39;, display: &#39;flex&#39;, alignItems: &#39;center&#39; }}&gt;
+</a><a href="#h0-0-245" id="h0-0-245" class="d">-		&lt;input
+</a><a href="#h0-0-246" id="h0-0-246" class="d">-		type=&quot;text&quot;
+</a><a href="#h0-0-247" id="h0-0-247" class="d">-		style={inputStyle}
+</a><a href="#h0-0-248" id="h0-0-248" class="d">-		placeholder=&quot;メッセージを入力してください...&quot;
+</a><a href="#h0-0-249" id="h0-0-249" class="d">-		value={input}
+</a><a href="#h0-0-250" id="h0-0-250" class="d">-		onChange={(e) =&gt; setInput(e.target.value)}
+</a><a href="#h0-0-251" id="h0-0-251" class="d">-		onKeyDown={handleKeyPress}
+</a><a href="#h0-0-252" id="h0-0-252" class="d">-		/&gt;
+</a><a href="#h0-0-253" id="h0-0-253" class="d">-		&lt;button
+</a><a href="#h0-0-254" id="h0-0-254" class="d">-		type=&#39;submit&#39;
+</a><a href="#h0-0-255" id="h0-0-255" class="d">-		style={buttonStyle}
+</a><a href="#h0-0-256" id="h0-0-256" class="d">-		onClick={handleSend}
+</a><a href="#h0-0-257" id="h0-0-257" class="d">-		disabled={input.trim() === &#39;&#39;}
+</a><a href="#h0-0-258" id="h0-0-258" class="d">-		&gt;
+</a><a href="#h0-0-259" id="h0-0-259" class="d">-		送信
+</a><a href="#h0-0-260" id="h0-0-260" class="d">-		&lt;/button&gt;
+</a><a href="#h0-0-261" id="h0-0-261" class="d">-		&lt;/div&gt;
+</a><a href="#h0-0-262" id="h0-0-262" class="d">-	);
+</a><a href="#h0-0-263" id="h0-0-263" class="d">-};
+</a><a href="#h0-0-264" id="h0-0-264" class="d">-
+</a><a href="#h0-0-265" id="h0-0-265" class="d">-
+</a><a href="#h0-0-266" id="h0-0-266" class="d">-
+</a><a href="#h0-0-267" id="h0-0-267" class="d">-function ChatPage({onComplete}:StageProps) {
+</a><a href="#h0-0-268" id="h0-0-268" class="d">-	const [messages, setMessages] = useState&lt;Message[]&gt;(initialMessages);
+</a><a href="#h0-0-269" id="h0-0-269" class="d">-	const [ dict, setDict ] = useState&lt;Uint8Array|undefined&gt;(undefined);
+</a><a href="#h0-0-270" id="h0-0-270" class="d">-	const messagesEndRef = useRef&lt;HTMLDivElement&gt;(null);
+</a><a href="#h0-0-271" id="h0-0-271" class="d">-	const dictPath = &#39;/system.dic.zst&#39;;
+</a><a href="#h0-0-272" id="h0-0-272" class="d">-	
+</a><a href="#h0-0-273" id="h0-0-273" class="d">-	// for audio
+</a><a href="#h0-0-274" id="h0-0-274" class="d">-    const talktimesRef = useRef(1);
+</a><a href="#h0-0-275" id="h0-0-275" class="d">-    const [currentTalktimes, setCurrentTalktimes] = useState(1);
+</a><a href="#h0-0-276" id="h0-0-276" class="d">-    const currentBgmUrl = getBgmUrl(currentTalktimes);
+</a><a href="#h0-0-277" id="h0-0-277" class="d">-    const { isPlaying, isSwitching, endLoopAndAwaitCompletion } = useAudioSequencer(currentBgmUrl);
+</a><a href="#h0-0-278" id="h0-0-278" class="d">-
+</a><a href="#h0-0-279" id="h0-0-279" class="d">-	useEffect(() =&gt; {
+</a><a href="#h0-0-280" id="h0-0-280" class="d">-		messagesEndRef.current?.scrollIntoView({ behavior: &#39;smooth&#39; });
+</a><a href="#h0-0-281" id="h0-0-281" class="d">-	}, [messages]);
+</a><a href="#h0-0-282" id="h0-0-282" class="d">-
+</a><a href="#h0-0-283" id="h0-0-283" class="d">-	useEffect(() =&gt; {
+</a><a href="#h0-0-284" id="h0-0-284" class="d">-		const loadData = async () =&gt; {
+</a><a href="#h0-0-285" id="h0-0-285" class="d">-			const loadedDict = await LoadDict(dictPath);
+</a><a href="#h0-0-286" id="h0-0-286" class="d">-			setDict(loadedDict);
+</a><a href="#h0-0-287" id="h0-0-287" class="d">-		}
+</a><a href="#h0-0-288" id="h0-0-288" class="d">-		loadData();
+</a><a href="#h0-0-289" id="h0-0-289" class="d">-	}, []);
+</a><a href="#h0-0-290" id="h0-0-290" class="i">+		const containerStyle: React.CSSProperties = {
+</a><a href="#h0-0-291" id="h0-0-291" class="i">+			display: &#39;flex&#39;,
+</a><a href="#h0-0-292" id="h0-0-292" class="i">+			marginBottom: &#39;10px&#39;,
+</a><a href="#h0-0-293" id="h0-0-293" class="i">+			justifyContent: isUser ? &#39;flex-end&#39; : &#39;flex-start&#39;,
+</a><a href="#h0-0-294" id="h0-0-294" class="i">+		};
+</a> 
+<a href="#h0-0-296" id="h0-0-296" class="d">-	useEffect(() =&gt; {
+</a><a href="#h0-0-297" id="h0-0-297" class="d">-		init();
+</a><a href="#h0-0-298" id="h0-0-298" class="d">-	}, []);
+</a><a href="#h0-0-299" id="h0-0-299" class="i">+		return (
+</a><a href="#h0-0-300" id="h0-0-300" class="i">+			&lt;div style={containerStyle}&gt;
+</a><a href="#h0-0-301" id="h0-0-301" class="i">+			&lt;div style={bubbleStyle}&gt;
+</a><a href="#h0-0-302" id="h0-0-302" class="i">+			{message.text}
+</a><a href="#h0-0-303" id="h0-0-303" class="i">+			&lt;/div&gt;
+</a><a href="#h0-0-304" id="h0-0-304" class="i">+			&lt;/div&gt;
+</a><a href="#h0-0-305" id="h0-0-305" class="i">+		);
+</a><a href="#h0-0-306" id="h0-0-306" class="i">+	};
+</a> 
+<a href="#h0-0-308" id="h0-0-308" class="d">-	const handleSendMessage = useCallback(async (text: string) =&gt; {
+</a><a href="#h0-0-309" id="h0-0-309" class="d">-		if (text.trim() === &#39;&#39;) return;
+</a><a href="#h0-0-310" id="h0-0-310" class="i">+	const MessageInput: React.FC&lt;{ onSend: (text: string) =&gt; void }&gt; = ({ onSend }) =&gt; {
+</a><a href="#h0-0-311" id="h0-0-311" class="i">+		const [input, setInput] = useState(&#39;&#39;);
+</a> 
+<a href="#h0-0-313" id="h0-0-313" class="d">-		const newUserMessage: Message = {
+</a><a href="#h0-0-314" id="h0-0-314" class="d">-			id: Date.now(),
+</a><a href="#h0-0-315" id="h0-0-315" class="d">-			text,
+</a><a href="#h0-0-316" id="h0-0-316" class="d">-			sender: &#39;user&#39;,
+</a><a href="#h0-0-317" id="h0-0-317" class="i">+		const handleSend = () =&gt; {
+</a><a href="#h0-0-318" id="h0-0-318" class="i">+			if (input.trim() === &#39;&#39;) return;
+</a><a href="#h0-0-319" id="h0-0-319" class="i">+			onSend(input);
+</a><a href="#h0-0-320" id="h0-0-320" class="i">+			setInput(&#39;&#39;);
+</a> 		};
+<a href="#h0-0-322" id="h0-0-322" class="d">-		setMessages((prev) =&gt; [...prev, newUserMessage]);
+</a><a href="#h0-0-323" id="h0-0-323" class="d">-		const ans = dict == undefined ? &#39;もっとまともなことを言いなさい。&#39; : chat(dict, text);
+</a><a href="#h0-0-324" id="h0-0-324" class="d">-		const aiResponse: Message = {
+</a><a href="#h0-0-325" id="h0-0-325" class="d">-			id: Date.now() + 1,
+</a><a href="#h0-0-326" id="h0-0-326" class="d">-			text: ans,
+</a><a href="#h0-0-327" id="h0-0-327" class="d">-			sender: &#39;ai&#39;,
+</a><a href="#h0-0-328" id="h0-0-328" class="i">+
+</a><a href="#h0-0-329" id="h0-0-329" class="i">+		const handleKeyPress = (e: KeyboardEvent&lt;HTMLInputElement&gt;) =&gt; {
+</a><a href="#h0-0-330" id="h0-0-330" class="i">+			if (e.key === &#39;Enter&#39;) {
+</a><a href="#h0-0-331" id="h0-0-331" class="i">+				e.preventDefault();
+</a><a href="#h0-0-332" id="h0-0-332" class="i">+				handleSend();
+</a><a href="#h0-0-333" id="h0-0-333" class="i">+			}
+</a> 		};
+<a href="#h0-0-335" id="h0-0-335" class="d">-		setMessages((prev) =&gt; [...prev, aiResponse]);
+</a> 
+<a href="#h0-0-337" id="h0-0-337" class="d">-		talktimesRef.current += 1;
+</a><a href="#h0-0-338" id="h0-0-338" class="i">+		const inputStyle: React.CSSProperties = {
+</a><a href="#h0-0-339" id="h0-0-339" class="i">+			flexGrow: 1,
+</a><a href="#h0-0-340" id="h0-0-340" class="i">+			padding: &#39;12px&#39;,
+</a><a href="#h0-0-341" id="h0-0-341" class="i">+			border: &#39;1px solid #d1d5db&#39;, // gray-300
+</a><a href="#h0-0-342" id="h0-0-342" class="i">+			borderRadius: &#39;8px&#39;,
+</a><a href="#h0-0-343" id="h0-0-343" class="i">+			marginRight: &#39;10px&#39;,
+</a><a href="#h0-0-344" id="h0-0-344" class="i">+			fontSize: &#39;16px&#39;,
+</a><a href="#h0-0-345" id="h0-0-345" class="i">+			outline: &#39;none&#39;,
+</a><a href="#h0-0-346" id="h0-0-346" class="i">+		};
+</a> 
+<a href="#h0-0-348" id="h0-0-348" class="d">-		// termination condition
+</a><a href="#h0-0-349" id="h0-0-349" class="d">-		if(talktimesRef.current &gt;= 4){ 
+</a><a href="#h0-0-350" id="h0-0-350" class="d">-			await endLoopAndAwaitCompletion();
+</a><a href="#h0-0-351" id="h0-0-351" class="d">-			onComplete();
+</a><a href="#h0-0-352" id="h0-0-352" class="d">-			return;
+</a><a href="#h0-0-353" id="h0-0-353" class="d">-		}
+</a><a href="#h0-0-354" id="h0-0-354" class="d">-		setCurrentTalktimes(talktimesRef.current);
+</a><a href="#h0-0-355" id="h0-0-355" class="d">-
+</a><a href="#h0-0-356" id="h0-0-356" class="d">-	}, [dict, onComplete, endLoopAndAwaitCompletion]);
+</a><a href="#h0-0-357" id="h0-0-357" class="d">-
+</a><a href="#h0-0-358" id="h0-0-358" class="d">-	const pageContainerStyle: React.CSSProperties = {
+</a><a href="#h0-0-359" id="h0-0-359" class="d">-		display: &#39;flex&#39;,
+</a><a href="#h0-0-360" id="h0-0-360" class="d">-		flexDirection: &#39;column&#39;,
+</a><a href="#h0-0-361" id="h0-0-361" class="d">-		height: &#39;100vh&#39;, // 全画面の高さ
+</a><a href="#h0-0-362" id="h0-0-362" class="d">-		maxWidth: &#39;800px&#39;, // 最大幅を制限して中央に寄せる
+</a><a href="#h0-0-363" id="h0-0-363" class="d">-		margin: &#39;0 auto&#39;,
+</a><a href="#h0-0-364" id="h0-0-364" class="d">-		backgroundColor: &#39;white&#39;,
+</a><a href="#h0-0-365" id="h0-0-365" class="d">-		boxShadow: &#39;0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)&#39;,
+</a><a href="#h0-0-366" id="h0-0-366" class="d">-	};
+</a><a href="#h0-0-367" id="h0-0-367" class="i">+		const buttonStyle: React.CSSProperties = {
+</a><a href="#h0-0-368" id="h0-0-368" class="i">+			backgroundColor: &#39;#3b82f6&#39;, // blue-500
+</a><a href="#h0-0-369" id="h0-0-369" class="i">+			color: &#39;white&#39;,
+</a><a href="#h0-0-370" id="h0-0-370" class="i">+			border: &#39;none&#39;,
+</a><a href="#h0-0-371" id="h0-0-371" class="i">+			padding: &#39;12px 20px&#39;,
+</a><a href="#h0-0-372" id="h0-0-372" class="i">+			borderRadius: &#39;8px&#39;,
+</a><a href="#h0-0-373" id="h0-0-373" class="i">+			cursor: &#39;pointer&#39;,
+</a><a href="#h0-0-374" id="h0-0-374" class="i">+			fontWeight: &#39;bold&#39;,
+</a><a href="#h0-0-375" id="h0-0-375" class="i">+		};
+</a> 
+<a href="#h0-0-377" id="h0-0-377" class="d">-	const headerStyle: React.CSSProperties = {
+</a><a href="#h0-0-378" id="h0-0-378" class="d">-		padding: &#39;15px&#39;,
+</a><a href="#h0-0-379" id="h0-0-379" class="d">-		backgroundColor: &#39;#3b82f6&#39;, // blue-500
+</a><a href="#h0-0-380" id="h0-0-380" class="d">-		color: &#39;white&#39;,
+</a><a href="#h0-0-381" id="h0-0-381" class="d">-		textAlign: &#39;center&#39;,
+</a><a href="#h0-0-382" id="h0-0-382" class="d">-		fontWeight: &#39;bold&#39;,
+</a><a href="#h0-0-383" id="h0-0-383" class="d">-		fontSize: &#39;20px&#39;,
+</a><a href="#h0-0-384" id="h0-0-384" class="d">-	};
+</a> 
+<a href="#h0-0-386" id="h0-0-386" class="d">-	const messageListStyle: React.CSSProperties = {
+</a><a href="#h0-0-387" id="h0-0-387" class="d">-		flexGrow: 1, // 残りのスペースをすべて占める
+</a><a href="#h0-0-388" id="h0-0-388" class="d">-		padding: &#39;15px&#39;,
+</a><a href="#h0-0-389" id="h0-0-389" class="d">-		overflowY: &#39;auto&#39;, // スクロール可能にする
+</a><a href="#h0-0-390" id="h0-0-390" class="i">+		return (
+</a><a href="#h0-0-391" id="h0-0-391" class="i">+			&lt;div style={{ padding: &#39;15px&#39;, backgroundColor: &#39;#f9fafb&#39;, display: &#39;flex&#39;, alignItems: &#39;center&#39; }}&gt;
+</a><a href="#h0-0-392" id="h0-0-392" class="i">+			&lt;input
+</a><a href="#h0-0-393" id="h0-0-393" class="i">+			type=&quot;text&quot;
+</a><a href="#h0-0-394" id="h0-0-394" class="i">+			style={inputStyle}
+</a><a href="#h0-0-395" id="h0-0-395" class="i">+			placeholder=&quot;メッセージを入力してください...&quot;
+</a><a href="#h0-0-396" id="h0-0-396" class="i">+			value={input}
+</a><a href="#h0-0-397" id="h0-0-397" class="i">+			onChange={(e) =&gt; setInput(e.target.value)}
+</a><a href="#h0-0-398" id="h0-0-398" class="i">+			onKeyDown={handleKeyPress}
+</a><a href="#h0-0-399" id="h0-0-399" class="i">+			/&gt;
+</a><a href="#h0-0-400" id="h0-0-400" class="i">+			&lt;button
+</a><a href="#h0-0-401" id="h0-0-401" class="i">+			type=&#39;submit&#39;
+</a><a href="#h0-0-402" id="h0-0-402" class="i">+			style={buttonStyle}
+</a><a href="#h0-0-403" id="h0-0-403" class="i">+			onClick={handleSend}
+</a><a href="#h0-0-404" id="h0-0-404" class="i">+			disabled={input.trim() === &#39;&#39;}
+</a><a href="#h0-0-405" id="h0-0-405" class="i">+			&gt;
+</a><a href="#h0-0-406" id="h0-0-406" class="i">+			送信
+</a><a href="#h0-0-407" id="h0-0-407" class="i">+			&lt;/button&gt;
+</a><a href="#h0-0-408" id="h0-0-408" class="i">+			&lt;/div&gt;
+</a><a href="#h0-0-409" id="h0-0-409" class="i">+		);
+</a> 	};
+ 
+<a href="#h0-0-412" id="h0-0-412" class="d">-	// for audio
+</a><a href="#h0-0-413" id="h0-0-413" class="d">-	
+</a><a href="#h0-0-414" id="h0-0-414" class="d">-	useEffect(() =&gt; {
+</a><a href="#h0-0-415" id="h0-0-415" class="d">-		messagesEndRef.current?.scrollIntoView({ behavior: &#39;smooth&#39; });
+</a><a href="#h0-0-416" id="h0-0-416" class="d">-	}, [messages]);
+</a><a href="#h0-0-417" id="h0-0-417" class="i">+	function ChatPage({onComplete}:StageProps) {
+</a><a href="#h0-0-418" id="h0-0-418" class="i">+		const [messages, setMessages] = useState&lt;Message[]&gt;(initialMessages);
+</a><a href="#h0-0-419" id="h0-0-419" class="i">+		const [ dict, setDict ] = useState&lt;Uint8Array|undefined&gt;(undefined);
+</a><a href="#h0-0-420" id="h0-0-420" class="i">+		const messagesEndRef = useRef&lt;HTMLDivElement&gt;(null);
+</a><a href="#h0-0-421" id="h0-0-421" class="i">+		const dictPath = &#39;/system.dic.zst&#39;;
+</a><a href="#h0-0-422" id="h0-0-422" class="i">+
+</a><a href="#h0-0-423" id="h0-0-423" class="i">+		// for audio
+</a><a href="#h0-0-424" id="h0-0-424" class="i">+		const { talktimesRef } = useAudioPlayback(
+</a><a href="#h0-0-425" id="h0-0-425" class="i">+			1, // initialTalktime
+</a><a href="#h0-0-426" id="h0-0-426" class="i">+			AUDIO_SOURCES,
+</a><a href="#h0-0-427" id="h0-0-427" class="i">+			onComplete
+</a><a href="#h0-0-428" id="h0-0-428" class="i">+		);
+</a><a href="#h0-0-429" id="h0-0-429" class="i">+
+</a><a href="#h0-0-430" id="h0-0-430" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-431" id="h0-0-431" class="i">+			messagesEndRef.current?.scrollIntoView({ behavior: &#39;smooth&#39; });
+</a><a href="#h0-0-432" id="h0-0-432" class="i">+		}, [messages]);
+</a><a href="#h0-0-433" id="h0-0-433" class="i">+
+</a><a href="#h0-0-434" id="h0-0-434" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-435" id="h0-0-435" class="i">+			const loadData = async () =&gt; {
+</a><a href="#h0-0-436" id="h0-0-436" class="i">+				const loadedDict = await LoadDict(dictPath);
+</a><a href="#h0-0-437" id="h0-0-437" class="i">+				setDict(loadedDict);
+</a><a href="#h0-0-438" id="h0-0-438" class="i">+			}
+</a><a href="#h0-0-439" id="h0-0-439" class="i">+			loadData();
+</a><a href="#h0-0-440" id="h0-0-440" class="i">+		}, []);
+</a><a href="#h0-0-441" id="h0-0-441" class="i">+
+</a><a href="#h0-0-442" id="h0-0-442" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-443" id="h0-0-443" class="i">+			init();
+</a><a href="#h0-0-444" id="h0-0-444" class="i">+		}, []);
+</a><a href="#h0-0-445" id="h0-0-445" class="i">+
+</a><a href="#h0-0-446" id="h0-0-446" class="i">+		const handleSendMessage = useCallback(async (text: string) =&gt; {
+</a><a href="#h0-0-447" id="h0-0-447" class="i">+			if (text.trim() === &#39;&#39;) return;
+</a><a href="#h0-0-448" id="h0-0-448" class="i">+
+</a><a href="#h0-0-449" id="h0-0-449" class="i">+			const newUserMessage: Message = {
+</a><a href="#h0-0-450" id="h0-0-450" class="i">+				id: Date.now(),
+</a><a href="#h0-0-451" id="h0-0-451" class="i">+				text,
+</a><a href="#h0-0-452" id="h0-0-452" class="i">+				sender: &#39;user&#39;,
+</a><a href="#h0-0-453" id="h0-0-453" class="i">+			};
+</a><a href="#h0-0-454" id="h0-0-454" class="i">+			setMessages((prev) =&gt; [...prev, newUserMessage]);
+</a><a href="#h0-0-455" id="h0-0-455" class="i">+			const ans = dict == undefined ? &#39;もっとまともなことを言いなさい。&#39; : chat(dict, text);
+</a><a href="#h0-0-456" id="h0-0-456" class="i">+			const aiResponse: Message = {
+</a><a href="#h0-0-457" id="h0-0-457" class="i">+				id: Date.now() + 1,
+</a><a href="#h0-0-458" id="h0-0-458" class="i">+				text: ans,
+</a><a href="#h0-0-459" id="h0-0-459" class="i">+				sender: &#39;ai&#39;,
+</a><a href="#h0-0-460" id="h0-0-460" class="i">+			};
+</a><a href="#h0-0-461" id="h0-0-461" class="i">+			setMessages((prev) =&gt; [...prev, aiResponse]);
+</a><a href="#h0-0-462" id="h0-0-462" class="i">+
+</a><a href="#h0-0-463" id="h0-0-463" class="i">+			talktimesRef.current += 1;
+</a><a href="#h0-0-464" id="h0-0-464" class="i">+
+</a><a href="#h0-0-465" id="h0-0-465" class="i">+			// termination condition
+</a><a href="#h0-0-466" id="h0-0-466" class="i">+			if(talktimesRef.current &gt;= 4){ 
+</a><a href="#h0-0-467" id="h0-0-467" class="i">+				return;
+</a><a href="#h0-0-468" id="h0-0-468" class="i">+			}
+</a><a href="#h0-0-469" id="h0-0-469" class="i">+
+</a><a href="#h0-0-470" id="h0-0-470" class="i">+		}, [dict, talktimesRef ]);
+</a><a href="#h0-0-471" id="h0-0-471" class="i">+
+</a><a href="#h0-0-472" id="h0-0-472" class="i">+		const pageContainerStyle: React.CSSProperties = {
+</a><a href="#h0-0-473" id="h0-0-473" class="i">+			display: &#39;flex&#39;,
+</a><a href="#h0-0-474" id="h0-0-474" class="i">+			flexDirection: &#39;column&#39;,
+</a><a href="#h0-0-475" id="h0-0-475" class="i">+			height: &#39;100vh&#39;, // 全画面の高さ
+</a><a href="#h0-0-476" id="h0-0-476" class="i">+			maxWidth: &#39;800px&#39;, // 最大幅を制限して中央に寄せる
+</a><a href="#h0-0-477" id="h0-0-477" class="i">+			margin: &#39;0 auto&#39;,
+</a><a href="#h0-0-478" id="h0-0-478" class="i">+			backgroundColor: &#39;white&#39;,
+</a><a href="#h0-0-479" id="h0-0-479" class="i">+			boxShadow: &#39;0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)&#39;,
+</a><a href="#h0-0-480" id="h0-0-480" class="i">+		};
+</a> 
+<a href="#h0-0-482" id="h0-0-482" class="d">-	useEffect(() =&gt; {
+</a><a href="#h0-0-483" id="h0-0-483" class="d">-		const loadData = async () =&gt; {
+</a><a href="#h0-0-484" id="h0-0-484" class="d">-			const loadedDict = await LoadDict(dictPath);
+</a><a href="#h0-0-485" id="h0-0-485" class="d">-			setDict(loadedDict);
+</a><a href="#h0-0-486" id="h0-0-486" class="d">-		}
+</a><a href="#h0-0-487" id="h0-0-487" class="d">-		loadData();
+</a><a href="#h0-0-488" id="h0-0-488" class="d">-	}, []);
+</a><a href="#h0-0-489" id="h0-0-489" class="d">-
+</a><a href="#h0-0-490" id="h0-0-490" class="d">-	useEffect(() =&gt; {
+</a><a href="#h0-0-491" id="h0-0-491" class="d">-		init();
+</a><a href="#h0-0-492" id="h0-0-492" class="d">-		setCurrentTalktimes(1);
+</a><a href="#h0-0-493" id="h0-0-493" class="d">-	}, []);
+</a><a href="#h0-0-494" id="h0-0-494" class="d">-
+</a><a href="#h0-0-495" id="h0-0-495" class="d">-	// function ChatPage&#39;s return
+</a><a href="#h0-0-496" id="h0-0-496" class="d">-
+</a><a href="#h0-0-497" id="h0-0-497" class="d">-	return (
+</a><a href="#h0-0-498" id="h0-0-498" class="d">-		&lt;div style={pageContainerStyle}&gt;
+</a><a href="#h0-0-499" id="h0-0-499" class="d">-		&lt;div style={headerStyle}&gt;
+</a><a href="#h0-0-500" id="h0-0-500" class="d">-		チャット
+</a><a href="#h0-0-501" id="h0-0-501" class="d">-		&lt;/div&gt;
+</a><a href="#h0-0-502" id="h0-0-502" class="d">-
+</a><a href="#h0-0-503" id="h0-0-503" class="d">-		&lt;div style={messageListStyle}&gt;
+</a><a href="#h0-0-504" id="h0-0-504" class="d">-		{messages.map((msg) =&gt; (
+</a><a href="#h0-0-505" id="h0-0-505" class="d">-			&lt;MessageBubble key={msg.id} message={msg} /&gt;
+</a><a href="#h0-0-506" id="h0-0-506" class="d">-		))}
+</a><a href="#h0-0-507" id="h0-0-507" class="d">-		&lt;div ref={messagesEndRef} /&gt; 
+</a><a href="#h0-0-508" id="h0-0-508" class="d">-		&lt;/div&gt;
+</a><a href="#h0-0-509" id="h0-0-509" class="d">-
+</a><a href="#h0-0-510" id="h0-0-510" class="d">-		&lt;MessageInput onSend={handleSendMessage} /&gt;
+</a><a href="#h0-0-511" id="h0-0-511" class="d">-		&lt;/div&gt;
+</a><a href="#h0-0-512" id="h0-0-512" class="d">-	);
+</a><a href="#h0-0-513" id="h0-0-513" class="d">-}
+</a><a href="#h0-0-514" id="h0-0-514" class="d">-
+</a><a href="#h0-0-515" id="h0-0-515" class="d">-async function LoadDict(dictPath: string): Promise&lt;Uint8Array&gt; {
+</a><a href="#h0-0-516" id="h0-0-516" class="d">-	try{
+</a><a href="#h0-0-517" id="h0-0-517" class="d">-		const response = await fetch(dictPath);
+</a><a href="#h0-0-518" id="h0-0-518" class="d">-		if(!response.ok){
+</a><a href="#h0-0-519" id="h0-0-519" class="d">-			throw new Error(`fail to fetch file: ${response.statusText}`);
+</a><a href="#h0-0-520" id="h0-0-520" class="i">+		const headerStyle: React.CSSProperties = {
+</a><a href="#h0-0-521" id="h0-0-521" class="i">+			padding: &#39;15px&#39;,
+</a><a href="#h0-0-522" id="h0-0-522" class="i">+			backgroundColor: &#39;#3b82f6&#39;, // blue-500
+</a><a href="#h0-0-523" id="h0-0-523" class="i">+			color: &#39;white&#39;,
+</a><a href="#h0-0-524" id="h0-0-524" class="i">+			textAlign: &#39;center&#39;,
+</a><a href="#h0-0-525" id="h0-0-525" class="i">+			fontWeight: &#39;bold&#39;,
+</a><a href="#h0-0-526" id="h0-0-526" class="i">+			fontSize: &#39;20px&#39;,
+</a><a href="#h0-0-527" id="h0-0-527" class="i">+		};
+</a><a href="#h0-0-528" id="h0-0-528" class="i">+
+</a><a href="#h0-0-529" id="h0-0-529" class="i">+		const messageListStyle: React.CSSProperties = {
+</a><a href="#h0-0-530" id="h0-0-530" class="i">+			flexGrow: 1, // 残りのスペースをすべて占める
+</a><a href="#h0-0-531" id="h0-0-531" class="i">+			padding: &#39;15px&#39;,
+</a><a href="#h0-0-532" id="h0-0-532" class="i">+			overflowY: &#39;auto&#39;, // スクロール可能にする
+</a><a href="#h0-0-533" id="h0-0-533" class="i">+		};
+</a><a href="#h0-0-534" id="h0-0-534" class="i">+
+</a><a href="#h0-0-535" id="h0-0-535" class="i">+		// for audio
+</a><a href="#h0-0-536" id="h0-0-536" class="i">+
+</a><a href="#h0-0-537" id="h0-0-537" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-538" id="h0-0-538" class="i">+			messagesEndRef.current?.scrollIntoView({ behavior: &#39;smooth&#39; });
+</a><a href="#h0-0-539" id="h0-0-539" class="i">+		}, [messages]);
+</a><a href="#h0-0-540" id="h0-0-540" class="i">+
+</a><a href="#h0-0-541" id="h0-0-541" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-542" id="h0-0-542" class="i">+			const loadData = async () =&gt; {
+</a><a href="#h0-0-543" id="h0-0-543" class="i">+				const loadedDict = await LoadDict(dictPath);
+</a><a href="#h0-0-544" id="h0-0-544" class="i">+				setDict(loadedDict);
+</a><a href="#h0-0-545" id="h0-0-545" class="i">+			}
+</a><a href="#h0-0-546" id="h0-0-546" class="i">+			loadData();
+</a><a href="#h0-0-547" id="h0-0-547" class="i">+		}, []);
+</a><a href="#h0-0-548" id="h0-0-548" class="i">+
+</a><a href="#h0-0-549" id="h0-0-549" class="i">+		useEffect(() =&gt; {
+</a><a href="#h0-0-550" id="h0-0-550" class="i">+			init();
+</a><a href="#h0-0-551" id="h0-0-551" class="i">+		}, []);
+</a><a href="#h0-0-552" id="h0-0-552" class="i">+
+</a><a href="#h0-0-553" id="h0-0-553" class="i">+		// function ChatPage&#39;s return
+</a><a href="#h0-0-554" id="h0-0-554" class="i">+
+</a><a href="#h0-0-555" id="h0-0-555" class="i">+		return (
+</a><a href="#h0-0-556" id="h0-0-556" class="i">+			&lt;div style={pageContainerStyle}&gt;
+</a><a href="#h0-0-557" id="h0-0-557" class="i">+			&lt;div style={headerStyle}&gt;
+</a><a href="#h0-0-558" id="h0-0-558" class="i">+			チャット
+</a><a href="#h0-0-559" id="h0-0-559" class="i">+			&lt;/div&gt;
+</a><a href="#h0-0-560" id="h0-0-560" class="i">+
+</a><a href="#h0-0-561" id="h0-0-561" class="i">+			&lt;div style={messageListStyle}&gt;
+</a><a href="#h0-0-562" id="h0-0-562" class="i">+			{messages.map((msg) =&gt; (
+</a><a href="#h0-0-563" id="h0-0-563" class="i">+				&lt;MessageBubble key={msg.id} message={msg} /&gt;
+</a><a href="#h0-0-564" id="h0-0-564" class="i">+			))}
+</a><a href="#h0-0-565" id="h0-0-565" class="i">+			&lt;div ref={messagesEndRef} /&gt; 
+</a><a href="#h0-0-566" id="h0-0-566" class="i">+			&lt;/div&gt;
+</a><a href="#h0-0-567" id="h0-0-567" class="i">+
+</a><a href="#h0-0-568" id="h0-0-568" class="i">+			&lt;MessageInput onSend={handleSendMessage} /&gt;
+</a><a href="#h0-0-569" id="h0-0-569" class="i">+			&lt;/div&gt;
+</a><a href="#h0-0-570" id="h0-0-570" class="i">+		);
+</a><a href="#h0-0-571" id="h0-0-571" class="i">+	}
+</a><a href="#h0-0-572" id="h0-0-572" class="i">+
+</a><a href="#h0-0-573" id="h0-0-573" class="i">+	async function LoadDict(dictPath: string): Promise&lt;Uint8Array&gt; {
+</a><a href="#h0-0-574" id="h0-0-574" class="i">+		try{
+</a><a href="#h0-0-575" id="h0-0-575" class="i">+			const response = await fetch(dictPath);
+</a><a href="#h0-0-576" id="h0-0-576" class="i">+			if(!response.ok){
+</a><a href="#h0-0-577" id="h0-0-577" class="i">+				throw new Error(`fail to fetch file: ${response.statusText}`);
+</a><a href="#h0-0-578" id="h0-0-578" class="i">+			}
+</a><a href="#h0-0-579" id="h0-0-579" class="i">+			const arrayBuffer = await response.arrayBuffer();
+</a><a href="#h0-0-580" id="h0-0-580" class="i">+			const byte = new Uint8Array(arrayBuffer);
+</a><a href="#h0-0-581" id="h0-0-581" class="i">+			return byte;
+</a><a href="#h0-0-582" id="h0-0-582" class="i">+		} catch (error) {
+</a><a href="#h0-0-583" id="h0-0-583" class="i">+			console.log(&quot;error occur&quot;,error);
+</a> 		}
+<a href="#h0-0-585" id="h0-0-585" class="d">-		const arrayBuffer = await response.arrayBuffer();
+</a><a href="#h0-0-586" id="h0-0-586" class="d">-		const byte = new Uint8Array(arrayBuffer);
+</a><a href="#h0-0-587" id="h0-0-587" class="d">-		return byte;
+</a><a href="#h0-0-588" id="h0-0-588" class="d">-	} catch (error) {
+</a><a href="#h0-0-589" id="h0-0-589" class="d">-		console.log(&quot;error occur&quot;,error);
+</a><a href="#h0-0-590" id="h0-0-590" class="i">+		return new Uint8Array(0);
+</a> 	}
+<a href="#h0-0-592" id="h0-0-592" class="d">-	return new Uint8Array(0);
+</a><a href="#h0-0-593" id="h0-0-593" class="d">-}
+</a><b>diff --git a/<a id="h1" href="../file/app/components/2_draw.tsx.html">app/components/2_draw.tsx</a> b/<a href="../file/app/components/2_draw.tsx.html">app/components/2_draw.tsx</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -3,14 +3,13 @@
+</a> import React, { useState, useRef, useCallback, useEffect } from &#39;react&#39;;
+ import init, { find_nearest_point_on_path, NearestPointResult } from &#39;../../rust-wasm/pkg/rust_wasm.js&#39;;
+ import { StageProps } from &#39;../ctrl/page.tsx&#39;;
+<a href="#h1-0-3" id="h1-0-3" class="d">-import useAudioSequencer from &#39;./useAudioSequencer.ts&#39;;
+</a> 
+ type Tool = &#39;pen&#39;;
+ type Point = { x: number; y: number; }; 
+ 
+ interface LineData {
+<a href="#h1-0-9" id="h1-0-9" class="d">-    id: number;
+</a><a href="#h1-0-10" id="h1-0-10" class="d">-    tool: Tool;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+	id: number;
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+	tool: Tool;
+</a> 	points: Point[];      
+ 	targetPoints: Point[]; 
+ }
+<a href="#h1-1" id="h1-1" class="h">@@ -19,45 +18,26 @@ const BACKGROUND_SVG_PATH_D_DEFAULT = &quot;&quot;;
+</a> const VIEWSBOX_SIZE = 500; 
+ const SNAPPING_DISTANCE_PIXELS = 30; 
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-const BGM_MAP: {[key:number]:string } = {
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-	1: &#39;/audio/001.wav&#39;,
+</a><a href="#h1-1-5" id="h1-1-5" class="d">-	2: &#39;/audio/002.wav&#39;,
+</a><a href="#h1-1-6" id="h1-1-6" class="d">-	3: &#39;/audio/003.wav&#39;,
+</a><a href="#h1-1-7" id="h1-1-7" class="d">-}
+</a><a href="#h1-1-8" id="h1-1-8" class="d">-
+</a><a href="#h1-1-9" id="h1-1-9" class="d">-const getBgmUrl = (times: number): string | null =&gt; {
+</a><a href="#h1-1-10" id="h1-1-10" class="d">-	const stages = Object.keys(BGM_MAP).map(Number).sort((a,b) =&gt; b - a);
+</a><a href="#h1-1-11" id="h1-1-11" class="d">-	for (const stage of stages) {
+</a><a href="#h1-1-12" id="h1-1-12" class="d">-		if (times &gt;= stage) {
+</a><a href="#h1-1-13" id="h1-1-13" class="d">-			return BGM_MAP[stage];
+</a><a href="#h1-1-14" id="h1-1-14" class="d">-		}
+</a><a href="#h1-1-15" id="h1-1-15" class="d">-	}
+</a><a href="#h1-1-16" id="h1-1-16" class="d">-	return null;
+</a><a href="#h1-1-17" id="h1-1-17" class="d">-}
+</a><a href="#h1-1-18" id="h1-1-18" class="i">+const AUDIO_SOURCE = &#39;/audio/001.wav&#39;;
+</a> 
+<a href="#h1-1-20" id="h1-1-20" class="d">-function DrawingApp({onComplete}: StageProps) {
+</a><a href="#h1-1-21" id="h1-1-21" class="i">+export default function DrawingApp({onComplete}: StageProps) {
+</a> 	const [isClient, setIsClient] = useState(false);
+<a href="#h1-1-23" id="h1-1-23" class="d">-    const lineIdCounter = useRef(0);
+</a><a href="#h1-1-24" id="h1-1-24" class="i">+	const lineIdCounter = useRef(0);
+</a> 	const [lines, setLines] = useState&lt;LineData[]&gt;([]); 
+ 	const [currentLines, setCurrentLines] = useState&lt;LineData[]&gt;([]); 
+ 
+<a href="#h1-1-28" id="h1-1-28" class="d">-    const [stageWidth, setStageWidth] = useState(0);
+</a><a href="#h1-1-29" id="h1-1-29" class="d">-    const [stageHeight, setStageHeight] = useState(0);
+</a><a href="#h1-1-30" id="h1-1-30" class="d">-    const [backgroundPathD, setBackgroundPathD] = useState(BACKGROUND_SVG_PATH_D_DEFAULT); 
+</a><a href="#h1-1-31" id="h1-1-31" class="d">-    const [viewBoxSize, setViewBoxSize] = useState(VIEWSBOX_SIZE); 
+</a><a href="#h1-1-32" id="h1-1-32" class="d">-    
+</a><a href="#h1-1-33" id="h1-1-33" class="i">+	const [stageWidth, setStageWidth] = useState(0);
+</a><a href="#h1-1-34" id="h1-1-34" class="i">+	const [stageHeight, setStageHeight] = useState(0);
+</a><a href="#h1-1-35" id="h1-1-35" class="i">+	const [backgroundPathD, setBackgroundPathD] = useState(BACKGROUND_SVG_PATH_D_DEFAULT); 
+</a><a href="#h1-1-36" id="h1-1-36" class="i">+	const [viewBoxSize, setViewBoxSize] = useState(VIEWSBOX_SIZE); 
+</a><a href="#h1-1-37" id="h1-1-37" class="i">+
+</a> 	const isDrawing = useRef(false);
+<a href="#h1-1-39" id="h1-1-39" class="d">-	
+</a><a href="#h1-1-40" id="h1-1-40" class="i">+
+</a> 	const animationRef = useRef&lt;number&gt;(0);
+ 	const startTimeRef = useRef&lt;number|undefined&gt;(undefined);
+ 
+ 	const stageRef = useRef&lt;HTMLDivElement&gt;(null);
+ 
+<a href="#h1-1-46" id="h1-1-46" class="d">-	// for audio
+</a><a href="#h1-1-47" id="h1-1-47" class="d">-	const currentTalktimes = useState&lt;number&gt;(1);
+</a><a href="#h1-1-48" id="h1-1-48" class="d">-    const currentBgmUrl = getBgmUrl(1);
+</a><a href="#h1-1-49" id="h1-1-49" class="d">-    const { isPlaying, isSwitching, endLoopAndAwaitCompletion } = useAudioSequencer(currentBgmUrl);
+</a><a href="#h1-1-50" id="h1-1-50" class="d">-
+</a> 	useEffect(() =&gt; {
+ 		init();
+ 	},[])
+<a href="#h1-2" id="h1-2" class="h">@@ -65,7 +45,7 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 	// --- 1. サイズ計算とステージ設定 (画面全体を使用) ---
+ 	useEffect(() =&gt; {
+ 		setIsClient(true);
+<a href="#h1-2-3" id="h1-2-3" class="d">-		
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+
+</a> 		const handleResize = () =&gt; {
+ 			if (typeof globalThis !== &#39;undefined&#39;) {
+ 				setStageWidth(globalThis.innerWidth);
+<a href="#h1-3" id="h1-3" class="h">@@ -80,153 +60,153 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			globalThis.removeEventListener(&#39;resize&#39;, handleResize);
+ 		};
+ 	}, []);
+<a href="#h1-3-3" id="h1-3-3" class="d">-    
+</a><a href="#h1-3-4" id="h1-3-4" class="d">-    // --- 2. 座標変換ユーティリティ ---
+</a><a href="#h1-3-5" id="h1-3-5" class="d">-    
+</a><a href="#h1-3-6" id="h1-3-6" class="d">-    const scaleToViewBox = useCallback((p: Point): Point =&gt; {
+</a><a href="#h1-3-7" id="h1-3-7" class="d">-        if (stageWidth === 0 || stageHeight === 0) return p;
+</a><a href="#h1-3-8" id="h1-3-8" class="d">-        
+</a><a href="#h1-3-9" id="h1-3-9" class="d">-        const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h1-3-10" id="h1-3-10" class="d">-        const scale = viewBoxSize / effectiveSize;
+</a><a href="#h1-3-11" id="h1-3-11" class="d">-
+</a><a href="#h1-3-12" id="h1-3-12" class="d">-        const offsetX = (stageWidth - effectiveSize) / 2;
+</a><a href="#h1-3-13" id="h1-3-13" class="d">-        const offsetY = (stageHeight - effectiveSize) / 2;
+</a><a href="#h1-3-14" id="h1-3-14" class="d">-
+</a><a href="#h1-3-15" id="h1-3-15" class="d">-        return {
+</a><a href="#h1-3-16" id="h1-3-16" class="d">-            x: (p.x - offsetX) * scale,
+</a><a href="#h1-3-17" id="h1-3-17" class="d">-            y: (p.y - offsetY) * scale,
+</a><a href="#h1-3-18" id="h1-3-18" class="d">-        };
+</a><a href="#h1-3-19" id="h1-3-19" class="d">-    }, [stageWidth, stageHeight, viewBoxSize]);
+</a><a href="#h1-3-20" id="h1-3-20" class="d">-
+</a><a href="#h1-3-21" id="h1-3-21" class="d">-    const scaleToScreen = useCallback((p: Point): Point =&gt; {
+</a><a href="#h1-3-22" id="h1-3-22" class="d">-        if (stageWidth === 0 || stageHeight === 0) return p;
+</a><a href="#h1-3-23" id="h1-3-23" class="d">-
+</a><a href="#h1-3-24" id="h1-3-24" class="d">-        const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h1-3-25" id="h1-3-25" class="d">-        const scale = effectiveSize / viewBoxSize;
+</a><a href="#h1-3-26" id="h1-3-26" class="d">-        
+</a><a href="#h1-3-27" id="h1-3-27" class="d">-        const offsetX = (stageWidth - effectiveSize) / 2;
+</a><a href="#h1-3-28" id="h1-3-28" class="d">-        const offsetY = (stageHeight - effectiveSize) / 2;
+</a><a href="#h1-3-29" id="h1-3-29" class="d">-
+</a><a href="#h1-3-30" id="h1-3-30" class="d">-        return {
+</a><a href="#h1-3-31" id="h1-3-31" class="d">-            x: p.x * scale + offsetX,
+</a><a href="#h1-3-32" id="h1-3-32" class="d">-            y: p.y * scale + offsetY,
+</a><a href="#h1-3-33" id="h1-3-33" class="d">-        };
+</a><a href="#h1-3-34" id="h1-3-34" class="d">-    }, [stageWidth, stageHeight, viewBoxSize]);
+</a><a href="#h1-3-35" id="h1-3-35" class="d">-
+</a><a href="#h1-3-36" id="h1-3-36" class="d">-    const getPointerPosition = useCallback((e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent): Point | null =&gt; {
+</a><a href="#h1-3-37" id="h1-3-37" class="i">+
+</a><a href="#h1-3-38" id="h1-3-38" class="i">+	// --- 2. 座標変換ユーティリティ ---
+</a><a href="#h1-3-39" id="h1-3-39" class="i">+
+</a><a href="#h1-3-40" id="h1-3-40" class="i">+	const scaleToViewBox = useCallback((p: Point): Point =&gt; {
+</a><a href="#h1-3-41" id="h1-3-41" class="i">+		if (stageWidth === 0 || stageHeight === 0) return p;
+</a><a href="#h1-3-42" id="h1-3-42" class="i">+
+</a><a href="#h1-3-43" id="h1-3-43" class="i">+		const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h1-3-44" id="h1-3-44" class="i">+		const scale = viewBoxSize / effectiveSize;
+</a><a href="#h1-3-45" id="h1-3-45" class="i">+
+</a><a href="#h1-3-46" id="h1-3-46" class="i">+		const offsetX = (stageWidth - effectiveSize) / 2;
+</a><a href="#h1-3-47" id="h1-3-47" class="i">+		const offsetY = (stageHeight - effectiveSize) / 2;
+</a><a href="#h1-3-48" id="h1-3-48" class="i">+
+</a><a href="#h1-3-49" id="h1-3-49" class="i">+		return {
+</a><a href="#h1-3-50" id="h1-3-50" class="i">+			x: (p.x - offsetX) * scale,
+</a><a href="#h1-3-51" id="h1-3-51" class="i">+			y: (p.y - offsetY) * scale,
+</a><a href="#h1-3-52" id="h1-3-52" class="i">+		};
+</a><a href="#h1-3-53" id="h1-3-53" class="i">+	}, [stageWidth, stageHeight, viewBoxSize]);
+</a><a href="#h1-3-54" id="h1-3-54" class="i">+
+</a><a href="#h1-3-55" id="h1-3-55" class="i">+	const scaleToScreen = useCallback((p: Point): Point =&gt; {
+</a><a href="#h1-3-56" id="h1-3-56" class="i">+		if (stageWidth === 0 || stageHeight === 0) return p;
+</a><a href="#h1-3-57" id="h1-3-57" class="i">+
+</a><a href="#h1-3-58" id="h1-3-58" class="i">+		const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h1-3-59" id="h1-3-59" class="i">+		const scale = effectiveSize / viewBoxSize;
+</a><a href="#h1-3-60" id="h1-3-60" class="i">+
+</a><a href="#h1-3-61" id="h1-3-61" class="i">+		const offsetX = (stageWidth - effectiveSize) / 2;
+</a><a href="#h1-3-62" id="h1-3-62" class="i">+		const offsetY = (stageHeight - effectiveSize) / 2;
+</a><a href="#h1-3-63" id="h1-3-63" class="i">+
+</a><a href="#h1-3-64" id="h1-3-64" class="i">+		return {
+</a><a href="#h1-3-65" id="h1-3-65" class="i">+			x: p.x * scale + offsetX,
+</a><a href="#h1-3-66" id="h1-3-66" class="i">+			y: p.y * scale + offsetY,
+</a><a href="#h1-3-67" id="h1-3-67" class="i">+		};
+</a><a href="#h1-3-68" id="h1-3-68" class="i">+	}, [stageWidth, stageHeight, viewBoxSize]);
+</a><a href="#h1-3-69" id="h1-3-69" class="i">+
+</a><a href="#h1-3-70" id="h1-3-70" class="i">+	const getPointerPosition = useCallback((e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent): Point | null =&gt; {
+</a> 		if (!stageRef.current) return null;
+ 		const rect = stageRef.current.getBoundingClientRect();
+<a href="#h1-3-73" id="h1-3-73" class="d">-		
+</a><a href="#h1-3-74" id="h1-3-74" class="d">-        let clientX: number, clientY: number;
+</a><a href="#h1-3-75" id="h1-3-75" class="d">-        if (&#39;touches&#39; in e) {
+</a><a href="#h1-3-76" id="h1-3-76" class="d">-            if (e.touches.length === 0) return null;
+</a><a href="#h1-3-77" id="h1-3-77" class="d">-            clientX = e.touches[0].clientX;
+</a><a href="#h1-3-78" id="h1-3-78" class="d">-            clientY = e.touches[0].clientY;
+</a><a href="#h1-3-79" id="h1-3-79" class="d">-        } else {
+</a><a href="#h1-3-80" id="h1-3-80" class="d">-            clientX = e.clientX;
+</a><a href="#h1-3-81" id="h1-3-81" class="d">-            clientY = e.clientY;
+</a><a href="#h1-3-82" id="h1-3-82" class="d">-        }
+</a><a href="#h1-3-83" id="h1-3-83" class="i">+
+</a><a href="#h1-3-84" id="h1-3-84" class="i">+		let clientX: number, clientY: number;
+</a><a href="#h1-3-85" id="h1-3-85" class="i">+		if (&#39;touches&#39; in e) {
+</a><a href="#h1-3-86" id="h1-3-86" class="i">+			if (e.touches.length === 0) return null;
+</a><a href="#h1-3-87" id="h1-3-87" class="i">+			clientX = e.touches[0].clientX;
+</a><a href="#h1-3-88" id="h1-3-88" class="i">+			clientY = e.touches[0].clientY;
+</a><a href="#h1-3-89" id="h1-3-89" class="i">+		} else {
+</a><a href="#h1-3-90" id="h1-3-90" class="i">+			clientX = e.clientX;
+</a><a href="#h1-3-91" id="h1-3-91" class="i">+			clientY = e.clientY;
+</a><a href="#h1-3-92" id="h1-3-92" class="i">+		}
+</a> 
+ 		return { x: clientX - rect.left, y: clientY - rect.top };
+ 	}, []);
+<a href="#h1-3-96" id="h1-3-96" class="d">-    
+</a><a href="#h1-3-97" id="h1-3-97" class="d">-    // --- 3. SVGコンテンツの取得ロジック (DOMParser) ---
+</a><a href="#h1-3-98" id="h1-3-98" class="d">-    useEffect(() =&gt; {
+</a><a href="#h1-3-99" id="h1-3-99" class="d">-        const fetchAndParseSvg = async () =&gt; {
+</a><a href="#h1-3-100" id="h1-3-100" class="d">-            try {
+</a><a href="#h1-3-101" id="h1-3-101" class="d">-                const response = await fetch(&#39;/whiteperson.svg&#39;); 
+</a><a href="#h1-3-102" id="h1-3-102" class="d">-                const svgText = await response.text();
+</a><a href="#h1-3-103" id="h1-3-103" class="d">-
+</a><a href="#h1-3-104" id="h1-3-104" class="d">-                const parser = new DOMParser();
+</a><a href="#h1-3-105" id="h1-3-105" class="d">-                const doc = parser.parseFromString(svgText, &quot;image/svg+xml&quot;);
+</a><a href="#h1-3-106" id="h1-3-106" class="d">-                
+</a><a href="#h1-3-107" id="h1-3-107" class="d">-                const svgElement = doc.querySelector(&#39;svg&#39;);
+</a><a href="#h1-3-108" id="h1-3-108" class="d">-                if (svgElement) {
+</a><a href="#h1-3-109" id="h1-3-109" class="d">-                    const viewBoxAttr = svgElement.getAttribute(&#39;viewBox&#39;);
+</a><a href="#h1-3-110" id="h1-3-110" class="d">-                    if (viewBoxAttr) {
+</a><a href="#h1-3-111" id="h1-3-111" class="d">-                        const parts = viewBoxAttr.trim().split(/\s+/);
+</a><a href="#h1-3-112" id="h1-3-112" class="d">-                        if (parts.length === 4) {
+</a><a href="#h1-3-113" id="h1-3-113" class="d">-                             const size = Math.max(parseFloat(parts[2]), parseFloat(parts[3]));
+</a><a href="#h1-3-114" id="h1-3-114" class="d">-                             if (!isNaN(size) &amp;&amp; size &gt; 0) {
+</a><a href="#h1-3-115" id="h1-3-115" class="d">-                                 setViewBoxSize(size);
+</a><a href="#h1-3-116" id="h1-3-116" class="d">-                             }
+</a><a href="#h1-3-117" id="h1-3-117" class="d">-                        }
+</a><a href="#h1-3-118" id="h1-3-118" class="d">-                    }
+</a><a href="#h1-3-119" id="h1-3-119" class="d">-                }
+</a><a href="#h1-3-120" id="h1-3-120" class="d">-                
+</a><a href="#h1-3-121" id="h1-3-121" class="d">-                const pathElements = doc.querySelectorAll(&#39;path&#39;);
+</a><a href="#h1-3-122" id="h1-3-122" class="d">-                let foundDValue = null;
+</a><a href="#h1-3-123" id="h1-3-123" class="d">-
+</a><a href="#h1-3-124" id="h1-3-124" class="d">-                for (const element of Array.from(pathElements)) {
+</a><a href="#h1-3-125" id="h1-3-125" class="d">-                    const dValue = element.getAttribute(&#39;d&#39;);
+</a><a href="#h1-3-126" id="h1-3-126" class="d">-                    if (dValue &amp;&amp; dValue.trim().length &gt; 0) {
+</a><a href="#h1-3-127" id="h1-3-127" class="d">-                        foundDValue = dValue;
+</a><a href="#h1-3-128" id="h1-3-128" class="d">-                        break; 
+</a><a href="#h1-3-129" id="h1-3-129" class="d">-                    }
+</a><a href="#h1-3-130" id="h1-3-130" class="d">-                }
+</a><a href="#h1-3-131" id="h1-3-131" class="d">-
+</a><a href="#h1-3-132" id="h1-3-132" class="d">-                if (foundDValue) {
+</a><a href="#h1-3-133" id="h1-3-133" class="d">-                    setBackgroundPathD(foundDValue);
+</a><a href="#h1-3-134" id="h1-3-134" class="d">-                    return; 
+</a><a href="#h1-3-135" id="h1-3-135" class="d">-                }
+</a><a href="#h1-3-136" id="h1-3-136" class="d">-                
+</a><a href="#h1-3-137" id="h1-3-137" class="d">-                console.error(&quot;Error: &lt;path&gt; element or &#39;d&#39; attribute not found in whiteperson.svg.&quot;);
+</a><a href="#h1-3-138" id="h1-3-138" class="d">-
+</a><a href="#h1-3-139" id="h1-3-139" class="d">-            } catch (error) {
+</a><a href="#h1-3-140" id="h1-3-140" class="d">-                console.error(&quot;Failed to load or parse whiteperson.svg:&quot;, error);
+</a><a href="#h1-3-141" id="h1-3-141" class="d">-            }
+</a><a href="#h1-3-142" id="h1-3-142" class="d">-        };
+</a><a href="#h1-3-143" id="h1-3-143" class="d">-
+</a><a href="#h1-3-144" id="h1-3-144" class="d">-        if (isClient &amp;&amp; backgroundPathD === &quot;&quot;) { 
+</a><a href="#h1-3-145" id="h1-3-145" class="d">-             fetchAndParseSvg();
+</a><a href="#h1-3-146" id="h1-3-146" class="d">-        }
+</a><a href="#h1-3-147" id="h1-3-147" class="d">-    }, [isClient, backgroundPathD]);
+</a><a href="#h1-3-148" id="h1-3-148" class="d">-
+</a><a href="#h1-3-149" id="h1-3-149" class="d">-
+</a><a href="#h1-3-150" id="h1-3-150" class="d">-    // --- 4. 吸着ロジック (WASM呼び出し) ---
+</a><a href="#h1-3-151" id="h1-3-151" class="d">-    const calculateNearestTargetPoint = useCallback((p: Point): Point =&gt; {
+</a><a href="#h1-3-152" id="h1-3-152" class="d">-        const p_viewbox = scaleToViewBox(p);
+</a><a href="#h1-3-153" id="h1-3-153" class="d">-        
+</a><a href="#h1-3-154" id="h1-3-154" class="d">-        const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h1-3-155" id="h1-3-155" class="d">-        const snapping_distance_viewbox = SNAPPING_DISTANCE_PIXELS * (viewBoxSize / effectiveSize);
+</a><a href="#h1-3-156" id="h1-3-156" class="d">-
+</a><a href="#h1-3-157" id="h1-3-157" class="d">-        // ⚠️ WASM呼び出し
+</a><a href="#h1-3-158" id="h1-3-158" class="d">-        const nearest_viewbox: NearestPointResult | undefined = find_nearest_point_on_path(
+</a><a href="#h1-3-159" id="h1-3-159" class="d">-            backgroundPathD, 
+</a><a href="#h1-3-160" id="h1-3-160" class="d">-            p_viewbox.x, 
+</a><a href="#h1-3-161" id="h1-3-161" class="d">-            p_viewbox.y,
+</a><a href="#h1-3-162" id="h1-3-162" class="d">-            snapping_distance_viewbox
+</a><a href="#h1-3-163" id="h1-3-163" class="d">-        );
+</a><a href="#h1-3-164" id="h1-3-164" class="i">+
+</a><a href="#h1-3-165" id="h1-3-165" class="i">+	// --- 3. SVGコンテンツの取得ロジック (DOMParser) ---
+</a><a href="#h1-3-166" id="h1-3-166" class="i">+	useEffect(() =&gt; {
+</a><a href="#h1-3-167" id="h1-3-167" class="i">+		const fetchAndParseSvg = async () =&gt; {
+</a><a href="#h1-3-168" id="h1-3-168" class="i">+			try {
+</a><a href="#h1-3-169" id="h1-3-169" class="i">+				const response = await fetch(&#39;/whiteperson.svg&#39;); 
+</a><a href="#h1-3-170" id="h1-3-170" class="i">+				const svgText = await response.text();
+</a><a href="#h1-3-171" id="h1-3-171" class="i">+
+</a><a href="#h1-3-172" id="h1-3-172" class="i">+				const parser = new DOMParser();
+</a><a href="#h1-3-173" id="h1-3-173" class="i">+				const doc = parser.parseFromString(svgText, &quot;image/svg+xml&quot;);
+</a><a href="#h1-3-174" id="h1-3-174" class="i">+
+</a><a href="#h1-3-175" id="h1-3-175" class="i">+				const svgElement = doc.querySelector(&#39;svg&#39;);
+</a><a href="#h1-3-176" id="h1-3-176" class="i">+				if (svgElement) {
+</a><a href="#h1-3-177" id="h1-3-177" class="i">+					const viewBoxAttr = svgElement.getAttribute(&#39;viewBox&#39;);
+</a><a href="#h1-3-178" id="h1-3-178" class="i">+					if (viewBoxAttr) {
+</a><a href="#h1-3-179" id="h1-3-179" class="i">+						const parts = viewBoxAttr.trim().split(/\s+/);
+</a><a href="#h1-3-180" id="h1-3-180" class="i">+						if (parts.length === 4) {
+</a><a href="#h1-3-181" id="h1-3-181" class="i">+							const size = Math.max(parseFloat(parts[2]), parseFloat(parts[3]));
+</a><a href="#h1-3-182" id="h1-3-182" class="i">+							if (!isNaN(size) &amp;&amp; size &gt; 0) {
+</a><a href="#h1-3-183" id="h1-3-183" class="i">+								setViewBoxSize(size);
+</a><a href="#h1-3-184" id="h1-3-184" class="i">+							}
+</a><a href="#h1-3-185" id="h1-3-185" class="i">+						}
+</a><a href="#h1-3-186" id="h1-3-186" class="i">+					}
+</a><a href="#h1-3-187" id="h1-3-187" class="i">+				}
+</a><a href="#h1-3-188" id="h1-3-188" class="i">+
+</a><a href="#h1-3-189" id="h1-3-189" class="i">+				const pathElements = doc.querySelectorAll(&#39;path&#39;);
+</a><a href="#h1-3-190" id="h1-3-190" class="i">+				let foundDValue = null;
+</a><a href="#h1-3-191" id="h1-3-191" class="i">+
+</a><a href="#h1-3-192" id="h1-3-192" class="i">+				for (const element of Array.from(pathElements)) {
+</a><a href="#h1-3-193" id="h1-3-193" class="i">+					const dValue = element.getAttribute(&#39;d&#39;);
+</a><a href="#h1-3-194" id="h1-3-194" class="i">+					if (dValue &amp;&amp; dValue.trim().length &gt; 0) {
+</a><a href="#h1-3-195" id="h1-3-195" class="i">+						foundDValue = dValue;
+</a><a href="#h1-3-196" id="h1-3-196" class="i">+						break; 
+</a><a href="#h1-3-197" id="h1-3-197" class="i">+					}
+</a><a href="#h1-3-198" id="h1-3-198" class="i">+				}
+</a><a href="#h1-3-199" id="h1-3-199" class="i">+
+</a><a href="#h1-3-200" id="h1-3-200" class="i">+				if (foundDValue) {
+</a><a href="#h1-3-201" id="h1-3-201" class="i">+					setBackgroundPathD(foundDValue);
+</a><a href="#h1-3-202" id="h1-3-202" class="i">+					return; 
+</a><a href="#h1-3-203" id="h1-3-203" class="i">+				}
+</a><a href="#h1-3-204" id="h1-3-204" class="i">+
+</a><a href="#h1-3-205" id="h1-3-205" class="i">+				console.error(&quot;Error: &lt;path&gt; element or &#39;d&#39; attribute not found in whiteperson.svg.&quot;);
+</a><a href="#h1-3-206" id="h1-3-206" class="i">+
+</a><a href="#h1-3-207" id="h1-3-207" class="i">+			} catch (error) {
+</a><a href="#h1-3-208" id="h1-3-208" class="i">+				console.error(&quot;Failed to load or parse whiteperson.svg:&quot;, error);
+</a><a href="#h1-3-209" id="h1-3-209" class="i">+			}
+</a><a href="#h1-3-210" id="h1-3-210" class="i">+		};
+</a><a href="#h1-3-211" id="h1-3-211" class="i">+
+</a><a href="#h1-3-212" id="h1-3-212" class="i">+		if (isClient &amp;&amp; backgroundPathD === &quot;&quot;) { 
+</a><a href="#h1-3-213" id="h1-3-213" class="i">+			fetchAndParseSvg();
+</a><a href="#h1-3-214" id="h1-3-214" class="i">+		}
+</a><a href="#h1-3-215" id="h1-3-215" class="i">+	}, [isClient, backgroundPathD]);
+</a><a href="#h1-3-216" id="h1-3-216" class="i">+
+</a><a href="#h1-3-217" id="h1-3-217" class="i">+
+</a><a href="#h1-3-218" id="h1-3-218" class="i">+	// --- 4. 吸着ロジック (WASM呼び出し) ---
+</a><a href="#h1-3-219" id="h1-3-219" class="i">+	const calculateNearestTargetPoint = useCallback((p: Point): Point =&gt; {
+</a><a href="#h1-3-220" id="h1-3-220" class="i">+		const p_viewbox = scaleToViewBox(p);
+</a><a href="#h1-3-221" id="h1-3-221" class="i">+
+</a><a href="#h1-3-222" id="h1-3-222" class="i">+		const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h1-3-223" id="h1-3-223" class="i">+		const snapping_distance_viewbox = SNAPPING_DISTANCE_PIXELS * (viewBoxSize / effectiveSize);
+</a><a href="#h1-3-224" id="h1-3-224" class="i">+
+</a><a href="#h1-3-225" id="h1-3-225" class="i">+		// ⚠️ WASM呼び出し
+</a><a href="#h1-3-226" id="h1-3-226" class="i">+		const nearest_viewbox: NearestPointResult | undefined = find_nearest_point_on_path(
+</a><a href="#h1-3-227" id="h1-3-227" class="i">+			backgroundPathD, 
+</a><a href="#h1-3-228" id="h1-3-228" class="i">+			p_viewbox.x, 
+</a><a href="#h1-3-229" id="h1-3-229" class="i">+			p_viewbox.y,
+</a><a href="#h1-3-230" id="h1-3-230" class="i">+			snapping_distance_viewbox
+</a><a href="#h1-3-231" id="h1-3-231" class="i">+		);
+</a> 		console.log(&quot;nearest_viewbox is &quot;,nearest_viewbox);
+ 
+<a href="#h1-3-234" id="h1-3-234" class="d">-        if (nearest_viewbox) {
+</a><a href="#h1-3-235" id="h1-3-235" class="d">-            return scaleToScreen(nearest_viewbox);
+</a><a href="#h1-3-236" id="h1-3-236" class="d">-        }
+</a><a href="#h1-3-237" id="h1-3-237" class="d">-        return p; 
+</a><a href="#h1-3-238" id="h1-3-238" class="d">-    }, [scaleToViewBox, scaleToScreen, stageWidth, stageHeight, viewBoxSize, backgroundPathD]); 
+</a><a href="#h1-3-239" id="h1-3-239" class="i">+		if (nearest_viewbox) {
+</a><a href="#h1-3-240" id="h1-3-240" class="i">+			return scaleToScreen(nearest_viewbox);
+</a><a href="#h1-3-241" id="h1-3-241" class="i">+		}
+</a><a href="#h1-3-242" id="h1-3-242" class="i">+		return p; 
+</a><a href="#h1-3-243" id="h1-3-243" class="i">+	}, [scaleToViewBox, scaleToScreen, stageWidth, stageHeight, viewBoxSize, backgroundPathD]); 
+</a> 
+ 	const calculateTargetPoints = useCallback((points: Point[]): Point[] =&gt; {
+<a href="#h1-3-246" id="h1-3-246" class="d">-        return points.map(p =&gt; calculateNearestTargetPoint(p));
+</a><a href="#h1-3-247" id="h1-3-247" class="i">+		return points.map(p =&gt; calculateNearestTargetPoint(p));
+</a> 	}, [calculateNearestTargetPoint]);
+ 
+ 
+<a href="#h1-3-251" id="h1-3-251" class="d">-    // --- 5. イベントハンドラ (吹き飛んでいた部分を再定義) ---
+</a><a href="#h1-3-252" id="h1-3-252" class="i">+	// --- 5. イベントハンドラ (吹き飛んでいた部分を再定義) ---
+</a> 
+<a href="#h1-3-254" id="h1-3-254" class="d">-    /**
+</a><a href="#h1-3-255" id="h1-3-255" class="i">+	/**
+</a> 	 * マウス・タッチ開始時の処理
+ 	 */
+<a href="#h1-3-258" id="h1-3-258" class="d">-    const handleMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent) =&gt; {
+</a><a href="#h1-3-259" id="h1-3-259" class="i">+	const handleMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent) =&gt; {
+</a> 		isDrawing.current = true;
+ 		const pos = getPointerPosition(e);
+ 		if (pos) {
+<a href="#h1-3-263" id="h1-3-263" class="d">-            lineIdCounter.current += 1;
+</a><a href="#h1-3-264" id="h1-3-264" class="d">-            const newLine: LineData = { id: lineIdCounter.current, tool: &#39;pen&#39;, points: [pos], targetPoints: [] };
+</a><a href="#h1-3-265" id="h1-3-265" class="i">+			lineIdCounter.current += 1;
+</a><a href="#h1-3-266" id="h1-3-266" class="i">+			const newLine: LineData = { id: lineIdCounter.current, tool: &#39;pen&#39;, points: [pos], targetPoints: [] };
+</a> 			setLines(prev =&gt; [...prev, newLine]);
+<a href="#h1-3-268" id="h1-3-268" class="d">-            setCurrentLines(prev =&gt; [...prev, newLine]);
+</a><a href="#h1-3-269" id="h1-3-269" class="i">+			setCurrentLines(prev =&gt; [...prev, newLine]);
+</a> 		}
+ 	}, [getPointerPosition]); 
+ 
+<a href="#h1-3-273" id="h1-3-273" class="d">-    /**
+</a><a href="#h1-3-274" id="h1-3-274" class="i">+	/**
+</a> 	 * マウス・タッチ移動時の処理
+ 	 */
+ 	const handleMouseMove = useCallback((e: React.MouseEvent | React.TouchEvent) =&gt; {
+<a href="#h1-4" id="h1-4" class="h">@@ -241,13 +221,13 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			const newPoints: Point[] = [...lastLine.points, point];
+ 			return [...prevLines.slice(0, lastLineIndex), { ...lastLine, points: newPoints }];
+ 		};
+<a href="#h1-4-3" id="h1-4-3" class="d">-        
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+
+</a> 		setLines(updateLines);
+<a href="#h1-4-6" id="h1-4-6" class="d">-        setCurrentLines(updateLines);
+</a><a href="#h1-4-7" id="h1-4-7" class="i">+		setCurrentLines(updateLines);
+</a> 
+ 	}, [getPointerPosition]);
+ 
+<a href="#h1-4-11" id="h1-4-11" class="d">-    /**
+</a><a href="#h1-4-12" id="h1-4-12" class="i">+	/**
+</a> 	 * マウス・タッチ終了時の処理
+ 	 */
+ 	const handleMouseUp = useCallback(() =&gt; {
+<a href="#h1-5" id="h1-5" class="h">@@ -257,7 +237,7 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			const lastLineIndex = prevLines.length - 1;
+ 			if (lastLineIndex &lt; 0) return prevLines;
+ 			const lastLine = prevLines[lastLineIndex];
+<a href="#h1-5-3" id="h1-5-3" class="d">-			
+</a><a href="#h1-5-4" id="h1-5-4" class="i">+
+</a> 			const targetPoints = calculateTargetPoints(lastLine.points);
+ 
+ 			const newLine: LineData = {
+<a href="#h1-6" id="h1-6" class="h">@@ -267,7 +247,7 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			return [...prevLines.slice(0, lastLineIndex), newLine];
+ 		});
+ 	}, [calculateTargetPoints]);
+<a href="#h1-6-3" id="h1-6-3" class="d">-    
+</a><a href="#h1-6-4" id="h1-6-4" class="i">+
+</a> 	// --- 6. アニメーションロジック (変更なし) ---
+ 
+ 	const animateLines = useCallback((timestamp: number) =&gt; {
+<a href="#h1-7" id="h1-7" class="h">@@ -280,11 +260,11 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			if (line.targetPoints.length === 0) return line;
+ 
+ 			const newPoints: Point[] = line.points.map((originalP, index) =&gt; {
+<a href="#h1-7-3" id="h1-7-3" class="d">-                const targetP = line.targetPoints[index];
+</a><a href="#h1-7-4" id="h1-7-4" class="i">+				const targetP = line.targetPoints[index];
+</a> 				return {
+<a href="#h1-7-6" id="h1-7-6" class="d">-                    x: originalP.x + (targetP.x - originalP.x) * progress,
+</a><a href="#h1-7-7" id="h1-7-7" class="d">-                    y: originalP.y + (targetP.y - originalP.y) * progress,
+</a><a href="#h1-7-8" id="h1-7-8" class="d">-                };
+</a><a href="#h1-7-9" id="h1-7-9" class="i">+					x: originalP.x + (targetP.x - originalP.x) * progress,
+</a><a href="#h1-7-10" id="h1-7-10" class="i">+					y: originalP.y + (targetP.y - originalP.y) * progress,
+</a><a href="#h1-7-11" id="h1-7-11" class="i">+				};
+</a> 			});
+ 
+ 			return { ...line, points: newPoints };
+<a href="#h1-8" id="h1-8" class="h">@@ -297,10 +277,10 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 		} else {
+ 			startTimeRef.current = undefined;
+ 			setLines(newCurrentLines.map(line =&gt; ({ 
+<a href="#h1-8-3" id="h1-8-3" class="d">-                ...line, 
+</a><a href="#h1-8-4" id="h1-8-4" class="d">-                points: line.targetPoints, 
+</a><a href="#h1-8-5" id="h1-8-5" class="d">-                targetPoints: [] 
+</a><a href="#h1-8-6" id="h1-8-6" class="d">-            }))); 
+</a><a href="#h1-8-7" id="h1-8-7" class="i">+				...line, 
+</a><a href="#h1-8-8" id="h1-8-8" class="i">+				points: line.targetPoints, 
+</a><a href="#h1-8-9" id="h1-8-9" class="i">+				targetPoints: [] 
+</a><a href="#h1-8-10" id="h1-8-10" class="i">+			}))); 
+</a> 		}
+ 	}, [lines]);
+ 
+<a href="#h1-9" id="h1-9" class="h">@@ -319,24 +299,46 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 	}, [lines, animateLines]);
+ 
+ 
+<a href="#h1-9-3" id="h1-9-3" class="d">-    const pointsToSvgString = (points: Point[]): string =&gt; {
+</a><a href="#h1-9-4" id="h1-9-4" class="d">-        return points.map(p =&gt; `${p.x},${p.y}`).join(&#39; &#39;);
+</a><a href="#h1-9-5" id="h1-9-5" class="d">-    };
+</a><a href="#h1-9-6" id="h1-9-6" class="i">+	const pointsToSvgString = (points: Point[]): string =&gt; {
+</a><a href="#h1-9-7" id="h1-9-7" class="i">+		return points.map(p =&gt; `${p.x},${p.y}`).join(&#39; &#39;);
+</a><a href="#h1-9-8" id="h1-9-8" class="i">+	};
+</a> 
+ 	// for audio
+<a href="#h1-9-11" id="h1-9-11" class="i">+	const audioRef = useRef&lt;HTMLAudioElement | null&gt;(null);
+</a> 
+ 	useEffect(() =&gt; {
+<a href="#h1-9-14" id="h1-9-14" class="d">-		const handleAudioSequence = async () =&gt; {
+</a><a href="#h1-9-15" id="h1-9-15" class="i">+		init();
+</a><a href="#h1-9-16" id="h1-9-16" class="i">+	},[])
+</a> 
+<a href="#h1-9-18" id="h1-9-18" class="d">-			await endLoopAndAwaitCompletion(); 
+</a><a href="#h1-9-19" id="h1-9-19" class="i">+	useEffect(() =&gt; {
+</a><a href="#h1-9-20" id="h1-9-20" class="i">+		const audio = new Audio(AUDIO_SOURCE);
+</a><a href="#h1-9-21" id="h1-9-21" class="i">+		audioRef.current = audio;
+</a> 
+<a href="#h1-9-23" id="h1-9-23" class="i">+		const handleAudioEnded = () =&gt; {
+</a><a href="#h1-9-24" id="h1-9-24" class="i">+			console.log(&quot;Audio playback finished. Calling onComplete.&quot;);
+</a> 			onComplete();
+ 		};
+<a href="#h1-9-27" id="h1-9-27" class="d">-		handleAudioSequence();
+</a> 
+<a href="#h1-9-29" id="h1-9-29" class="d">-		return
+</a><a href="#h1-9-30" id="h1-9-30" class="i">+		audio.addEventListener(&#39;ended&#39;, handleAudioEnded);
+</a> 
+<a href="#h1-9-32" id="h1-9-32" class="d">-	}, [currentBgmUrl, onComplete, endLoopAndAwaitCompletion]);
+</a><a href="#h1-9-33" id="h1-9-33" class="i">+		// ユーザーインタラクションの直後に再生を開始
+</a><a href="#h1-9-34" id="h1-9-34" class="i">+		// コンポーネントがロードされただけではブラウザの制限で再生できないため、
+</a><a href="#h1-9-35" id="h1-9-35" class="i">+		// ユーザーの最初の描画操作をトリガーとして再生を開始するのがより安全ですが、
+</a><a href="#h1-9-36" id="h1-9-36" class="i">+		// 今回はシンプルにロード時に再生を試みます。
+</a><a href="#h1-9-37" id="h1-9-37" class="i">+		const playAudio = () =&gt; {
+</a><a href="#h1-9-38" id="h1-9-38" class="i">+			audio.play().catch(e =&gt; console.log(&quot;Audio playback failed (may require user interaction):&quot;, e));
+</a><a href="#h1-9-39" id="h1-9-39" class="i">+		};
+</a><a href="#h1-9-40" id="h1-9-40" class="i">+
+</a><a href="#h1-9-41" id="h1-9-41" class="i">+		// ロード完了を待って再生を試みる
+</a><a href="#h1-9-42" id="h1-9-42" class="i">+		audio.oncanplaythrough = playAudio;
+</a><a href="#h1-9-43" id="h1-9-43" class="i">+
+</a><a href="#h1-9-44" id="h1-9-44" class="i">+		// アンマウント時のクリーンアップ
+</a><a href="#h1-9-45" id="h1-9-45" class="i">+		return () =&gt; {
+</a><a href="#h1-9-46" id="h1-9-46" class="i">+			audio.pause();
+</a><a href="#h1-9-47" id="h1-9-47" class="i">+			audio.removeEventListener(&#39;ended&#39;, handleAudioEnded);
+</a><a href="#h1-9-48" id="h1-9-48" class="i">+			audioRef.current = null;
+</a><a href="#h1-9-49" id="h1-9-49" class="i">+		};
+</a><a href="#h1-9-50" id="h1-9-50" class="i">+	}, [onComplete]);
+</a> 
+ 	return (
+ 		&lt;div
+<a href="#h1-10" id="h1-10" class="h">@@ -405,8 +407,3 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 	);
+ }
+ 
+<a href="#h1-10-3" id="h1-10-3" class="d">-const SecondDraw: React.FC&lt;StageProps&gt; = (props) =&gt; {
+</a><a href="#h1-10-4" id="h1-10-4" class="d">-	return &lt;DrawingApp {...props} /&gt;;
+</a><a href="#h1-10-5" id="h1-10-5" class="d">-};
+</a><a href="#h1-10-6" id="h1-10-6" class="d">-
+</a><a href="#h1-10-7" id="h1-10-7" class="d">-export default SecondDraw;
+</a><b>diff --git a/<a id="h2" href="../file/app/components/3_vr.tsx.html">app/components/3_vr.tsx</a> b/<a href="../file/app/components/3_vr.tsx.html">app/components/3_vr.tsx</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -2,13 +2,134 @@
+</a> 
+ import { Canvas, useFrame } from &#39;@react-three/fiber&#39;;
+ import { OrbitControls, Sky, ContactShadows, Cloud, Clouds } from &#39;@react-three/drei&#39;; 
+<a href="#h2-0-3" id="h2-0-3" class="d">-import BenchScene from &#39;../components/BenchScene&#39;;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-import { useState, useMemo } from &#39;react&#39;;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+import BenchScene from &#39;./BenchScene.tsx&#39;;
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+import { useState, useMemo, useRef, useEffect } from &#39;react&#39;;
+</a> import * as THREE from &#39;three&#39;; 
+<a href="#h2-0-8" id="h2-0-8" class="i">+import { StageProps } from &#39;../ctrl/page.tsx&#39;;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+// --- オーディオ関連の定数とカスタムフック ---
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+const AUDIO_SOURCES: Record&lt;number, string&gt; = {
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+    1: &#39;/audio/001.wav&#39;,
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+    2: &#39;/audio/002.wav&#39;,
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+};
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+// シーケンシャルな音声再生と状態遷移を制御するカスタムフック (修正版)
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+const useSequentialAudio = (initialState: number, audioSources: Record&lt;number, string&gt;, onComplete: () =&gt; void) =&gt; {
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+    const [sceneState, setSceneState] = useState(initialState);
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+    const audioRef = useRef&lt;HTMLAudioElement | null&gt;(null);
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+    // 現在の状態に対応する音源のURLを取得
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+    const currentAudioUrl = audioSources[sceneState];
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+    // 音声再生のロジック
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+    useEffect(() =&gt; {
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+        // --- 1. 終了条件のチェック ---
+</a><a href="#h2-0-27" id="h2-0-27" class="i">+        if (sceneState &gt; Math.max(...Object.keys(audioSources).map(Number))) {
+</a><a href="#h2-0-28" id="h2-0-28" class="i">+            // 定義された全ての音源が再生された後、onCompleteを実行
+</a><a href="#h2-0-29" id="h2-0-29" class="i">+            console.log(&quot;All audio finished. Calling onComplete.&quot;);
+</a><a href="#h2-0-30" id="h2-0-30" class="i">+            onComplete();
+</a><a href="#h2-0-31" id="h2-0-31" class="i">+            return;
+</a><a href="#h2-0-32" id="h2-0-32" class="i">+        }
+</a><a href="#h2-0-33" id="h2-0-33" class="i">+
+</a><a href="#h2-0-34" id="h2-0-34" class="i">+        // 現在の状態に対応する音源がない場合、ここで処理を停止
+</a><a href="#h2-0-35" id="h2-0-35" class="i">+        if (!currentAudioUrl) {
+</a><a href="#h2-0-36" id="h2-0-36" class="i">+            return;
+</a><a href="#h2-0-37" id="h2-0-37" class="i">+        }
+</a><a href="#h2-0-38" id="h2-0-38" class="i">+
+</a><a href="#h2-0-39" id="h2-0-39" class="i">+        console.log(`Starting setup for state ${sceneState}: ${currentAudioUrl}`);
+</a><a href="#h2-0-40" id="h2-0-40" class="i">+
+</a><a href="#h2-0-41" id="h2-0-41" class="i">+        // --- 2. 古いAudioオブジェクトのクリーンアップ ---
+</a><a href="#h2-0-42" id="h2-0-42" class="i">+        const existingAudio = audioRef.current;
+</a><a href="#h2-0-43" id="h2-0-43" class="i">+        if (existingAudio) {
+</a><a href="#h2-0-44" id="h2-0-44" class="i">+            existingAudio.pause();
+</a><a href="#h2-0-45" id="h2-0-45" class="i">+            // イベントリスナーの削除 (次のステップで新しいAudioオブジェクトにリスナーを設定するため)
+</a><a href="#h2-0-46" id="h2-0-46" class="i">+            // このクリーンアップが重要です。古いAudioオブジェクトが&#39;ended&#39;イベントをトリガーするのを防ぎます。
+</a><a href="#h2-0-47" id="h2-0-47" class="i">+            // `oncanplaythrough`リスナーはここでは不要ですが、もしあれば削除すべきです。
+</a><a href="#h2-0-48" id="h2-0-48" class="i">+            // Audioオブジェクトのライフサイクルを明確にするため、毎回新しいインスタンスを生成します。
+</a><a href="#h2-0-49" id="h2-0-49" class="i">+        }
+</a><a href="#h2-0-50" id="h2-0-50" class="i">+
+</a><a href="#h2-0-51" id="h2-0-51" class="i">+        // --- 3. 新しいAudioオブジェクトの作成と設定 ---
+</a><a href="#h2-0-52" id="h2-0-52" class="i">+        const audio = new Audio(currentAudioUrl);
+</a><a href="#h2-0-53" id="h2-0-53" class="i">+        audioRef.current = audio;
+</a><a href="#h2-0-54" id="h2-0-54" class="i">+
+</a><a href="#h2-0-55" id="h2-0-55" class="i">+        // 再生が終了したときのハンドラを定義
+</a><a href="#h2-0-56" id="h2-0-56" class="i">+        const handleAudioEnded = () =&gt; {
+</a><a href="#h2-0-57" id="h2-0-57" class="i">+            console.log(`Audio ${sceneState} finished. Transitioning state.`);
+</a><a href="#h2-0-58" id="h2-0-58" class="i">+            // 次の状態へ遷移 (例: 1 -&gt; 2, 2 -&gt; 3)
+</a><a href="#h2-0-59" id="h2-0-59" class="i">+            setSceneState(prev =&gt; prev + 1);
+</a><a href="#h2-0-60" id="h2-0-60" class="i">+        };
+</a><a href="#h2-0-61" id="h2-0-61" class="i">+
+</a><a href="#h2-0-62" id="h2-0-62" class="i">+        audio.addEventListener(&#39;ended&#39;, handleAudioEnded);
+</a><a href="#h2-0-63" id="h2-0-63" class="i">+        
+</a><a href="#h2-0-64" id="h2-0-64" class="i">+        // --- 4. 再生の開始 ---
+</a><a href="#h2-0-65" id="h2-0-65" class="i">+        // ロードやイベントを待たずに、すぐに再生を試みる
+</a><a href="#h2-0-66" id="h2-0-66" class="i">+        audio.play().catch(e =&gt; {
+</a><a href="#h2-0-67" id="h2-0-67" class="i">+            console.warn(`Audio playback failed for state ${sceneState} (requires user interaction):`, e);
+</a><a href="#h2-0-68" id="h2-0-68" class="i">+            // ユーザーに最初のクリックを促すメッセージなどを表示すると良い
+</a><a href="#h2-0-69" id="h2-0-69" class="i">+        });
+</a><a href="#h2-0-70" id="h2-0-70" class="i">+
+</a><a href="#h2-0-71" id="h2-0-71" class="i">+
+</a><a href="#h2-0-72" id="h2-0-72" class="i">+        // --- 5. クリーンアップ関数 ---
+</a><a href="#h2-0-73" id="h2-0-73" class="i">+        return () =&gt; {
+</a><a href="#h2-0-74" id="h2-0-74" class="i">+            // アンマウント/状態遷移時に現在のAudioオブジェクトを確実に停止し、リスナーを削除
+</a><a href="#h2-0-75" id="h2-0-75" class="i">+            if (audio === audioRef.current) { // 現在設定したAudioオブジェクトであることを確認
+</a><a href="#h2-0-76" id="h2-0-76" class="i">+                 audio.pause();
+</a><a href="#h2-0-77" id="h2-0-77" class="i">+                 audio.removeEventListener(&#39;ended&#39;, handleAudioEnded);
+</a><a href="#h2-0-78" id="h2-0-78" class="i">+            }
+</a><a href="#h2-0-79" id="h2-0-79" class="i">+        };
+</a><a href="#h2-0-80" id="h2-0-80" class="i">+        
+</a><a href="#h2-0-81" id="h2-0-81" class="i">+    }, [sceneState, audioSources, onComplete]); // sceneStateとcurrentAudioUrlは基本的に連動するため、sceneStateを依存配列に含める
+</a><a href="#h2-0-82" id="h2-0-82" class="i">+
+</a><a href="#h2-0-83" id="h2-0-83" class="i">+    return sceneState;
+</a><a href="#h2-0-84" id="h2-0-84" class="i">+};
+</a><a href="#h2-0-85" id="h2-0-85" class="i">+
+</a><a href="#h2-0-86" id="h2-0-86" class="i">+// 雲のランダム生成のための型
+</a><a href="#h2-0-87" id="h2-0-87" class="i">+interface RandomCloudsProps {
+</a><a href="#h2-0-88" id="h2-0-88" class="i">+    count: number;
+</a><a href="#h2-0-89" id="h2-0-89" class="i">+    radius: number;
+</a><a href="#h2-0-90" id="h2-0-90" class="i">+    height: number;
+</a><a href="#h2-0-91" id="h2-0-91" class="i">+}
+</a><a href="#h2-0-92" id="h2-0-92" class="i">+
+</a><a href="#h2-0-93" id="h2-0-93" class="i">+
+</a><a href="#h2-0-94" id="h2-0-94" class="i">+// 状態に応じてライトと霧を制御するコンポーネント
+</a><a href="#h2-0-95" id="h2-0-95" class="i">+function SceneController({ sceneState }: { sceneState: number }) {
+</a><a href="#h2-0-96" id="h2-0-96" class="i">+    
+</a><a href="#h2-0-97" id="h2-0-97" class="i">+    const isFoggy = sceneState === 2;
+</a><a href="#h2-0-98" id="h2-0-98" class="i">+    // 状態 1 (晴れ): 強さ 2 / 状態 2 (霧): 強さ 0.3
+</a><a href="#h2-0-99" id="h2-0-99" class="i">+    const lightIntensity = isFoggy ? 0.3 : 2; 
+</a><a href="#h2-0-100" id="h2-0-100" class="i">+
+</a><a href="#h2-0-101" id="h2-0-101" class="i">+    // 霧の制御ロジック
+</a><a href="#h2-0-102" id="h2-0-102" class="i">+    useFrame(({ scene }) =&gt; {
+</a><a href="#h2-0-103" id="h2-0-103" class="i">+        if (isFoggy) {
+</a><a href="#h2-0-104" id="h2-0-104" class="i">+            // 💡 状態 2: 暗く濃い霧 (色: 灰色、Near 5, Far 50)
+</a><a href="#h2-0-105" id="h2-0-105" class="i">+            scene.fog = new THREE.Fog(0x909090, 5, 50); 
+</a><a href="#h2-0-106" id="h2-0-106" class="i">+        } else {
+</a><a href="#h2-0-107" id="h2-0-107" class="i">+            // 状態 1: 霧を削除（今まで通り）
+</a><a href="#h2-0-108" id="h2-0-108" class="i">+            scene.fog = null;
+</a><a href="#h2-0-109" id="h2-0-109" class="i">+        }
+</a><a href="#h2-0-110" id="h2-0-110" class="i">+    });
+</a><a href="#h2-0-111" id="h2-0-111" class="i">+
+</a><a href="#h2-0-112" id="h2-0-112" class="i">+    return (
+</a><a href="#h2-0-113" id="h2-0-113" class="i">+        &lt;&gt;
+</a><a href="#h2-0-114" id="h2-0-114" class="i">+            &lt;ambientLight intensity={0.5} /&gt;
+</a><a href="#h2-0-115" id="h2-0-115" class="i">+            &lt;directionalLight 
+</a><a href="#h2-0-116" id="h2-0-116" class="i">+                position={[5, 10, 5]} 
+</a><a href="#h2-0-117" id="h2-0-117" class="i">+                intensity={lightIntensity} // 状態によって明るさを変更
+</a><a href="#h2-0-118" id="h2-0-118" class="i">+                castShadow            
+</a><a href="#h2-0-119" id="h2-0-119" class="i">+                shadow-mapSize-width={2048} 
+</a><a href="#h2-0-120" id="h2-0-120" class="i">+                shadow-mapSize-height={2048} 
+</a><a href="#h2-0-121" id="h2-0-121" class="i">+                shadow-camera-far={50} 
+</a><a href="#h2-0-122" id="h2-0-122" class="i">+                shadow-camera-left={-10}
+</a><a href="#h2-0-123" id="h2-0-123" class="i">+                shadow-camera-right={10}
+</a><a href="#h2-0-124" id="h2-0-124" class="i">+                shadow-camera-top={10}
+</a><a href="#h2-0-125" id="h2-0-125" class="i">+                shadow-camera-bottom={-10}
+</a><a href="#h2-0-126" id="h2-0-126" class="i">+            /&gt;
+</a><a href="#h2-0-127" id="h2-0-127" class="i">+        &lt;/&gt;
+</a><a href="#h2-0-128" id="h2-0-128" class="i">+    );
+</a><a href="#h2-0-129" id="h2-0-129" class="i">+}
+</a> 
+ 
+ function AnimatedSky() {
+<a href="#h2-0-133" id="h2-0-133" class="d">-    // このコンポーネントはそのまま維持し、空のグラデーションと太陽をアニメーションさせます。
+</a>     const [sunPosition, setSunPosition] = useState&lt;[number, number, number]&gt;([0, 100, 0]);
+ 
+     useFrame(({ clock }) =&gt; {
+<a href="#h2-1" id="h2-1" class="h">@@ -32,42 +153,27 @@ function AnimatedSky() {
+</a>     );
+ }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-// 必要なプロパティ: 雲の数、空の範囲の半径、雲の高さ
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-interface RandomCloudsProps {
+</a><a href="#h2-1-5" id="h2-1-5" class="d">-    count: number;
+</a><a href="#h2-1-6" id="h2-1-6" class="d">-    radius: number;
+</a><a href="#h2-1-7" id="h2-1-7" class="d">-    height: number;
+</a><a href="#h2-1-8" id="h2-1-8" class="d">-}
+</a> 
+ function RandomClouds({ count, radius, height }: RandomCloudsProps) {
+     const cloudConfigs = useMemo(() =&gt; {
+         return Array.from({ length: count }).map((_, i) =&gt; {
+<a href="#h2-1-13" id="h2-1-13" class="d">-            // 💡 修正点: 極座標 (角度と距離) を使って円形に均一に分布させる
+</a><a href="#h2-1-14" id="h2-1-14" class="d">-
+</a><a href="#h2-1-15" id="h2-1-15" class="d">-            // 1. 角度 (0 から 2π) をランダムに決定
+</a>             const angle = Math.random() * Math.PI * 2; 
+<a href="#h2-1-17" id="h2-1-17" class="d">-
+</a><a href="#h2-1-18" id="h2-1-18" class="d">-            // 2. 距離 (0 から radius) をランダムに決定 (二乗根で遠くへ均一に分布)
+</a><a href="#h2-1-19" id="h2-1-19" class="d">-            // Math.sqrt() を使うことで、原点付近への集中を避け、円内での分布を均一にします
+</a>             const distance = Math.sqrt(Math.random()) * radius; 
+ 
+<a href="#h2-1-22" id="h2-1-22" class="d">-            // 3. 極座標を直交座標 (X, Z) に変換
+</a>             const x = Math.cos(angle) * distance;
+             const z = Math.sin(angle) * distance;
+ 
+             return {
+<a href="#h2-1-27" id="h2-1-27" class="d">-                // 新しいランダムなX, Z座標
+</a>                 position: [
+                     x,
+                     height + (Math.random() - 0.5) * 5, 
+                     z,
+                 ] as [number, number, number],
+                 
+<a href="#h2-1-34" id="h2-1-34" class="d">-                // ... (bounds などの他の設定はそのまま)
+</a>                 bounds: [
+<a href="#h2-1-36" id="h2-1-36" class="d">-                    Math.random() * 10 + 10,
+</a><a href="#h2-1-37" id="h2-1-37" class="d">-                    Math.random() * 2 + 1,
+</a><a href="#h2-1-38" id="h2-1-38" class="d">-                    Math.random() * 10 + 10,
+</a><a href="#h2-1-39" id="h2-1-39" class="i">+                    Math.random() * 10 + 10, 
+</a><a href="#h2-1-40" id="h2-1-40" class="i">+                    Math.random() * 2 + 1,   
+</a><a href="#h2-1-41" id="h2-1-41" class="i">+                    Math.random() * 10 + 10, 
+</a>                 ] as [number, number, number],
+                 seed: Math.floor(Math.random() * 1000) + i, 
+                 volume: Math.random() * 20 + 5, 
+<a href="#h2-2" id="h2-2" class="h">@@ -85,40 +191,32 @@ function RandomClouds({ count, radius, height }: RandomCloudsProps) {
+</a>     );
+ }
+ 
+<a href="#h2-2-3" id="h2-2-3" class="d">-export default function ThreeVR() {
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+export default function ThreeVR({onComplete}:StageProps) {
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+    // 💡 状態定義: number型
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+    const sceneState = useSequentialAudio(1, AUDIO_SOURCES, onComplete);
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+
+</a>     return (
+             &lt;Canvas 
+<a href="#h2-2-11" id="h2-2-11" class="i">+                key=&quot;r3f-main-canvas&quot; 
+</a>                 camera={{ position: [5, 5, 5], fov: 60 }}
+                 shadows 
+<a href="#h2-2-14" id="h2-2-14" class="i">+                // 霧の状態によってクリアカラー（背景色）を変える
+</a><a href="#h2-2-15" id="h2-2-15" class="i">+                style={{ backgroundColor: sceneState === 2 ? &#39;#a0aa90&#39; : &#39;#d0e0ff&#39; }}
+</a>             &gt;
+<a href="#h2-2-17" id="h2-2-17" class="d">-                {/* 太陽と空 */}
+</a>                 &lt;AnimatedSky /&gt;
+                 
+<a href="#h2-2-20" id="h2-2-20" class="d">-
+</a><a href="#h2-2-21" id="h2-2-21" class="d">-				&lt;Clouds material={THREE.MeshLambertMaterial} limit={400}&gt; {/* limitで最大雲数を設定 */}
+</a><a href="#h2-2-22" id="h2-2-22" class="d">-				&lt;RandomClouds count={100} radius={80} height={15} /&gt; {/* 100個の雲を半径80の範囲、高さ15に生成 */}
+</a><a href="#h2-2-23" id="h2-2-23" class="d">-				&lt;/Clouds&gt;
+</a><a href="#h2-2-24" id="h2-2-24" class="d">-
+</a><a href="#h2-2-25" id="h2-2-25" class="d">-
+</a><a href="#h2-2-26" id="h2-2-26" class="d">-				{/* ライトとモデル */}
+</a><a href="#h2-2-27" id="h2-2-27" class="d">-				&lt;ambientLight intensity={0.5} /&gt;
+</a><a href="#h2-2-28" id="h2-2-28" class="d">-				&lt;directionalLight 
+</a><a href="#h2-2-29" id="h2-2-29" class="d">-				position={[5, 10, 5]} 
+</a><a href="#h2-2-30" id="h2-2-30" class="d">-				intensity={2}         
+</a><a href="#h2-2-31" id="h2-2-31" class="d">-				castShadow            
+</a><a href="#h2-2-32" id="h2-2-32" class="d">-				shadow-mapSize-width={2048} 
+</a><a href="#h2-2-33" id="h2-2-33" class="d">-				shadow-mapSize-height={2048} 
+</a><a href="#h2-2-34" id="h2-2-34" class="d">-				shadow-camera-far={50} 
+</a><a href="#h2-2-35" id="h2-2-35" class="d">-				shadow-camera-left={-10}
+</a><a href="#h2-2-36" id="h2-2-36" class="d">-				shadow-camera-right={10}
+</a><a href="#h2-2-37" id="h2-2-37" class="d">-				shadow-camera-top={10}
+</a><a href="#h2-2-38" id="h2-2-38" class="d">-				shadow-camera-bottom={-10}
+</a><a href="#h2-2-39" id="h2-2-39" class="d">-				/&gt;
+</a><a href="#h2-2-40" id="h2-2-40" class="d">-
+</a><a href="#h2-2-41" id="h2-2-41" class="d">-				&lt;BenchScene /&gt;
+</a><a href="#h2-2-42" id="h2-2-42" class="d">-				&lt;ContactShadows position={[0, -0.5, 0]} opacity={0.7} scale={10} blur={1} far={10} /&gt;
+</a><a href="#h2-2-43" id="h2-2-43" class="d">-				&lt;OrbitControls enableZoom={true} enablePan={true} enableRotate={true} /&gt;
+</a><a href="#h2-2-44" id="h2-2-44" class="d">-
+</a><a href="#h2-2-45" id="h2-2-45" class="d">-				&lt;/Canvas&gt;
+</a><a href="#h2-2-46" id="h2-2-46" class="d">-	);
+</a><a href="#h2-2-47" id="h2-2-47" class="i">+                &lt;Clouds material={THREE.MeshLambertMaterial} limit={200}&gt; 
+</a><a href="#h2-2-48" id="h2-2-48" class="i">+                    &lt;RandomClouds count={100} radius={80} height={15} /&gt; 
+</a><a href="#h2-2-49" id="h2-2-49" class="i">+                &lt;/Clouds&gt;
+</a><a href="#h2-2-50" id="h2-2-50" class="i">+                
+</a><a href="#h2-2-51" id="h2-2-51" class="i">+                {/* 💡 SceneControllerを配置し、状態を渡す */}
+</a><a href="#h2-2-52" id="h2-2-52" class="i">+                &lt;SceneController sceneState={sceneState} /&gt;
+</a><a href="#h2-2-53" id="h2-2-53" class="i">+                
+</a><a href="#h2-2-54" id="h2-2-54" class="i">+                &lt;BenchScene /&gt;
+</a><a href="#h2-2-55" id="h2-2-55" class="i">+                &lt;ContactShadows position={[0, -0.5, 0]} opacity={0.7} scale={10} blur={1} far={10} /&gt;
+</a><a href="#h2-2-56" id="h2-2-56" class="i">+                &lt;OrbitControls enableZoom={true} enablePan={true} enableRotate={true} /&gt;
+</a><a href="#h2-2-57" id="h2-2-57" class="i">+                
+</a><a href="#h2-2-58" id="h2-2-58" class="i">+            &lt;/Canvas&gt;
+</a><a href="#h2-2-59" id="h2-2-59" class="i">+    );
+</a> }
+<b>diff --git a/<a id="h3" href="../file/app/components/useAudioSequencer.ts.html">app/components/useAudioSequencer.ts</a> b/<a href="../file/app/components/useAudioSequencer.ts.html">app/components/useAudioSequencer.ts</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -1,212 +0,0 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="d">-import { useState, useEffect, useRef, useCallback } from &#39;react&#39;;
+</a><a href="#h3-0-1" id="h3-0-1" class="d">-
+</a><a href="#h3-0-2" id="h3-0-2" class="d">-interface AudioCacheEntry {
+</a><a href="#h3-0-3" id="h3-0-3" class="d">-    buffer: AudioBuffer;
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-    url: string; // 元のURLを保持
+</a><a href="#h3-0-5" id="h3-0-5" class="d">-}
+</a><a href="#h3-0-6" id="h3-0-6" class="d">-
+</a><a href="#h3-0-7" id="h3-0-7" class="d">-// Web Audio APIのインスタンスを管理するフック
+</a><a href="#h3-0-8" id="h3-0-8" class="d">-const useAudioSequencer = (currentAudioUrl: string | null) =&gt; {
+</a><a href="#h3-0-9" id="h3-0-9" class="d">-    // AudioContext、再生中のノード、ロード済みのバッファを保持
+</a><a href="#h3-0-10" id="h3-0-10" class="d">-    const contextRef = useRef&lt;AudioContext | null&gt;(null);
+</a><a href="#h3-0-11" id="h3-0-11" class="d">-    const sourceRef = useRef&lt;AudioBufferSourceNode | null&gt;(null);
+</a><a href="#h3-0-12" id="h3-0-12" class="d">-    const bufferCache = useRef&lt;Map&lt;string, AudioCacheEntry&gt;&gt;(new Map());
+</a><a href="#h3-0-13" id="h3-0-13" class="d">-
+</a><a href="#h3-0-14" id="h3-0-14" class="d">-    const [isPlaying, setIsPlaying] = useState(false);
+</a><a href="#h3-0-15" id="h3-0-15" class="d">-    const [isSwitching, setIsSwitching] = useState(false);
+</a><a href="#h3-0-16" id="h3-0-16" class="d">-
+</a><a href="#h3-0-17" id="h3-0-17" class="d">-    // AudioContextの初期化
+</a><a href="#h3-0-18" id="h3-0-18" class="d">-    useEffect(() =&gt; {
+</a><a href="#h3-0-19" id="h3-0-19" class="d">-        if (typeof globalThis !== &#39;undefined&#39; &amp;&amp; !contextRef.current) {
+</a><a href="#h3-0-20" id="h3-0-20" class="d">-            contextRef.current = new (globalThis.AudioContext)();
+</a><a href="#h3-0-21" id="h3-0-21" class="d">-        }
+</a><a href="#h3-0-22" id="h3-0-22" class="d">-    }, []);
+</a><a href="#h3-0-23" id="h3-0-23" class="d">-
+</a><a href="#h3-0-24" id="h3-0-24" class="d">-    // 音源をロードし、AudioBufferにデコードする関数
+</a><a href="#h3-0-25" id="h3-0-25" class="d">-    const loadAudio = useCallback(async (url: string): Promise&lt;AudioBuffer&gt; =&gt; {
+</a><a href="#h3-0-26" id="h3-0-26" class="d">-        if (bufferCache.current.has(url)) {
+</a><a href="#h3-0-27" id="h3-0-27" class="d">-            return bufferCache.current.get(url)!.buffer;
+</a><a href="#h3-0-28" id="h3-0-28" class="d">-        }
+</a><a href="#h3-0-29" id="h3-0-29" class="d">-        
+</a><a href="#h3-0-30" id="h3-0-30" class="d">-        const response = await fetch(url);
+</a><a href="#h3-0-31" id="h3-0-31" class="d">-        const arrayBuffer = await response.arrayBuffer();
+</a><a href="#h3-0-32" id="h3-0-32" class="d">-        const buffer = await contextRef.current!.decodeAudioData(arrayBuffer);
+</a><a href="#h3-0-33" id="h3-0-33" class="d">-        
+</a><a href="#h3-0-34" id="h3-0-34" class="d">-        bufferCache.current.set(url, { buffer, url });
+</a><a href="#h3-0-35" id="h3-0-35" class="d">-        return buffer;
+</a><a href="#h3-0-36" id="h3-0-36" class="d">-    }, []);
+</a><a href="#h3-0-37" id="h3-0-37" class="d">-
+</a><a href="#h3-0-38" id="h3-0-38" class="d">-    // 再生を開始・切り替えするメインロジック
+</a><a href="#h3-0-39" id="h3-0-39" class="d">-	const playSource = (
+</a><a href="#h3-0-40" id="h3-0-40" class="d">-		buffer: AudioBuffer, 
+</a><a href="#h3-0-41" id="h3-0-41" class="d">-		context: AudioContext, 
+</a><a href="#h3-0-42" id="h3-0-42" class="d">-		onEndCallback: () =&gt; void // 再生終了時に呼び出すコールバック
+</a><a href="#h3-0-43" id="h3-0-43" class="d">-	) =&gt; {
+</a><a href="#h3-0-44" id="h3-0-44" class="d">-		const source = context.createBufferSource();
+</a><a href="#h3-0-45" id="h3-0-45" class="d">-		source.buffer = buffer; 
+</a><a href="#h3-0-46" id="h3-0-46" class="d">-		// source.loop = true; // ❌ 標準のループ機能を無効化して手動で実装。
+</a><a href="#h3-0-47" id="h3-0-47" class="d">-
+</a><a href="#h3-0-48" id="h3-0-48" class="d">-		source.connect(context.destination);
+</a><a href="#h3-0-49" id="h3-0-49" class="d">-
+</a><a href="#h3-0-50" id="h3-0-50" class="d">-		// onended イベントをフックして、手動ループまたはシーケンス制御を行う
+</a><a href="#h3-0-51" id="h3-0-51" class="d">-		source.onended = onEndCallback; 
+</a><a href="#h3-0-52" id="h3-0-52" class="d">-
+</a><a href="#h3-0-53" id="h3-0-53" class="d">-		source.start(0); 
+</a><a href="#h3-0-54" id="h3-0-54" class="d">-		return source;
+</a><a href="#h3-0-55" id="h3-0-55" class="d">-	};
+</a><a href="#h3-0-56" id="h3-0-56" class="d">-
+</a><a href="#h3-0-57" id="h3-0-57" class="d">-	// ループを解除し、現在の再生が終了するのを待つ
+</a><a href="#h3-0-58" id="h3-0-58" class="d">-	const endLoopAndAwaitCompletion = useCallback((): Promise&lt;void&gt; =&gt; {
+</a><a href="#h3-0-59" id="h3-0-59" class="d">-		const source = sourceRef.current;
+</a><a href="#h3-0-60" id="h3-0-60" class="d">-		if (!source || !isPlaying) {
+</a><a href="#h3-0-61" id="h3-0-61" class="d">-			return Promise.resolve();
+</a><a href="#h3-0-62" id="h3-0-62" class="d">-		}
+</a><a href="#h3-0-63" id="h3-0-63" class="d">-
+</a><a href="#h3-0-64" id="h3-0-64" class="d">-		// ループを無効化
+</a><a href="#h3-0-65" id="h3-0-65" class="d">-		source.loop = false;
+</a><a href="#h3-0-66" id="h3-0-66" class="d">-
+</a><a href="#h3-0-67" id="h3-0-67" class="d">-		return new Promise((resolve) =&gt; {
+</a><a href="#h3-0-68" id="h3-0-68" class="d">-			// onended が発火するのを待つ
+</a><a href="#h3-0-69" id="h3-0-69" class="d">-			source.onended = () =&gt; {
+</a><a href="#h3-0-70" id="h3-0-70" class="d">-				sourceRef.current = null;
+</a><a href="#h3-0-71" id="h3-0-71" class="d">-				setIsPlaying(false);
+</a><a href="#h3-0-72" id="h3-0-72" class="d">-				resolve();
+</a><a href="#h3-0-73" id="h3-0-73" class="d">-			};
+</a><a href="#h3-0-74" id="h3-0-74" class="d">-		});
+</a><a href="#h3-0-75" id="h3-0-75" class="d">-	}, [isPlaying]);
+</a><a href="#h3-0-76" id="h3-0-76" class="d">-
+</a><a href="#h3-0-77" id="h3-0-77" class="d">-	// currentAudioUrl の変更監視
+</a><a href="#h3-0-78" id="h3-0-78" class="d">-	// useAudioSequencer.ts の useEffect の修正
+</a><a href="#h3-0-79" id="h3-0-79" class="d">-
+</a><a href="#h3-0-80" id="h3-0-80" class="d">-	useEffect(() =&gt; {
+</a><a href="#h3-0-81" id="h3-0-81" class="d">-		let active = true;
+</a><a href="#h3-0-82" id="h3-0-82" class="d">-		let isLooping = true; // 💡 手動ループの状態管理用フラグ
+</a><a href="#h3-0-83" id="h3-0-83" class="d">-
+</a><a href="#h3-0-84" id="h3-0-84" class="d">-		const context = contextRef.current;
+</a><a href="#h3-0-85" id="h3-0-85" class="d">-		if (!context) return;
+</a><a href="#h3-0-86" id="h3-0-86" class="d">-
+</a><a href="#h3-0-87" id="h3-0-87" class="d">-		// 💡 関数: 現在の音源が終了したときに呼ばれるコールバック
+</a><a href="#h3-0-88" id="h3-0-88" class="d">-		const handleSourceEnded = () =&gt; {
+</a><a href="#h3-0-89" id="h3-0-89" class="d">-			// 現在のノードをクリア
+</a><a href="#h3-0-90" id="h3-0-90" class="d">-			sourceRef.current = null;
+</a><a href="#h3-0-91" id="h3-0-91" class="d">-
+</a><a href="#h3-0-92" id="h3-0-92" class="d">-			// 1. ループ継続が許可されている場合、即座に同じ音源を再再生（手動ループ）
+</a><a href="#h3-0-93" id="h3-0-93" class="d">-			if (isLooping &amp;&amp; currentAudioUrl) {
+</a><a href="#h3-0-94" id="h3-0-94" class="d">-				console.log(&quot;-&gt; 手動ループ: 同じ音源を再再生&quot;);
+</a><a href="#h3-0-95" id="h3-0-95" class="d">-				sequencePlayback(currentAudioUrl, true);
+</a><a href="#h3-0-96" id="h3-0-96" class="d">-			} else {
+</a><a href="#h3-0-97" id="h3-0-97" class="d">-				// 2. ループが解除されている場合、外部の待機処理（Promise）を完了させる
+</a><a href="#h3-0-98" id="h3-0-98" class="d">-				//    このとき、Promiseの解決は外部のendLoopAndAwaitCompletionで処理されます。
+</a><a href="#h3-0-99" id="h3-0-99" class="d">-				setIsPlaying(false);
+</a><a href="#h3-0-100" id="h3-0-100" class="d">-				// 何もしないことで、onendedイベントが外部のPromiseを解決するのを待つ
+</a><a href="#h3-0-101" id="h3-0-101" class="d">-			}
+</a><a href="#h3-0-102" id="h3-0-102" class="d">-		};
+</a><a href="#h3-0-103" id="h3-0-103" class="d">-
+</a><a href="#h3-0-104" id="h3-0-104" class="d">-		// 💡 関数: 再生シーケンスの開始
+</a><a href="#h3-0-105" id="h3-0-105" class="d">-		const sequencePlayback = async (url: string, isLoopRestart: boolean = false) =&gt; {
+</a><a href="#h3-0-106" id="h3-0-106" class="d">-			if (!active || !context) return;
+</a><a href="#h3-0-107" id="h3-0-107" class="d">-
+</a><a href="#h3-0-108" id="h3-0-108" class="d">-			try {
+</a><a href="#h3-0-109" id="h3-0-109" class="d">-				const buffer = await loadAudio(url);
+</a><a href="#h3-0-110" id="h3-0-110" class="d">-
+</a><a href="#h3-0-111" id="h3-0-111" class="d">-				// 💡 停止中の場合は、古いノードを破棄してから新しいノードを作成
+</a><a href="#h3-0-112" id="h3-0-112" class="d">-				if (!isLoopRestart &amp;&amp; sourceRef.current) {
+</a><a href="#h3-0-113" id="h3-0-113" class="d">-					// 新しいURLが来たら、古いノードを停止
+</a><a href="#h3-0-114" id="h3-0-114" class="d">-					sourceRef.current.stop(context.currentTime); 
+</a><a href="#h3-0-115" id="h3-0-115" class="d">-				}
+</a><a href="#h3-0-116" id="h3-0-116" class="d">-
+</a><a href="#h3-0-117" id="h3-0-117" class="d">-				// 新しい音源の再生開始
+</a><a href="#h3-0-118" id="h3-0-118" class="d">-				const newSource = playSource(buffer, context, handleSourceEnded);
+</a><a href="#h3-0-119" id="h3-0-119" class="d">-				sourceRef.current = newSource;
+</a><a href="#h3-0-120" id="h3-0-120" class="d">-				setIsPlaying(true);
+</a><a href="#h3-0-121" id="h3-0-121" class="d">-				setIsSwitching(false);
+</a><a href="#h3-0-122" id="h3-0-122" class="d">-
+</a><a href="#h3-0-123" id="h3-0-123" class="d">-			} catch (error) {
+</a><a href="#h3-0-124" id="h3-0-124" class="d">-				console.error(&#39;Audio playback failed:&#39;, error);
+</a><a href="#h3-0-125" id="h3-0-125" class="d">-				setIsPlaying(false);
+</a><a href="#h3-0-126" id="h3-0-126" class="d">-				setIsSwitching(false);
+</a><a href="#h3-0-127" id="h3-0-127" class="d">-			}
+</a><a href="#h3-0-128" id="h3-0-128" class="d">-		};
+</a><a href="#h3-0-129" id="h3-0-129" class="d">-
+</a><a href="#h3-0-130" id="h3-0-130" class="d">-		// 💡 関数: ループを解除し、現在の再生が終了するのを待つ (Promiseを返す)
+</a><a href="#h3-0-131" id="h3-0-131" class="d">-		const endLoopAndAwaitCompletion = (): Promise&lt;void&gt; =&gt; {
+</a><a href="#h3-0-132" id="h3-0-132" class="d">-			if (!sourceRef.current || !isPlaying) {
+</a><a href="#h3-0-133" id="h3-0-133" class="d">-				return Promise.resolve();
+</a><a href="#h3-0-134" id="h3-0-134" class="d">-			}
+</a><a href="#h3-0-135" id="h3-0-135" class="d">-
+</a><a href="#h3-0-136" id="h3-0-136" class="d">-			// 💡 重要な修正: ループフラグを false に設定することで、handleSourceEndedで再ループが起こるのを防ぐ
+</a><a href="#h3-0-137" id="h3-0-137" class="d">-			isLooping = false; 
+</a><a href="#h3-0-138" id="h3-0-138" class="d">-
+</a><a href="#h3-0-139" id="h3-0-139" class="d">-			return new Promise((resolve) =&gt; {
+</a><a href="#h3-0-140" id="h3-0-140" class="d">-				// 現在再生中のノードが終了した時に resolve するための処理
+</a><a href="#h3-0-141" id="h3-0-141" class="d">-				// handleSourceEndedが呼ばれ、その中で isLooping=false の処理が走るのを待つ。
+</a><a href="#h3-0-142" id="h3-0-142" class="d">-				// 💡 ここで onended を直接上書きするのではなく、元の handleSourceEnded の動作に依存させる
+</a><a href="#h3-0-143" id="h3-0-143" class="d">-				sourceRef.current!.onended = () =&gt; {
+</a><a href="#h3-0-144" id="h3-0-144" class="d">-					sourceRef.current = null;
+</a><a href="#h3-0-145" id="h3-0-145" class="d">-					setIsPlaying(false);
+</a><a href="#h3-0-146" id="h3-0-146" class="d">-					resolve();
+</a><a href="#h3-0-147" id="h3-0-147" class="d">-				};
+</a><a href="#h3-0-148" id="h3-0-148" class="d">-			});
+</a><a href="#h3-0-149" id="h3-0-149" class="d">-		};
+</a><a href="#h3-0-150" id="h3-0-150" class="d">-
+</a><a href="#h3-0-151" id="h3-0-151" class="d">-		const getCurrentAudioUrl = (buffer: AudioBuffer): string | undefined =&gt; {
+</a><a href="#h3-0-152" id="h3-0-152" class="d">-			for (const [url, entry] of bufferCache.current.entries()) {
+</a><a href="#h3-0-153" id="h3-0-153" class="d">-				if (entry.buffer === buffer) {
+</a><a href="#h3-0-154" id="h3-0-154" class="d">-					return url;
+</a><a href="#h3-0-155" id="h3-0-155" class="d">-				}
+</a><a href="#h3-0-156" id="h3-0-156" class="d">-			}
+</a><a href="#h3-0-157" id="h3-0-157" class="d">-			return undefined;
+</a><a href="#h3-0-158" id="h3-0-158" class="d">-		};
+</a><a href="#h3-0-159" id="h3-0-159" class="d">-
+</a><a href="#h3-0-160" id="h3-0-160" class="d">-		// 💡 メイン処理: currentAudioUrlの変更を監視
+</a><a href="#h3-0-161" id="h3-0-161" class="d">-		const mainSequence = async () =&gt; {
+</a><a href="#h3-0-162" id="h3-0-162" class="d">-			if (!currentAudioUrl) {
+</a><a href="#h3-0-163" id="h3-0-163" class="d">-				sourceRef.current?.stop();
+</a><a href="#h3-0-164" id="h3-0-164" class="d">-				sourceRef.current = null;
+</a><a href="#h3-0-165" id="h3-0-165" class="d">-				setIsPlaying(false);
+</a><a href="#h3-0-166" id="h3-0-166" class="d">-				return;
+</a><a href="#h3-0-167" id="h3-0-167" class="d">-			}
+</a><a href="#h3-0-168" id="h3-0-168" class="d">-
+</a><a href="#h3-0-169" id="h3-0-169" class="d">-			setIsSwitching(true);
+</a><a href="#h3-0-170" id="h3-0-170" class="d">-
+</a><a href="#h3-0-171" id="h3-0-171" class="d">-			// 1. URLが変わった場合、古い音源の終了を待つ
+</a><a href="#h3-0-172" id="h3-0-172" class="d">-			if (sourceRef.current &amp;&amp; sourceRef.current.buffer) {
+</a><a href="#h3-0-173" id="h3-0-173" class="d">-
+</a><a href="#h3-0-174" id="h3-0-174" class="d">-				// 💡 修正されたチェックロジック
+</a><a href="#h3-0-175" id="h3-0-175" class="d">-				const currentUrl = getCurrentAudioUrl(sourceRef.current.buffer);
+</a><a href="#h3-0-176" id="h3-0-176" class="d">-
+</a><a href="#h3-0-177" id="h3-0-177" class="d">-				// 現在のURLが新しいURLと異なる場合
+</a><a href="#h3-0-178" id="h3-0-178" class="d">-				if (currentUrl &amp;&amp; currentUrl !== currentAudioUrl) {
+</a><a href="#h3-0-179" id="h3-0-179" class="d">-					// ループを切り、終了を待機
+</a><a href="#h3-0-180" id="h3-0-180" class="d">-					isLooping = false; // ループを停止
+</a><a href="#h3-0-181" id="h3-0-181" class="d">-					await endLoopAndAwaitCompletion(); 
+</a><a href="#h3-0-182" id="h3-0-182" class="d">-				}
+</a><a href="#h3-0-183" id="h3-0-183" class="d">-			}
+</a><a href="#h3-0-184" id="h3-0-184" class="d">-
+</a><a href="#h3-0-185" id="h3-0-185" class="d">-			if (!active) return;
+</a><a href="#h3-0-186" id="h3-0-186" class="d">-
+</a><a href="#h3-0-187" id="h3-0-187" class="d">-			// 2. 新しい音源の再生開始
+</a><a href="#h3-0-188" id="h3-0-188" class="d">-			isLooping = true;
+</a><a href="#h3-0-189" id="h3-0-189" class="d">-			sequencePlayback(currentAudioUrl);
+</a><a href="#h3-0-190" id="h3-0-190" class="d">-			setIsSwitching(false);
+</a><a href="#h3-0-191" id="h3-0-191" class="d">-		};
+</a><a href="#h3-0-192" id="h3-0-192" class="d">-
+</a><a href="#h3-0-193" id="h3-0-193" class="d">-		if (currentAudioUrl) {
+</a><a href="#h3-0-194" id="h3-0-194" class="d">-			mainSequence();
+</a><a href="#h3-0-195" id="h3-0-195" class="d">-		}
+</a><a href="#h3-0-196" id="h3-0-196" class="d">-
+</a><a href="#h3-0-197" id="h3-0-197" class="d">-		return () =&gt; {
+</a><a href="#h3-0-198" id="h3-0-198" class="d">-			active = false;
+</a><a href="#h3-0-199" id="h3-0-199" class="d">-			// ... (クリーンアップ)
+</a><a href="#h3-0-200" id="h3-0-200" class="d">-		};
+</a><a href="#h3-0-201" id="h3-0-201" class="d">-	}, [currentAudioUrl, loadAudio]); // 依存配列はシンプルに保つ
+</a><a href="#h3-0-202" id="h3-0-202" class="d">-
+</a><a href="#h3-0-203" id="h3-0-203" class="d">-	return { 
+</a><a href="#h3-0-204" id="h3-0-204" class="d">-		isPlaying, 
+</a><a href="#h3-0-205" id="h3-0-205" class="d">-		isSwitching, 
+</a><a href="#h3-0-206" id="h3-0-206" class="d">-		stop: () =&gt; sourceRef.current?.stop(),
+</a><a href="#h3-0-207" id="h3-0-207" class="d">-			endLoopAndAwaitCompletion,
+</a><a href="#h3-0-208" id="h3-0-208" class="d">-	};
+</a><a href="#h3-0-209" id="h3-0-209" class="d">-};
+</a><a href="#h3-0-210" id="h3-0-210" class="d">-
+</a><a href="#h3-0-211" id="h3-0-211" class="d">-export default useAudioSequencer;
+</a><b>diff --git a/<a id="h4" href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a> b/<a href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -33,8 +33,8 @@ export default function Chat() {
+</a>     	setStage(stage + 1);
+ 	}, []);
+ 
+<a href="#h4-0-3" id="h4-0-3" class="d">-	/*
+</a> 	let StageComponent: React.ReactNode;
+<a href="#h4-0-5" id="h4-0-5" class="i">+	console.log(&quot;now, stage is &quot;,stage);
+</a> 	switch (stage) {
+ 		case 1:
+ 			StageComponent = &lt;FirstChat onComplete={handleStageComplete}/&gt;;
+<a href="#h4-1" id="h4-1" class="h">@@ -48,20 +48,12 @@ export default function Chat() {
+</a> 		default:
+ 			StageComponent = &lt;Error onComplete={handleStageComplete}/&gt;;
+ 	}
+<a href="#h4-1-3" id="h4-1-3" class="d">-	*/
+</a><a href="#h4-1-4" id="h4-1-4" class="d">-   //for debug
+</a><a href="#h4-1-5" id="h4-1-5" class="d">-	const StageComponent: React.ReactNode = &lt;ThreeVR onComplete={handleStageComplete}/&gt;;
+</a><a href="#h4-1-6" id="h4-1-6" class="d">-
+</a> 
+ 	const checkFullscreen = () =&gt; {
+ 		const isTargetFullscreen = document.fullscreenElement === pageRef.current;
+ 		setIsFullscreen(isTargetFullscreen);
+ 	};
+ 
+<a href="#h4-1-13" id="h4-1-13" class="d">-//	const checkStage = () =&gt; {
+</a><a href="#h4-1-14" id="h4-1-14" class="d">-//		const stage;
+</a><a href="#h4-1-15" id="h4-1-15" class="d">-//	};
+</a><a href="#h4-1-16" id="h4-1-16" class="d">-
+</a> 	useEffect(() =&gt; {
+ 		// for fullscreen
+ 		const element = pageRef.current;
+</pre>
+</div>
+</body>
+</html>

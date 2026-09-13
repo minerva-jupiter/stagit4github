@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Filesystem.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> Filesystem.cpp (19202B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;Public/winget/Filesystem.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;Public/AppInstallerStrings.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Public/AppInstallerLogging.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Public/winget/Runtime.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> 
+<a href="#l9" class="line" id="l9">      9</a> using namespace std::chrono_literals;
+<a href="#l10" class="line" id="l10">     10</a> using namespace std::string_view_literals;
+<a href="#l11" class="line" id="l11">     11</a> using namespace AppInstaller::Runtime;
+<a href="#l12" class="line" id="l12">     12</a> 
+<a href="#l13" class="line" id="l13">     13</a> namespace AppInstaller::Filesystem
+<a href="#l14" class="line" id="l14">     14</a> {
+<a href="#l15" class="line" id="l15">     15</a>     namespace anon
+<a href="#l16" class="line" id="l16">     16</a>     {
+<a href="#l17" class="line" id="l17">     17</a>         constexpr std::string_view s_AppDataDir_Settings = &quot;Settings&quot;sv;
+<a href="#l18" class="line" id="l18">     18</a>         constexpr std::string_view s_AppDataDir_State = &quot;State&quot;sv;
+<a href="#l19" class="line" id="l19">     19</a> 
+<a href="#l20" class="line" id="l20">     20</a>         constexpr std::string_view s_LocalAppDataEnvironmentVariable = &quot;%LOCALAPPDATA%&quot;;
+<a href="#l21" class="line" id="l21">     21</a> 
+<a href="#l22" class="line" id="l22">     22</a>         // Contains the information about an ACE entry for a given principal.
+<a href="#l23" class="line" id="l23">     23</a>         struct ACEDetails
+<a href="#l24" class="line" id="l24">     24</a>         {
+<a href="#l25" class="line" id="l25">     25</a>             ACEPrincipal Principal;
+<a href="#l26" class="line" id="l26">     26</a>             PSID SID;
+<a href="#l27" class="line" id="l27">     27</a>             TRUSTEE_TYPE TrusteeType;
+<a href="#l28" class="line" id="l28">     28</a>         };
+<a href="#l29" class="line" id="l29">     29</a> 
+<a href="#l30" class="line" id="l30">     30</a>         DWORD AccessPermissionsFrom(ACEPermissions permissions)
+<a href="#l31" class="line" id="l31">     31</a>         {
+<a href="#l32" class="line" id="l32">     32</a>             DWORD result = 0;
+<a href="#l33" class="line" id="l33">     33</a> 
+<a href="#l34" class="line" id="l34">     34</a>             if (permissions == ACEPermissions::All)
+<a href="#l35" class="line" id="l35">     35</a>             {
+<a href="#l36" class="line" id="l36">     36</a>                 result |= GENERIC_ALL;
+<a href="#l37" class="line" id="l37">     37</a>             }
+<a href="#l38" class="line" id="l38">     38</a>             else
+<a href="#l39" class="line" id="l39">     39</a>             {
+<a href="#l40" class="line" id="l40">     40</a>                 if (WI_IsFlagSet(permissions, ACEPermissions::Read))
+<a href="#l41" class="line" id="l41">     41</a>                 {
+<a href="#l42" class="line" id="l42">     42</a>                     result |= GENERIC_READ;
+<a href="#l43" class="line" id="l43">     43</a>                 }
+<a href="#l44" class="line" id="l44">     44</a> 
+<a href="#l45" class="line" id="l45">     45</a>                 if (WI_IsFlagSet(permissions, ACEPermissions::Write))
+<a href="#l46" class="line" id="l46">     46</a>                 {
+<a href="#l47" class="line" id="l47">     47</a>                     result |= GENERIC_WRITE | FILE_DELETE_CHILD;
+<a href="#l48" class="line" id="l48">     48</a>                 }
+<a href="#l49" class="line" id="l49">     49</a> 
+<a href="#l50" class="line" id="l50">     50</a>                 if (WI_IsFlagSet(permissions, ACEPermissions::Execute))
+<a href="#l51" class="line" id="l51">     51</a>                 {
+<a href="#l52" class="line" id="l52">     52</a>                     result |= GENERIC_EXECUTE;
+<a href="#l53" class="line" id="l53">     53</a>                 }
+<a href="#l54" class="line" id="l54">     54</a>             }
+<a href="#l55" class="line" id="l55">     55</a> 
+<a href="#l56" class="line" id="l56">     56</a>             return result;
+<a href="#l57" class="line" id="l57">     57</a>         }
+<a href="#l58" class="line" id="l58">     58</a> 
+<a href="#l59" class="line" id="l59">     59</a>         // Gets the path to the appdata root.
+<a href="#l60" class="line" id="l60">     60</a>         // *Only used by non packaged version!*
+<a href="#l61" class="line" id="l61">     61</a>         std::filesystem::path GetPathToAppDataRoot(bool anonymize)
+<a href="#l62" class="line" id="l62">     62</a>         {
+<a href="#l63" class="line" id="l63">     63</a>             std::filesystem::path result = anonymize ? s_LocalAppDataEnvironmentVariable : GetKnownFolderPath(FOLDERID_LocalAppData);
+<a href="#l64" class="line" id="l64">     64</a>             result /= &quot;Microsoft/WinGet&quot;;
+<a href="#l65" class="line" id="l65">     65</a> 
+<a href="#l66" class="line" id="l66">     66</a>             return result;
+<a href="#l67" class="line" id="l67">     67</a>         }
+<a href="#l68" class="line" id="l68">     68</a> 
+<a href="#l69" class="line" id="l69">     69</a>         // Gets the path to the app data relative directory.
+<a href="#l70" class="line" id="l70">     70</a>         std::filesystem::path GetPathToAppDataDir(const std::filesystem::path&amp; relative, bool anonymize)
+<a href="#l71" class="line" id="l71">     71</a>         {
+<a href="#l72" class="line" id="l72">     72</a>             THROW_HR_IF(E_INVALIDARG, !relative.has_relative_path());
+<a href="#l73" class="line" id="l73">     73</a>             THROW_HR_IF(E_INVALIDARG, relative.has_root_path());
+<a href="#l74" class="line" id="l74">     74</a>             THROW_HR_IF(E_INVALIDARG, !relative.has_filename());
+<a href="#l75" class="line" id="l75">     75</a> 
+<a href="#l76" class="line" id="l76">     76</a>             std::filesystem::path result = GetPathToAppDataRoot(anonymize);
+<a href="#l77" class="line" id="l77">     77</a>             result /= relative;
+<a href="#l78" class="line" id="l78">     78</a> 
+<a href="#l79" class="line" id="l79">     79</a>             return result;
+<a href="#l80" class="line" id="l80">     80</a>         }
+<a href="#l81" class="line" id="l81">     81</a>     }
+<a href="#l82" class="line" id="l82">     82</a> 
+<a href="#l83" class="line" id="l83">     83</a>     DWORD GetVolumeInformationFlagsByHandle(HANDLE anyFileHandle)
+<a href="#l84" class="line" id="l84">     84</a>     {
+<a href="#l85" class="line" id="l85">     85</a>         DWORD flags = 0;
+<a href="#l86" class="line" id="l86">     86</a>         wchar_t fileSystemName[MAX_PATH];
+<a href="#l87" class="line" id="l87">     87</a>         THROW_LAST_ERROR_IF(!GetVolumeInformationByHandleW(
+<a href="#l88" class="line" id="l88">     88</a>             anyFileHandle, /*hFile*/
+<a href="#l89" class="line" id="l89">     89</a>             NULL, /*lpVolumeNameBuffer*/
+<a href="#l90" class="line" id="l90">     90</a>             0, /*nVolumeNameSize*/
+<a href="#l91" class="line" id="l91">     91</a>             NULL, /*lpVolumeSerialNumber*/
+<a href="#l92" class="line" id="l92">     92</a>             NULL, /*lpMaximumComponentLength*/
+<a href="#l93" class="line" id="l93">     93</a>             &amp;flags, /*lpFileSystemFlags*/
+<a href="#l94" class="line" id="l94">     94</a>             fileSystemName, /*lpFileSystemNameBuffer*/
+<a href="#l95" class="line" id="l95">     95</a>             MAX_PATH /*nFileSystemNameSize*/));
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>         // Vista and older does not report all flags, fix them up here
+<a href="#l98" class="line" id="l98">     98</a>         if (!(flags &amp; FILE_SUPPORTS_HARD_LINKS) &amp;&amp; !_wcsicmp(fileSystemName, L&quot;NTFS&quot;))
+<a href="#l99" class="line" id="l99">     99</a>         {
+<a href="#l100" class="line" id="l100">    100</a>             flags |= FILE_SUPPORTS_HARD_LINKS | FILE_SUPPORTS_EXTENDED_ATTRIBUTES | FILE_SUPPORTS_OPEN_BY_FILE_ID | FILE_SUPPORTS_USN_JOURNAL;
+<a href="#l101" class="line" id="l101">    101</a>         }
+<a href="#l102" class="line" id="l102">    102</a> 
+<a href="#l103" class="line" id="l103">    103</a>         return flags;
+<a href="#l104" class="line" id="l104">    104</a>     }
+<a href="#l105" class="line" id="l105">    105</a> 
+<a href="#l106" class="line" id="l106">    106</a>     DWORD GetVolumeInformationFlags(const std::filesystem::path&amp; anyPath)
+<a href="#l107" class="line" id="l107">    107</a>     {
+<a href="#l108" class="line" id="l108">    108</a>         wil::unique_hfile fileHandle{ CreateFileW(
+<a href="#l109" class="line" id="l109">    109</a>             anyPath.c_str(), /*lpFileName*/
+<a href="#l110" class="line" id="l110">    110</a>             0, /*dwDesiredAccess*/
+<a href="#l111" class="line" id="l111">    111</a>             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, /*dwShareMode*/
+<a href="#l112" class="line" id="l112">    112</a>             NULL, /*lpSecurityAttributes*/
+<a href="#l113" class="line" id="l113">    113</a>             OPEN_EXISTING, /*dwCreationDisposition*/
+<a href="#l114" class="line" id="l114">    114</a>             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS, /*dwFlagsAndAttributes*/
+<a href="#l115" class="line" id="l115">    115</a>             NULL /*hTemplateFile*/) };
+<a href="#l116" class="line" id="l116">    116</a> 
+<a href="#l117" class="line" id="l117">    117</a>         THROW_LAST_ERROR_IF(fileHandle.get() == INVALID_HANDLE_VALUE);
+<a href="#l118" class="line" id="l118">    118</a> 
+<a href="#l119" class="line" id="l119">    119</a>         return GetVolumeInformationFlagsByHandle(fileHandle.get());
+<a href="#l120" class="line" id="l120">    120</a>     }
+<a href="#l121" class="line" id="l121">    121</a> 
+<a href="#l122" class="line" id="l122">    122</a>     bool SupportsNamedStreams(const std::filesystem::path&amp; path)
+<a href="#l123" class="line" id="l123">    123</a>     {
+<a href="#l124" class="line" id="l124">    124</a>         return (GetVolumeInformationFlags(path) &amp; FILE_NAMED_STREAMS) != 0;
+<a href="#l125" class="line" id="l125">    125</a>     }
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a>     bool SupportsHardLinks(const std::filesystem::path&amp; path)
+<a href="#l128" class="line" id="l128">    128</a>     {
+<a href="#l129" class="line" id="l129">    129</a>         return (GetVolumeInformationFlags(path) &amp; FILE_SUPPORTS_HARD_LINKS) != 0;
+<a href="#l130" class="line" id="l130">    130</a>     }
+<a href="#l131" class="line" id="l131">    131</a> 
+<a href="#l132" class="line" id="l132">    132</a>     bool SupportsReparsePoints(const std::filesystem::path&amp; path)
+<a href="#l133" class="line" id="l133">    133</a>     {
+<a href="#l134" class="line" id="l134">    134</a>         return (GetVolumeInformationFlags(path) &amp; FILE_SUPPORTS_REPARSE_POINTS) != 0;
+<a href="#l135" class="line" id="l135">    135</a>     }
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>     bool PathEscapesBaseDirectory(const std::filesystem::path&amp; target, const std::filesystem::path&amp; base)
+<a href="#l138" class="line" id="l138">    138</a>     {
+<a href="#l139" class="line" id="l139">    139</a>         const auto&amp; targetPath = std::filesystem::weakly_canonical(target);
+<a href="#l140" class="line" id="l140">    140</a>         const auto&amp; basePath = std::filesystem::weakly_canonical(base);
+<a href="#l141" class="line" id="l141">    141</a>         auto [a, b] = std::mismatch(targetPath.begin(), targetPath.end(), basePath.begin(), basePath.end());
+<a href="#l142" class="line" id="l142">    142</a>         return (b != basePath.end());
+<a href="#l143" class="line" id="l143">    143</a>     }
+<a href="#l144" class="line" id="l144">    144</a> 
+<a href="#l145" class="line" id="l145">    145</a>     // Complicated rename algorithm due to somewhat arbitrary failures.
+<a href="#l146" class="line" id="l146">    146</a>     // 1. First, try to rename.
+<a href="#l147" class="line" id="l147">    147</a>     // 2. Then, create an empty file for the target, and attempt to rename.
+<a href="#l148" class="line" id="l148">    148</a>     // 3. Then, try repeatedly for 500ms in case it is a timing thing.
+<a href="#l149" class="line" id="l149">    149</a>     // 4. Attempt to use a hard link if available.
+<a href="#l150" class="line" id="l150">    150</a>     // 5. Copy the file if nothing else has worked so far.
+<a href="#l151" class="line" id="l151">    151</a>     void RenameFile(const std::filesystem::path&amp; from, const std::filesystem::path&amp; to)
+<a href="#l152" class="line" id="l152">    152</a>     {
+<a href="#l153" class="line" id="l153">    153</a>         // 1. First, try to rename.
+<a href="#l154" class="line" id="l154">    154</a>         try
+<a href="#l155" class="line" id="l155">    155</a>         {
+<a href="#l156" class="line" id="l156">    156</a>             // std::filesystem::rename() handles motw correctly if applicable.
+<a href="#l157" class="line" id="l157">    157</a>             std::filesystem::rename(from, to);
+<a href="#l158" class="line" id="l158">    158</a>             return;
+<a href="#l159" class="line" id="l159">    159</a>         }
+<a href="#l160" class="line" id="l160">    160</a>         CATCH_LOG();
+<a href="#l161" class="line" id="l161">    161</a> 
+<a href="#l162" class="line" id="l162">    162</a>         // 2. Then, create an empty file for the target, and attempt to rename.
+<a href="#l163" class="line" id="l163">    163</a>         //    This seems to fix things in certain cases, so we do it.
+<a href="#l164" class="line" id="l164">    164</a>         try
+<a href="#l165" class="line" id="l165">    165</a>         {
+<a href="#l166" class="line" id="l166">    166</a>             {
+<a href="#l167" class="line" id="l167">    167</a>                 std::ofstream targetFile{ to };
+<a href="#l168" class="line" id="l168">    168</a>             }
+<a href="#l169" class="line" id="l169">    169</a>             std::filesystem::rename(from, to);
+<a href="#l170" class="line" id="l170">    170</a>             return;
+<a href="#l171" class="line" id="l171">    171</a>         }
+<a href="#l172" class="line" id="l172">    172</a>         CATCH_LOG();
+<a href="#l173" class="line" id="l173">    173</a> 
+<a href="#l174" class="line" id="l174">    174</a>         // 3. Then, try repeatedly for 500ms in case it is a timing thing.
+<a href="#l175" class="line" id="l175">    175</a>         for (int i = 0; i &lt; 5; ++i)
+<a href="#l176" class="line" id="l176">    176</a>         {
+<a href="#l177" class="line" id="l177">    177</a>             try
+<a href="#l178" class="line" id="l178">    178</a>             {
+<a href="#l179" class="line" id="l179">    179</a>                 std::this_thread::sleep_for(100ms);
+<a href="#l180" class="line" id="l180">    180</a>                 std::filesystem::rename(from, to);
+<a href="#l181" class="line" id="l181">    181</a>                 return;
+<a href="#l182" class="line" id="l182">    182</a>             }
+<a href="#l183" class="line" id="l183">    183</a>             CATCH_LOG();
+<a href="#l184" class="line" id="l184">    184</a>         }
+<a href="#l185" class="line" id="l185">    185</a> 
+<a href="#l186" class="line" id="l186">    186</a>         // 4. Attempt to use a hard link if available.
+<a href="#l187" class="line" id="l187">    187</a>         if (SupportsHardLinks(from))
+<a href="#l188" class="line" id="l188">    188</a>         {
+<a href="#l189" class="line" id="l189">    189</a>             try
+<a href="#l190" class="line" id="l190">    190</a>             {
+<a href="#l191" class="line" id="l191">    191</a>                 // Create a hard link to the file; the installer will be left in the temp directory afterward
+<a href="#l192" class="line" id="l192">    192</a>                 // but it is better to succeed the operation and leave a file around than to fail.
+<a href="#l193" class="line" id="l193">    193</a>                 // First we have to remove the target file as the function will not overwrite.
+<a href="#l194" class="line" id="l194">    194</a>                 std::filesystem::remove(to);
+<a href="#l195" class="line" id="l195">    195</a>                 std::filesystem::create_hard_link(from, to);
+<a href="#l196" class="line" id="l196">    196</a>                 return;
+<a href="#l197" class="line" id="l197">    197</a>             }
+<a href="#l198" class="line" id="l198">    198</a>             CATCH_LOG();
+<a href="#l199" class="line" id="l199">    199</a>         }
+<a href="#l200" class="line" id="l200">    200</a> 
+<a href="#l201" class="line" id="l201">    201</a>         // 5. Copy the file if nothing else has worked so far.
+<a href="#l202" class="line" id="l202">    202</a>         // Create a copy of the file; the installer will be left in the temp directory afterward
+<a href="#l203" class="line" id="l203">    203</a>         // but it is better to succeed the operation and leave a file around than to fail.
+<a href="#l204" class="line" id="l204">    204</a>         std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing);
+<a href="#l205" class="line" id="l205">    205</a>     }
+<a href="#l206" class="line" id="l206">    206</a> 
+<a href="#l207" class="line" id="l207">    207</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l208" class="line" id="l208">    208</a>     static bool* s_CreateSymlinkResult_TestHook_Override = nullptr;
+<a href="#l209" class="line" id="l209">    209</a> 
+<a href="#l210" class="line" id="l210">    210</a>     void TestHook_SetCreateSymlinkResult_Override(bool* status)
+<a href="#l211" class="line" id="l211">    211</a>     {
+<a href="#l212" class="line" id="l212">    212</a>         s_CreateSymlinkResult_TestHook_Override = status;
+<a href="#l213" class="line" id="l213">    213</a>     }
+<a href="#l214" class="line" id="l214">    214</a> #endif
+<a href="#l215" class="line" id="l215">    215</a> 
+<a href="#l216" class="line" id="l216">    216</a>     bool CreateSymlink(const std::filesystem::path&amp; target, const std::filesystem::path&amp; link)
+<a href="#l217" class="line" id="l217">    217</a>     {
+<a href="#l218" class="line" id="l218">    218</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l219" class="line" id="l219">    219</a>         if (s_CreateSymlinkResult_TestHook_Override)
+<a href="#l220" class="line" id="l220">    220</a>         {
+<a href="#l221" class="line" id="l221">    221</a>             return *s_CreateSymlinkResult_TestHook_Override;
+<a href="#l222" class="line" id="l222">    222</a>         }
+<a href="#l223" class="line" id="l223">    223</a> #endif
+<a href="#l224" class="line" id="l224">    224</a>         try
+<a href="#l225" class="line" id="l225">    225</a>         {
+<a href="#l226" class="line" id="l226">    226</a>             std::filesystem::create_symlink(target, link);
+<a href="#l227" class="line" id="l227">    227</a>             return true;
+<a href="#l228" class="line" id="l228">    228</a>         }
+<a href="#l229" class="line" id="l229">    229</a>         catch (std::filesystem::filesystem_error&amp; error)
+<a href="#l230" class="line" id="l230">    230</a>         {
+<a href="#l231" class="line" id="l231">    231</a>             if (error.code().value() == ERROR_PRIVILEGE_NOT_HELD)
+<a href="#l232" class="line" id="l232">    232</a>             {
+<a href="#l233" class="line" id="l233">    233</a>                 return false;
+<a href="#l234" class="line" id="l234">    234</a>             }
+<a href="#l235" class="line" id="l235">    235</a>             else
+<a href="#l236" class="line" id="l236">    236</a>             {
+<a href="#l237" class="line" id="l237">    237</a>                 throw;
+<a href="#l238" class="line" id="l238">    238</a>             }
+<a href="#l239" class="line" id="l239">    239</a>         }
+<a href="#l240" class="line" id="l240">    240</a>     }
+<a href="#l241" class="line" id="l241">    241</a> 
+<a href="#l242" class="line" id="l242">    242</a>     bool VerifySymlink(const std::filesystem::path&amp; symlink, const std::filesystem::path&amp; target)
+<a href="#l243" class="line" id="l243">    243</a>     {
+<a href="#l244" class="line" id="l244">    244</a>         const std::filesystem::path&amp; symlinkTargetPath = std::filesystem::weakly_canonical(symlink);
+<a href="#l245" class="line" id="l245">    245</a>         return symlinkTargetPath == std::filesystem::weakly_canonical(target);
+<a href="#l246" class="line" id="l246">    246</a>     }
+<a href="#l247" class="line" id="l247">    247</a> 
+<a href="#l248" class="line" id="l248">    248</a>     void AppendExtension(std::filesystem::path&amp; target, const std::string&amp; value)
+<a href="#l249" class="line" id="l249">    249</a>     {
+<a href="#l250" class="line" id="l250">    250</a>         if (target.extension() != value)
+<a href="#l251" class="line" id="l251">    251</a>         {
+<a href="#l252" class="line" id="l252">    252</a>             target += value;
+<a href="#l253" class="line" id="l253">    253</a>         }
+<a href="#l254" class="line" id="l254">    254</a>     }
+<a href="#l255" class="line" id="l255">    255</a> 
+<a href="#l256" class="line" id="l256">    256</a>     bool SymlinkExists(const std::filesystem::path&amp; symlinkPath)
+<a href="#l257" class="line" id="l257">    257</a>     {
+<a href="#l258" class="line" id="l258">    258</a>         return std::filesystem::is_symlink(std::filesystem::symlink_status(symlinkPath));
+<a href="#l259" class="line" id="l259">    259</a>     }
+<a href="#l260" class="line" id="l260">    260</a> 
+<a href="#l261" class="line" id="l261">    261</a>     std::filesystem::path GetExpandedPath(const std::string&amp; path)
+<a href="#l262" class="line" id="l262">    262</a>     {
+<a href="#l263" class="line" id="l263">    263</a>         std::string trimPath = path;
+<a href="#l264" class="line" id="l264">    264</a>         Utility::Trim(trimPath);
+<a href="#l265" class="line" id="l265">    265</a> 
+<a href="#l266" class="line" id="l266">    266</a>         try
+<a href="#l267" class="line" id="l267">    267</a>         {
+<a href="#l268" class="line" id="l268">    268</a>             return std::filesystem::weakly_canonical(Utility::ExpandEnvironmentVariables(Utility::ConvertToUTF16(trimPath)));
+<a href="#l269" class="line" id="l269">    269</a>         }
+<a href="#l270" class="line" id="l270">    270</a>         catch (...)
+<a href="#l271" class="line" id="l271">    271</a>         {
+<a href="#l272" class="line" id="l272">    272</a>             return Utility::ConvertToUTF16(path);
+<a href="#l273" class="line" id="l273">    273</a>         }
+<a href="#l274" class="line" id="l274">    274</a>     }
+<a href="#l275" class="line" id="l275">    275</a> 
+<a href="#l276" class="line" id="l276">    276</a>     bool ReplaceCommonPathPrefix(std::filesystem::path&amp; source, const std::filesystem::path&amp; prefix, std::string_view replacement)
+<a href="#l277" class="line" id="l277">    277</a>     {
+<a href="#l278" class="line" id="l278">    278</a>         auto prefixItr = prefix.begin();
+<a href="#l279" class="line" id="l279">    279</a>         auto sourceItr = source.begin();
+<a href="#l280" class="line" id="l280">    280</a> 
+<a href="#l281" class="line" id="l281">    281</a>         while (prefixItr != prefix.end() &amp;&amp; sourceItr != source.end())
+<a href="#l282" class="line" id="l282">    282</a>         {
+<a href="#l283" class="line" id="l283">    283</a>             if (!Utility::ICUCaseInsensitiveEquals(prefixItr-&gt;u8string(), sourceItr-&gt;u8string()))
+<a href="#l284" class="line" id="l284">    284</a>             {
+<a href="#l285" class="line" id="l285">    285</a>                 break;
+<a href="#l286" class="line" id="l286">    286</a>             }
+<a href="#l287" class="line" id="l287">    287</a> 
+<a href="#l288" class="line" id="l288">    288</a>             ++prefixItr;
+<a href="#l289" class="line" id="l289">    289</a>             ++sourceItr;
+<a href="#l290" class="line" id="l290">    290</a>         }
+<a href="#l291" class="line" id="l291">    291</a> 
+<a href="#l292" class="line" id="l292">    292</a>         // Only replace source if we found all of prefix
+<a href="#l293" class="line" id="l293">    293</a>         if (prefixItr == prefix.end())
+<a href="#l294" class="line" id="l294">    294</a>         {
+<a href="#l295" class="line" id="l295">    295</a>             std::filesystem::path temp{ replacement };
+<a href="#l296" class="line" id="l296">    296</a> 
+<a href="#l297" class="line" id="l297">    297</a>             for (; sourceItr != source.end(); ++sourceItr)
+<a href="#l298" class="line" id="l298">    298</a>             {
+<a href="#l299" class="line" id="l299">    299</a>                 temp /= *sourceItr;
+<a href="#l300" class="line" id="l300">    300</a>             }
+<a href="#l301" class="line" id="l301">    301</a> 
+<a href="#l302" class="line" id="l302">    302</a>             source = std::move(temp);
+<a href="#l303" class="line" id="l303">    303</a> 
+<a href="#l304" class="line" id="l304">    304</a>             return true;
+<a href="#l305" class="line" id="l305">    305</a>         }
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>         return false;
+<a href="#l308" class="line" id="l308">    308</a>     }
+<a href="#l309" class="line" id="l309">    309</a> 
+<a href="#l310" class="line" id="l310">    310</a>     std::filesystem::path GetKnownFolderPath(const KNOWNFOLDERID&amp; id)
+<a href="#l311" class="line" id="l311">    311</a>     {
+<a href="#l312" class="line" id="l312">    312</a>         wil::unique_cotaskmem_string knownFolder = nullptr;
+<a href="#l313" class="line" id="l313">    313</a>         THROW_IF_FAILED(SHGetKnownFolderPath(id, KF_FLAG_NO_ALIAS | KF_FLAG_DONT_VERIFY | KF_FLAG_NO_PACKAGE_REDIRECTION, NULL, &amp;knownFolder));
+<a href="#l314" class="line" id="l314">    314</a>         return knownFolder.get();
+<a href="#l315" class="line" id="l315">    315</a>     }
+<a href="#l316" class="line" id="l316">    316</a> 
+<a href="#l317" class="line" id="l317">    317</a>     bool IsSameVolume(const std::filesystem::path&amp; path1, const std::filesystem::path&amp; path2)
+<a href="#l318" class="line" id="l318">    318</a>     {
+<a href="#l319" class="line" id="l319">    319</a>         WCHAR volumeName1[MAX_PATH];
+<a href="#l320" class="line" id="l320">    320</a>         WCHAR volumeName2[MAX_PATH];
+<a href="#l321" class="line" id="l321">    321</a> 
+<a href="#l322" class="line" id="l322">    322</a>         // Note: GetVolumePathNameW will return false if the volume drive does not exist.
+<a href="#l323" class="line" id="l323">    323</a>         if (!GetVolumePathNameW(path1.c_str(), volumeName1, MAX_PATH) || !GetVolumePathNameW(path2.c_str(), volumeName2, MAX_PATH))
+<a href="#l324" class="line" id="l324">    324</a>         {
+<a href="#l325" class="line" id="l325">    325</a>             return false;
+<a href="#l326" class="line" id="l326">    326</a>         }
+<a href="#l327" class="line" id="l327">    327</a>         return Utility::ICUCaseInsensitiveEquals(Utility::ConvertToUTF8(volumeName1), Utility::ConvertToUTF8(volumeName2));
+<a href="#l328" class="line" id="l328">    328</a>     }
+<a href="#l329" class="line" id="l329">    329</a> 
+<a href="#l330" class="line" id="l330">    330</a>     bool IsParentPath(const std::filesystem::path&amp; path, const std::filesystem::path&amp; parentPath)
+<a href="#l331" class="line" id="l331">    331</a>     {
+<a href="#l332" class="line" id="l332">    332</a>         return std::filesystem::weakly_canonical(path.parent_path()) == std::filesystem::weakly_canonical(parentPath);
+<a href="#l333" class="line" id="l333">    333</a>     }
+<a href="#l334" class="line" id="l334">    334</a> 
+<a href="#l335" class="line" id="l335">    335</a>     void PathDetails::SetOwner(ACEPrincipal owner)
+<a href="#l336" class="line" id="l336">    336</a>     {
+<a href="#l337" class="line" id="l337">    337</a>         Owner = owner;
+<a href="#l338" class="line" id="l338">    338</a>         ACL[owner] = ACEPermissions::All;
+<a href="#l339" class="line" id="l339">    339</a>     }
+<a href="#l340" class="line" id="l340">    340</a> 
+<a href="#l341" class="line" id="l341">    341</a>     bool PathDetails::ShouldApplyACL() const
+<a href="#l342" class="line" id="l342">    342</a>     {
+<a href="#l343" class="line" id="l343">    343</a>         // Could be expanded to actually check the current owner/ACL on the path, but isn&#39;t worth it currently
+<a href="#l344" class="line" id="l344">    344</a>         return !ACL.empty();
+<a href="#l345" class="line" id="l345">    345</a>     }
+<a href="#l346" class="line" id="l346">    346</a> 
+<a href="#l347" class="line" id="l347">    347</a>     void PathDetails::ApplyACL() const
+<a href="#l348" class="line" id="l348">    348</a>     {
+<a href="#l349" class="line" id="l349">    349</a>         bool hasCurrentUser = ACL.count(ACEPrincipal::CurrentUser) != 0;
+<a href="#l350" class="line" id="l350">    350</a>         bool hasSystem = ACL.count(ACEPrincipal::System) != 0;
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>         // Configuring permissions for both CurrentUser and SYSTEM while not having owner set as one of them is not valid because
+<a href="#l353" class="line" id="l353">    353</a>         // below we use only the owner permissions in the case of running as SYSTEM.
+<a href="#l354" class="line" id="l354">    354</a>         if ((hasCurrentUser &amp;&amp; hasSystem) &amp;&amp;
+<a href="#l355" class="line" id="l355">    355</a>             IsRunningAsSystem() &amp;&amp;
+<a href="#l356" class="line" id="l356">    356</a>             (!Owner || (Owner.value() != ACEPrincipal::CurrentUser &amp;&amp; Owner.value() != ACEPrincipal::System)))
+<a href="#l357" class="line" id="l357">    357</a>         {
+<a href="#l358" class="line" id="l358">    358</a>             THROW_HR(HRESULT_FROM_WIN32(ERROR_INVALID_STATE));
+<a href="#l359" class="line" id="l359">    359</a>         }
+<a href="#l360" class="line" id="l360">    360</a> 
+<a href="#l361" class="line" id="l361">    361</a>         auto userToken = wil::get_token_information&lt;TOKEN_USER&gt;();
+<a href="#l362" class="line" id="l362">    362</a>         auto adminSID = wil::make_static_sid(SECURITY_NT_AUTHORITY, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS);
+<a href="#l363" class="line" id="l363">    363</a>         auto systemSID = wil::make_static_sid(SECURITY_NT_AUTHORITY, SECURITY_LOCAL_SYSTEM_RID);
+<a href="#l364" class="line" id="l364">    364</a>         PSID ownerSID = nullptr;
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>         anon::ACEDetails aceDetails[] =
+<a href="#l367" class="line" id="l367">    367</a>         {
+<a href="#l368" class="line" id="l368">    368</a>             { ACEPrincipal::CurrentUser, userToken-&gt;User.Sid, TRUSTEE_IS_USER },
+<a href="#l369" class="line" id="l369">    369</a>             { ACEPrincipal::Admins, adminSID.get(), TRUSTEE_IS_WELL_KNOWN_GROUP},
+<a href="#l370" class="line" id="l370">    370</a>             { ACEPrincipal::System, systemSID.get(), TRUSTEE_IS_USER},
+<a href="#l371" class="line" id="l371">    371</a>         };
+<a href="#l372" class="line" id="l372">    372</a> 
+<a href="#l373" class="line" id="l373">    373</a>         ULONG entriesCount = 0;
+<a href="#l374" class="line" id="l374">    374</a>         std::array&lt;EXPLICIT_ACCESS_W, ARRAYSIZE(aceDetails)&gt; explicitAccess;
+<a href="#l375" class="line" id="l375">    375</a> 
+<a href="#l376" class="line" id="l376">    376</a>         // If the current user is SYSTEM, we want to take either the owner or the only configured set of permissions.
+<a href="#l377" class="line" id="l377">    377</a>         // The check above should prevent us from getting into situations outside of the ones below.
+<a href="#l378" class="line" id="l378">    378</a>         std::optional&lt;ACEPrincipal&gt; principalToIgnore;
+<a href="#l379" class="line" id="l379">    379</a>         if (hasCurrentUser &amp;&amp; hasSystem &amp;&amp; EqualSid(userToken-&gt;User.Sid, systemSID.get()))
+<a href="#l380" class="line" id="l380">    380</a>         {
+<a href="#l381" class="line" id="l381">    381</a>             principalToIgnore = (Owner.value() == ACEPrincipal::CurrentUser ? ACEPrincipal::System : ACEPrincipal::CurrentUser);
+<a href="#l382" class="line" id="l382">    382</a>         }
+<a href="#l383" class="line" id="l383">    383</a> 
+<a href="#l384" class="line" id="l384">    384</a>         for (const auto&amp; ace : aceDetails)
+<a href="#l385" class="line" id="l385">    385</a>         {
+<a href="#l386" class="line" id="l386">    386</a>             if (principalToIgnore &amp;&amp; principalToIgnore.value() == ace.Principal)
+<a href="#l387" class="line" id="l387">    387</a>             {
+<a href="#l388" class="line" id="l388">    388</a>                 continue;
+<a href="#l389" class="line" id="l389">    389</a>             }
+<a href="#l390" class="line" id="l390">    390</a> 
+<a href="#l391" class="line" id="l391">    391</a>             if (Owner &amp;&amp; Owner.value() == ace.Principal)
+<a href="#l392" class="line" id="l392">    392</a>             {
+<a href="#l393" class="line" id="l393">    393</a>                 ownerSID = ace.SID;
+<a href="#l394" class="line" id="l394">    394</a>             }
+<a href="#l395" class="line" id="l395">    395</a> 
+<a href="#l396" class="line" id="l396">    396</a>             auto itr = ACL.find(ace.Principal);
+<a href="#l397" class="line" id="l397">    397</a>             if (itr != ACL.end())
+<a href="#l398" class="line" id="l398">    398</a>             {
+<a href="#l399" class="line" id="l399">    399</a>                 EXPLICIT_ACCESS_W&amp; entry = explicitAccess[entriesCount++];
+<a href="#l400" class="line" id="l400">    400</a>                 entry = {};
+<a href="#l401" class="line" id="l401">    401</a> 
+<a href="#l402" class="line" id="l402">    402</a>                 entry.grfAccessPermissions = anon::AccessPermissionsFrom(itr-&gt;second);
+<a href="#l403" class="line" id="l403">    403</a>                 entry.grfAccessMode = SET_ACCESS;
+<a href="#l404" class="line" id="l404">    404</a>                 entry.grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+<a href="#l405" class="line" id="l405">    405</a> 
+<a href="#l406" class="line" id="l406">    406</a>                 entry.Trustee.pMultipleTrustee = nullptr;
+<a href="#l407" class="line" id="l407">    407</a>                 entry.Trustee.MultipleTrusteeOperation = NO_MULTIPLE_TRUSTEE;
+<a href="#l408" class="line" id="l408">    408</a>                 entry.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+<a href="#l409" class="line" id="l409">    409</a>                 entry.Trustee.TrusteeType = ace.TrusteeType;
+<a href="#l410" class="line" id="l410">    410</a>                 entry.Trustee.ptstrName = reinterpret_cast&lt;LPWCH&gt;(ace.SID);
+<a href="#l411" class="line" id="l411">    411</a>             }
+<a href="#l412" class="line" id="l412">    412</a>         }
+<a href="#l413" class="line" id="l413">    413</a> 
+<a href="#l414" class="line" id="l414">    414</a>         wil::unique_any&lt;PACL, decltype(&amp;::LocalFree), ::LocalFree&gt; acl;
+<a href="#l415" class="line" id="l415">    415</a>         THROW_IF_WIN32_ERROR(SetEntriesInAclW(entriesCount, explicitAccess.data(), nullptr, &amp;acl));
+<a href="#l416" class="line" id="l416">    416</a> 
+<a href="#l417" class="line" id="l417">    417</a>         std::wstring path = Path.wstring();
+<a href="#l418" class="line" id="l418">    418</a>         SECURITY_INFORMATION securityInformation = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
+<a href="#l419" class="line" id="l419">    419</a> 
+<a href="#l420" class="line" id="l420">    420</a>         if (ownerSID)
+<a href="#l421" class="line" id="l421">    421</a>         {
+<a href="#l422" class="line" id="l422">    422</a>             securityInformation |= OWNER_SECURITY_INFORMATION;
+<a href="#l423" class="line" id="l423">    423</a>         }
+<a href="#l424" class="line" id="l424">    424</a> 
+<a href="#l425" class="line" id="l425">    425</a>         DWORD result = SetNamedSecurityInfoW(&amp;path[0], SE_FILE_OBJECT, securityInformation, ownerSID, nullptr, acl.get(), nullptr);
+<a href="#l426" class="line" id="l426">    426</a> 
+<a href="#l427" class="line" id="l427">    427</a>         // We can be denied access attempting to set the owner when the owner is already correct.
+<a href="#l428" class="line" id="l428">    428</a>         // Determine if the owner is correct; if so, try again without attempting to set the owner.
+<a href="#l429" class="line" id="l429">    429</a>         if (result == ERROR_ACCESS_DENIED &amp;&amp; ownerSID)
+<a href="#l430" class="line" id="l430">    430</a>         {
+<a href="#l431" class="line" id="l431">    431</a>             wil::unique_hlocal_security_descriptor securityDescriptor;
+<a href="#l432" class="line" id="l432">    432</a>             PSID currentOwnerSID = nullptr;
+<a href="#l433" class="line" id="l433">    433</a>             DWORD getResult = GetNamedSecurityInfoW(&amp;path[0], SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, &amp;currentOwnerSID, nullptr, nullptr, nullptr, &amp;securityDescriptor);
+<a href="#l434" class="line" id="l434">    434</a> 
+<a href="#l435" class="line" id="l435">    435</a>             if (SUCCEEDED_WIN32_LOG(getResult) &amp;&amp; currentOwnerSID &amp;&amp; EqualSid(currentOwnerSID, ownerSID))
+<a href="#l436" class="line" id="l436">    436</a>             {
+<a href="#l437" class="line" id="l437">    437</a>                 result = SetNamedSecurityInfoW(&amp;path[0], SE_FILE_OBJECT, securityInformation &amp; ~OWNER_SECURITY_INFORMATION, nullptr, nullptr, acl.get(), nullptr);
+<a href="#l438" class="line" id="l438">    438</a>             }
+<a href="#l439" class="line" id="l439">    439</a>         }
+<a href="#l440" class="line" id="l440">    440</a> 
+<a href="#l441" class="line" id="l441">    441</a>         THROW_IF_WIN32_ERROR(result);
+<a href="#l442" class="line" id="l442">    442</a>     }
+<a href="#l443" class="line" id="l443">    443</a> 
+<a href="#l444" class="line" id="l444">    444</a>     std::filesystem::path InitializeAndGetPathTo(PathDetails&amp;&amp; details)
+<a href="#l445" class="line" id="l445">    445</a>     {
+<a href="#l446" class="line" id="l446">    446</a>         if (details.Create)
+<a href="#l447" class="line" id="l447">    447</a>         {
+<a href="#l448" class="line" id="l448">    448</a>             if (details.Path.is_absolute())
+<a href="#l449" class="line" id="l449">    449</a>             {
+<a href="#l450" class="line" id="l450">    450</a>                 if (std::filesystem::exists(details.Path) &amp;&amp; !std::filesystem::is_directory(details.Path))
+<a href="#l451" class="line" id="l451">    451</a>                 {
+<a href="#l452" class="line" id="l452">    452</a>                     std::filesystem::remove(details.Path);
+<a href="#l453" class="line" id="l453">    453</a>                 }
+<a href="#l454" class="line" id="l454">    454</a> 
+<a href="#l455" class="line" id="l455">    455</a>                 std::filesystem::create_directories(details.Path);
+<a href="#l456" class="line" id="l456">    456</a> 
+<a href="#l457" class="line" id="l457">    457</a>                 // Set the ACLs on the directory if needed. We do this after creating the directory because an attacker could
+<a href="#l458" class="line" id="l458">    458</a>                 // have created the directory beforehand so we must be able to place the correct ACL on any directory or fail
+<a href="#l459" class="line" id="l459">    459</a>                 // to operate.
+<a href="#l460" class="line" id="l460">    460</a>                 if (details.ShouldApplyACL())
+<a href="#l461" class="line" id="l461">    461</a>                 {
+<a href="#l462" class="line" id="l462">    462</a>                     details.ApplyACL();
+<a href="#l463" class="line" id="l463">    463</a>                 }
+<a href="#l464" class="line" id="l464">    464</a>             }
+<a href="#l465" class="line" id="l465">    465</a>             else
+<a href="#l466" class="line" id="l466">    466</a>             {
+<a href="#l467" class="line" id="l467">    467</a>                 AICLI_LOG(Core, Warning, &lt;&lt; &quot;InitializeAndGetPathTo directory creation requested for path that was not absolute: &quot; &lt;&lt; details.Path);
+<a href="#l468" class="line" id="l468">    468</a>             }
+<a href="#l469" class="line" id="l469">    469</a>         }
+<a href="#l470" class="line" id="l470">    470</a> 
+<a href="#l471" class="line" id="l471">    471</a>         return std::move(details.Path);
+<a href="#l472" class="line" id="l472">    472</a>     }
+<a href="#l473" class="line" id="l473">    473</a> 
+<a href="#l474" class="line" id="l474">    474</a>     PathDetails GetPathDetailsFor(PathName path, bool forDisplay)
+<a href="#l475" class="line" id="l475">    475</a>     {
+<a href="#l476" class="line" id="l476">    476</a>         PathDetails result;
+<a href="#l477" class="line" id="l477">    477</a>         // We should not create directories by default when they are retrieved for display purposes.
+<a href="#l478" class="line" id="l478">    478</a>         result.Create = !forDisplay;
+<a href="#l479" class="line" id="l479">    479</a> 
+<a href="#l480" class="line" id="l480">    480</a>         switch (path)
+<a href="#l481" class="line" id="l481">    481</a>         {
+<a href="#l482" class="line" id="l482">    482</a>         case PathName::UnpackagedLocalStateRoot:
+<a href="#l483" class="line" id="l483">    483</a>             result.Path = anon::GetPathToAppDataDir(anon::s_AppDataDir_State, forDisplay);
+<a href="#l484" class="line" id="l484">    484</a>             result.SetOwner(ACEPrincipal::CurrentUser);
+<a href="#l485" class="line" id="l485">    485</a>             result.ACL[ACEPrincipal::System] = ACEPermissions::All;
+<a href="#l486" class="line" id="l486">    486</a>             result.ACL[ACEPrincipal::Admins] = ACEPermissions::All;
+<a href="#l487" class="line" id="l487">    487</a>             break;
+<a href="#l488" class="line" id="l488">    488</a>         case PathName::UnpackagedSettingsRoot:
+<a href="#l489" class="line" id="l489">    489</a>             result.Path = anon::GetPathToAppDataDir(anon::s_AppDataDir_Settings, forDisplay);
+<a href="#l490" class="line" id="l490">    490</a>             result.SetOwner(ACEPrincipal::CurrentUser);
+<a href="#l491" class="line" id="l491">    491</a>             result.ACL[ACEPrincipal::System] = ACEPermissions::All;
+<a href="#l492" class="line" id="l492">    492</a>             result.ACL[ACEPrincipal::Admins] = ACEPermissions::All;
+<a href="#l493" class="line" id="l493">    493</a>             break;
+<a href="#l494" class="line" id="l494">    494</a>         default:
+<a href="#l495" class="line" id="l495">    495</a>             THROW_HR(E_UNEXPECTED);
+<a href="#l496" class="line" id="l496">    496</a>         }
+<a href="#l497" class="line" id="l497">    497</a> 
+<a href="#l498" class="line" id="l498">    498</a>         return result;
+<a href="#l499" class="line" id="l499">    499</a>     }
+<a href="#l500" class="line" id="l500">    500</a> 
+<a href="#l501" class="line" id="l501">    501</a>     std::filesystem::path GetExecutablePathForProcess(HANDLE process)
+<a href="#l502" class="line" id="l502">    502</a>     {
+<a href="#l503" class="line" id="l503">    503</a>         wil::unique_cotaskmem_string imageName = nullptr;
+<a href="#l504" class="line" id="l504">    504</a>         if (SUCCEEDED(wil::QueryFullProcessImageNameW(process, 0, imageName)) &amp;&amp;
+<a href="#l505" class="line" id="l505">    505</a>             (imageName.get() != nullptr))
+<a href="#l506" class="line" id="l506">    506</a>         {
+<a href="#l507" class="line" id="l507">    507</a>             return imageName.get();
+<a href="#l508" class="line" id="l508">    508</a>         }
+<a href="#l509" class="line" id="l509">    509</a> 
+<a href="#l510" class="line" id="l510">    510</a>         return {};
+<a href="#l511" class="line" id="l511">    511</a>     }
+<a href="#l512" class="line" id="l512">    512</a> }
+</pre>
+</div>
+</body>
+</html>

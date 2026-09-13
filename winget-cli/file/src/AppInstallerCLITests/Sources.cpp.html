@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Sources.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> Sources.cpp (48664B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;TestCommon.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;TestHooks.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;TestSettings.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;TestSource.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> 
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;AppInstallerDateTime.h&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;AppInstallerRuntime.h&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;AppInstallerStrings.h&gt;
+<a href="#l12" class="line" id="l12">     12</a> #include &lt;AppInstallerErrors.h&gt;
+<a href="#l13" class="line" id="l13">     13</a> #include &lt;winget/Settings.h&gt;
+<a href="#l14" class="line" id="l14">     14</a> 
+<a href="#l15" class="line" id="l15">     15</a> using namespace TestCommon;
+<a href="#l16" class="line" id="l16">     16</a> using namespace AppInstaller;
+<a href="#l17" class="line" id="l17">     17</a> using namespace AppInstaller::Runtime;
+<a href="#l18" class="line" id="l18">     18</a> using namespace AppInstaller::Repository;
+<a href="#l19" class="line" id="l19">     19</a> using namespace AppInstaller::Settings;
+<a href="#l20" class="line" id="l20">     20</a> using namespace AppInstaller::Utility;
+<a href="#l21" class="line" id="l21">     21</a> 
+<a href="#l22" class="line" id="l22">     22</a> // Duplicating here because a change to these values in the product *REALLY* needs to be thought through.
+<a href="#l23" class="line" id="l23">     23</a> using namespace std::string_literals;
+<a href="#l24" class="line" id="l24">     24</a> using namespace std::string_view_literals;
+<a href="#l25" class="line" id="l25">     25</a> 
+<a href="#l26" class="line" id="l26">     26</a> constexpr size_t c_DefaultSourceCount = 2;
+<a href="#l27" class="line" id="l27">     27</a> 
+<a href="#l28" class="line" id="l28">     28</a> constexpr std::string_view s_SourcesYaml_Sources = &quot;Sources&quot;sv;
+<a href="#l29" class="line" id="l29">     29</a> constexpr std::string_view s_SourcesYaml_Source_Name = &quot;Name&quot;sv;
+<a href="#l30" class="line" id="l30">     30</a> constexpr std::string_view s_SourcesYaml_Source_Type = &quot;Type&quot;sv;
+<a href="#l31" class="line" id="l31">     31</a> constexpr std::string_view s_SourcesYaml_Source_Arg = &quot;Arg&quot;sv;
+<a href="#l32" class="line" id="l32">     32</a> constexpr std::string_view s_SourcesYaml_Source_Data = &quot;Data&quot;sv;
+<a href="#l33" class="line" id="l33">     33</a> constexpr std::string_view s_SourcesYaml_Source_TrustLevel = &quot;TrustLevel&quot;sv;
+<a href="#l34" class="line" id="l34">     34</a> constexpr std::string_view s_SourcesYaml_Source_Explicit = &quot;Explicit&quot;sv;
+<a href="#l35" class="line" id="l35">     35</a> constexpr std::string_view s_SourcesYaml_Source_LastUpdate = &quot;LastUpdate&quot;sv;
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a> constexpr std::string_view s_EmptySources = R&quot;(
+<a href="#l38" class="line" id="l38">     38</a> Sources:
+<a href="#l39" class="line" id="l39">     39</a> )&quot;sv;
+<a href="#l40" class="line" id="l40">     40</a> 
+<a href="#l41" class="line" id="l41">     41</a> constexpr std::string_view s_DefaultSourcesTombstoned = R&quot;(
+<a href="#l42" class="line" id="l42">     42</a> Sources:
+<a href="#l43" class="line" id="l43">     43</a>   - Name: winget
+<a href="#l44" class="line" id="l44">     44</a>     Type: &quot;&quot;
+<a href="#l45" class="line" id="l45">     45</a>     Arg: &quot;&quot;
+<a href="#l46" class="line" id="l46">     46</a>     Data: &quot;&quot;
+<a href="#l47" class="line" id="l47">     47</a>     IsTombstone: true
+<a href="#l48" class="line" id="l48">     48</a>   - Name: msstore
+<a href="#l49" class="line" id="l49">     49</a>     Type: &quot;&quot;
+<a href="#l50" class="line" id="l50">     50</a>     Arg: &quot;&quot;
+<a href="#l51" class="line" id="l51">     51</a>     Data: &quot;&quot;
+<a href="#l52" class="line" id="l52">     52</a>     IsTombstone: true
+<a href="#l53" class="line" id="l53">     53</a> )&quot;sv;
+<a href="#l54" class="line" id="l54">     54</a> 
+<a href="#l55" class="line" id="l55">     55</a> constexpr std::string_view s_SingleSource = R&quot;(
+<a href="#l56" class="line" id="l56">     56</a> Sources:
+<a href="#l57" class="line" id="l57">     57</a>   - Name: testName
+<a href="#l58" class="line" id="l58">     58</a>     Type: testType
+<a href="#l59" class="line" id="l59">     59</a>     Arg: testArg
+<a href="#l60" class="line" id="l60">     60</a>     Data: testData
+<a href="#l61" class="line" id="l61">     61</a>     IsTombstone: false
+<a href="#l62" class="line" id="l62">     62</a> )&quot;sv;
+<a href="#l63" class="line" id="l63">     63</a> 
+<a href="#l64" class="line" id="l64">     64</a> constexpr std::string_view s_SingleSourceMetadata = R&quot;(
+<a href="#l65" class="line" id="l65">     65</a> Sources:
+<a href="#l66" class="line" id="l66">     66</a>   - Name: testName
+<a href="#l67" class="line" id="l67">     67</a>     LastUpdate: 100
+<a href="#l68" class="line" id="l68">     68</a> )&quot;sv;
+<a href="#l69" class="line" id="l69">     69</a> 
+<a href="#l70" class="line" id="l70">     70</a> constexpr std::string_view s_SingleSourceMetadataUpdate = R&quot;(
+<a href="#l71" class="line" id="l71">     71</a> Sources:
+<a href="#l72" class="line" id="l72">     72</a>   - Name: testName
+<a href="#l73" class="line" id="l73">     73</a>     LastUpdate: 101
+<a href="#l74" class="line" id="l74">     74</a> )&quot;sv;
+<a href="#l75" class="line" id="l75">     75</a> 
+<a href="#l76" class="line" id="l76">     76</a> constexpr std::string_view s_DoubleSource = R&quot;(
+<a href="#l77" class="line" id="l77">     77</a> Sources:
+<a href="#l78" class="line" id="l78">     78</a>   - Name: testName
+<a href="#l79" class="line" id="l79">     79</a>     Type: testType
+<a href="#l80" class="line" id="l80">     80</a>     Arg: testArg
+<a href="#l81" class="line" id="l81">     81</a>     Data: testData
+<a href="#l82" class="line" id="l82">     82</a>     IsTombstone: false
+<a href="#l83" class="line" id="l83">     83</a>   - Name: testName2
+<a href="#l84" class="line" id="l84">     84</a>     Type: testType
+<a href="#l85" class="line" id="l85">     85</a>     Arg: testArg2
+<a href="#l86" class="line" id="l86">     86</a>     Data: testData2
+<a href="#l87" class="line" id="l87">     87</a>     IsTombstone: false
+<a href="#l88" class="line" id="l88">     88</a> )&quot;sv;
+<a href="#l89" class="line" id="l89">     89</a> 
+<a href="#l90" class="line" id="l90">     90</a> constexpr std::string_view s_DoubleSourceMetadata = R&quot;(
+<a href="#l91" class="line" id="l91">     91</a> Sources:
+<a href="#l92" class="line" id="l92">     92</a>   - Name: testName
+<a href="#l93" class="line" id="l93">     93</a>     LastUpdate: 100
+<a href="#l94" class="line" id="l94">     94</a>   - Name: testName2
+<a href="#l95" class="line" id="l95">     95</a>     LastUpdate: 200
+<a href="#l96" class="line" id="l96">     96</a> )&quot;sv;
+<a href="#l97" class="line" id="l97">     97</a> 
+<a href="#l98" class="line" id="l98">     98</a> constexpr std::string_view s_ThreeSources = R&quot;(
+<a href="#l99" class="line" id="l99">     99</a> Sources:
+<a href="#l100" class="line" id="l100">    100</a>   - Name: testName
+<a href="#l101" class="line" id="l101">    101</a>     Type: testType
+<a href="#l102" class="line" id="l102">    102</a>     Arg: testArg
+<a href="#l103" class="line" id="l103">    103</a>     Data: testData
+<a href="#l104" class="line" id="l104">    104</a>     IsTombstone: false
+<a href="#l105" class="line" id="l105">    105</a>   - Name: testName2
+<a href="#l106" class="line" id="l106">    106</a>     Type: testType2
+<a href="#l107" class="line" id="l107">    107</a>     Arg: testArg2
+<a href="#l108" class="line" id="l108">    108</a>     Data: testData2
+<a href="#l109" class="line" id="l109">    109</a>     IsTombstone: false
+<a href="#l110" class="line" id="l110">    110</a>   - Name: testName3
+<a href="#l111" class="line" id="l111">    111</a>     Type: testType3
+<a href="#l112" class="line" id="l112">    112</a>     Arg: testArg3
+<a href="#l113" class="line" id="l113">    113</a>     Data: testData3
+<a href="#l114" class="line" id="l114">    114</a>     IsTombstone: false
+<a href="#l115" class="line" id="l115">    115</a>   - Name: winget
+<a href="#l116" class="line" id="l116">    116</a>     Type: &quot;&quot;
+<a href="#l117" class="line" id="l117">    117</a>     Arg: &quot;&quot;
+<a href="#l118" class="line" id="l118">    118</a>     Data: &quot;&quot;
+<a href="#l119" class="line" id="l119">    119</a>     IsTombstone: true
+<a href="#l120" class="line" id="l120">    120</a>   - Name: msstore
+<a href="#l121" class="line" id="l121">    121</a>     Type: &quot;&quot;
+<a href="#l122" class="line" id="l122">    122</a>     Arg: &quot;&quot;
+<a href="#l123" class="line" id="l123">    123</a>     Data: &quot;&quot;
+<a href="#l124" class="line" id="l124">    124</a>     IsTombstone: true
+<a href="#l125" class="line" id="l125">    125</a> )&quot;sv;
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a> constexpr std::string_view s_ThreeSourcesMetadata = R&quot;(
+<a href="#l128" class="line" id="l128">    128</a> Sources:
+<a href="#l129" class="line" id="l129">    129</a>   - Name: testName
+<a href="#l130" class="line" id="l130">    130</a>     LastUpdate: 0
+<a href="#l131" class="line" id="l131">    131</a>   - Name: testName2
+<a href="#l132" class="line" id="l132">    132</a>     LastUpdate: 1
+<a href="#l133" class="line" id="l133">    133</a>   - Name: testName3
+<a href="#l134" class="line" id="l134">    134</a>     LastUpdate: 2
+<a href="#l135" class="line" id="l135">    135</a> )&quot;sv;
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a> constexpr std::string_view s_SingleSource_MissingArg = R&quot;(
+<a href="#l138" class="line" id="l138">    138</a> Sources:
+<a href="#l139" class="line" id="l139">    139</a>   - Name: testName
+<a href="#l140" class="line" id="l140">    140</a>     Type: testType
+<a href="#l141" class="line" id="l141">    141</a>     Data: testData
+<a href="#l142" class="line" id="l142">    142</a>     IsTombstone: false
+<a href="#l143" class="line" id="l143">    143</a> )&quot;sv;
+<a href="#l144" class="line" id="l144">    144</a> 
+<a href="#l145" class="line" id="l145">    145</a> constexpr std::string_view s_TwoSource_AggregateSourceTest = R&quot;(
+<a href="#l146" class="line" id="l146">    146</a> Sources:
+<a href="#l147" class="line" id="l147">    147</a>   - Name: winget
+<a href="#l148" class="line" id="l148">    148</a>     Type: testType
+<a href="#l149" class="line" id="l149">    149</a>     Arg: testArg
+<a href="#l150" class="line" id="l150">    150</a>     Data: testData
+<a href="#l151" class="line" id="l151">    151</a>     IsTombstone: false
+<a href="#l152" class="line" id="l152">    152</a>   - Name: msstore
+<a href="#l153" class="line" id="l153">    153</a>     Type: testType
+<a href="#l154" class="line" id="l154">    154</a>     Arg: testArg
+<a href="#l155" class="line" id="l155">    155</a>     Data: testData
+<a href="#l156" class="line" id="l156">    156</a>     IsTombstone: false
+<a href="#l157" class="line" id="l157">    157</a> )&quot;sv;
+<a href="#l158" class="line" id="l158">    158</a> 
+<a href="#l159" class="line" id="l159">    159</a> constexpr std::string_view s_DefaultSourceAsUserSource = R&quot;(
+<a href="#l160" class="line" id="l160">    160</a> Sources:
+<a href="#l161" class="line" id="l161">    161</a>   - Name: not-winget
+<a href="#l162" class="line" id="l162">    162</a>     Type: Microsoft.PreIndexed.Package
+<a href="#l163" class="line" id="l163">    163</a>     Arg: https://cdn.winget.microsoft.com/cache
+<a href="#l164" class="line" id="l164">    164</a>     Data: Microsoft.Winget.Source_8wekyb3d8bbwe
+<a href="#l165" class="line" id="l165">    165</a>     IsTombstone: false
+<a href="#l166" class="line" id="l166">    166</a> )&quot;sv;
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a> constexpr std::string_view s_UserSourceNamedLikeDefault = R&quot;(
+<a href="#l169" class="line" id="l169">    169</a> Sources:
+<a href="#l170" class="line" id="l170">    170</a>   - Name: winget
+<a href="#l171" class="line" id="l171">    171</a>     Type: testType
+<a href="#l172" class="line" id="l172">    172</a>     Arg: testArg
+<a href="#l173" class="line" id="l173">    173</a>     Data: testData
+<a href="#l174" class="line" id="l174">    174</a>     IsTombstone: false
+<a href="#l175" class="line" id="l175">    175</a> )&quot;sv;
+<a href="#l176" class="line" id="l176">    176</a> 
+<a href="#l177" class="line" id="l177">    177</a> constexpr std::string_view s_SingleSource_TrustLevels_Explicit= R&quot;(
+<a href="#l178" class="line" id="l178">    178</a> Sources:
+<a href="#l179" class="line" id="l179">    179</a>   - Name: testName
+<a href="#l180" class="line" id="l180">    180</a>     Type: testType
+<a href="#l181" class="line" id="l181">    181</a>     Arg: testArg
+<a href="#l182" class="line" id="l182">    182</a>     Data: testData
+<a href="#l183" class="line" id="l183">    183</a>     IsTombstone: false
+<a href="#l184" class="line" id="l184">    184</a>     TrustLevel: 3
+<a href="#l185" class="line" id="l185">    185</a>     Explicit: true
+<a href="#l186" class="line" id="l186">    186</a> )&quot;sv;
+<a href="#l187" class="line" id="l187">    187</a> 
+<a href="#l188" class="line" id="l188">    188</a> namespace
+<a href="#l189" class="line" id="l189">    189</a> {
+<a href="#l190" class="line" id="l190">    190</a>     // Helper to create a simple source.
+<a href="#l191" class="line" id="l191">    191</a>     struct SourcesTestSource : public TestSource
+<a href="#l192" class="line" id="l192">    192</a>     {
+<a href="#l193" class="line" id="l193">    193</a>         SourcesTestSource() = default;
+<a href="#l194" class="line" id="l194">    194</a>         SourcesTestSource(const SourceDetails&amp; details)
+<a href="#l195" class="line" id="l195">    195</a>         {
+<a href="#l196" class="line" id="l196">    196</a>             Details = details;
+<a href="#l197" class="line" id="l197">    197</a>         }
+<a href="#l198" class="line" id="l198">    198</a> 
+<a href="#l199" class="line" id="l199">    199</a>         static std::shared_ptr&lt;ISource&gt; Create(const SourceDetails&amp; details)
+<a href="#l200" class="line" id="l200">    200</a>         {
+<a href="#l201" class="line" id="l201">    201</a>             // using return std::make_shared&lt;TestSource&gt;(details); will crash the x86 test during destruction.
+<a href="#l202" class="line" id="l202">    202</a>             return std::shared_ptr&lt;ISource&gt;(new SourcesTestSource(details));
+<a href="#l203" class="line" id="l203">    203</a>         }
+<a href="#l204" class="line" id="l204">    204</a> 
+<a href="#l205" class="line" id="l205">    205</a>         SearchResult Search(const SearchRequest&amp;) const override
+<a href="#l206" class="line" id="l206">    206</a>         {
+<a href="#l207" class="line" id="l207">    207</a>             SearchResult result;
+<a href="#l208" class="line" id="l208">    208</a>             PackageMatchFilter testMatchFilter1{ PackageMatchField::Id, MatchType::Exact, &quot;test&quot; };
+<a href="#l209" class="line" id="l209">    209</a>             PackageMatchFilter testMatchFilter2{ PackageMatchField::Name, MatchType::Exact, &quot;test&quot; };
+<a href="#l210" class="line" id="l210">    210</a>             PackageMatchFilter testMatchFilter3{ PackageMatchField::Id, MatchType::CaseInsensitive, &quot;test&quot; };
+<a href="#l211" class="line" id="l211">    211</a>             result.Matches.emplace_back(nullptr, testMatchFilter1);
+<a href="#l212" class="line" id="l212">    212</a>             result.Matches.emplace_back(nullptr, testMatchFilter2);
+<a href="#l213" class="line" id="l213">    213</a>             result.Matches.emplace_back(nullptr, testMatchFilter3);
+<a href="#l214" class="line" id="l214">    214</a>             return result;
+<a href="#l215" class="line" id="l215">    215</a>         }
+<a href="#l216" class="line" id="l216">    216</a>     };
+<a href="#l217" class="line" id="l217">    217</a> 
+<a href="#l218" class="line" id="l218">    218</a>     // Failing source for use with s_TwoSource_AggregateSourceTest
+<a href="#l219" class="line" id="l219">    219</a>     struct FailingSourcesTestSource : public TestSource
+<a href="#l220" class="line" id="l220">    220</a>     {
+<a href="#l221" class="line" id="l221">    221</a>         static constexpr HRESULT FailingHR = 0xBADDAD0D;
+<a href="#l222" class="line" id="l222">    222</a> 
+<a href="#l223" class="line" id="l223">    223</a>         FailingSourcesTestSource() = default;
+<a href="#l224" class="line" id="l224">    224</a>         FailingSourcesTestSource(const SourceDetails&amp; details)
+<a href="#l225" class="line" id="l225">    225</a>         {
+<a href="#l226" class="line" id="l226">    226</a>             Details = details;
+<a href="#l227" class="line" id="l227">    227</a>         }
+<a href="#l228" class="line" id="l228">    228</a> 
+<a href="#l229" class="line" id="l229">    229</a>         static std::shared_ptr&lt;ISource&gt; CreateFailWinget(const SourceDetails&amp; details)
+<a href="#l230" class="line" id="l230">    230</a>         {
+<a href="#l231" class="line" id="l231">    231</a>             if (details.Name == &quot;winget&quot;)
+<a href="#l232" class="line" id="l232">    232</a>             {
+<a href="#l233" class="line" id="l233">    233</a>                 THROW_HR(FailingHR);
+<a href="#l234" class="line" id="l234">    234</a>             }
+<a href="#l235" class="line" id="l235">    235</a> 
+<a href="#l236" class="line" id="l236">    236</a>             return std::shared_ptr&lt;ISource&gt;(new FailingSourcesTestSource(details));
+<a href="#l237" class="line" id="l237">    237</a>         }
+<a href="#l238" class="line" id="l238">    238</a> 
+<a href="#l239" class="line" id="l239">    239</a>         static std::shared_ptr&lt;ISource&gt; CreateFailAll(const SourceDetails&amp;)
+<a href="#l240" class="line" id="l240">    240</a>         {
+<a href="#l241" class="line" id="l241">    241</a>             THROW_HR(FailingHR);
+<a href="#l242" class="line" id="l242">    242</a>         }
+<a href="#l243" class="line" id="l243">    243</a>     };
+<a href="#l244" class="line" id="l244">    244</a> 
+<a href="#l245" class="line" id="l245">    245</a>     void RequireDefaultSourcesAt(const std::vector&lt;SourceDetails&gt;&amp; sources, size_t index)
+<a href="#l246" class="line" id="l246">    246</a>     {
+<a href="#l247" class="line" id="l247">    247</a>         REQUIRE(sources.size() &gt;= index + c_DefaultSourceCount);
+<a href="#l248" class="line" id="l248">    248</a> 
+<a href="#l249" class="line" id="l249">    249</a>         for (size_t i = index; i &lt; sources.size(); ++i)
+<a href="#l250" class="line" id="l250">    250</a>         {
+<a href="#l251" class="line" id="l251">    251</a>             INFO(i);
+<a href="#l252" class="line" id="l252">    252</a>             REQUIRE(sources[i].Origin == SourceOrigin::Default);
+<a href="#l253" class="line" id="l253">    253</a>         }
+<a href="#l254" class="line" id="l254">    254</a>     }
+<a href="#l255" class="line" id="l255">    255</a> }
+<a href="#l256" class="line" id="l256">    256</a> 
+<a href="#l257" class="line" id="l257">    257</a> 
+<a href="#l258" class="line" id="l258">    258</a> TEST_CASE(&quot;RepoSources_UserSettingDoesNotExist&quot;, &quot;[sources]&quot;)
+<a href="#l259" class="line" id="l259">    259</a> {
+<a href="#l260" class="line" id="l260">    260</a>     RemoveSetting(Stream::UserSources);
+<a href="#l261" class="line" id="l261">    261</a> 
+<a href="#l262" class="line" id="l262">    262</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l263" class="line" id="l263">    263</a>     REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l264" class="line" id="l264">    264</a>     RequireDefaultSourcesAt(sources, 0);
+<a href="#l265" class="line" id="l265">    265</a> }
+<a href="#l266" class="line" id="l266">    266</a> 
+<a href="#l267" class="line" id="l267">    267</a> TEST_CASE(&quot;RepoSources_EmptySourcesList&quot;, &quot;[sources]&quot;)
+<a href="#l268" class="line" id="l268">    268</a> {
+<a href="#l269" class="line" id="l269">    269</a>     SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l270" class="line" id="l270">    270</a> 
+<a href="#l271" class="line" id="l271">    271</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l272" class="line" id="l272">    272</a>     REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l273" class="line" id="l273">    273</a>     RequireDefaultSourcesAt(sources, 0);
+<a href="#l274" class="line" id="l274">    274</a> }
+<a href="#l275" class="line" id="l275">    275</a> 
+<a href="#l276" class="line" id="l276">    276</a> TEST_CASE(&quot;RepoSources_DefaultSourcesTombstoned&quot;, &quot;[sources]&quot;)
+<a href="#l277" class="line" id="l277">    277</a> {
+<a href="#l278" class="line" id="l278">    278</a>     SetSetting(Stream::UserSources, s_DefaultSourcesTombstoned);
+<a href="#l279" class="line" id="l279">    279</a> 
+<a href="#l280" class="line" id="l280">    280</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l281" class="line" id="l281">    281</a>     REQUIRE(sources.empty());
+<a href="#l282" class="line" id="l282">    282</a> }
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a> TEST_CASE(&quot;RepoSources_SingleSource&quot;, &quot;[sources]&quot;)
+<a href="#l285" class="line" id="l285">    285</a> {
+<a href="#l286" class="line" id="l286">    286</a>     SetSetting(Stream::UserSources, s_SingleSource);
+<a href="#l287" class="line" id="l287">    287</a>     RemoveSetting(Stream::SourcesMetadata);
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l290" class="line" id="l290">    290</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l291" class="line" id="l291">    291</a> 
+<a href="#l292" class="line" id="l292">    292</a>     REQUIRE(sources[0].Name == &quot;testName&quot;);
+<a href="#l293" class="line" id="l293">    293</a>     REQUIRE(sources[0].Type == &quot;testType&quot;);
+<a href="#l294" class="line" id="l294">    294</a>     REQUIRE(sources[0].Arg == &quot;testArg&quot;);
+<a href="#l295" class="line" id="l295">    295</a>     REQUIRE(sources[0].Data == &quot;testData&quot;);
+<a href="#l296" class="line" id="l296">    296</a>     REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l297" class="line" id="l297">    297</a>     REQUIRE(sources[0].LastUpdateTime == ConvertUnixEpochToSystemClock(0));
+<a href="#l298" class="line" id="l298">    298</a> 
+<a href="#l299" class="line" id="l299">    299</a>     RequireDefaultSourcesAt(sources, 1);
+<a href="#l300" class="line" id="l300">    300</a> }
+<a href="#l301" class="line" id="l301">    301</a> 
+<a href="#l302" class="line" id="l302">    302</a> TEST_CASE(&quot;RepoSources_SingleSource_TrustLevel_Explicit&quot;, &quot;[sources]&quot;)
+<a href="#l303" class="line" id="l303">    303</a> {
+<a href="#l304" class="line" id="l304">    304</a>     SetSetting(Stream::UserSources, s_SingleSource_TrustLevels_Explicit);
+<a href="#l305" class="line" id="l305">    305</a>     RemoveSetting(Stream::SourcesMetadata);
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l308" class="line" id="l308">    308</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l309" class="line" id="l309">    309</a> 
+<a href="#l310" class="line" id="l310">    310</a>     REQUIRE(sources[0].Name == &quot;testName&quot;);
+<a href="#l311" class="line" id="l311">    311</a>     REQUIRE(sources[0].Type == &quot;testType&quot;);
+<a href="#l312" class="line" id="l312">    312</a>     REQUIRE(sources[0].Arg == &quot;testArg&quot;);
+<a href="#l313" class="line" id="l313">    313</a>     REQUIRE(sources[0].Data == &quot;testData&quot;);
+<a href="#l314" class="line" id="l314">    314</a>     REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l315" class="line" id="l315">    315</a>     REQUIRE(sources[0].Explicit == true);
+<a href="#l316" class="line" id="l316">    316</a>     REQUIRE(WI_IsFlagSet(sources[0].TrustLevel, SourceTrustLevel::Trusted));
+<a href="#l317" class="line" id="l317">    317</a>     REQUIRE(WI_IsFlagSet(sources[0].TrustLevel, SourceTrustLevel::StoreOrigin));
+<a href="#l318" class="line" id="l318">    318</a>     REQUIRE(sources[0].LastUpdateTime == ConvertUnixEpochToSystemClock(0));
+<a href="#l319" class="line" id="l319">    319</a> 
+<a href="#l320" class="line" id="l320">    320</a>     RequireDefaultSourcesAt(sources, 1);
+<a href="#l321" class="line" id="l321">    321</a> }
+<a href="#l322" class="line" id="l322">    322</a> 
+<a href="#l323" class="line" id="l323">    323</a> TEST_CASE(&quot;RepoSources_ThreeSources&quot;, &quot;[sources]&quot;)
+<a href="#l324" class="line" id="l324">    324</a> {
+<a href="#l325" class="line" id="l325">    325</a>     SetSetting(Stream::UserSources, s_ThreeSources);
+<a href="#l326" class="line" id="l326">    326</a>     SetSetting(Stream::SourcesMetadata, s_ThreeSourcesMetadata);
+<a href="#l327" class="line" id="l327">    327</a> 
+<a href="#l328" class="line" id="l328">    328</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l329" class="line" id="l329">    329</a>     REQUIRE(sources.size() == 3);
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>     const char* suffix[3] = { &quot;&quot;, &quot;2&quot;, &quot;3&quot; };
+<a href="#l332" class="line" id="l332">    332</a> 
+<a href="#l333" class="line" id="l333">    333</a>     for (size_t i = 0; i &lt; 3; ++i)
+<a href="#l334" class="line" id="l334">    334</a>     {
+<a href="#l335" class="line" id="l335">    335</a>         INFO(&quot;Source #&quot; &lt;&lt; i);
+<a href="#l336" class="line" id="l336">    336</a>         REQUIRE(sources[i].Name == &quot;testName&quot;s + suffix[i]);
+<a href="#l337" class="line" id="l337">    337</a>         REQUIRE(sources[i].Type == &quot;testType&quot;s + suffix[i]);
+<a href="#l338" class="line" id="l338">    338</a>         REQUIRE(sources[i].Arg == &quot;testArg&quot;s + suffix[i]);
+<a href="#l339" class="line" id="l339">    339</a>         REQUIRE(sources[i].Data == &quot;testData&quot;s + suffix[i]);
+<a href="#l340" class="line" id="l340">    340</a>         REQUIRE(sources[i].LastUpdateTime == ConvertUnixEpochToSystemClock(i));
+<a href="#l341" class="line" id="l341">    341</a>         REQUIRE(sources[i].Origin == SourceOrigin::User);
+<a href="#l342" class="line" id="l342">    342</a>     }
+<a href="#l343" class="line" id="l343">    343</a> }
+<a href="#l344" class="line" id="l344">    344</a> 
+<a href="#l345" class="line" id="l345">    345</a> TEST_CASE(&quot;RepoSources_InvalidYAML&quot;, &quot;[sources]&quot;)
+<a href="#l346" class="line" id="l346">    346</a> {
+<a href="#l347" class="line" id="l347">    347</a>     SetSetting(Stream::UserSources, &quot;Name: Value : BAD&quot;);
+<a href="#l348" class="line" id="l348">    348</a> 
+<a href="#l349" class="line" id="l349">    349</a>     REQUIRE_NOTHROW(GetSources());
+<a href="#l350" class="line" id="l350">    350</a> }
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a> TEST_CASE(&quot;RepoSources_MissingField&quot;, &quot;[sources]&quot;)
+<a href="#l353" class="line" id="l353">    353</a> {
+<a href="#l354" class="line" id="l354">    354</a>     SetSetting(Stream::UserSources, s_SingleSource_MissingArg);
+<a href="#l355" class="line" id="l355">    355</a> 
+<a href="#l356" class="line" id="l356">    356</a>     REQUIRE_NOTHROW(GetSources());
+<a href="#l357" class="line" id="l357">    357</a> }
+<a href="#l358" class="line" id="l358">    358</a> 
+<a href="#l359" class="line" id="l359">    359</a> TEST_CASE(&quot;RepoSources_AddSource&quot;, &quot;[sources]&quot;)
+<a href="#l360" class="line" id="l360">    360</a> {
+<a href="#l361" class="line" id="l361">    361</a>     SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l362" class="line" id="l362">    362</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l363" class="line" id="l363">    363</a> 
+<a href="#l364" class="line" id="l364">    364</a>     SourceDetails details;
+<a href="#l365" class="line" id="l365">    365</a>     details.Name = &quot;thisIsTheName&quot;;
+<a href="#l366" class="line" id="l366">    366</a>     details.Type = &quot;thisIsTheType&quot;;
+<a href="#l367" class="line" id="l367">    367</a>     details.Arg = &quot;thisIsTheArg&quot;;
+<a href="#l368" class="line" id="l368">    368</a>     details.Data = &quot;thisIsTheData&quot;;
+<a href="#l369" class="line" id="l369">    369</a>     details.TrustLevel = Repository::SourceTrustLevel::None;
+<a href="#l370" class="line" id="l370">    370</a>     details.Explicit = false;
+<a href="#l371" class="line" id="l371">    371</a> 
+<a href="#l372" class="line" id="l372">    372</a>     bool addCalledOnFactory = false;
+<a href="#l373" class="line" id="l373">    373</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l374" class="line" id="l374">    374</a>     factory.OnAdd = [&amp;](SourceDetails&amp; sd) { addCalledOnFactory = true; sd.Data = details.Data; };
+<a href="#l375" class="line" id="l375">    375</a>     TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l376" class="line" id="l376">    376</a> 
+<a href="#l377" class="line" id="l377">    377</a>     ProgressCallback progress;
+<a href="#l378" class="line" id="l378">    378</a>     AddSource(details, progress);
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>     REQUIRE(addCalledOnFactory);
+<a href="#l381" class="line" id="l381">    381</a> 
+<a href="#l382" class="line" id="l382">    382</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l383" class="line" id="l383">    383</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l384" class="line" id="l384">    384</a> 
+<a href="#l385" class="line" id="l385">    385</a>     REQUIRE(sources[0].Name == details.Name);
+<a href="#l386" class="line" id="l386">    386</a>     REQUIRE(sources[0].Type == details.Type);
+<a href="#l387" class="line" id="l387">    387</a>     REQUIRE(sources[0].Arg == details.Arg);
+<a href="#l388" class="line" id="l388">    388</a>     REQUIRE(sources[0].Data == details.Data);
+<a href="#l389" class="line" id="l389">    389</a>     REQUIRE(sources[0].LastUpdateTime != ConvertUnixEpochToSystemClock(0));
+<a href="#l390" class="line" id="l390">    390</a>     REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l391" class="line" id="l391">    391</a>     REQUIRE(sources[0].TrustLevel == details.TrustLevel);
+<a href="#l392" class="line" id="l392">    392</a>     REQUIRE(sources[0].Explicit == details.Explicit);
+<a href="#l393" class="line" id="l393">    393</a> 
+<a href="#l394" class="line" id="l394">    394</a>     RequireDefaultSourcesAt(sources, 1);
+<a href="#l395" class="line" id="l395">    395</a> }
+<a href="#l396" class="line" id="l396">    396</a> 
+<a href="#l397" class="line" id="l397">    397</a> TEST_CASE(&quot;RepoSources_AddMultipleSources&quot;, &quot;[sources]&quot;)
+<a href="#l398" class="line" id="l398">    398</a> {
+<a href="#l399" class="line" id="l399">    399</a>     SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l400" class="line" id="l400">    400</a> 
+<a href="#l401" class="line" id="l401">    401</a>     SourceDetails details;
+<a href="#l402" class="line" id="l402">    402</a>     details.Name = &quot;thisIsTheName&quot;;
+<a href="#l403" class="line" id="l403">    403</a>     details.Type = &quot;thisIsTheType&quot;;
+<a href="#l404" class="line" id="l404">    404</a>     details.Arg = &quot;thisIsTheArg&quot;;
+<a href="#l405" class="line" id="l405">    405</a>     details.Data = &quot;thisIsTheData&quot;;
+<a href="#l406" class="line" id="l406">    406</a> 
+<a href="#l407" class="line" id="l407">    407</a>     const char* suffix[2] = { &quot;&quot;, &quot;2&quot; };
+<a href="#l408" class="line" id="l408">    408</a> 
+<a href="#l409" class="line" id="l409">    409</a>     TestSourceFactory factory1{ SourcesTestSource::Create };
+<a href="#l410" class="line" id="l410">    410</a>     factory1.OnAdd = [&amp;](SourceDetails&amp; sd) { sd.Data = details.Data; };
+<a href="#l411" class="line" id="l411">    411</a>     TestHook_SetSourceFactoryOverride(details.Type, factory1);
+<a href="#l412" class="line" id="l412">    412</a> 
+<a href="#l413" class="line" id="l413">    413</a>     ProgressCallback progress;
+<a href="#l414" class="line" id="l414">    414</a>     AddSource(details, progress);
+<a href="#l415" class="line" id="l415">    415</a> 
+<a href="#l416" class="line" id="l416">    416</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l417" class="line" id="l417">    417</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l418" class="line" id="l418">    418</a> 
+<a href="#l419" class="line" id="l419">    419</a>     REQUIRE(sources[0].Name == details.Name);
+<a href="#l420" class="line" id="l420">    420</a>     REQUIRE(sources[0].Type == details.Type);
+<a href="#l421" class="line" id="l421">    421</a>     REQUIRE(sources[0].Arg == details.Arg);
+<a href="#l422" class="line" id="l422">    422</a>     REQUIRE(sources[0].Data == details.Data);
+<a href="#l423" class="line" id="l423">    423</a>     REQUIRE(sources[0].LastUpdateTime != ConvertUnixEpochToSystemClock(0));
+<a href="#l424" class="line" id="l424">    424</a>     REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l425" class="line" id="l425">    425</a> 
+<a href="#l426" class="line" id="l426">    426</a>     RequireDefaultSourcesAt(sources, 1);
+<a href="#l427" class="line" id="l427">    427</a> 
+<a href="#l428" class="line" id="l428">    428</a>     SourceDetails details2;
+<a href="#l429" class="line" id="l429">    429</a>     details2.Name = details.Name + suffix[1];
+<a href="#l430" class="line" id="l430">    430</a>     details2.Type = details.Type + suffix[1];
+<a href="#l431" class="line" id="l431">    431</a>     details2.Arg = details.Arg + suffix[1];
+<a href="#l432" class="line" id="l432">    432</a>     details2.Data = details.Data + suffix[1];
+<a href="#l433" class="line" id="l433">    433</a>     TestSourceFactory factory2{ SourcesTestSource::Create };
+<a href="#l434" class="line" id="l434">    434</a>     factory2.OnAdd = [&amp;](SourceDetails&amp; sd) { sd.Data = details2.Data; };
+<a href="#l435" class="line" id="l435">    435</a>     TestHook_SetSourceFactoryOverride(details2.Type, factory2);
+<a href="#l436" class="line" id="l436">    436</a> 
+<a href="#l437" class="line" id="l437">    437</a>     AddSource(details2, progress);
+<a href="#l438" class="line" id="l438">    438</a> 
+<a href="#l439" class="line" id="l439">    439</a>     sources = GetSources();
+<a href="#l440" class="line" id="l440">    440</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 2);
+<a href="#l441" class="line" id="l441">    441</a> 
+<a href="#l442" class="line" id="l442">    442</a>     for (size_t i = 0; i &lt; 2; ++i)
+<a href="#l443" class="line" id="l443">    443</a>     {
+<a href="#l444" class="line" id="l444">    444</a>         INFO(&quot;Source #&quot; &lt;&lt; i);
+<a href="#l445" class="line" id="l445">    445</a>         REQUIRE(sources[i].Name == details.Name + suffix[i]);
+<a href="#l446" class="line" id="l446">    446</a>         REQUIRE(sources[i].Type == details.Type + suffix[i]);
+<a href="#l447" class="line" id="l447">    447</a>         REQUIRE(sources[i].Arg == details.Arg + suffix[i]);
+<a href="#l448" class="line" id="l448">    448</a>         REQUIRE(sources[i].Data == details.Data + suffix[i]);
+<a href="#l449" class="line" id="l449">    449</a>         REQUIRE(sources[i].LastUpdateTime != ConvertUnixEpochToSystemClock(0));
+<a href="#l450" class="line" id="l450">    450</a>         REQUIRE(sources[i].Origin == SourceOrigin::User);
+<a href="#l451" class="line" id="l451">    451</a>     }
+<a href="#l452" class="line" id="l452">    452</a> 
+<a href="#l453" class="line" id="l453">    453</a>     RequireDefaultSourcesAt(sources, 2);
+<a href="#l454" class="line" id="l454">    454</a> }
+<a href="#l455" class="line" id="l455">    455</a> 
+<a href="#l456" class="line" id="l456">    456</a> TEST_CASE(&quot;RepoSources_UpdateSource&quot;, &quot;[sources]&quot;)
+<a href="#l457" class="line" id="l457">    457</a> {
+<a href="#l458" class="line" id="l458">    458</a>     using namespace std::chrono_literals;
+<a href="#l459" class="line" id="l459">    459</a> 
+<a href="#l460" class="line" id="l460">    460</a>     SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l461" class="line" id="l461">    461</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l462" class="line" id="l462">    462</a> 
+<a href="#l463" class="line" id="l463">    463</a>     SourceDetails details;
+<a href="#l464" class="line" id="l464">    464</a>     details.Name = &quot;thisIsTheName&quot;;
+<a href="#l465" class="line" id="l465">    465</a>     details.Type = &quot;thisIsTheType&quot;;
+<a href="#l466" class="line" id="l466">    466</a>     details.Arg = &quot;thisIsTheArg&quot;;
+<a href="#l467" class="line" id="l467">    467</a>     details.Data = &quot;thisIsTheData&quot;;
+<a href="#l468" class="line" id="l468">    468</a> 
+<a href="#l469" class="line" id="l469">    469</a>     bool addCalledOnFactory = false;
+<a href="#l470" class="line" id="l470">    470</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l471" class="line" id="l471">    471</a>     factory.OnAdd = [&amp;](SourceDetails&amp; sd) { addCalledOnFactory = true; sd.Data = details.Data; };
+<a href="#l472" class="line" id="l472">    472</a>     TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l473" class="line" id="l473">    473</a> 
+<a href="#l474" class="line" id="l474">    474</a>     ProgressCallback progress;
+<a href="#l475" class="line" id="l475">    475</a>     AddSource(details, progress);
+<a href="#l476" class="line" id="l476">    476</a> 
+<a href="#l477" class="line" id="l477">    477</a>     REQUIRE(addCalledOnFactory);
+<a href="#l478" class="line" id="l478">    478</a> 
+<a href="#l479" class="line" id="l479">    479</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l480" class="line" id="l480">    480</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l481" class="line" id="l481">    481</a> 
+<a href="#l482" class="line" id="l482">    482</a>     REQUIRE(sources[0].Name == details.Name);
+<a href="#l483" class="line" id="l483">    483</a>     REQUIRE(sources[0].Type == details.Type);
+<a href="#l484" class="line" id="l484">    484</a>     REQUIRE(sources[0].Arg == details.Arg);
+<a href="#l485" class="line" id="l485">    485</a>     REQUIRE(sources[0].Data == details.Data);
+<a href="#l486" class="line" id="l486">    486</a>     REQUIRE(sources[0].LastUpdateTime != ConvertUnixEpochToSystemClock(0));
+<a href="#l487" class="line" id="l487">    487</a>     REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l488" class="line" id="l488">    488</a> 
+<a href="#l489" class="line" id="l489">    489</a>     RequireDefaultSourcesAt(sources, 1);
+<a href="#l490" class="line" id="l490">    490</a> 
+<a href="#l491" class="line" id="l491">    491</a>     // Reset for a call to update
+<a href="#l492" class="line" id="l492">    492</a>     bool updateCalledOnFactory = false;
+<a href="#l493" class="line" id="l493">    493</a>     auto now = std::chrono::system_clock::now();
+<a href="#l494" class="line" id="l494">    494</a>     factory.OnUpdate = [&amp;](const SourceDetails&amp;) { updateCalledOnFactory = true; };
+<a href="#l495" class="line" id="l495">    495</a> 
+<a href="#l496" class="line" id="l496">    496</a>     UpdateSource(details.Name, progress);
+<a href="#l497" class="line" id="l497">    497</a> 
+<a href="#l498" class="line" id="l498">    498</a>     REQUIRE(updateCalledOnFactory);
+<a href="#l499" class="line" id="l499">    499</a> 
+<a href="#l500" class="line" id="l500">    500</a>     sources = GetSources();
+<a href="#l501" class="line" id="l501">    501</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l502" class="line" id="l502">    502</a> 
+<a href="#l503" class="line" id="l503">    503</a>     REQUIRE(sources[0].Name == details.Name);
+<a href="#l504" class="line" id="l504">    504</a>     REQUIRE(sources[0].Type == details.Type);
+<a href="#l505" class="line" id="l505">    505</a>     REQUIRE(sources[0].Arg == details.Arg);
+<a href="#l506" class="line" id="l506">    506</a>     REQUIRE(sources[0].Data == details.Data);
+<a href="#l507" class="line" id="l507">    507</a>     REQUIRE((now - sources[0].LastUpdateTime) &lt; 1s);
+<a href="#l508" class="line" id="l508">    508</a> }
+<a href="#l509" class="line" id="l509">    509</a> 
+<a href="#l510" class="line" id="l510">    510</a> TEST_CASE(&quot;RepoSources_UpdateSourceRetries&quot;, &quot;[sources]&quot;)
+<a href="#l511" class="line" id="l511">    511</a> {
+<a href="#l512" class="line" id="l512">    512</a>     using namespace std::chrono_literals;
+<a href="#l513" class="line" id="l513">    513</a> 
+<a href="#l514" class="line" id="l514">    514</a>     SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l515" class="line" id="l515">    515</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l516" class="line" id="l516">    516</a> 
+<a href="#l517" class="line" id="l517">    517</a>     SourceDetails details;
+<a href="#l518" class="line" id="l518">    518</a>     details.Name = &quot;thisIsTheName&quot;;
+<a href="#l519" class="line" id="l519">    519</a>     details.Type = &quot;thisIsTheType&quot;;
+<a href="#l520" class="line" id="l520">    520</a>     details.Arg = &quot;thisIsTheArg&quot;;
+<a href="#l521" class="line" id="l521">    521</a>     details.Data = &quot;thisIsTheData&quot;;
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l524" class="line" id="l524">    524</a>     factory.OnAdd = [&amp;](SourceDetails&amp; sd) { sd.Data = details.Data; };
+<a href="#l525" class="line" id="l525">    525</a>     TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l526" class="line" id="l526">    526</a> 
+<a href="#l527" class="line" id="l527">    527</a>     ProgressCallback progress;
+<a href="#l528" class="line" id="l528">    528</a>     AddSource(details, progress);
+<a href="#l529" class="line" id="l529">    529</a> 
+<a href="#l530" class="line" id="l530">    530</a>     // Reset for a call to update
+<a href="#l531" class="line" id="l531">    531</a>     bool updateShouldThrow = false;
+<a href="#l532" class="line" id="l532">    532</a>     bool updateCalledOnFactoryAgain = false;
+<a href="#l533" class="line" id="l533">    533</a>     factory.OnUpdate = [&amp;](const SourceDetails&amp;)
+<a href="#l534" class="line" id="l534">    534</a>     {
+<a href="#l535" class="line" id="l535">    535</a>         if (updateShouldThrow)
+<a href="#l536" class="line" id="l536">    536</a>         {
+<a href="#l537" class="line" id="l537">    537</a>             updateShouldThrow = false;
+<a href="#l538" class="line" id="l538">    538</a>             THROW_HR(E_ACCESSDENIED);
+<a href="#l539" class="line" id="l539">    539</a>         }
+<a href="#l540" class="line" id="l540">    540</a>         updateCalledOnFactoryAgain = true;
+<a href="#l541" class="line" id="l541">    541</a>     };
+<a href="#l542" class="line" id="l542">    542</a> 
+<a href="#l543" class="line" id="l543">    543</a>     UpdateSource(details.Name, progress);
+<a href="#l544" class="line" id="l544">    544</a> 
+<a href="#l545" class="line" id="l545">    545</a>     REQUIRE(updateCalledOnFactoryAgain);
+<a href="#l546" class="line" id="l546">    546</a> }
+<a href="#l547" class="line" id="l547">    547</a> 
+<a href="#l548" class="line" id="l548">    548</a> TEST_CASE(&quot;RepoSources_RemoveSource&quot;, &quot;[sources]&quot;)
+<a href="#l549" class="line" id="l549">    549</a> {
+<a href="#l550" class="line" id="l550">    550</a>     SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l551" class="line" id="l551">    551</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l552" class="line" id="l552">    552</a> 
+<a href="#l553" class="line" id="l553">    553</a>     SourceDetails details;
+<a href="#l554" class="line" id="l554">    554</a>     details.Name = &quot;thisIsTheName&quot;;
+<a href="#l555" class="line" id="l555">    555</a>     details.Type = &quot;thisIsTheType&quot;;
+<a href="#l556" class="line" id="l556">    556</a>     details.Arg = &quot;thisIsTheArg&quot;;
+<a href="#l557" class="line" id="l557">    557</a>     details.Data = &quot;thisIsTheData&quot;;
+<a href="#l558" class="line" id="l558">    558</a> 
+<a href="#l559" class="line" id="l559">    559</a>     bool removeCalledOnFactory = false;
+<a href="#l560" class="line" id="l560">    560</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l561" class="line" id="l561">    561</a>     factory.OnRemove = [&amp;](const SourceDetails&amp;) { removeCalledOnFactory = true; };
+<a href="#l562" class="line" id="l562">    562</a>     TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l563" class="line" id="l563">    563</a> 
+<a href="#l564" class="line" id="l564">    564</a>     ProgressCallback progress;
+<a href="#l565" class="line" id="l565">    565</a>     AddSource(details, progress);
+<a href="#l566" class="line" id="l566">    566</a> 
+<a href="#l567" class="line" id="l567">    567</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l568" class="line" id="l568">    568</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l569" class="line" id="l569">    569</a> 
+<a href="#l570" class="line" id="l570">    570</a>     RemoveSource(details.Name, progress);
+<a href="#l571" class="line" id="l571">    571</a> 
+<a href="#l572" class="line" id="l572">    572</a>     REQUIRE(removeCalledOnFactory);
+<a href="#l573" class="line" id="l573">    573</a> 
+<a href="#l574" class="line" id="l574">    574</a>     sources = GetSources();
+<a href="#l575" class="line" id="l575">    575</a>     REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l576" class="line" id="l576">    576</a> }
+<a href="#l577" class="line" id="l577">    577</a> 
+<a href="#l578" class="line" id="l578">    578</a> TEST_CASE(&quot;RepoSources_RemoveDefaultSource&quot;, &quot;[sources]&quot;)
+<a href="#l579" class="line" id="l579">    579</a> {
+<a href="#l580" class="line" id="l580">    580</a>     SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l581" class="line" id="l581">    581</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l582" class="line" id="l582">    582</a> 
+<a href="#l583" class="line" id="l583">    583</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l584" class="line" id="l584">    584</a>     REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l585" class="line" id="l585">    585</a>     REQUIRE(sources[0].Origin == SourceOrigin::Default);
+<a href="#l586" class="line" id="l586">    586</a> 
+<a href="#l587" class="line" id="l587">    587</a>     bool removeCalledOnFactory = false;
+<a href="#l588" class="line" id="l588">    588</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l589" class="line" id="l589">    589</a>     factory.OnRemove = [&amp;](const SourceDetails&amp;) { removeCalledOnFactory = true; };
+<a href="#l590" class="line" id="l590">    590</a>     TestHook_SetSourceFactoryOverride(sources[0].Type, factory);
+<a href="#l591" class="line" id="l591">    591</a> 
+<a href="#l592" class="line" id="l592">    592</a>     ProgressCallback progress;
+<a href="#l593" class="line" id="l593">    593</a> 
+<a href="#l594" class="line" id="l594">    594</a>     RemoveSource(sources[0].Name, progress);
+<a href="#l595" class="line" id="l595">    595</a> 
+<a href="#l596" class="line" id="l596">    596</a>     REQUIRE(removeCalledOnFactory);
+<a href="#l597" class="line" id="l597">    597</a> 
+<a href="#l598" class="line" id="l598">    598</a>     sources = GetSources();
+<a href="#l599" class="line" id="l599">    599</a>     REQUIRE(sources.size() == c_DefaultSourceCount - 1);
+<a href="#l600" class="line" id="l600">    600</a> }
+<a href="#l601" class="line" id="l601">    601</a> 
+<a href="#l602" class="line" id="l602">    602</a> TEST_CASE(&quot;RepoSources_UpdateOnOpen&quot;, &quot;[sources]&quot;)
+<a href="#l603" class="line" id="l603">    603</a> {
+<a href="#l604" class="line" id="l604">    604</a>     using namespace std::chrono_literals;
+<a href="#l605" class="line" id="l605">    605</a> 
+<a href="#l606" class="line" id="l606">    606</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l607" class="line" id="l607">    607</a> 
+<a href="#l608" class="line" id="l608">    608</a>     std::string name = &quot;testName&quot;;
+<a href="#l609" class="line" id="l609">    609</a>     std::string type = &quot;testType&quot;;
+<a href="#l610" class="line" id="l610">    610</a>     std::string arg = &quot;testArg&quot;;
+<a href="#l611" class="line" id="l611">    611</a>     std::string data = &quot;testData&quot;;
+<a href="#l612" class="line" id="l612">    612</a> 
+<a href="#l613" class="line" id="l613">    613</a>     bool updateCalledOnFactory = false;
+<a href="#l614" class="line" id="l614">    614</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l615" class="line" id="l615">    615</a>     factory.OnUpdate = [&amp;](const SourceDetails&amp;) { updateCalledOnFactory = true; };
+<a href="#l616" class="line" id="l616">    616</a>     factory.ShouldUpdateBeforeOpenResult = true;
+<a href="#l617" class="line" id="l617">    617</a>     TestHook_SetSourceFactoryOverride(type, factory);
+<a href="#l618" class="line" id="l618">    618</a> 
+<a href="#l619" class="line" id="l619">    619</a>     SetSetting(Stream::UserSources, s_SingleSource);
+<a href="#l620" class="line" id="l620">    620</a> 
+<a href="#l621" class="line" id="l621">    621</a>     ProgressCallback progress;
+<a href="#l622" class="line" id="l622">    622</a>     auto source = OpenSource(name, progress);
+<a href="#l623" class="line" id="l623">    623</a> 
+<a href="#l624" class="line" id="l624">    624</a>     REQUIRE(updateCalledOnFactory);
+<a href="#l625" class="line" id="l625">    625</a> 
+<a href="#l626" class="line" id="l626">    626</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l627" class="line" id="l627">    627</a>     REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l628" class="line" id="l628">    628</a> 
+<a href="#l629" class="line" id="l629">    629</a>     REQUIRE(sources[0].Name == name);
+<a href="#l630" class="line" id="l630">    630</a>     REQUIRE(sources[0].Type == type);
+<a href="#l631" class="line" id="l631">    631</a>     REQUIRE(sources[0].Arg == arg);
+<a href="#l632" class="line" id="l632">    632</a>     REQUIRE(sources[0].Data == data);
+<a href="#l633" class="line" id="l633">    633</a>     REQUIRE(sources[0].LastUpdateTime != ConvertUnixEpochToSystemClock(0));
+<a href="#l634" class="line" id="l634">    634</a> }
+<a href="#l635" class="line" id="l635">    635</a> 
+<a href="#l636" class="line" id="l636">    636</a> TEST_CASE(&quot;RepoSources_DropSourceByName&quot;, &quot;[sources]&quot;)
+<a href="#l637" class="line" id="l637">    637</a> {
+<a href="#l638" class="line" id="l638">    638</a>     SetSetting(Stream::UserSources, s_ThreeSources);
+<a href="#l639" class="line" id="l639">    639</a>     SetSetting(Stream::SourcesMetadata, s_ThreeSourcesMetadata);
+<a href="#l640" class="line" id="l640">    640</a> 
+<a href="#l641" class="line" id="l641">    641</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l642" class="line" id="l642">    642</a>     REQUIRE(sources.size() == 3);
+<a href="#l643" class="line" id="l643">    643</a> 
+<a href="#l644" class="line" id="l644">    644</a>     DropSource(&quot;testName&quot;);
+<a href="#l645" class="line" id="l645">    645</a> 
+<a href="#l646" class="line" id="l646">    646</a>     sources = GetSources();
+<a href="#l647" class="line" id="l647">    647</a>     REQUIRE(sources.size() == 2);
+<a href="#l648" class="line" id="l648">    648</a> 
+<a href="#l649" class="line" id="l649">    649</a>     const char* suffix[2] = { &quot;2&quot;, &quot;3&quot; };
+<a href="#l650" class="line" id="l650">    650</a> 
+<a href="#l651" class="line" id="l651">    651</a>     for (size_t i = 0; i &lt; 2; ++i)
+<a href="#l652" class="line" id="l652">    652</a>     {
+<a href="#l653" class="line" id="l653">    653</a>         INFO(&quot;Source #&quot; &lt;&lt; i);
+<a href="#l654" class="line" id="l654">    654</a>         REQUIRE(sources[i].Name == &quot;testName&quot;s + suffix[i]);
+<a href="#l655" class="line" id="l655">    655</a>         REQUIRE(sources[i].Type == &quot;testType&quot;s + suffix[i]);
+<a href="#l656" class="line" id="l656">    656</a>         REQUIRE(sources[i].Arg == &quot;testArg&quot;s + suffix[i]);
+<a href="#l657" class="line" id="l657">    657</a>         REQUIRE(sources[i].Data == &quot;testData&quot;s + suffix[i]);
+<a href="#l658" class="line" id="l658">    658</a>         REQUIRE(sources[i].LastUpdateTime == ConvertUnixEpochToSystemClock(i + 1));
+<a href="#l659" class="line" id="l659">    659</a>         REQUIRE(sources[i].Origin == SourceOrigin::User);
+<a href="#l660" class="line" id="l660">    660</a>     }
+<a href="#l661" class="line" id="l661">    661</a> }
+<a href="#l662" class="line" id="l662">    662</a> 
+<a href="#l663" class="line" id="l663">    663</a> TEST_CASE(&quot;RepoSources_DropAllSources&quot;, &quot;[sources]&quot;)
+<a href="#l664" class="line" id="l664">    664</a> {
+<a href="#l665" class="line" id="l665">    665</a>     SetSetting(Stream::UserSources, s_ThreeSources);
+<a href="#l666" class="line" id="l666">    666</a> 
+<a href="#l667" class="line" id="l667">    667</a>     std::vector&lt;SourceDetails&gt; sources = GetSources();
+<a href="#l668" class="line" id="l668">    668</a>     REQUIRE(sources.size() == 3);
+<a href="#l669" class="line" id="l669">    669</a> 
+<a href="#l670" class="line" id="l670">    670</a>     DropSource({});
+<a href="#l671" class="line" id="l671">    671</a> 
+<a href="#l672" class="line" id="l672">    672</a>     sources = GetSources();
+<a href="#l673" class="line" id="l673">    673</a>     REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l674" class="line" id="l674">    674</a>     REQUIRE(sources[0].Origin == SourceOrigin::Default);
+<a href="#l675" class="line" id="l675">    675</a> }
+<a href="#l676" class="line" id="l676">    676</a> 
+<a href="#l677" class="line" id="l677">    677</a> TEST_CASE(&quot;RepoSources_SearchAcrossMultipleSources&quot;, &quot;[sources]&quot;)
+<a href="#l678" class="line" id="l678">    678</a> {
+<a href="#l679" class="line" id="l679">    679</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l680" class="line" id="l680">    680</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l681" class="line" id="l681">    681</a>     TestHook_SetSourceFactoryOverride(&quot;testType&quot;, factory);
+<a href="#l682" class="line" id="l682">    682</a> 
+<a href="#l683" class="line" id="l683">    683</a>     SetSetting(Stream::UserSources, s_TwoSource_AggregateSourceTest);
+<a href="#l684" class="line" id="l684">    684</a> 
+<a href="#l685" class="line" id="l685">    685</a>     ProgressCallback progress;
+<a href="#l686" class="line" id="l686">    686</a>     auto source = OpenSource(&quot;&quot;, progress);
+<a href="#l687" class="line" id="l687">    687</a> 
+<a href="#l688" class="line" id="l688">    688</a>     SearchRequest request;
+<a href="#l689" class="line" id="l689">    689</a>     auto result = source.Search(request);
+<a href="#l690" class="line" id="l690">    690</a>     REQUIRE(result.Matches.size() == 6);
+<a href="#l691" class="line" id="l691">    691</a>     REQUIRE_FALSE(result.Truncated);
+<a href="#l692" class="line" id="l692">    692</a>     // matches are sorted in expected order
+<a href="#l693" class="line" id="l693">    693</a>     REQUIRE((result.Matches[0].MatchCriteria.Type == MatchType::Exact &amp;&amp; result.Matches[0].MatchCriteria.Field == PackageMatchField::Id));
+<a href="#l694" class="line" id="l694">    694</a>     REQUIRE((result.Matches[1].MatchCriteria.Type == MatchType::Exact &amp;&amp; result.Matches[1].MatchCriteria.Field == PackageMatchField::Id));
+<a href="#l695" class="line" id="l695">    695</a>     REQUIRE((result.Matches[2].MatchCriteria.Type == MatchType::Exact &amp;&amp; result.Matches[2].MatchCriteria.Field == PackageMatchField::Name));
+<a href="#l696" class="line" id="l696">    696</a>     REQUIRE((result.Matches[3].MatchCriteria.Type == MatchType::Exact &amp;&amp; result.Matches[3].MatchCriteria.Field == PackageMatchField::Name));
+<a href="#l697" class="line" id="l697">    697</a>     REQUIRE((result.Matches[4].MatchCriteria.Type == MatchType::CaseInsensitive &amp;&amp; result.Matches[4].MatchCriteria.Field == PackageMatchField::Id));
+<a href="#l698" class="line" id="l698">    698</a>     REQUIRE((result.Matches[5].MatchCriteria.Type == MatchType::CaseInsensitive &amp;&amp; result.Matches[5].MatchCriteria.Field == PackageMatchField::Id));
+<a href="#l699" class="line" id="l699">    699</a> 
+<a href="#l700" class="line" id="l700">    700</a>     // when truncate required
+<a href="#l701" class="line" id="l701">    701</a>     request.MaximumResults = 3;
+<a href="#l702" class="line" id="l702">    702</a>     result = source.Search(request);
+<a href="#l703" class="line" id="l703">    703</a>     REQUIRE(result.Matches.size() == 3);
+<a href="#l704" class="line" id="l704">    704</a>     REQUIRE(result.Truncated);
+<a href="#l705" class="line" id="l705">    705</a>     // matches are sorted in expected order
+<a href="#l706" class="line" id="l706">    706</a>     REQUIRE((result.Matches[0].MatchCriteria.Type == MatchType::Exact &amp;&amp; result.Matches[0].MatchCriteria.Field == PackageMatchField::Id));
+<a href="#l707" class="line" id="l707">    707</a>     REQUIRE((result.Matches[1].MatchCriteria.Type == MatchType::Exact &amp;&amp; result.Matches[1].MatchCriteria.Field == PackageMatchField::Id));
+<a href="#l708" class="line" id="l708">    708</a>     REQUIRE((result.Matches[2].MatchCriteria.Type == MatchType::Exact &amp;&amp; result.Matches[2].MatchCriteria.Field == PackageMatchField::Name));
+<a href="#l709" class="line" id="l709">    709</a> }
+<a href="#l710" class="line" id="l710">    710</a> 
+<a href="#l711" class="line" id="l711">    711</a> TEST_CASE(&quot;RepoSources_GroupPolicy_DefaultSource&quot;, &quot;[sources][groupPolicy]&quot;)
+<a href="#l712" class="line" id="l712">    712</a> {
+<a href="#l713" class="line" id="l713">    713</a>     WHEN(&quot;Default source is disabled&quot;)
+<a href="#l714" class="line" id="l714">    714</a>     {
+<a href="#l715" class="line" id="l715">    715</a>         GroupPolicyTestOverride policies;
+<a href="#l716" class="line" id="l716">    716</a>         policies.SetState(TogglePolicy::Policy::DefaultSource, PolicyState::Disabled);
+<a href="#l717" class="line" id="l717">    717</a> 
+<a href="#l718" class="line" id="l718">    718</a>         SECTION(&quot;Get source&quot;)
+<a href="#l719" class="line" id="l719">    719</a>         {
+<a href="#l720" class="line" id="l720">    720</a>             // Listing the sources should not return the default.
+<a href="#l721" class="line" id="l721">    721</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l722" class="line" id="l722">    722</a> 
+<a href="#l723" class="line" id="l723">    723</a>             auto sources = GetSources();
+<a href="#l724" class="line" id="l724">    724</a>             REQUIRE(sources.size() == c_DefaultSourceCount - 1);
+<a href="#l725" class="line" id="l725">    725</a>         }
+<a href="#l726" class="line" id="l726">    726</a>         SECTION(&quot;Add default source&quot;)
+<a href="#l727" class="line" id="l727">    727</a>         {
+<a href="#l728" class="line" id="l728">    728</a>             // We should not be able to add the default source manually.
+<a href="#l729" class="line" id="l729">    729</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l730" class="line" id="l730">    730</a> 
+<a href="#l731" class="line" id="l731">    731</a>             ProgressCallback progress;
+<a href="#l732" class="line" id="l732">    732</a>             SourceDetails details;
+<a href="#l733" class="line" id="l733">    733</a>             details.Name = &quot;winget&quot;;
+<a href="#l734" class="line" id="l734">    734</a>             details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l735" class="line" id="l735">    735</a>             details.Arg = &quot;https://cdn.winget.microsoft.com/cache&quot;;
+<a href="#l736" class="line" id="l736">    736</a>             REQUIRE_POLICY_EXCEPTION(
+<a href="#l737" class="line" id="l737">    737</a>                 AddSource(details, progress),
+<a href="#l738" class="line" id="l738">    738</a>                 TogglePolicy::Policy::DefaultSource);
+<a href="#l739" class="line" id="l739">    739</a>         }
+<a href="#l740" class="line" id="l740">    740</a>         SECTION(&quot;Ignore default source from user&quot;)
+<a href="#l741" class="line" id="l741">    741</a>         {
+<a href="#l742" class="line" id="l742">    742</a>             // We should ignore any existing user source that is the same as the default.
+<a href="#l743" class="line" id="l743">    743</a>             SetSetting(Stream::UserSources, s_DefaultSourceAsUserSource);
+<a href="#l744" class="line" id="l744">    744</a> 
+<a href="#l745" class="line" id="l745">    745</a>             auto sources = GetSources();
+<a href="#l746" class="line" id="l746">    746</a>             REQUIRE(sources.size() == c_DefaultSourceCount - 1);
+<a href="#l747" class="line" id="l747">    747</a>         }
+<a href="#l748" class="line" id="l748">    748</a>         SECTION(&quot;Add same-name source from user&quot;)
+<a href="#l749" class="line" id="l749">    749</a>         {
+<a href="#l750" class="line" id="l750">    750</a>             // We should allow adding sources with the same name as the default but
+<a href="#l751" class="line" id="l751">    751</a>             // pointing somewhere else.
+<a href="#l752" class="line" id="l752">    752</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l753" class="line" id="l753">    753</a>             TestHook_ClearSourceFactoryOverrides();
+<a href="#l754" class="line" id="l754">    754</a> 
+<a href="#l755" class="line" id="l755">    755</a>             SourceDetails details;
+<a href="#l756" class="line" id="l756">    756</a>             details.Name = &quot;winget&quot;;
+<a href="#l757" class="line" id="l757">    757</a>             details.Type = &quot;someType&quot;;
+<a href="#l758" class="line" id="l758">    758</a>             details.Arg = &quot;notWingetRealArg&quot;;
+<a href="#l759" class="line" id="l759">    759</a>             details.Data = &quot;someData&quot;;
+<a href="#l760" class="line" id="l760">    760</a> 
+<a href="#l761" class="line" id="l761">    761</a>             bool addCalledOnFactory = false;
+<a href="#l762" class="line" id="l762">    762</a>             TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l763" class="line" id="l763">    763</a>             factory.OnAdd = [&amp;](SourceDetails&amp; sd) { addCalledOnFactory = true; sd.Data = details.Data; };
+<a href="#l764" class="line" id="l764">    764</a>             TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l765" class="line" id="l765">    765</a> 
+<a href="#l766" class="line" id="l766">    766</a>             ProgressCallback progress;
+<a href="#l767" class="line" id="l767">    767</a>             AddSource(details, progress);
+<a href="#l768" class="line" id="l768">    768</a> 
+<a href="#l769" class="line" id="l769">    769</a>             REQUIRE(addCalledOnFactory);
+<a href="#l770" class="line" id="l770">    770</a> 
+<a href="#l771" class="line" id="l771">    771</a>             auto sources = GetSources();
+<a href="#l772" class="line" id="l772">    772</a>             REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l773" class="line" id="l773">    773</a> 
+<a href="#l774" class="line" id="l774">    774</a>             REQUIRE(sources[0].Name == details.Name);
+<a href="#l775" class="line" id="l775">    775</a>             REQUIRE(sources[0].Type == details.Type);
+<a href="#l776" class="line" id="l776">    776</a>             REQUIRE(sources[0].Arg == details.Arg);
+<a href="#l777" class="line" id="l777">    777</a>             REQUIRE(sources[0].Data == details.Data);
+<a href="#l778" class="line" id="l778">    778</a>             REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l779" class="line" id="l779">    779</a>         }
+<a href="#l780" class="line" id="l780">    780</a>         SECTION(&quot;Allow same name source from user&quot;)
+<a href="#l781" class="line" id="l781">    781</a>         {
+<a href="#l782" class="line" id="l782">    782</a>             // We should respect existing user sources with the same name.
+<a href="#l783" class="line" id="l783">    783</a>             // We should allow adding sources with the same name as the default but
+<a href="#l784" class="line" id="l784">    784</a>             // pointing somewhere else.
+<a href="#l785" class="line" id="l785">    785</a>             SetSetting(Stream::UserSources, s_UserSourceNamedLikeDefault);
+<a href="#l786" class="line" id="l786">    786</a> 
+<a href="#l787" class="line" id="l787">    787</a>             auto sources = GetSources();
+<a href="#l788" class="line" id="l788">    788</a>             REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l789" class="line" id="l789">    789</a> 
+<a href="#l790" class="line" id="l790">    790</a>             REQUIRE(sources[0].Name == &quot;winget&quot;);
+<a href="#l791" class="line" id="l791">    791</a>             REQUIRE(sources[0].Type == &quot;testType&quot;);
+<a href="#l792" class="line" id="l792">    792</a>             REQUIRE(sources[0].Arg == &quot;testArg&quot;);
+<a href="#l793" class="line" id="l793">    793</a>             REQUIRE(sources[0].Data == &quot;testData&quot;);
+<a href="#l794" class="line" id="l794">    794</a>             REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l795" class="line" id="l795">    795</a>         }
+<a href="#l796" class="line" id="l796">    796</a>     }
+<a href="#l797" class="line" id="l797">    797</a> 
+<a href="#l798" class="line" id="l798">    798</a>     WHEN(&quot;Default source is enabled&quot;)
+<a href="#l799" class="line" id="l799">    799</a>     {
+<a href="#l800" class="line" id="l800">    800</a>         GroupPolicyTestOverride policies;
+<a href="#l801" class="line" id="l801">    801</a>         policies.SetState(TogglePolicy::Policy::DefaultSource, PolicyState::Enabled);
+<a href="#l802" class="line" id="l802">    802</a> 
+<a href="#l803" class="line" id="l803">    803</a>         SECTION(&quot;Remove source is blocked&quot;)
+<a href="#l804" class="line" id="l804">    804</a>         {
+<a href="#l805" class="line" id="l805">    805</a>             // We should not be able to remove the default source.
+<a href="#l806" class="line" id="l806">    806</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l807" class="line" id="l807">    807</a> 
+<a href="#l808" class="line" id="l808">    808</a>             ProgressCallback progress;
+<a href="#l809" class="line" id="l809">    809</a>             REQUIRE_POLICY_EXCEPTION(
+<a href="#l810" class="line" id="l810">    810</a>                 RemoveSource(&quot;winget&quot;, progress),
+<a href="#l811" class="line" id="l811">    811</a>                 TogglePolicy::Policy::DefaultSource);
+<a href="#l812" class="line" id="l812">    812</a>         }
+<a href="#l813" class="line" id="l813">    813</a>         SECTION(&quot;Tombstone is overridden&quot;)
+<a href="#l814" class="line" id="l814">    814</a>         {
+<a href="#l815" class="line" id="l815">    815</a>             // We should ignore if the default source was already deleted.
+<a href="#l816" class="line" id="l816">    816</a>             SetSetting(Stream::UserSources, s_DefaultSourcesTombstoned);
+<a href="#l817" class="line" id="l817">    817</a> 
+<a href="#l818" class="line" id="l818">    818</a>             auto sources = GetSources();
+<a href="#l819" class="line" id="l819">    819</a>             REQUIRE(sources.size() == 1);
+<a href="#l820" class="line" id="l820">    820</a>             REQUIRE(sources[0].Name == &quot;winget&quot;);
+<a href="#l821" class="line" id="l821">    821</a>             REQUIRE(sources[0].Origin == SourceOrigin::Default);
+<a href="#l822" class="line" id="l822">    822</a>         }
+<a href="#l823" class="line" id="l823">    823</a>         SECTION(&quot;Same name source is overridden&quot;)
+<a href="#l824" class="line" id="l824">    824</a>         {
+<a href="#l825" class="line" id="l825">    825</a>             // We should ignore existing user sources with the same name as the default.
+<a href="#l826" class="line" id="l826">    826</a>             SetSetting(Stream::UserSources, s_UserSourceNamedLikeDefault);
+<a href="#l827" class="line" id="l827">    827</a> 
+<a href="#l828" class="line" id="l828">    828</a>             auto sources = GetSources();
+<a href="#l829" class="line" id="l829">    829</a>             REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l830" class="line" id="l830">    830</a> 
+<a href="#l831" class="line" id="l831">    831</a>             REQUIRE(sources[1].Name == &quot;winget&quot;);
+<a href="#l832" class="line" id="l832">    832</a>             REQUIRE(sources[1].Arg == &quot;https://cdn.winget.microsoft.com/cache&quot;);
+<a href="#l833" class="line" id="l833">    833</a>             REQUIRE(sources[1].Origin == SourceOrigin::Default);
+<a href="#l834" class="line" id="l834">    834</a>         }
+<a href="#l835" class="line" id="l835">    835</a>     }
+<a href="#l836" class="line" id="l836">    836</a> }
+<a href="#l837" class="line" id="l837">    837</a> 
+<a href="#l838" class="line" id="l838">    838</a> TEST_CASE(&quot;RepoSources_GroupPolicy_AdditionalSources&quot;, &quot;[sources][groupPolicy]&quot;)
+<a href="#l839" class="line" id="l839">    839</a> {
+<a href="#l840" class="line" id="l840">    840</a>     WHEN(&quot;Additional sources are enabled&quot;)
+<a href="#l841" class="line" id="l841">    841</a>     {
+<a href="#l842" class="line" id="l842">    842</a>         GroupPolicyTestOverride policies;
+<a href="#l843" class="line" id="l843">    843</a>         policies.SetState(TogglePolicy::Policy::AdditionalSources, PolicyState::Enabled);
+<a href="#l844" class="line" id="l844">    844</a> 
+<a href="#l845" class="line" id="l845">    845</a>         SECTION(&quot;Additional sources are listed&quot;)
+<a href="#l846" class="line" id="l846">    846</a>         {
+<a href="#l847" class="line" id="l847">    847</a>             // Getting the current sources should list the additional sources.
+<a href="#l848" class="line" id="l848">    848</a>             std::vector&lt;SourceFromPolicy&gt; policySources;
+<a href="#l849" class="line" id="l849">    849</a>             const std::string suffix[3] = { &quot;&quot;, &quot;2&quot;, &quot;3&quot; };
+<a href="#l850" class="line" id="l850">    850</a>             for (size_t i = 0; i &lt; 3; ++i)
+<a href="#l851" class="line" id="l851">    851</a>             {
+<a href="#l852" class="line" id="l852">    852</a>                 SourceFromPolicy source;
+<a href="#l853" class="line" id="l853">    853</a>                 source.Name = &quot;name&quot; + suffix[i];
+<a href="#l854" class="line" id="l854">    854</a>                 source.Type = &quot;type&quot; + suffix[i];
+<a href="#l855" class="line" id="l855">    855</a>                 source.Arg = &quot;arg&quot; + suffix[i];
+<a href="#l856" class="line" id="l856">    856</a>                 source.Data = &quot;data&quot; + suffix[i];
+<a href="#l857" class="line" id="l857">    857</a>                 source.Identifier = &quot;id&quot; + suffix[i];
+<a href="#l858" class="line" id="l858">    858</a>                 policySources.emplace_back(std::move(source));
+<a href="#l859" class="line" id="l859">    859</a>             }
+<a href="#l860" class="line" id="l860">    860</a> 
+<a href="#l861" class="line" id="l861">    861</a>             policies.SetValue&lt;ValuePolicy::AdditionalSources&gt;(policySources);
+<a href="#l862" class="line" id="l862">    862</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l863" class="line" id="l863">    863</a> 
+<a href="#l864" class="line" id="l864">    864</a>             auto sources = GetSources();
+<a href="#l865" class="line" id="l865">    865</a> 
+<a href="#l866" class="line" id="l866">    866</a>             // The source list includes the default source
+<a href="#l867" class="line" id="l867">    867</a>             REQUIRE(sources.size() == policySources.size() + c_DefaultSourceCount);
+<a href="#l868" class="line" id="l868">    868</a>             REQUIRE(sources.back().Origin == SourceOrigin::Default);
+<a href="#l869" class="line" id="l869">    869</a> 
+<a href="#l870" class="line" id="l870">    870</a>             for (size_t i = 0; i &lt; policySources.size(); ++i)
+<a href="#l871" class="line" id="l871">    871</a>             {
+<a href="#l872" class="line" id="l872">    872</a>                 REQUIRE(sources[i].Name == policySources[i].Name);
+<a href="#l873" class="line" id="l873">    873</a>                 REQUIRE(sources[i].Type == policySources[i].Type);
+<a href="#l874" class="line" id="l874">    874</a>                 REQUIRE(sources[i].Arg == policySources[i].Arg);
+<a href="#l875" class="line" id="l875">    875</a>                 REQUIRE(sources[i].Data == policySources[i].Data);
+<a href="#l876" class="line" id="l876">    876</a>                 REQUIRE(sources[i].Identifier == policySources[i].Identifier);
+<a href="#l877" class="line" id="l877">    877</a>                 REQUIRE(sources[i].Origin == SourceOrigin::GroupPolicy);
+<a href="#l878" class="line" id="l878">    878</a>             }
+<a href="#l879" class="line" id="l879">    879</a>         }
+<a href="#l880" class="line" id="l880">    880</a>         SECTION(&quot;Same-name user source is overridden&quot;)
+<a href="#l881" class="line" id="l881">    881</a>         {
+<a href="#l882" class="line" id="l882">    882</a>             // User sources with the same name as an additional source are ignored.
+<a href="#l883" class="line" id="l883">    883</a>             SourceFromPolicy policySource;
+<a href="#l884" class="line" id="l884">    884</a>             policySource.Name = &quot;testName&quot;;
+<a href="#l885" class="line" id="l885">    885</a>             policySource.Type = &quot;notTestType&quot;;
+<a href="#l886" class="line" id="l886">    886</a>             policySource.Arg = &quot;notTestArg&quot;;
+<a href="#l887" class="line" id="l887">    887</a>             policySource.Data = &quot;notTestData&quot;;
+<a href="#l888" class="line" id="l888">    888</a>             policySource.Identifier = &quot;notTestId&quot;;
+<a href="#l889" class="line" id="l889">    889</a> 
+<a href="#l890" class="line" id="l890">    890</a>             policies.SetValue&lt;ValuePolicy::AdditionalSources&gt;({ policySource });
+<a href="#l891" class="line" id="l891">    891</a>             SetSetting(Stream::UserSources, s_SingleSource);
+<a href="#l892" class="line" id="l892">    892</a> 
+<a href="#l893" class="line" id="l893">    893</a>             auto sources = GetSources();
+<a href="#l894" class="line" id="l894">    894</a> 
+<a href="#l895" class="line" id="l895">    895</a>             // The source list includes the default source
+<a href="#l896" class="line" id="l896">    896</a>             REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l897" class="line" id="l897">    897</a>             REQUIRE(sources[1].Origin == SourceOrigin::Default);
+<a href="#l898" class="line" id="l898">    898</a> 
+<a href="#l899" class="line" id="l899">    899</a>             REQUIRE(sources[0].Name == policySource.Name);
+<a href="#l900" class="line" id="l900">    900</a>             REQUIRE(sources[0].Type == policySource.Type);
+<a href="#l901" class="line" id="l901">    901</a>             REQUIRE(sources[0].Arg == policySource.Arg);
+<a href="#l902" class="line" id="l902">    902</a>             REQUIRE(sources[0].Data == policySource.Data);
+<a href="#l903" class="line" id="l903">    903</a>             REQUIRE(sources[0].Identifier == policySource.Identifier);
+<a href="#l904" class="line" id="l904">    904</a>             REQUIRE(sources[0].Origin == SourceOrigin::GroupPolicy);
+<a href="#l905" class="line" id="l905">    905</a>         }
+<a href="#l906" class="line" id="l906">    906</a>         SECTION(&quot;Cannot remove additional source&quot;)
+<a href="#l907" class="line" id="l907">    907</a>         {
+<a href="#l908" class="line" id="l908">    908</a>             // An additional source cannot be removed.
+<a href="#l909" class="line" id="l909">    909</a>             SourceFromPolicy policySource;
+<a href="#l910" class="line" id="l910">    910</a>             policySource.Name = &quot;name&quot;;
+<a href="#l911" class="line" id="l911">    911</a>             policySource.Type = &quot;type&quot;;
+<a href="#l912" class="line" id="l912">    912</a>             policySource.Arg = &quot;arg&quot;;
+<a href="#l913" class="line" id="l913">    913</a>             policySource.Data = &quot;data&quot;;
+<a href="#l914" class="line" id="l914">    914</a>             policySource.Identifier = &quot;id&quot;;
+<a href="#l915" class="line" id="l915">    915</a> 
+<a href="#l916" class="line" id="l916">    916</a>             bool removeCalledOnFactory = false;
+<a href="#l917" class="line" id="l917">    917</a>             TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l918" class="line" id="l918">    918</a>             factory.OnRemove = [&amp;](const SourceDetails&amp;) { removeCalledOnFactory = true; };
+<a href="#l919" class="line" id="l919">    919</a>             TestHook_SetSourceFactoryOverride(policySource.Type, factory);
+<a href="#l920" class="line" id="l920">    920</a> 
+<a href="#l921" class="line" id="l921">    921</a>             policies.SetValue&lt;ValuePolicy::AdditionalSources&gt;({ policySource });
+<a href="#l922" class="line" id="l922">    922</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l923" class="line" id="l923">    923</a> 
+<a href="#l924" class="line" id="l924">    924</a>             ProgressCallback progress;
+<a href="#l925" class="line" id="l925">    925</a>             REQUIRE_POLICY_EXCEPTION(
+<a href="#l926" class="line" id="l926">    926</a>                 RemoveSource(policySource.Name, progress),
+<a href="#l927" class="line" id="l927">    927</a>                 TogglePolicy::Policy::AdditionalSources);
+<a href="#l928" class="line" id="l928">    928</a>             REQUIRE_FALSE(removeCalledOnFactory);
+<a href="#l929" class="line" id="l929">    929</a>         }
+<a href="#l930" class="line" id="l930">    930</a>         SECTION(&quot;Additional source overrides default&quot;)
+<a href="#l931" class="line" id="l931">    931</a>         {
+<a href="#l932" class="line" id="l932">    932</a>             // An additional source with the same name as a default overrides it.
+<a href="#l933" class="line" id="l933">    933</a>             SourceFromPolicy policySource;
+<a href="#l934" class="line" id="l934">    934</a>             policySource.Name = &quot;winget&quot;;
+<a href="#l935" class="line" id="l935">    935</a>             policySource.Type = &quot;notDefaultType&quot;;
+<a href="#l936" class="line" id="l936">    936</a>             policySource.Arg = &quot;notDefaultArg&quot;;
+<a href="#l937" class="line" id="l937">    937</a>             policySource.Data = &quot;notDefaultData&quot;;
+<a href="#l938" class="line" id="l938">    938</a>             policySource.Identifier = &quot;notDefaultId&quot;;
+<a href="#l939" class="line" id="l939">    939</a> 
+<a href="#l940" class="line" id="l940">    940</a>             policies.SetValue&lt;ValuePolicy::AdditionalSources&gt;({ policySource });
+<a href="#l941" class="line" id="l941">    941</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l942" class="line" id="l942">    942</a> 
+<a href="#l943" class="line" id="l943">    943</a>             auto sources = GetSources();
+<a href="#l944" class="line" id="l944">    944</a> 
+<a href="#l945" class="line" id="l945">    945</a>             REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l946" class="line" id="l946">    946</a>             REQUIRE(sources[0].Name == policySource.Name);
+<a href="#l947" class="line" id="l947">    947</a>             REQUIRE(sources[0].Type == policySource.Type);
+<a href="#l948" class="line" id="l948">    948</a>             REQUIRE(sources[0].Arg == policySource.Arg);
+<a href="#l949" class="line" id="l949">    949</a>             REQUIRE(sources[0].Data == policySource.Data);
+<a href="#l950" class="line" id="l950">    950</a>             REQUIRE(sources[0].Identifier == policySource.Identifier);
+<a href="#l951" class="line" id="l951">    951</a>             REQUIRE(sources[0].Origin == SourceOrigin::GroupPolicy);
+<a href="#l952" class="line" id="l952">    952</a>         }
+<a href="#l953" class="line" id="l953">    953</a>     }
+<a href="#l954" class="line" id="l954">    954</a> }
+<a href="#l955" class="line" id="l955">    955</a> 
+<a href="#l956" class="line" id="l956">    956</a> TEST_CASE(&quot;RepoSources_GroupPolicy_AllowedSources&quot;, &quot;[sources][groupPolicy]&quot;)
+<a href="#l957" class="line" id="l957">    957</a> {
+<a href="#l958" class="line" id="l958">    958</a>     WHEN(&quot;Allowed sources are enabled&quot;)
+<a href="#l959" class="line" id="l959">    959</a>     {
+<a href="#l960" class="line" id="l960">    960</a>         GroupPolicyTestOverride policies;
+<a href="#l961" class="line" id="l961">    961</a>         policies.SetState(TogglePolicy::Policy::AllowedSources, PolicyState::Enabled);
+<a href="#l962" class="line" id="l962">    962</a> 
+<a href="#l963" class="line" id="l963">    963</a>         SECTION(&quot;Add allowed source&quot;)
+<a href="#l964" class="line" id="l964">    964</a>         {
+<a href="#l965" class="line" id="l965">    965</a>             // We should be able to add sources in the allow list.
+<a href="#l966" class="line" id="l966">    966</a>             SourceFromPolicy policySource;
+<a href="#l967" class="line" id="l967">    967</a>             policySource.Name = &quot;testName&quot;;
+<a href="#l968" class="line" id="l968">    968</a>             policySource.Type = &quot;testType&quot;;
+<a href="#l969" class="line" id="l969">    969</a>             policySource.Arg = &quot;testArg&quot;;
+<a href="#l970" class="line" id="l970">    970</a>             policySource.Data = &quot;testData&quot;;
+<a href="#l971" class="line" id="l971">    971</a>             policySource.Identifier = &quot;testId&quot;;
+<a href="#l972" class="line" id="l972">    972</a> 
+<a href="#l973" class="line" id="l973">    973</a>             policies.SetValue&lt;ValuePolicy::AllowedSources&gt;({ policySource });
+<a href="#l974" class="line" id="l974">    974</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l975" class="line" id="l975">    975</a>             TestHook_ClearSourceFactoryOverrides();
+<a href="#l976" class="line" id="l976">    976</a> 
+<a href="#l977" class="line" id="l977">    977</a>             bool addCalledOnFactory = false;
+<a href="#l978" class="line" id="l978">    978</a>             TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l979" class="line" id="l979">    979</a>             factory.OnAdd = [&amp;](SourceDetails&amp; sd)
+<a href="#l980" class="line" id="l980">    980</a>             {
+<a href="#l981" class="line" id="l981">    981</a>                 addCalledOnFactory = true;
+<a href="#l982" class="line" id="l982">    982</a>                 sd.Data = policySource.Data;
+<a href="#l983" class="line" id="l983">    983</a>                 sd.Identifier = policySource.Identifier;
+<a href="#l984" class="line" id="l984">    984</a>             };
+<a href="#l985" class="line" id="l985">    985</a>             TestHook_SetSourceFactoryOverride(policySource.Type, factory);
+<a href="#l986" class="line" id="l986">    986</a> 
+<a href="#l987" class="line" id="l987">    987</a>             ProgressCallback progress;
+<a href="#l988" class="line" id="l988">    988</a>             SourceDetails details;
+<a href="#l989" class="line" id="l989">    989</a>             details.Name = policySource.Name;
+<a href="#l990" class="line" id="l990">    990</a>             details.Type = policySource.Type;
+<a href="#l991" class="line" id="l991">    991</a>             details.Arg = policySource.Arg;
+<a href="#l992" class="line" id="l992">    992</a>             AddSource(details, progress);
+<a href="#l993" class="line" id="l993">    993</a> 
+<a href="#l994" class="line" id="l994">    994</a>             REQUIRE(addCalledOnFactory);
+<a href="#l995" class="line" id="l995">    995</a> 
+<a href="#l996" class="line" id="l996">    996</a>             // The source list includes the default source
+<a href="#l997" class="line" id="l997">    997</a>             auto sources = GetSources();
+<a href="#l998" class="line" id="l998">    998</a>             REQUIRE(sources.size() == c_DefaultSourceCount + 1);
+<a href="#l999" class="line" id="l999">    999</a>             REQUIRE(sources[1].Origin == SourceOrigin::Default);
+<a href="#l1000" class="line" id="l1000">   1000</a> 
+<a href="#l1001" class="line" id="l1001">   1001</a>             REQUIRE(sources[0].Name == policySource.Name);
+<a href="#l1002" class="line" id="l1002">   1002</a>             REQUIRE(sources[0].Type == policySource.Type);
+<a href="#l1003" class="line" id="l1003">   1003</a>             REQUIRE(sources[0].Arg == policySource.Arg);
+<a href="#l1004" class="line" id="l1004">   1004</a>             REQUIRE(sources[0].Data == policySource.Data);
+<a href="#l1005" class="line" id="l1005">   1005</a>             REQUIRE(sources[0].Identifier == policySource.Identifier);
+<a href="#l1006" class="line" id="l1006">   1006</a>             REQUIRE(sources[0].Origin == SourceOrigin::User);
+<a href="#l1007" class="line" id="l1007">   1007</a>         }
+<a href="#l1008" class="line" id="l1008">   1008</a>         SECTION(&quot;Cannot add non-allowed source&quot;)
+<a href="#l1009" class="line" id="l1009">   1009</a>         {
+<a href="#l1010" class="line" id="l1010">   1010</a>             // We should not be allowed to add anything not matching the allow list.
+<a href="#l1011" class="line" id="l1011">   1011</a>             SourceFromPolicy policySource;
+<a href="#l1012" class="line" id="l1012">   1012</a>             policySource.Name = &quot;testName&quot;;
+<a href="#l1013" class="line" id="l1013">   1013</a>             policySource.Type = &quot;testType&quot;;
+<a href="#l1014" class="line" id="l1014">   1014</a>             policySource.Arg = &quot;testArg&quot;;
+<a href="#l1015" class="line" id="l1015">   1015</a>             policySource.Data = &quot;testData&quot;;
+<a href="#l1016" class="line" id="l1016">   1016</a>             policySource.Identifier = &quot;testId&quot;;
+<a href="#l1017" class="line" id="l1017">   1017</a> 
+<a href="#l1018" class="line" id="l1018">   1018</a>             policies.SetValue&lt;ValuePolicy::AllowedSources&gt;({ policySource });
+<a href="#l1019" class="line" id="l1019">   1019</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l1020" class="line" id="l1020">   1020</a> 
+<a href="#l1021" class="line" id="l1021">   1021</a>             ProgressCallback progress;
+<a href="#l1022" class="line" id="l1022">   1022</a>             SourceDetails details;
+<a href="#l1023" class="line" id="l1023">   1023</a>             details.Name = &quot;notAllowed&quot;;
+<a href="#l1024" class="line" id="l1024">   1024</a>             details.Type = &quot;type&quot;;
+<a href="#l1025" class="line" id="l1025">   1025</a>             details.Arg = &quot;arg&quot;;
+<a href="#l1026" class="line" id="l1026">   1026</a> 
+<a href="#l1027" class="line" id="l1027">   1027</a>             bool addCalledOnFactory = false;
+<a href="#l1028" class="line" id="l1028">   1028</a>             TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l1029" class="line" id="l1029">   1029</a>             factory.OnAdd = [&amp;](SourceDetails&amp;) { addCalledOnFactory = true; };
+<a href="#l1030" class="line" id="l1030">   1030</a>             TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l1031" class="line" id="l1031">   1031</a> 
+<a href="#l1032" class="line" id="l1032">   1032</a>             REQUIRE_POLICY_EXCEPTION(
+<a href="#l1033" class="line" id="l1033">   1033</a>                 AddSource(details, progress),
+<a href="#l1034" class="line" id="l1034">   1034</a>                 TogglePolicy::Policy::AllowedSources);
+<a href="#l1035" class="line" id="l1035">   1035</a>             REQUIRE_FALSE(addCalledOnFactory);
+<a href="#l1036" class="line" id="l1036">   1036</a>         }
+<a href="#l1037" class="line" id="l1037">   1037</a>     }
+<a href="#l1038" class="line" id="l1038">   1038</a> 
+<a href="#l1039" class="line" id="l1039">   1039</a>     WHEN(&quot;Allowed sources are disabled&quot;)
+<a href="#l1040" class="line" id="l1040">   1040</a>     {
+<a href="#l1041" class="line" id="l1041">   1041</a>         GroupPolicyTestOverride policies;
+<a href="#l1042" class="line" id="l1042">   1042</a>         policies.SetState(TogglePolicy::Policy::AllowedSources, PolicyState::Disabled);
+<a href="#l1043" class="line" id="l1043">   1043</a> 
+<a href="#l1044" class="line" id="l1044">   1044</a>         SECTION(&quot;Cannot add any source&quot;)
+<a href="#l1045" class="line" id="l1045">   1045</a>         {
+<a href="#l1046" class="line" id="l1046">   1046</a>             SetSetting(Stream::UserSources, s_EmptySources);
+<a href="#l1047" class="line" id="l1047">   1047</a> 
+<a href="#l1048" class="line" id="l1048">   1048</a>             ProgressCallback progress;
+<a href="#l1049" class="line" id="l1049">   1049</a>             SourceDetails details;
+<a href="#l1050" class="line" id="l1050">   1050</a>             details.Name = &quot;name&quot;;
+<a href="#l1051" class="line" id="l1051">   1051</a>             details.Type = &quot;type&quot;;
+<a href="#l1052" class="line" id="l1052">   1052</a>             details.Arg = &quot;arg&quot;;
+<a href="#l1053" class="line" id="l1053">   1053</a> 
+<a href="#l1054" class="line" id="l1054">   1054</a>             bool addCalledOnFactory = false;
+<a href="#l1055" class="line" id="l1055">   1055</a>             TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l1056" class="line" id="l1056">   1056</a>             factory.OnAdd = [&amp;](SourceDetails&amp;) { addCalledOnFactory = true; };
+<a href="#l1057" class="line" id="l1057">   1057</a>             TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l1058" class="line" id="l1058">   1058</a> 
+<a href="#l1059" class="line" id="l1059">   1059</a>             REQUIRE_POLICY_EXCEPTION(
+<a href="#l1060" class="line" id="l1060">   1060</a>                 AddSource(details, progress),
+<a href="#l1061" class="line" id="l1061">   1061</a>                 TogglePolicy::Policy::AllowedSources);
+<a href="#l1062" class="line" id="l1062">   1062</a>             REQUIRE_FALSE(addCalledOnFactory);
+<a href="#l1063" class="line" id="l1063">   1063</a> 
+<a href="#l1064" class="line" id="l1064">   1064</a>             auto sources = GetSources();
+<a href="#l1065" class="line" id="l1065">   1065</a>             REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l1066" class="line" id="l1066">   1066</a>             REQUIRE(sources[0].Origin == SourceOrigin::Default);
+<a href="#l1067" class="line" id="l1067">   1067</a>         }
+<a href="#l1068" class="line" id="l1068">   1068</a>         SECTION(&quot;Existing sources are ignored&quot;)
+<a href="#l1069" class="line" id="l1069">   1069</a>         {
+<a href="#l1070" class="line" id="l1070">   1070</a>             SetSetting(Stream::UserSources, s_SingleSource);
+<a href="#l1071" class="line" id="l1071">   1071</a> 
+<a href="#l1072" class="line" id="l1072">   1072</a>             auto sources = GetSources();
+<a href="#l1073" class="line" id="l1073">   1073</a>             REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l1074" class="line" id="l1074">   1074</a>             REQUIRE(sources[0].Origin == SourceOrigin::Default);
+<a href="#l1075" class="line" id="l1075">   1075</a>         }
+<a href="#l1076" class="line" id="l1076">   1076</a>     }
+<a href="#l1077" class="line" id="l1077">   1077</a> }
+<a href="#l1078" class="line" id="l1078">   1078</a> 
+<a href="#l1079" class="line" id="l1079">   1079</a> TEST_CASE(&quot;RepoSources_OpenMultipleWithSingleFailure&quot;, &quot;[sources]&quot;)
+<a href="#l1080" class="line" id="l1080">   1080</a> {
+<a href="#l1081" class="line" id="l1081">   1081</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l1082" class="line" id="l1082">   1082</a>     TestSourceFactory factory{ FailingSourcesTestSource::CreateFailWinget };
+<a href="#l1083" class="line" id="l1083">   1083</a>     TestHook_SetSourceFactoryOverride(&quot;testType&quot;, factory);
+<a href="#l1084" class="line" id="l1084">   1084</a> 
+<a href="#l1085" class="line" id="l1085">   1085</a>     SetSetting(Stream::UserSources, s_TwoSource_AggregateSourceTest);
+<a href="#l1086" class="line" id="l1086">   1086</a> 
+<a href="#l1087" class="line" id="l1087">   1087</a>     ProgressCallback progress;
+<a href="#l1088" class="line" id="l1088">   1088</a>     auto result = OpenSource(&quot;&quot;, progress);
+<a href="#l1089" class="line" id="l1089">   1089</a> 
+<a href="#l1090" class="line" id="l1090">   1090</a>     REQUIRE(result);
+<a href="#l1091" class="line" id="l1091">   1091</a> 
+<a href="#l1092" class="line" id="l1092">   1092</a>     SearchResult searchResult = result.Search({});
+<a href="#l1093" class="line" id="l1093">   1093</a> 
+<a href="#l1094" class="line" id="l1094">   1094</a>     REQUIRE(searchResult.Failures.size() == 1);
+<a href="#l1095" class="line" id="l1095">   1095</a> 
+<a href="#l1096" class="line" id="l1096">   1096</a>     HRESULT openFailure = S_OK;
+<a href="#l1097" class="line" id="l1097">   1097</a>     try
+<a href="#l1098" class="line" id="l1098">   1098</a>     {
+<a href="#l1099" class="line" id="l1099">   1099</a>         std::rethrow_exception(searchResult.Failures[0].Exception);
+<a href="#l1100" class="line" id="l1100">   1100</a>     }
+<a href="#l1101" class="line" id="l1101">   1101</a>     catch (const wil::ResultException&amp; re)
+<a href="#l1102" class="line" id="l1102">   1102</a>     {
+<a href="#l1103" class="line" id="l1103">   1103</a>         openFailure = re.GetErrorCode();
+<a href="#l1104" class="line" id="l1104">   1104</a>     }
+<a href="#l1105" class="line" id="l1105">   1105</a>     catch (...) {}
+<a href="#l1106" class="line" id="l1106">   1106</a> 
+<a href="#l1107" class="line" id="l1107">   1107</a>     REQUIRE(openFailure == FailingSourcesTestSource::FailingHR);
+<a href="#l1108" class="line" id="l1108">   1108</a> }
+<a href="#l1109" class="line" id="l1109">   1109</a> 
+<a href="#l1110" class="line" id="l1110">   1110</a> TEST_CASE(&quot;RepoSources_OpenMultipleWithTotalFailure&quot;, &quot;[sources]&quot;)
+<a href="#l1111" class="line" id="l1111">   1111</a> {
+<a href="#l1112" class="line" id="l1112">   1112</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l1113" class="line" id="l1113">   1113</a>     TestSourceFactory factory{ FailingSourcesTestSource::CreateFailAll };
+<a href="#l1114" class="line" id="l1114">   1114</a>     TestHook_SetSourceFactoryOverride(&quot;testType&quot;, factory);
+<a href="#l1115" class="line" id="l1115">   1115</a> 
+<a href="#l1116" class="line" id="l1116">   1116</a>     SetSetting(Stream::UserSources, s_TwoSource_AggregateSourceTest);
+<a href="#l1117" class="line" id="l1117">   1117</a> 
+<a href="#l1118" class="line" id="l1118">   1118</a>     ProgressCallback progress;
+<a href="#l1119" class="line" id="l1119">   1119</a>     REQUIRE_THROWS_HR(OpenSource(&quot;&quot;, progress), APPINSTALLER_CLI_ERROR_FAILED_TO_OPEN_ALL_SOURCES);
+<a href="#l1120" class="line" id="l1120">   1120</a> }
+<a href="#l1121" class="line" id="l1121">   1121</a> 
+<a href="#l1122" class="line" id="l1122">   1122</a> TEST_CASE(&quot;RepoSources_UpdateSettingsDuringAction_SourcesUpdate&quot;, &quot;[sources]&quot;)
+<a href="#l1123" class="line" id="l1123">   1123</a> {
+<a href="#l1124" class="line" id="l1124">   1124</a>     SetSetting(Stream::UserSources, s_SingleSource);
+<a href="#l1125" class="line" id="l1125">   1125</a>     SetSetting(Stream::SourcesMetadata, s_SingleSourceMetadata);
+<a href="#l1126" class="line" id="l1126">   1126</a> 
+<a href="#l1127" class="line" id="l1127">   1127</a>     std::string userSourcesUpdate{ s_DoubleSource };
+<a href="#l1128" class="line" id="l1128">   1128</a>     std::string sourcesMetadataUpdate{ s_DoubleSourceMetadata };
+<a href="#l1129" class="line" id="l1129">   1129</a> 
+<a href="#l1130" class="line" id="l1130">   1130</a>     std::string singleSourceName = &quot;testName&quot;;
+<a href="#l1131" class="line" id="l1131">   1131</a>     std::string doubleSourceName = &quot;testName2&quot;;
+<a href="#l1132" class="line" id="l1132">   1132</a> 
+<a href="#l1133" class="line" id="l1133">   1133</a>     std::string unusedSourceName = &quot;unusedName&quot;;
+<a href="#l1134" class="line" id="l1134">   1134</a>     std::string unusedSourceArg = &quot;unusedArg&quot;;
+<a href="#l1135" class="line" id="l1135">   1135</a>     std::string testSourceType = &quot;testType&quot;;
+<a href="#l1136" class="line" id="l1136">   1136</a> 
+<a href="#l1137" class="line" id="l1137">   1137</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l1138" class="line" id="l1138">   1138</a>     TestSourceFactory factory{ FailingSourcesTestSource::CreateFailAll };
+<a href="#l1139" class="line" id="l1139">   1139</a>     auto settingsUpdate = [&amp;](const AppInstaller::Repository::SourceDetails&amp;) 
+<a href="#l1140" class="line" id="l1140">   1140</a>     {
+<a href="#l1141" class="line" id="l1141">   1141</a>         SetSetting(Stream::UserSources, userSourcesUpdate);
+<a href="#l1142" class="line" id="l1142">   1142</a>         SetSetting(Stream::SourcesMetadata, sourcesMetadataUpdate);
+<a href="#l1143" class="line" id="l1143">   1143</a>     };
+<a href="#l1144" class="line" id="l1144">   1144</a>     factory.OnAdd = settingsUpdate;
+<a href="#l1145" class="line" id="l1145">   1145</a>     factory.OnUpdate = settingsUpdate;
+<a href="#l1146" class="line" id="l1146">   1146</a>     factory.OnRemove = settingsUpdate;
+<a href="#l1147" class="line" id="l1147">   1147</a>     TestHook_SetSourceFactoryOverride(testSourceType, factory);
+<a href="#l1148" class="line" id="l1148">   1148</a> 
+<a href="#l1149" class="line" id="l1149">   1149</a>     ProgressCallback progress;
+<a href="#l1150" class="line" id="l1150">   1150</a> 
+<a href="#l1151" class="line" id="l1151">   1151</a>     SECTION(&quot;Add&quot;)
+<a href="#l1152" class="line" id="l1152">   1152</a>     {
+<a href="#l1153" class="line" id="l1153">   1153</a>         SourceDetails addedSource;
+<a href="#l1154" class="line" id="l1154">   1154</a>         addedSource.Name = unusedSourceName;
+<a href="#l1155" class="line" id="l1155">   1155</a>         addedSource.Type = testSourceType;
+<a href="#l1156" class="line" id="l1156">   1156</a>         addedSource.Arg = unusedSourceArg;
+<a href="#l1157" class="line" id="l1157">   1157</a>         AddSource(addedSource, progress);
+<a href="#l1158" class="line" id="l1158">   1158</a> 
+<a href="#l1159" class="line" id="l1159">   1159</a>         auto sources = GetSources();
+<a href="#l1160" class="line" id="l1160">   1160</a>         REQUIRE(sources.size() == 3 + c_DefaultSourceCount);
+<a href="#l1161" class="line" id="l1161">   1161</a> 
+<a href="#l1162" class="line" id="l1162">   1162</a>         REQUIRE(sources[0].Name == singleSourceName);
+<a href="#l1163" class="line" id="l1163">   1163</a>         REQUIRE(sources[1].Name == doubleSourceName);
+<a href="#l1164" class="line" id="l1164">   1164</a>         REQUIRE(sources[2].Name == addedSource.Name);
+<a href="#l1165" class="line" id="l1165">   1165</a>     }
+<a href="#l1166" class="line" id="l1166">   1166</a>     SECTION(&quot;Add conflicting&quot;)
+<a href="#l1167" class="line" id="l1167">   1167</a>     {
+<a href="#l1168" class="line" id="l1168">   1168</a>         SourceDetails addedSource;
+<a href="#l1169" class="line" id="l1169">   1169</a>         addedSource.Name = doubleSourceName;
+<a href="#l1170" class="line" id="l1170">   1170</a>         addedSource.Type = testSourceType;
+<a href="#l1171" class="line" id="l1171">   1171</a>         addedSource.Arg = unusedSourceArg;
+<a href="#l1172" class="line" id="l1172">   1172</a>         REQUIRE_THROWS_HR(AddSource(addedSource, progress), APPINSTALLER_CLI_ERROR_SOURCE_NAME_ALREADY_EXISTS);
+<a href="#l1173" class="line" id="l1173">   1173</a>     }
+<a href="#l1174" class="line" id="l1174">   1174</a>     SECTION(&quot;Update&quot;)
+<a href="#l1175" class="line" id="l1175">   1175</a>     {
+<a href="#l1176" class="line" id="l1176">   1176</a>         UpdateSource(singleSourceName, progress);
+<a href="#l1177" class="line" id="l1177">   1177</a> 
+<a href="#l1178" class="line" id="l1178">   1178</a>         auto sources = GetSources();
+<a href="#l1179" class="line" id="l1179">   1179</a>         REQUIRE(sources.size() == 2 + c_DefaultSourceCount);
+<a href="#l1180" class="line" id="l1180">   1180</a> 
+<a href="#l1181" class="line" id="l1181">   1181</a>         REQUIRE(sources[0].Name == singleSourceName);
+<a href="#l1182" class="line" id="l1182">   1182</a>         REQUIRE(sources[1].Name == doubleSourceName);
+<a href="#l1183" class="line" id="l1183">   1183</a>     }
+<a href="#l1184" class="line" id="l1184">   1184</a>     SECTION(&quot;Remove&quot;)
+<a href="#l1185" class="line" id="l1185">   1185</a>     {
+<a href="#l1186" class="line" id="l1186">   1186</a>         RemoveSource(singleSourceName, progress);
+<a href="#l1187" class="line" id="l1187">   1187</a> 
+<a href="#l1188" class="line" id="l1188">   1188</a>         auto sources = GetSources();
+<a href="#l1189" class="line" id="l1189">   1189</a>         REQUIRE(sources.size() == 1 + c_DefaultSourceCount);
+<a href="#l1190" class="line" id="l1190">   1190</a> 
+<a href="#l1191" class="line" id="l1191">   1191</a>         REQUIRE(sources[0].Name == doubleSourceName);
+<a href="#l1192" class="line" id="l1192">   1192</a>     }
+<a href="#l1193" class="line" id="l1193">   1193</a>     SECTION(&quot;Remove already removed&quot;)
+<a href="#l1194" class="line" id="l1194">   1194</a>     {
+<a href="#l1195" class="line" id="l1195">   1195</a>         userSourcesUpdate = s_EmptySources;
+<a href="#l1196" class="line" id="l1196">   1196</a>         sourcesMetadataUpdate = s_EmptySources;
+<a href="#l1197" class="line" id="l1197">   1197</a> 
+<a href="#l1198" class="line" id="l1198">   1198</a>         RemoveSource(singleSourceName, progress);
+<a href="#l1199" class="line" id="l1199">   1199</a> 
+<a href="#l1200" class="line" id="l1200">   1200</a>         auto sources = GetSources();
+<a href="#l1201" class="line" id="l1201">   1201</a>         REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l1202" class="line" id="l1202">   1202</a>     }
+<a href="#l1203" class="line" id="l1203">   1203</a> }
+<a href="#l1204" class="line" id="l1204">   1204</a> 
+<a href="#l1205" class="line" id="l1205">   1205</a> TEST_CASE(&quot;RepoSources_UpdateSettingsDuringAction_MetadataUpdate&quot;, &quot;[sources]&quot;)
+<a href="#l1206" class="line" id="l1206">   1206</a> {
+<a href="#l1207" class="line" id="l1207">   1207</a>     SetSetting(Stream::UserSources, s_SingleSource);
+<a href="#l1208" class="line" id="l1208">   1208</a>     SetSetting(Stream::SourcesMetadata, s_SingleSourceMetadata);
+<a href="#l1209" class="line" id="l1209">   1209</a> 
+<a href="#l1210" class="line" id="l1210">   1210</a>     std::string sourcesMetadataUpdate{ s_SingleSourceMetadataUpdate };
+<a href="#l1211" class="line" id="l1211">   1211</a>     int64_t updateTime = 101;
+<a href="#l1212" class="line" id="l1212">   1212</a> 
+<a href="#l1213" class="line" id="l1213">   1213</a>     std::string singleSourceName = &quot;testName&quot;;
+<a href="#l1214" class="line" id="l1214">   1214</a>     std::string doubleSourceName = &quot;testName2&quot;;
+<a href="#l1215" class="line" id="l1215">   1215</a> 
+<a href="#l1216" class="line" id="l1216">   1216</a>     std::string unusedSourceName = &quot;unusedName&quot;;
+<a href="#l1217" class="line" id="l1217">   1217</a>     std::string unusedSourceArg = &quot;unusedArg&quot;;
+<a href="#l1218" class="line" id="l1218">   1218</a>     std::string testSourceType = &quot;testType&quot;;
+<a href="#l1219" class="line" id="l1219">   1219</a> 
+<a href="#l1220" class="line" id="l1220">   1220</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l1221" class="line" id="l1221">   1221</a>     TestSourceFactory factory{ FailingSourcesTestSource::CreateFailAll };
+<a href="#l1222" class="line" id="l1222">   1222</a>     auto settingsUpdate = [&amp;](const AppInstaller::Repository::SourceDetails&amp;)
+<a href="#l1223" class="line" id="l1223">   1223</a>     {
+<a href="#l1224" class="line" id="l1224">   1224</a>         SetSetting(Stream::SourcesMetadata, sourcesMetadataUpdate);
+<a href="#l1225" class="line" id="l1225">   1225</a>     };
+<a href="#l1226" class="line" id="l1226">   1226</a>     factory.OnAdd = settingsUpdate;
+<a href="#l1227" class="line" id="l1227">   1227</a>     factory.OnUpdate = settingsUpdate;
+<a href="#l1228" class="line" id="l1228">   1228</a>     factory.OnRemove = settingsUpdate;
+<a href="#l1229" class="line" id="l1229">   1229</a>     TestHook_SetSourceFactoryOverride(testSourceType, factory);
+<a href="#l1230" class="line" id="l1230">   1230</a> 
+<a href="#l1231" class="line" id="l1231">   1231</a>     ProgressCallback progress;
+<a href="#l1232" class="line" id="l1232">   1232</a> 
+<a href="#l1233" class="line" id="l1233">   1233</a>     SECTION(&quot;Add&quot;)
+<a href="#l1234" class="line" id="l1234">   1234</a>     {
+<a href="#l1235" class="line" id="l1235">   1235</a>         SourceDetails addedSource;
+<a href="#l1236" class="line" id="l1236">   1236</a>         addedSource.Name = unusedSourceName;
+<a href="#l1237" class="line" id="l1237">   1237</a>         addedSource.Type = testSourceType;
+<a href="#l1238" class="line" id="l1238">   1238</a>         addedSource.Arg = unusedSourceArg;
+<a href="#l1239" class="line" id="l1239">   1239</a>         AddSource(addedSource, progress);
+<a href="#l1240" class="line" id="l1240">   1240</a> 
+<a href="#l1241" class="line" id="l1241">   1241</a>         auto sources = GetSources();
+<a href="#l1242" class="line" id="l1242">   1242</a>         REQUIRE(sources.size() == 2 + c_DefaultSourceCount);
+<a href="#l1243" class="line" id="l1243">   1243</a> 
+<a href="#l1244" class="line" id="l1244">   1244</a>         REQUIRE(sources[0].Name == singleSourceName);
+<a href="#l1245" class="line" id="l1245">   1245</a>         REQUIRE(ConvertSystemClockToUnixEpoch(sources[0].LastUpdateTime) == updateTime);
+<a href="#l1246" class="line" id="l1246">   1246</a>         REQUIRE(sources[1].Name == addedSource.Name);
+<a href="#l1247" class="line" id="l1247">   1247</a>     }
+<a href="#l1248" class="line" id="l1248">   1248</a>     SECTION(&quot;Update&quot;)
+<a href="#l1249" class="line" id="l1249">   1249</a>     {
+<a href="#l1250" class="line" id="l1250">   1250</a>         UpdateSource(singleSourceName, progress);
+<a href="#l1251" class="line" id="l1251">   1251</a> 
+<a href="#l1252" class="line" id="l1252">   1252</a>         auto sources = GetSources();
+<a href="#l1253" class="line" id="l1253">   1253</a>         REQUIRE(sources.size() == 1 + c_DefaultSourceCount);
+<a href="#l1254" class="line" id="l1254">   1254</a> 
+<a href="#l1255" class="line" id="l1255">   1255</a>         REQUIRE(sources[0].Name == singleSourceName);
+<a href="#l1256" class="line" id="l1256">   1256</a>         REQUIRE(ConvertSystemClockToUnixEpoch(sources[0].LastUpdateTime) &gt; updateTime);
+<a href="#l1257" class="line" id="l1257">   1257</a>     }
+<a href="#l1258" class="line" id="l1258">   1258</a>     SECTION(&quot;Remove&quot;)
+<a href="#l1259" class="line" id="l1259">   1259</a>     {
+<a href="#l1260" class="line" id="l1260">   1260</a>         RemoveSource(singleSourceName, progress);
+<a href="#l1261" class="line" id="l1261">   1261</a> 
+<a href="#l1262" class="line" id="l1262">   1262</a>         auto sources = GetSources();
+<a href="#l1263" class="line" id="l1263">   1263</a>         REQUIRE(sources.size() == c_DefaultSourceCount);
+<a href="#l1264" class="line" id="l1264">   1264</a>     }
+<a href="#l1265" class="line" id="l1265">   1265</a> }
+<a href="#l1266" class="line" id="l1266">   1266</a> 
+<a href="#l1267" class="line" id="l1267">   1267</a> TEST_CASE(&quot;RepoSources_RestoringWellKnownSource&quot;, &quot;[sources]&quot;)
+<a href="#l1268" class="line" id="l1268">   1268</a> {
+<a href="#l1269" class="line" id="l1269">   1269</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l1270" class="line" id="l1270">   1270</a>     RemoveSetting(Stream::UserSources);
+<a href="#l1271" class="line" id="l1271">   1271</a> 
+<a href="#l1272" class="line" id="l1272">   1272</a>     Source storeSource{ WellKnownSource::MicrosoftStore };
+<a href="#l1273" class="line" id="l1273">   1273</a>     SourceDetails details = storeSource.GetDetails();
+<a href="#l1274" class="line" id="l1274">   1274</a>     REQUIRE(!details.CertificatePinningConfiguration.IsEmpty());
+<a href="#l1275" class="line" id="l1275">   1275</a> 
+<a href="#l1276" class="line" id="l1276">   1276</a>     TestSourceFactory factory{ SourcesTestSource::Create };
+<a href="#l1277" class="line" id="l1277">   1277</a>     TestHook_SetSourceFactoryOverride(details.Type, factory);
+<a href="#l1278" class="line" id="l1278">   1278</a> 
+<a href="#l1279" class="line" id="l1279">   1279</a>     ProgressCallback progress;
+<a href="#l1280" class="line" id="l1280">   1280</a> 
+<a href="#l1281" class="line" id="l1281">   1281</a>     REQUIRE(storeSource.Remove(progress));
+<a href="#l1282" class="line" id="l1282">   1282</a> 
+<a href="#l1283" class="line" id="l1283">   1283</a>     Source storeAfterRemove{ details.Name };
+<a href="#l1284" class="line" id="l1284">   1284</a>     REQUIRE(!storeAfterRemove);
+<a href="#l1285" class="line" id="l1285">   1285</a> 
+<a href="#l1286" class="line" id="l1286">   1286</a>     SECTION(&quot;with well known name&quot;)
+<a href="#l1287" class="line" id="l1287">   1287</a>     {
+<a href="#l1288" class="line" id="l1288">   1288</a>         Source addStoreBack{ details.Name, details.Arg, details.Type, Repository::SourceTrustLevel::None, false };
+<a href="#l1289" class="line" id="l1289">   1289</a>         REQUIRE(addStoreBack.Add(progress));
+<a href="#l1290" class="line" id="l1290">   1290</a> 
+<a href="#l1291" class="line" id="l1291">   1291</a>         Source storeAfterAdd{ details.Name };
+<a href="#l1292" class="line" id="l1292">   1292</a>         REQUIRE(storeAfterAdd);
+<a href="#l1293" class="line" id="l1293">   1293</a>         REQUIRE(!storeAfterAdd.GetDetails().CertificatePinningConfiguration.IsEmpty());
+<a href="#l1294" class="line" id="l1294">   1294</a>     }
+<a href="#l1295" class="line" id="l1295">   1295</a> 
+<a href="#l1296" class="line" id="l1296">   1296</a>     SECTION(&quot;with different name&quot;)
+<a href="#l1297" class="line" id="l1297">   1297</a>     {
+<a href="#l1298" class="line" id="l1298">   1298</a>         std::string newName = details.Name + &quot;_new&quot;;
+<a href="#l1299" class="line" id="l1299">   1299</a>         Source addStoreBack{ newName, details.Arg, details.Type, Repository::SourceTrustLevel::None, false };
+<a href="#l1300" class="line" id="l1300">   1300</a>         REQUIRE(addStoreBack.Add(progress));
+<a href="#l1301" class="line" id="l1301">   1301</a> 
+<a href="#l1302" class="line" id="l1302">   1302</a>         Source storeAfterAdd{ newName };
+<a href="#l1303" class="line" id="l1303">   1303</a>         REQUIRE(storeAfterAdd);
+<a href="#l1304" class="line" id="l1304">   1304</a>         REQUIRE(storeAfterAdd.GetDetails().CertificatePinningConfiguration.IsEmpty());
+<a href="#l1305" class="line" id="l1305">   1305</a>     }
+<a href="#l1306" class="line" id="l1306">   1306</a> }
+<a href="#l1307" class="line" id="l1307">   1307</a> 
+<a href="#l1308" class="line" id="l1308">   1308</a> TEST_CASE(&quot;RepoSources_GroupPolicy_BypassCertificatePinningForMicrosoftStore&quot;, &quot;[sources][groupPolicy]&quot;)
+<a href="#l1309" class="line" id="l1309">   1309</a> {
+<a href="#l1310" class="line" id="l1310">   1310</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l1311" class="line" id="l1311">   1311</a> 
+<a href="#l1312" class="line" id="l1312">   1312</a>     SECTION(&quot;Not configured&quot;)
+<a href="#l1313" class="line" id="l1313">   1313</a>     {
+<a href="#l1314" class="line" id="l1314">   1314</a>         GroupPolicyTestOverride policies;
+<a href="#l1315" class="line" id="l1315">   1315</a>         policies.SetState(TogglePolicy::Policy::BypassCertificatePinningForMicrosoftStore, PolicyState::NotConfigured);
+<a href="#l1316" class="line" id="l1316">   1316</a>         Source source(WellKnownSource::MicrosoftStore);
+<a href="#l1317" class="line" id="l1317">   1317</a>         REQUIRE_FALSE(source.GetDetails().CertificatePinningConfiguration.IsEmpty());
+<a href="#l1318" class="line" id="l1318">   1318</a>     }
+<a href="#l1319" class="line" id="l1319">   1319</a> 
+<a href="#l1320" class="line" id="l1320">   1320</a>     SECTION(&quot;Enabled&quot;)
+<a href="#l1321" class="line" id="l1321">   1321</a>     {
+<a href="#l1322" class="line" id="l1322">   1322</a>         GroupPolicyTestOverride policies;
+<a href="#l1323" class="line" id="l1323">   1323</a>         policies.SetState(TogglePolicy::Policy::BypassCertificatePinningForMicrosoftStore, PolicyState::Enabled);
+<a href="#l1324" class="line" id="l1324">   1324</a>         Source source(WellKnownSource::MicrosoftStore);
+<a href="#l1325" class="line" id="l1325">   1325</a>         REQUIRE(source.GetDetails().CertificatePinningConfiguration.IsEmpty());
+<a href="#l1326" class="line" id="l1326">   1326</a>     }
+<a href="#l1327" class="line" id="l1327">   1327</a> 
+<a href="#l1328" class="line" id="l1328">   1328</a>     SECTION(&quot;Disabled&quot;)
+<a href="#l1329" class="line" id="l1329">   1329</a>     {
+<a href="#l1330" class="line" id="l1330">   1330</a>         GroupPolicyTestOverride policies;
+<a href="#l1331" class="line" id="l1331">   1331</a>         policies.SetState(TogglePolicy::Policy::BypassCertificatePinningForMicrosoftStore, PolicyState::Disabled);
+<a href="#l1332" class="line" id="l1332">   1332</a>         Source source(WellKnownSource::MicrosoftStore);
+<a href="#l1333" class="line" id="l1333">   1333</a>         REQUIRE_FALSE(source.GetDetails().CertificatePinningConfiguration.IsEmpty());
+<a href="#l1334" class="line" id="l1334">   1334</a>     }
+<a href="#l1335" class="line" id="l1335">   1335</a> }
+<a href="#l1336" class="line" id="l1336">   1336</a> 
+<a href="#l1337" class="line" id="l1337">   1337</a> TEST_CASE(&quot;RepoSources_BuiltInDesktopFrameworkSourceAlwaysCreatable&quot;, &quot;[sources]&quot;)
+<a href="#l1338" class="line" id="l1338">   1338</a> {
+<a href="#l1339" class="line" id="l1339">   1339</a>     Source source(WellKnownSource::DesktopFrameworks);
+<a href="#l1340" class="line" id="l1340">   1340</a>     REQUIRE(source);
+<a href="#l1341" class="line" id="l1341">   1341</a> }
+<a href="#l1342" class="line" id="l1342">   1342</a> 
+<a href="#l1343" class="line" id="l1343">   1343</a> TEST_CASE(&quot;RepoSources_MicrosoftStore_CertificatePinningLifetimeCheck&quot;, &quot;[sources]&quot;)
+<a href="#l1344" class="line" id="l1344">   1344</a> {
+<a href="#l1345" class="line" id="l1345">   1345</a>     TestHook_ClearSourceFactoryOverrides();
+<a href="#l1346" class="line" id="l1346">   1346</a> 
+<a href="#l1347" class="line" id="l1347">   1347</a>     GroupPolicyTestOverride policies;
+<a href="#l1348" class="line" id="l1348">   1348</a>     policies.SetState(TogglePolicy::Policy::BypassCertificatePinningForMicrosoftStore, PolicyState::Disabled);
+<a href="#l1349" class="line" id="l1349">   1349</a>     Source source(WellKnownSource::MicrosoftStore);
+<a href="#l1350" class="line" id="l1350">   1350</a>     REQUIRE_FALSE(source.GetDetails().CertificatePinningConfiguration.IsEmpty());
+<a href="#l1351" class="line" id="l1351">   1351</a> 
+<a href="#l1352" class="line" id="l1352">   1352</a>     // The configuration&#39;s remaining lifetime is the *maximum* of the remaining lifetimes of the individual chains.
+<a href="#l1353" class="line" id="l1353">   1353</a>     // A chain&#39;s remaining lifetime is the *minimum* of the remaining lifetimes of the individual certificates.
+<a href="#l1354" class="line" id="l1354">   1354</a>     // A certificate&#39;s remaining lifetime is a value between 0.0 and 1.0 that is the ratio of remaining valid time to total valid time.
+<a href="#l1355" class="line" id="l1355">   1355</a> 
+<a href="#l1356" class="line" id="l1356">   1356</a>     // The goal of this test is to warn when the pinning configuration may be in danger of expiration; either via certificate validity or
+<a href="#l1357" class="line" id="l1357">   1357</a>     // more likely by renewals causing the pinning to reject the new, correct certificates. It operates in percentage lifetime to normalize
+<a href="#l1358" class="line" id="l1358">   1358</a>     // the values across the chain.
+<a href="#l1359" class="line" id="l1359">   1359</a>     INFO(&quot;If this test has failed, the pinning certificates may be nearing expiration and should be investigated.&quot;);
+<a href="#l1360" class="line" id="l1360">   1360</a>     double lifetimePercentage = source.GetDetails().CertificatePinningConfiguration.GetRemainingLifetimePercentage();
+<a href="#l1361" class="line" id="l1361">   1361</a>     REQUIRE(lifetimePercentage &gt; 0.25);
+<a href="#l1362" class="line" id="l1362">   1362</a> }
+</pre>
+</div>
+</body>
+</html>

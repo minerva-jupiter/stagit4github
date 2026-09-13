@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>SourceList.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> SourceList.cpp (36250B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;SourceList.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;SourcePolicy.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Microsoft/PreIndexedPackageSourceFactory.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Rest/RestSourceFactory.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> 
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;winget/AdminSettings.h&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;winget/Certificates.h&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;CertificateResources.h&gt;
+<a href="#l12" class="line" id="l12">     12</a> 
+<a href="#l13" class="line" id="l13">     13</a> using namespace AppInstaller::Settings;
+<a href="#l14" class="line" id="l14">     14</a> using namespace std::string_view_literals;
+<a href="#l15" class="line" id="l15">     15</a> 
+<a href="#l16" class="line" id="l16">     16</a> namespace AppInstaller::Repository
+<a href="#l17" class="line" id="l17">     17</a> {
+<a href="#l18" class="line" id="l18">     18</a>     namespace
+<a href="#l19" class="line" id="l19">     19</a>     {
+<a href="#l20" class="line" id="l20">     20</a>         constexpr std::string_view s_SourcesYaml_Sources = &quot;Sources&quot;sv;
+<a href="#l21" class="line" id="l21">     21</a>         constexpr std::string_view s_SourcesYaml_Source_Name = &quot;Name&quot;sv;
+<a href="#l22" class="line" id="l22">     22</a>         constexpr std::string_view s_SourcesYaml_Source_Type = &quot;Type&quot;sv;
+<a href="#l23" class="line" id="l23">     23</a>         constexpr std::string_view s_SourcesYaml_Source_Arg = &quot;Arg&quot;sv;
+<a href="#l24" class="line" id="l24">     24</a>         constexpr std::string_view s_SourcesYaml_Source_Data = &quot;Data&quot;sv;
+<a href="#l25" class="line" id="l25">     25</a>         constexpr std::string_view s_SourcesYaml_Source_Identifier = &quot;Identifier&quot;sv;
+<a href="#l26" class="line" id="l26">     26</a>         constexpr std::string_view s_SourcesYaml_Source_IsTombstone = &quot;IsTombstone&quot;sv;
+<a href="#l27" class="line" id="l27">     27</a>         constexpr std::string_view s_SourcesYaml_Source_Explicit = &quot;Explicit&quot;sv;
+<a href="#l28" class="line" id="l28">     28</a>         constexpr std::string_view s_SourcesYaml_Source_TrustLevel = &quot;TrustLevel&quot;sv;
+<a href="#l29" class="line" id="l29">     29</a> 
+<a href="#l30" class="line" id="l30">     30</a>         constexpr std::string_view s_MetadataYaml_Sources = &quot;Sources&quot;sv;
+<a href="#l31" class="line" id="l31">     31</a>         constexpr std::string_view s_MetadataYaml_Source_Name = &quot;Name&quot;sv;
+<a href="#l32" class="line" id="l32">     32</a>         constexpr std::string_view s_MetadataYaml_Source_LastUpdate = &quot;LastUpdate&quot;sv;
+<a href="#l33" class="line" id="l33">     33</a>         constexpr std::string_view s_MetadataYaml_Source_DoNotUpdateBefore = &quot;DoNotUpdateBefore&quot;sv;
+<a href="#l34" class="line" id="l34">     34</a>         constexpr std::string_view s_MetadataYaml_Source_AcceptedAgreementsIdentifier = &quot;AcceptedAgreementsIdentifier&quot;sv;
+<a href="#l35" class="line" id="l35">     35</a>         constexpr std::string_view s_MetadataYaml_Source_AcceptedAgreementFields = &quot;AcceptedAgreementFields&quot;sv;
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a>         constexpr std::string_view s_Source_WingetCommunityDefault_Name = &quot;winget&quot;sv;
+<a href="#l38" class="line" id="l38">     38</a>         constexpr std::string_view s_Source_WingetCommunityDefault_Arg = &quot;https://cdn.winget.microsoft.com/cache&quot;sv;
+<a href="#l39" class="line" id="l39">     39</a>         constexpr std::string_view s_Source_WingetCommunityDefault_Data = &quot;Microsoft.Winget.Source_8wekyb3d8bbwe&quot;sv;
+<a href="#l40" class="line" id="l40">     40</a>         constexpr std::string_view s_Source_WingetCommunityDefault_Identifier = &quot;Microsoft.Winget.Source_8wekyb3d8bbwe&quot;sv;
+<a href="#l41" class="line" id="l41">     41</a> 
+<a href="#l42" class="line" id="l42">     42</a>         constexpr std::string_view s_Source_MSStoreDefault_Name = &quot;msstore&quot;sv;
+<a href="#l43" class="line" id="l43">     43</a>         constexpr std::string_view s_Source_MSStoreDefault_Arg = &quot;https://storeedgefd.dsx.mp.microsoft.com/v9.0&quot;sv;
+<a href="#l44" class="line" id="l44">     44</a>         constexpr std::string_view s_Source_MSStoreDefault_Identifier = &quot;StoreEdgeFD&quot;sv;
+<a href="#l45" class="line" id="l45">     45</a> 
+<a href="#l46" class="line" id="l46">     46</a>         constexpr std::string_view s_Source_DesktopFrameworks_Name = &quot;microsoft.builtin.desktop.frameworks&quot;sv;
+<a href="#l47" class="line" id="l47">     47</a>         constexpr std::string_view s_Source_DesktopFrameworks_Arg = &quot;https://cdn.winget.microsoft.com/platform&quot;sv;
+<a href="#l48" class="line" id="l48">     48</a>         constexpr std::string_view s_Source_DesktopFrameworks_Data = &quot;Microsoft.Winget.Platform.Source_8wekyb3d8bbwe&quot;sv;
+<a href="#l49" class="line" id="l49">     49</a>         constexpr std::string_view s_Source_DesktopFrameworks_Identifier = &quot;Microsoft.Winget.Platform.Source_8wekyb3d8bbwe&quot;sv;
+<a href="#l50" class="line" id="l50">     50</a> 
+<a href="#l51" class="line" id="l51">     51</a>         // Attempts to read a single scalar value from the node.
+<a href="#l52" class="line" id="l52">     52</a>         template&lt;typename Value&gt;
+<a href="#l53" class="line" id="l53">     53</a>         bool TryReadScalar(std::string_view settingName, const std::string&amp; settingValue, const YAML::Node&amp; sourceNode, std::string_view name, Value&amp; value, bool required = true)
+<a href="#l54" class="line" id="l54">     54</a>         {
+<a href="#l55" class="line" id="l55">     55</a>             YAML::Node valueNode = sourceNode[std::string{ name }];
+<a href="#l56" class="line" id="l56">     56</a> 
+<a href="#l57" class="line" id="l57">     57</a>             if (!valueNode || !valueNode.IsScalar())
+<a href="#l58" class="line" id="l58">     58</a>             {
+<a href="#l59" class="line" id="l59">     59</a>                 if (required)
+<a href="#l60" class="line" id="l60">     60</a>                 {
+<a href="#l61" class="line" id="l61">     61</a>                     AICLI_LOG(Repo, Error, &lt;&lt; &quot;Setting &#39;&quot; &lt;&lt; settingName &lt;&lt; &quot;&#39; did not contain the expected format (&quot; &lt;&lt; name &lt;&lt; &quot; is invalid within a source):\n&quot; &lt;&lt; settingValue);
+<a href="#l62" class="line" id="l62">     62</a>                 }
+<a href="#l63" class="line" id="l63">     63</a>                 return false;
+<a href="#l64" class="line" id="l64">     64</a>             }
+<a href="#l65" class="line" id="l65">     65</a> 
+<a href="#l66" class="line" id="l66">     66</a>             value = valueNode.as&lt;Value&gt;();
+<a href="#l67" class="line" id="l67">     67</a>             return true;
+<a href="#l68" class="line" id="l68">     68</a>         }
+<a href="#l69" class="line" id="l69">     69</a> 
+<a href="#l70" class="line" id="l70">     70</a>         // Attempts to read the source details from the given stream.
+<a href="#l71" class="line" id="l71">     71</a>         // Results are all or nothing; if any failures occur, no details are returned.
+<a href="#l72" class="line" id="l72">     72</a>         bool TryReadSourceDetails(
+<a href="#l73" class="line" id="l73">     73</a>             std::string_view settingName,
+<a href="#l74" class="line" id="l74">     74</a>             std::istream&amp; stream,
+<a href="#l75" class="line" id="l75">     75</a>             std::string_view rootName,
+<a href="#l76" class="line" id="l76">     76</a>             std::function&lt;bool(SourceDetailsInternal&amp;, const std::string&amp;, const YAML::Node&amp;)&gt; parse,
+<a href="#l77" class="line" id="l77">     77</a>             std::vector&lt;SourceDetailsInternal&gt;&amp; sourceDetails)
+<a href="#l78" class="line" id="l78">     78</a>         {
+<a href="#l79" class="line" id="l79">     79</a>             std::vector&lt;SourceDetailsInternal&gt; result;
+<a href="#l80" class="line" id="l80">     80</a>             std::string settingValue = Utility::ReadEntireStream(stream);
+<a href="#l81" class="line" id="l81">     81</a> 
+<a href="#l82" class="line" id="l82">     82</a>             YAML::Node document;
+<a href="#l83" class="line" id="l83">     83</a>             try
+<a href="#l84" class="line" id="l84">     84</a>             {
+<a href="#l85" class="line" id="l85">     85</a>                 document = YAML::Load(settingValue);
+<a href="#l86" class="line" id="l86">     86</a>             }
+<a href="#l87" class="line" id="l87">     87</a>             catch (const std::exception&amp; e)
+<a href="#l88" class="line" id="l88">     88</a>             {
+<a href="#l89" class="line" id="l89">     89</a>                 AICLI_LOG(YAML, Error, &lt;&lt; &quot;Setting &#39;&quot; &lt;&lt; settingName &lt;&lt; &quot;&#39; contained invalid YAML (&quot; &lt;&lt; e.what() &lt;&lt; &quot;):\n&quot; &lt;&lt; settingValue);
+<a href="#l90" class="line" id="l90">     90</a>                 return false;
+<a href="#l91" class="line" id="l91">     91</a>             }
+<a href="#l92" class="line" id="l92">     92</a> 
+<a href="#l93" class="line" id="l93">     93</a>             try
+<a href="#l94" class="line" id="l94">     94</a>             {
+<a href="#l95" class="line" id="l95">     95</a>                 YAML::Node sources = document[rootName];
+<a href="#l96" class="line" id="l96">     96</a>                 if (!sources)
+<a href="#l97" class="line" id="l97">     97</a>                 {
+<a href="#l98" class="line" id="l98">     98</a>                     AICLI_LOG(Repo, Error, &lt;&lt; &quot;Setting &#39;&quot; &lt;&lt; settingName &lt;&lt; &quot;&#39; did not contain the expected format (missing &quot; &lt;&lt; rootName &lt;&lt; &quot;):\n&quot; &lt;&lt; settingValue);
+<a href="#l99" class="line" id="l99">     99</a>                     return false;
+<a href="#l100" class="line" id="l100">    100</a>                 }
+<a href="#l101" class="line" id="l101">    101</a> 
+<a href="#l102" class="line" id="l102">    102</a>                 if (sources.IsNull())
+<a href="#l103" class="line" id="l103">    103</a>                 {
+<a href="#l104" class="line" id="l104">    104</a>                     // An empty sources is an acceptable thing.
+<a href="#l105" class="line" id="l105">    105</a>                     return true;
+<a href="#l106" class="line" id="l106">    106</a>                 }
+<a href="#l107" class="line" id="l107">    107</a> 
+<a href="#l108" class="line" id="l108">    108</a>                 if (!sources.IsSequence())
+<a href="#l109" class="line" id="l109">    109</a>                 {
+<a href="#l110" class="line" id="l110">    110</a>                     AICLI_LOG(Repo, Error, &lt;&lt; &quot;Setting &#39;&quot; &lt;&lt; settingName &lt;&lt; &quot;&#39; did not contain the expected format (&quot; &lt;&lt; rootName &lt;&lt; &quot; was not a sequence):\n&quot; &lt;&lt; settingValue);
+<a href="#l111" class="line" id="l111">    111</a>                     return false;
+<a href="#l112" class="line" id="l112">    112</a>                 }
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>                 for (const auto&amp; source : sources.Sequence())
+<a href="#l115" class="line" id="l115">    115</a>                 {
+<a href="#l116" class="line" id="l116">    116</a>                     SourceDetailsInternal details;
+<a href="#l117" class="line" id="l117">    117</a>                     if (!parse(details, settingValue, source))
+<a href="#l118" class="line" id="l118">    118</a>                     {
+<a href="#l119" class="line" id="l119">    119</a>                         return false;
+<a href="#l120" class="line" id="l120">    120</a>                     }
+<a href="#l121" class="line" id="l121">    121</a> 
+<a href="#l122" class="line" id="l122">    122</a>                     result.emplace_back(std::move(details));
+<a href="#l123" class="line" id="l123">    123</a>                 }
+<a href="#l124" class="line" id="l124">    124</a>             }
+<a href="#l125" class="line" id="l125">    125</a>             catch (const std::exception&amp; e)
+<a href="#l126" class="line" id="l126">    126</a>             {
+<a href="#l127" class="line" id="l127">    127</a>                 AICLI_LOG(YAML, Error, &lt;&lt; &quot;Setting &#39;&quot; &lt;&lt; settingName &lt;&lt; &quot;&#39; contained unexpected YAML (&quot; &lt;&lt; e.what() &lt;&lt; &quot;):\n&quot; &lt;&lt; settingValue);
+<a href="#l128" class="line" id="l128">    128</a>                 return false;
+<a href="#l129" class="line" id="l129">    129</a>             }
+<a href="#l130" class="line" id="l130">    130</a> 
+<a href="#l131" class="line" id="l131">    131</a>             sourceDetails = std::move(result);
+<a href="#l132" class="line" id="l132">    132</a>             return true;
+<a href="#l133" class="line" id="l133">    133</a>         }
+<a href="#l134" class="line" id="l134">    134</a> 
+<a href="#l135" class="line" id="l135">    135</a>         // Gets the source details from a particular setting, or an empty optional if no setting exists.
+<a href="#l136" class="line" id="l136">    136</a>         std::optional&lt;std::vector&lt;SourceDetailsInternal&gt;&gt; TryGetSourcesFromSetting(
+<a href="#l137" class="line" id="l137">    137</a>             Settings::Stream&amp; setting,
+<a href="#l138" class="line" id="l138">    138</a>             std::string_view rootName,
+<a href="#l139" class="line" id="l139">    139</a>             std::function&lt;bool(SourceDetailsInternal&amp;, const std::string&amp;, const YAML::Node&amp;)&gt; parse)
+<a href="#l140" class="line" id="l140">    140</a>         {
+<a href="#l141" class="line" id="l141">    141</a>             auto sourcesStream = setting.Get();
+<a href="#l142" class="line" id="l142">    142</a>             if (!sourcesStream)
+<a href="#l143" class="line" id="l143">    143</a>             {
+<a href="#l144" class="line" id="l144">    144</a>                 // Note that this case is different than the one in which all sources have been removed.
+<a href="#l145" class="line" id="l145">    145</a>                 return {};
+<a href="#l146" class="line" id="l146">    146</a>             }
+<a href="#l147" class="line" id="l147">    147</a>             else
+<a href="#l148" class="line" id="l148">    148</a>             {
+<a href="#l149" class="line" id="l149">    149</a>                 std::vector&lt;SourceDetailsInternal&gt; result;
+<a href="#l150" class="line" id="l150">    150</a>                 if (!TryReadSourceDetails(setting.GetName(), *sourcesStream, rootName, parse, result))
+<a href="#l151" class="line" id="l151">    151</a>                 {
+<a href="#l152" class="line" id="l152">    152</a>                     AICLI_LOG(YAML, Error, &lt;&lt; &quot;Ignoring corrupted source data.&quot;);
+<a href="#l153" class="line" id="l153">    153</a>                 }
+<a href="#l154" class="line" id="l154">    154</a>                 return result;
+<a href="#l155" class="line" id="l155">    155</a>             }
+<a href="#l156" class="line" id="l156">    156</a>         }
+<a href="#l157" class="line" id="l157">    157</a> 
+<a href="#l158" class="line" id="l158">    158</a>         // Gets the source details from a particular setting.
+<a href="#l159" class="line" id="l159">    159</a>         std::vector&lt;SourceDetailsInternal&gt; GetSourcesFromSetting(
+<a href="#l160" class="line" id="l160">    160</a>             Settings::Stream&amp; setting,
+<a href="#l161" class="line" id="l161">    161</a>             std::string_view rootName,
+<a href="#l162" class="line" id="l162">    162</a>             std::function&lt;bool(SourceDetailsInternal&amp;, const std::string&amp;, const YAML::Node&amp;)&gt; parse)
+<a href="#l163" class="line" id="l163">    163</a>         {
+<a href="#l164" class="line" id="l164">    164</a>             return TryGetSourcesFromSetting(setting, rootName, parse).value_or(std::vector&lt;SourceDetailsInternal&gt;{});
+<a href="#l165" class="line" id="l165">    165</a>         }
+<a href="#l166" class="line" id="l166">    166</a> 
+<a href="#l167" class="line" id="l167">    167</a>         // Sets the sources for a particular setting, from a particular origin.
+<a href="#l168" class="line" id="l168">    168</a>         [[nodiscard]] bool SetSourcesToSettingWithFilter(Settings::Stream&amp; setting, SourceOrigin origin, const std::vector&lt;SourceDetailsInternal&gt;&amp; sources)
+<a href="#l169" class="line" id="l169">    169</a>         {
+<a href="#l170" class="line" id="l170">    170</a>             YAML::Emitter out;
+<a href="#l171" class="line" id="l171">    171</a>             out &lt;&lt; YAML::BeginMap;
+<a href="#l172" class="line" id="l172">    172</a>             out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Sources;
+<a href="#l173" class="line" id="l173">    173</a>             out &lt;&lt; YAML::BeginSeq;
+<a href="#l174" class="line" id="l174">    174</a> 
+<a href="#l175" class="line" id="l175">    175</a>             for (const auto&amp; details : sources)
+<a href="#l176" class="line" id="l176">    176</a>             {
+<a href="#l177" class="line" id="l177">    177</a>                 if (details.Origin == origin)
+<a href="#l178" class="line" id="l178">    178</a>                 {
+<a href="#l179" class="line" id="l179">    179</a>                     out &lt;&lt; YAML::BeginMap;
+<a href="#l180" class="line" id="l180">    180</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_Name &lt;&lt; YAML::Value &lt;&lt; details.Name;
+<a href="#l181" class="line" id="l181">    181</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_Type &lt;&lt; YAML::Value &lt;&lt; details.Type;
+<a href="#l182" class="line" id="l182">    182</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_Arg &lt;&lt; YAML::Value &lt;&lt; details.Arg;
+<a href="#l183" class="line" id="l183">    183</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_Data &lt;&lt; YAML::Value &lt;&lt; details.Data;
+<a href="#l184" class="line" id="l184">    184</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_Identifier &lt;&lt; YAML::Value &lt;&lt; details.Identifier;
+<a href="#l185" class="line" id="l185">    185</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_IsTombstone &lt;&lt; YAML::Value &lt;&lt; details.IsTombstone;
+<a href="#l186" class="line" id="l186">    186</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_Explicit &lt;&lt; YAML::Value &lt;&lt; details.Explicit;
+<a href="#l187" class="line" id="l187">    187</a>                     out &lt;&lt; YAML::Key &lt;&lt; s_SourcesYaml_Source_TrustLevel &lt;&lt; YAML::Value &lt;&lt; static_cast&lt;int64_t&gt;(details.TrustLevel);
+<a href="#l188" class="line" id="l188">    188</a>                     out &lt;&lt; YAML::EndMap;
+<a href="#l189" class="line" id="l189">    189</a>                 }
+<a href="#l190" class="line" id="l190">    190</a>             }
+<a href="#l191" class="line" id="l191">    191</a> 
+<a href="#l192" class="line" id="l192">    192</a>             out &lt;&lt; YAML::EndSeq;
+<a href="#l193" class="line" id="l193">    193</a>             out &lt;&lt; YAML::EndMap;
+<a href="#l194" class="line" id="l194">    194</a> 
+<a href="#l195" class="line" id="l195">    195</a>             return setting.Set(out.str());
+<a href="#l196" class="line" id="l196">    196</a>         }
+<a href="#l197" class="line" id="l197">    197</a> 
+<a href="#l198" class="line" id="l198">    198</a>         // Assumes that names match already
+<a href="#l199" class="line" id="l199">    199</a>         bool DoSourceDetailsInternalMatch(const SourceDetailsInternal&amp; left, const SourceDetailsInternal&amp; right)
+<a href="#l200" class="line" id="l200">    200</a>         {
+<a href="#l201" class="line" id="l201">    201</a>             return left.Arg == right.Arg &amp;&amp;
+<a href="#l202" class="line" id="l202">    202</a>                 left.Identifier == right.Identifier &amp;&amp;
+<a href="#l203" class="line" id="l203">    203</a>                 Utility::CaseInsensitiveEquals(left.Type, right.Type);
+<a href="#l204" class="line" id="l204">    204</a>         }
+<a href="#l205" class="line" id="l205">    205</a> 
+<a href="#l206" class="line" id="l206">    206</a>         bool ShouldBeHidden(const SourceDetailsInternal&amp; details)
+<a href="#l207" class="line" id="l207">    207</a>         {
+<a href="#l208" class="line" id="l208">    208</a>             return details.IsTombstone || details.Origin == SourceOrigin::Metadata || !details.IsVisible;
+<a href="#l209" class="line" id="l209">    209</a>         }
+<a href="#l210" class="line" id="l210">    210</a>     }
+<a href="#l211" class="line" id="l211">    211</a> 
+<a href="#l212" class="line" id="l212">    212</a>     void SourceDetailsInternal::CopyMetadataFieldsTo(SourceDetailsInternal&amp; target)
+<a href="#l213" class="line" id="l213">    213</a>     {
+<a href="#l214" class="line" id="l214">    214</a>         if (LastUpdateTime &gt; target.LastUpdateTime)
+<a href="#l215" class="line" id="l215">    215</a>         {
+<a href="#l216" class="line" id="l216">    216</a>             target.LastUpdateTime = LastUpdateTime;
+<a href="#l217" class="line" id="l217">    217</a>         }
+<a href="#l218" class="line" id="l218">    218</a> 
+<a href="#l219" class="line" id="l219">    219</a>         if (DoNotUpdateBefore &gt; target.DoNotUpdateBefore)
+<a href="#l220" class="line" id="l220">    220</a>         {
+<a href="#l221" class="line" id="l221">    221</a>             target.DoNotUpdateBefore = DoNotUpdateBefore;
+<a href="#l222" class="line" id="l222">    222</a>         }
+<a href="#l223" class="line" id="l223">    223</a> 
+<a href="#l224" class="line" id="l224">    224</a>         target.AcceptedAgreementFields = AcceptedAgreementFields;
+<a href="#l225" class="line" id="l225">    225</a>         target.AcceptedAgreementsIdentifier = AcceptedAgreementsIdentifier;
+<a href="#l226" class="line" id="l226">    226</a>     }
+<a href="#l227" class="line" id="l227">    227</a> 
+<a href="#l228" class="line" id="l228">    228</a>     void SourceDetailsInternal::CopyMetadataFieldsFrom(const SourceDetails&amp; source)
+<a href="#l229" class="line" id="l229">    229</a>     {
+<a href="#l230" class="line" id="l230">    230</a>         LastUpdateTime = source.LastUpdateTime;
+<a href="#l231" class="line" id="l231">    231</a>         DoNotUpdateBefore = source.DoNotUpdateBefore;
+<a href="#l232" class="line" id="l232">    232</a>     }
+<a href="#l233" class="line" id="l233">    233</a> 
+<a href="#l234" class="line" id="l234">    234</a>     std::string_view GetWellKnownSourceName(WellKnownSource source)
+<a href="#l235" class="line" id="l235">    235</a>     {
+<a href="#l236" class="line" id="l236">    236</a>         switch (source)
+<a href="#l237" class="line" id="l237">    237</a>         {
+<a href="#l238" class="line" id="l238">    238</a>         case WellKnownSource::WinGet:
+<a href="#l239" class="line" id="l239">    239</a>             return s_Source_WingetCommunityDefault_Name;
+<a href="#l240" class="line" id="l240">    240</a>         case WellKnownSource::MicrosoftStore:
+<a href="#l241" class="line" id="l241">    241</a>             return s_Source_MSStoreDefault_Name;
+<a href="#l242" class="line" id="l242">    242</a>         case WellKnownSource::DesktopFrameworks:
+<a href="#l243" class="line" id="l243">    243</a>             return s_Source_DesktopFrameworks_Name;
+<a href="#l244" class="line" id="l244">    244</a>         }
+<a href="#l245" class="line" id="l245">    245</a> 
+<a href="#l246" class="line" id="l246">    246</a>         return {};
+<a href="#l247" class="line" id="l247">    247</a>     }
+<a href="#l248" class="line" id="l248">    248</a> 
+<a href="#l249" class="line" id="l249">    249</a>     std::string_view GetWellKnownSourceArg(WellKnownSource source)
+<a href="#l250" class="line" id="l250">    250</a>     {
+<a href="#l251" class="line" id="l251">    251</a>         switch (source)
+<a href="#l252" class="line" id="l252">    252</a>         {
+<a href="#l253" class="line" id="l253">    253</a>         case WellKnownSource::WinGet:
+<a href="#l254" class="line" id="l254">    254</a>             return s_Source_WingetCommunityDefault_Arg;
+<a href="#l255" class="line" id="l255">    255</a>         case WellKnownSource::MicrosoftStore:
+<a href="#l256" class="line" id="l256">    256</a>             return s_Source_MSStoreDefault_Arg;
+<a href="#l257" class="line" id="l257">    257</a>         case WellKnownSource::DesktopFrameworks:
+<a href="#l258" class="line" id="l258">    258</a>             return s_Source_DesktopFrameworks_Arg;
+<a href="#l259" class="line" id="l259">    259</a>         }
+<a href="#l260" class="line" id="l260">    260</a> 
+<a href="#l261" class="line" id="l261">    261</a>         return {};
+<a href="#l262" class="line" id="l262">    262</a>     }
+<a href="#l263" class="line" id="l263">    263</a> 
+<a href="#l264" class="line" id="l264">    264</a>     std::string_view GetWellKnownSourceIdentifier(WellKnownSource source)
+<a href="#l265" class="line" id="l265">    265</a>     {
+<a href="#l266" class="line" id="l266">    266</a>         switch (source)
+<a href="#l267" class="line" id="l267">    267</a>         {
+<a href="#l268" class="line" id="l268">    268</a>         case WellKnownSource::WinGet:
+<a href="#l269" class="line" id="l269">    269</a>             return s_Source_WingetCommunityDefault_Identifier;
+<a href="#l270" class="line" id="l270">    270</a>         case WellKnownSource::MicrosoftStore:
+<a href="#l271" class="line" id="l271">    271</a>             return s_Source_MSStoreDefault_Identifier;
+<a href="#l272" class="line" id="l272">    272</a>         case WellKnownSource::DesktopFrameworks:
+<a href="#l273" class="line" id="l273">    273</a>             return s_Source_DesktopFrameworks_Identifier;
+<a href="#l274" class="line" id="l274">    274</a>         }
+<a href="#l275" class="line" id="l275">    275</a> 
+<a href="#l276" class="line" id="l276">    276</a>         return {};
+<a href="#l277" class="line" id="l277">    277</a>     }
+<a href="#l278" class="line" id="l278">    278</a> 
+<a href="#l279" class="line" id="l279">    279</a>     std::optional&lt;WellKnownSource&gt; CheckForWellKnownSourceMatch(std::string_view name, std::string_view arg, std::string_view type)
+<a href="#l280" class="line" id="l280">    280</a>     {
+<a href="#l281" class="line" id="l281">    281</a>         if (name == s_Source_WingetCommunityDefault_Name &amp;&amp; arg == s_Source_WingetCommunityDefault_Arg &amp;&amp; type == Microsoft::PreIndexedPackageSourceFactory::Type())
+<a href="#l282" class="line" id="l282">    282</a>         {
+<a href="#l283" class="line" id="l283">    283</a>             return WellKnownSource::WinGet;
+<a href="#l284" class="line" id="l284">    284</a>         }
+<a href="#l285" class="line" id="l285">    285</a> 
+<a href="#l286" class="line" id="l286">    286</a>         if (name == s_Source_MSStoreDefault_Name &amp;&amp; arg == s_Source_MSStoreDefault_Arg &amp;&amp; type == Rest::RestSourceFactory::Type())
+<a href="#l287" class="line" id="l287">    287</a>         {
+<a href="#l288" class="line" id="l288">    288</a>             return WellKnownSource::MicrosoftStore;
+<a href="#l289" class="line" id="l289">    289</a>         }
+<a href="#l290" class="line" id="l290">    290</a> 
+<a href="#l291" class="line" id="l291">    291</a>         if (name == s_Source_DesktopFrameworks_Name &amp;&amp; arg == s_Source_DesktopFrameworks_Arg &amp;&amp; type == Microsoft::PreIndexedPackageSourceFactory::Type())
+<a href="#l292" class="line" id="l292">    292</a>         {
+<a href="#l293" class="line" id="l293">    293</a>             return WellKnownSource::DesktopFrameworks;
+<a href="#l294" class="line" id="l294">    294</a>         }
+<a href="#l295" class="line" id="l295">    295</a> 
+<a href="#l296" class="line" id="l296">    296</a>         return {};
+<a href="#l297" class="line" id="l297">    297</a>     }
+<a href="#l298" class="line" id="l298">    298</a> 
+<a href="#l299" class="line" id="l299">    299</a>     SourceDetailsInternal GetWellKnownSourceDetailsInternal(WellKnownSource source)
+<a href="#l300" class="line" id="l300">    300</a>     {
+<a href="#l301" class="line" id="l301">    301</a>         switch (source)
+<a href="#l302" class="line" id="l302">    302</a>         {
+<a href="#l303" class="line" id="l303">    303</a>         case WellKnownSource::WinGet:
+<a href="#l304" class="line" id="l304">    304</a>         {
+<a href="#l305" class="line" id="l305">    305</a>             SourceDetailsInternal details;
+<a href="#l306" class="line" id="l306">    306</a>             details.Origin = SourceOrigin::Default;
+<a href="#l307" class="line" id="l307">    307</a>             details.Name = s_Source_WingetCommunityDefault_Name;
+<a href="#l308" class="line" id="l308">    308</a>             details.Type = Microsoft::PreIndexedPackageSourceFactory::Type();
+<a href="#l309" class="line" id="l309">    309</a>             details.Arg = s_Source_WingetCommunityDefault_Arg;
+<a href="#l310" class="line" id="l310">    310</a>             details.Data = s_Source_WingetCommunityDefault_Data;
+<a href="#l311" class="line" id="l311">    311</a>             details.Identifier = s_Source_WingetCommunityDefault_Identifier;
+<a href="#l312" class="line" id="l312">    312</a>             details.TrustLevel = SourceTrustLevel::Trusted | SourceTrustLevel::StoreOrigin;
+<a href="#l313" class="line" id="l313">    313</a>             return details;
+<a href="#l314" class="line" id="l314">    314</a>         }
+<a href="#l315" class="line" id="l315">    315</a>         case WellKnownSource::MicrosoftStore:
+<a href="#l316" class="line" id="l316">    316</a>         {
+<a href="#l317" class="line" id="l317">    317</a>             SourceDetailsInternal details;
+<a href="#l318" class="line" id="l318">    318</a>             details.Origin = SourceOrigin::Default;
+<a href="#l319" class="line" id="l319">    319</a>             details.Name = s_Source_MSStoreDefault_Name;
+<a href="#l320" class="line" id="l320">    320</a>             details.Type = Rest::RestSourceFactory::Type();
+<a href="#l321" class="line" id="l321">    321</a>             details.Arg = s_Source_MSStoreDefault_Arg;
+<a href="#l322" class="line" id="l322">    322</a>             details.Identifier = s_Source_MSStoreDefault_Identifier;
+<a href="#l323" class="line" id="l323">    323</a>             details.TrustLevel = SourceTrustLevel::Trusted;
+<a href="#l324" class="line" id="l324">    324</a>             details.SupportInstalledSearchCorrelation = false;
+<a href="#l325" class="line" id="l325">    325</a> 
+<a href="#l326" class="line" id="l326">    326</a>             if (!Settings::IsAdminSettingEnabled(Settings::BoolAdminSetting::BypassCertificatePinningForMicrosoftStore))
+<a href="#l327" class="line" id="l327">    327</a>             {
+<a href="#l328" class="line" id="l328">    328</a>                 using namespace AppInstaller::Certificates;
+<a href="#l329" class="line" id="l329">    329</a> 
+<a href="#l330" class="line" id="l330">    330</a>                 PinningChain chain;
+<a href="#l331" class="line" id="l331">    331</a>                 auto chainElement = chain.Root();
+<a href="#l332" class="line" id="l332">    332</a>                 chainElement-&gt;LoadCertificate(IDX_CERTIFICATE_STORE_ROOT_1, CERTIFICATE_RESOURCE_TYPE).SetPinning(PinningVerificationType::PublicKey);
+<a href="#l333" class="line" id="l333">    333</a>                 chainElement = chainElement.Next();
+<a href="#l334" class="line" id="l334">    334</a>                 chainElement-&gt;LoadCertificate(IDX_CERTIFICATE_STORE_INTERMEDIATE_1, CERTIFICATE_RESOURCE_TYPE).SetPinning(PinningVerificationType::Subject | PinningVerificationType::Issuer);
+<a href="#l335" class="line" id="l335">    335</a>                 chainElement = chainElement.Next();
+<a href="#l336" class="line" id="l336">    336</a>                 chainElement-&gt;LoadCertificate(IDX_CERTIFICATE_STORE_LEAF_1, CERTIFICATE_RESOURCE_TYPE).SetPinning(PinningVerificationType::Subject | PinningVerificationType::Issuer);
+<a href="#l337" class="line" id="l337">    337</a> 
+<a href="#l338" class="line" id="l338">    338</a>                 PinningChain chain2;
+<a href="#l339" class="line" id="l339">    339</a>                 auto chainElement2 = chain2.Root();
+<a href="#l340" class="line" id="l340">    340</a>                 chainElement2-&gt;LoadCertificate(IDX_CERTIFICATE_STORE_ROOT_2, CERTIFICATE_RESOURCE_TYPE).SetPinning(PinningVerificationType::PublicKey);
+<a href="#l341" class="line" id="l341">    341</a>                 chainElement2 = chainElement2.Next();
+<a href="#l342" class="line" id="l342">    342</a>                 chainElement2-&gt;LoadCertificate(IDX_CERTIFICATE_STORE_INTERMEDIATE_2, CERTIFICATE_RESOURCE_TYPE).SetPinning(PinningVerificationType::Subject | PinningVerificationType::Issuer);
+<a href="#l343" class="line" id="l343">    343</a>                 chainElement2 = chainElement2.Next();
+<a href="#l344" class="line" id="l344">    344</a>                 chainElement2-&gt;LoadCertificate(IDX_CERTIFICATE_STORE_LEAF_2, CERTIFICATE_RESOURCE_TYPE).SetPinning(PinningVerificationType::Subject | PinningVerificationType::Issuer);
+<a href="#l345" class="line" id="l345">    345</a> 
+<a href="#l346" class="line" id="l346">    346</a>                 // See https://aka.ms/AzureTLSCAs (internal) for the source of these CAs
+<a href="#l347" class="line" id="l347">    347</a>                 PinningChain chain3;
+<a href="#l348" class="line" id="l348">    348</a>                 chain3.PartialChain().Root()-&gt;
+<a href="#l349" class="line" id="l349">    349</a>                     LoadCertificate(IDX_CERTIFICATE_MS_TLS_ECC_ROOT_G2, CERTIFICATE_RESOURCE_TYPE).
+<a href="#l350" class="line" id="l350">    350</a>                     SetPinning(PinningVerificationType::PublicKey | PinningVerificationType::AnyIssuer | PinningVerificationType::RequireNonLeaf);
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>                 PinningChain chain4;
+<a href="#l353" class="line" id="l353">    353</a>                 chain4.PartialChain().Root()-&gt;
+<a href="#l354" class="line" id="l354">    354</a>                     LoadCertificate(IDX_CERTIFICATE_MS_TLS_RSA_ROOT_G2, CERTIFICATE_RESOURCE_TYPE).
+<a href="#l355" class="line" id="l355">    355</a>                     SetPinning(PinningVerificationType::PublicKey | PinningVerificationType::AnyIssuer | PinningVerificationType::RequireNonLeaf);
+<a href="#l356" class="line" id="l356">    356</a> 
+<a href="#l357" class="line" id="l357">    357</a>                 details.CertificatePinningConfiguration = PinningConfiguration(&quot;Microsoft Store Source&quot;);
+<a href="#l358" class="line" id="l358">    358</a>                 details.CertificatePinningConfiguration.AddChain(std::move(chain));
+<a href="#l359" class="line" id="l359">    359</a>                 details.CertificatePinningConfiguration.AddChain(std::move(chain2));
+<a href="#l360" class="line" id="l360">    360</a>                 details.CertificatePinningConfiguration.AddChain(std::move(chain3));
+<a href="#l361" class="line" id="l361">    361</a>                 details.CertificatePinningConfiguration.AddChain(std::move(chain4));
+<a href="#l362" class="line" id="l362">    362</a>             }
+<a href="#l363" class="line" id="l363">    363</a> 
+<a href="#l364" class="line" id="l364">    364</a>             return details;
+<a href="#l365" class="line" id="l365">    365</a>         }
+<a href="#l366" class="line" id="l366">    366</a>         case WellKnownSource::DesktopFrameworks:
+<a href="#l367" class="line" id="l367">    367</a>         {
+<a href="#l368" class="line" id="l368">    368</a>             SourceDetailsInternal details;
+<a href="#l369" class="line" id="l369">    369</a>             details.Origin = SourceOrigin::Default;
+<a href="#l370" class="line" id="l370">    370</a>             details.Name = s_Source_DesktopFrameworks_Name;
+<a href="#l371" class="line" id="l371">    371</a>             details.Type = Microsoft::PreIndexedPackageSourceFactory::Type();
+<a href="#l372" class="line" id="l372">    372</a>             details.Arg = s_Source_DesktopFrameworks_Arg;
+<a href="#l373" class="line" id="l373">    373</a>             details.Data = s_Source_DesktopFrameworks_Data;
+<a href="#l374" class="line" id="l374">    374</a>             details.Identifier = s_Source_DesktopFrameworks_Identifier;
+<a href="#l375" class="line" id="l375">    375</a>             details.TrustLevel = SourceTrustLevel::Trusted | SourceTrustLevel::StoreOrigin;
+<a href="#l376" class="line" id="l376">    376</a>             details.IsVisible = false;
+<a href="#l377" class="line" id="l377">    377</a>             return details;
+<a href="#l378" class="line" id="l378">    378</a>         }
+<a href="#l379" class="line" id="l379">    379</a>         }
+<a href="#l380" class="line" id="l380">    380</a> 
+<a href="#l381" class="line" id="l381">    381</a>         THROW_HR(E_UNEXPECTED);
+<a href="#l382" class="line" id="l382">    382</a>     }
+<a href="#l383" class="line" id="l383">    383</a> 
+<a href="#l384" class="line" id="l384">    384</a>     SourceList::SourceList() : m_userSourcesStream(Stream::UserSources), m_metadataStream(Stream::SourcesMetadata)
+<a href="#l385" class="line" id="l385">    385</a>     {
+<a href="#l386" class="line" id="l386">    386</a>         OverwriteSourceList();
+<a href="#l387" class="line" id="l387">    387</a>         OverwriteMetadata();
+<a href="#l388" class="line" id="l388">    388</a>     }
+<a href="#l389" class="line" id="l389">    389</a> 
+<a href="#l390" class="line" id="l390">    390</a>     std::vector&lt;std::reference_wrapper&lt;SourceDetailsInternal&gt;&gt; SourceList::GetCurrentSourceRefs()
+<a href="#l391" class="line" id="l391">    391</a>     {
+<a href="#l392" class="line" id="l392">    392</a>         std::vector&lt;std::reference_wrapper&lt;SourceDetailsInternal&gt;&gt; result;
+<a href="#l393" class="line" id="l393">    393</a> 
+<a href="#l394" class="line" id="l394">    394</a>         for (auto&amp; s : m_sourceList)
+<a href="#l395" class="line" id="l395">    395</a>         {
+<a href="#l396" class="line" id="l396">    396</a>             if (!ShouldBeHidden(s))
+<a href="#l397" class="line" id="l397">    397</a>             {
+<a href="#l398" class="line" id="l398">    398</a>                 result.emplace_back(std::ref(s));
+<a href="#l399" class="line" id="l399">    399</a>             }
+<a href="#l400" class="line" id="l400">    400</a>             else
+<a href="#l401" class="line" id="l401">    401</a>             {
+<a href="#l402" class="line" id="l402">    402</a>                 AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;GetCurrentSourceRefs: Source named &#39;&quot; &lt;&lt; s.Name &lt;&lt; &quot;&#39; from origin &quot; &lt;&lt; ToString(s.Origin) &lt;&lt; &quot; is hidden and is dropped.&quot;);
+<a href="#l403" class="line" id="l403">    403</a>             }
+<a href="#l404" class="line" id="l404">    404</a>         }
+<a href="#l405" class="line" id="l405">    405</a> 
+<a href="#l406" class="line" id="l406">    406</a>         return result;
+<a href="#l407" class="line" id="l407">    407</a>     }
+<a href="#l408" class="line" id="l408">    408</a> 
+<a href="#l409" class="line" id="l409">    409</a>     auto SourceList::FindSource(std::string_view name, bool includeHidden)
+<a href="#l410" class="line" id="l410">    410</a>     {
+<a href="#l411" class="line" id="l411">    411</a>         return std::find_if(m_sourceList.begin(), m_sourceList.end(),
+<a href="#l412" class="line" id="l412">    412</a>             [name, includeHidden](const SourceDetailsInternal&amp; sd)
+<a href="#l413" class="line" id="l413">    413</a>             {
+<a href="#l414" class="line" id="l414">    414</a>                 return Utility::ICUCaseInsensitiveEquals(sd.Name, name) &amp;&amp;
+<a href="#l415" class="line" id="l415">    415</a>                     (includeHidden || !ShouldBeHidden(sd));
+<a href="#l416" class="line" id="l416">    416</a>             });
+<a href="#l417" class="line" id="l417">    417</a>     }
+<a href="#l418" class="line" id="l418">    418</a> 
+<a href="#l419" class="line" id="l419">    419</a>     SourceDetailsInternal* SourceList::GetCurrentSource(std::string_view name)
+<a href="#l420" class="line" id="l420">    420</a>     {
+<a href="#l421" class="line" id="l421">    421</a>         auto itr = FindSource(name);
+<a href="#l422" class="line" id="l422">    422</a>         return itr == m_sourceList.end() ? nullptr : &amp;(*itr);
+<a href="#l423" class="line" id="l423">    423</a>     }
+<a href="#l424" class="line" id="l424">    424</a> 
+<a href="#l425" class="line" id="l425">    425</a>     SourceDetailsInternal* SourceList::GetSource(std::string_view name)
+<a href="#l426" class="line" id="l426">    426</a>     {
+<a href="#l427" class="line" id="l427">    427</a>         auto itr = FindSource(name, true);
+<a href="#l428" class="line" id="l428">    428</a>         return itr == m_sourceList.end() ? nullptr : &amp;(*itr);
+<a href="#l429" class="line" id="l429">    429</a>     }
+<a href="#l430" class="line" id="l430">    430</a> 
+<a href="#l431" class="line" id="l431">    431</a>     void SourceList::AddSource(const SourceDetailsInternal&amp; details)
+<a href="#l432" class="line" id="l432">    432</a>     {
+<a href="#l433" class="line" id="l433">    433</a>         bool sourcesSet = false;
+<a href="#l434" class="line" id="l434">    434</a> 
+<a href="#l435" class="line" id="l435">    435</a>         for (size_t i = 0; !sourcesSet &amp;&amp; i &lt; 10; ++i)
+<a href="#l436" class="line" id="l436">    436</a>         {
+<a href="#l437" class="line" id="l437">    437</a>             auto itr = FindSource(details.Name, true);
+<a href="#l438" class="line" id="l438">    438</a>             THROW_HR_IF(APPINSTALLER_CLI_ERROR_SOURCE_NAME_ALREADY_EXISTS,
+<a href="#l439" class="line" id="l439">    439</a>                 itr != m_sourceList.end() &amp;&amp; itr-&gt;Origin != SourceOrigin::Metadata &amp;&amp; !itr-&gt;IsTombstone);
+<a href="#l440" class="line" id="l440">    440</a> 
+<a href="#l441" class="line" id="l441">    441</a>             // Erase the source&#39;s entry if applicable
+<a href="#l442" class="line" id="l442">    442</a>             if (itr != m_sourceList.end())
+<a href="#l443" class="line" id="l443">    443</a>             {
+<a href="#l444" class="line" id="l444">    444</a>                 m_sourceList.erase(itr);
+<a href="#l445" class="line" id="l445">    445</a>             }
+<a href="#l446" class="line" id="l446">    446</a> 
+<a href="#l447" class="line" id="l447">    447</a>             m_sourceList.emplace_back(details);
+<a href="#l448" class="line" id="l448">    448</a> 
+<a href="#l449" class="line" id="l449">    449</a>             sourcesSet = SetSourcesByOrigin(SourceOrigin::User, m_sourceList);
+<a href="#l450" class="line" id="l450">    450</a> 
+<a href="#l451" class="line" id="l451">    451</a>             if (!sourcesSet)
+<a href="#l452" class="line" id="l452">    452</a>             {
+<a href="#l453" class="line" id="l453">    453</a>                 OverwriteSourceList();
+<a href="#l454" class="line" id="l454">    454</a>                 OverwriteMetadata();
+<a href="#l455" class="line" id="l455">    455</a>             }
+<a href="#l456" class="line" id="l456">    456</a>         }
+<a href="#l457" class="line" id="l457">    457</a> 
+<a href="#l458" class="line" id="l458">    458</a>         THROW_HR_IF_MSG(E_UNEXPECTED, !sourcesSet, &quot;Too many attempts at SetSourcesByOrigin&quot;);
+<a href="#l459" class="line" id="l459">    459</a> 
+<a href="#l460" class="line" id="l460">    460</a>         SaveMetadataInternal(details);
+<a href="#l461" class="line" id="l461">    461</a>     }
+<a href="#l462" class="line" id="l462">    462</a> 
+<a href="#l463" class="line" id="l463">    463</a>     void SourceList::RemoveSource(const SourceDetailsInternal&amp; detailsRef)
+<a href="#l464" class="line" id="l464">    464</a>     {
+<a href="#l465" class="line" id="l465">    465</a>         // Copy the incoming details because we might destroy the referenced structure
+<a href="#l466" class="line" id="l466">    466</a>         // when reloading the source details from settings.
+<a href="#l467" class="line" id="l467">    467</a>         SourceDetailsInternal details = detailsRef;
+<a href="#l468" class="line" id="l468">    468</a>         bool sourcesSet = false;
+<a href="#l469" class="line" id="l469">    469</a> 
+<a href="#l470" class="line" id="l470">    470</a>         for (size_t i = 0; !sourcesSet &amp;&amp; i &lt; 10; ++i)
+<a href="#l471" class="line" id="l471">    471</a>         {
+<a href="#l472" class="line" id="l472">    472</a>             switch (details.Origin)
+<a href="#l473" class="line" id="l473">    473</a>             {
+<a href="#l474" class="line" id="l474">    474</a>             case SourceOrigin::Default:
+<a href="#l475" class="line" id="l475">    475</a>             {
+<a href="#l476" class="line" id="l476">    476</a>                 auto target = FindSource(details.Name, true);
+<a href="#l477" class="line" id="l477">    477</a>                 if (target == m_sourceList.end())
+<a href="#l478" class="line" id="l478">    478</a>                 {
+<a href="#l479" class="line" id="l479">    479</a>                     THROW_HR_MSG(E_UNEXPECTED, &quot;Default source not in SourceList&quot;);
+<a href="#l480" class="line" id="l480">    480</a>                 }
+<a href="#l481" class="line" id="l481">    481</a> 
+<a href="#l482" class="line" id="l482">    482</a>                 if (!target-&gt;IsTombstone)
+<a href="#l483" class="line" id="l483">    483</a>                 {
+<a href="#l484" class="line" id="l484">    484</a>                     SourceDetailsInternal tombstone;
+<a href="#l485" class="line" id="l485">    485</a>                     tombstone.Name = details.Name;
+<a href="#l486" class="line" id="l486">    486</a>                     tombstone.IsTombstone = true;
+<a href="#l487" class="line" id="l487">    487</a>                     tombstone.Origin = SourceOrigin::User;
+<a href="#l488" class="line" id="l488">    488</a>                     m_sourceList.emplace_back(std::move(tombstone));
+<a href="#l489" class="line" id="l489">    489</a>                 }
+<a href="#l490" class="line" id="l490">    490</a>             }
+<a href="#l491" class="line" id="l491">    491</a>                 break;
+<a href="#l492" class="line" id="l492">    492</a>             case SourceOrigin::User:
+<a href="#l493" class="line" id="l493">    493</a>             {
+<a href="#l494" class="line" id="l494">    494</a>                 auto target = FindSource(details.Name);
+<a href="#l495" class="line" id="l495">    495</a>                 if (target == m_sourceList.end())
+<a href="#l496" class="line" id="l496">    496</a>                 {
+<a href="#l497" class="line" id="l497">    497</a>                     // Assumed that an update to the sources removed it first
+<a href="#l498" class="line" id="l498">    498</a>                     return;
+<a href="#l499" class="line" id="l499">    499</a>                 }
+<a href="#l500" class="line" id="l500">    500</a> 
+<a href="#l501" class="line" id="l501">    501</a>                 m_sourceList.erase(target);
+<a href="#l502" class="line" id="l502">    502</a>             }
+<a href="#l503" class="line" id="l503">    503</a>                 break;
+<a href="#l504" class="line" id="l504">    504</a>             case SourceOrigin::GroupPolicy:
+<a href="#l505" class="line" id="l505">    505</a>                 // This should have already been blocked higher up.
+<a href="#l506" class="line" id="l506">    506</a>                 AICLI_LOG(Repo, Error, &lt;&lt; &quot;Attempting to remove Group Policy source: &quot; &lt;&lt; details.Name);
+<a href="#l507" class="line" id="l507">    507</a>                 THROW_HR(E_UNEXPECTED);
+<a href="#l508" class="line" id="l508">    508</a>             default:
+<a href="#l509" class="line" id="l509">    509</a>                 THROW_HR(E_UNEXPECTED);
+<a href="#l510" class="line" id="l510">    510</a>             }
+<a href="#l511" class="line" id="l511">    511</a> 
+<a href="#l512" class="line" id="l512">    512</a>             sourcesSet = SetSourcesByOrigin(SourceOrigin::User, m_sourceList);
+<a href="#l513" class="line" id="l513">    513</a> 
+<a href="#l514" class="line" id="l514">    514</a>             if (!sourcesSet)
+<a href="#l515" class="line" id="l515">    515</a>             {
+<a href="#l516" class="line" id="l516">    516</a>                 OverwriteSourceList();
+<a href="#l517" class="line" id="l517">    517</a>                 OverwriteMetadata();
+<a href="#l518" class="line" id="l518">    518</a>             }
+<a href="#l519" class="line" id="l519">    519</a>         }
+<a href="#l520" class="line" id="l520">    520</a> 
+<a href="#l521" class="line" id="l521">    521</a>         THROW_HR_IF_MSG(E_UNEXPECTED, !sourcesSet, &quot;Too many attempts at SetSourcesByOrigin&quot;);
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>         SaveMetadataInternal(details, true);
+<a href="#l524" class="line" id="l524">    524</a>     }
+<a href="#l525" class="line" id="l525">    525</a> 
+<a href="#l526" class="line" id="l526">    526</a>     void SourceList::SaveMetadata(const SourceDetailsInternal&amp; details)
+<a href="#l527" class="line" id="l527">    527</a>     {
+<a href="#l528" class="line" id="l528">    528</a>         SaveMetadataInternal(details);
+<a href="#l529" class="line" id="l529">    529</a>     }
+<a href="#l530" class="line" id="l530">    530</a> 
+<a href="#l531" class="line" id="l531">    531</a>     bool SourceList::CheckSourceAgreements(std::string_view sourceName, std::string_view agreementsIdentifier, ImplicitAgreementFieldEnum agreementFields)
+<a href="#l532" class="line" id="l532">    532</a>     {
+<a href="#l533" class="line" id="l533">    533</a>         if (agreementFields == ImplicitAgreementFieldEnum::None &amp;&amp; agreementsIdentifier.empty())
+<a href="#l534" class="line" id="l534">    534</a>         {
+<a href="#l535" class="line" id="l535">    535</a>             // No agreements to be accepted.
+<a href="#l536" class="line" id="l536">    536</a>             return true;
+<a href="#l537" class="line" id="l537">    537</a>         }
+<a href="#l538" class="line" id="l538">    538</a> 
+<a href="#l539" class="line" id="l539">    539</a>         auto detailsInternal = GetCurrentSource(sourceName);
+<a href="#l540" class="line" id="l540">    540</a>         if (!detailsInternal)
+<a href="#l541" class="line" id="l541">    541</a>         {
+<a href="#l542" class="line" id="l542">    542</a>             // Source not found.
+<a href="#l543" class="line" id="l543">    543</a>             return false;
+<a href="#l544" class="line" id="l544">    544</a>         }
+<a href="#l545" class="line" id="l545">    545</a> 
+<a href="#l546" class="line" id="l546">    546</a>         return static_cast&lt;int&gt;(agreementFields) == detailsInternal-&gt;AcceptedAgreementFields &amp;&amp;
+<a href="#l547" class="line" id="l547">    547</a>             agreementsIdentifier == detailsInternal-&gt;AcceptedAgreementsIdentifier;
+<a href="#l548" class="line" id="l548">    548</a>     }
+<a href="#l549" class="line" id="l549">    549</a> 
+<a href="#l550" class="line" id="l550">    550</a>     void SourceList::SaveAcceptedSourceAgreements(std::string_view sourceName, std::string_view agreementsIdentifier, ImplicitAgreementFieldEnum agreementFields)
+<a href="#l551" class="line" id="l551">    551</a>     {
+<a href="#l552" class="line" id="l552">    552</a>         if (agreementFields == ImplicitAgreementFieldEnum::None &amp;&amp; agreementsIdentifier.empty())
+<a href="#l553" class="line" id="l553">    553</a>         {
+<a href="#l554" class="line" id="l554">    554</a>             // No agreements to be accepted.
+<a href="#l555" class="line" id="l555">    555</a>             return;
+<a href="#l556" class="line" id="l556">    556</a>         }
+<a href="#l557" class="line" id="l557">    557</a> 
+<a href="#l558" class="line" id="l558">    558</a>         auto detailsInternal = GetCurrentSource(sourceName);
+<a href="#l559" class="line" id="l559">    559</a>         if (!detailsInternal)
+<a href="#l560" class="line" id="l560">    560</a>         {
+<a href="#l561" class="line" id="l561">    561</a>             // No source to update.
+<a href="#l562" class="line" id="l562">    562</a>             return;
+<a href="#l563" class="line" id="l563">    563</a>         }
+<a href="#l564" class="line" id="l564">    564</a> 
+<a href="#l565" class="line" id="l565">    565</a>         detailsInternal-&gt;AcceptedAgreementFields = static_cast&lt;int&gt;(agreementFields);
+<a href="#l566" class="line" id="l566">    566</a>         detailsInternal-&gt;AcceptedAgreementsIdentifier = agreementsIdentifier;
+<a href="#l567" class="line" id="l567">    567</a> 
+<a href="#l568" class="line" id="l568">    568</a>         SaveMetadataInternal(*detailsInternal);
+<a href="#l569" class="line" id="l569">    569</a>     }
+<a href="#l570" class="line" id="l570">    570</a> 
+<a href="#l571" class="line" id="l571">    571</a>     void SourceList::RemoveSettingsStreams()
+<a href="#l572" class="line" id="l572">    572</a>     {
+<a href="#l573" class="line" id="l573">    573</a>         Stream{ Stream::UserSources }.Remove();
+<a href="#l574" class="line" id="l574">    574</a>         Stream{ Stream::SourcesMetadata }.Remove();
+<a href="#l575" class="line" id="l575">    575</a>     }
+<a href="#l576" class="line" id="l576">    576</a> 
+<a href="#l577" class="line" id="l577">    577</a>     void SourceList::OverwriteSourceList()
+<a href="#l578" class="line" id="l578">    578</a>     {
+<a href="#l579" class="line" id="l579">    579</a>         m_sourceList.clear();
+<a href="#l580" class="line" id="l580">    580</a> 
+<a href="#l581" class="line" id="l581">    581</a>         for (SourceOrigin origin : { SourceOrigin::GroupPolicy, SourceOrigin::User, SourceOrigin::Default })
+<a href="#l582" class="line" id="l582">    582</a>         {
+<a href="#l583" class="line" id="l583">    583</a>             auto forOrigin = GetSourcesByOrigin(origin);
+<a href="#l584" class="line" id="l584">    584</a> 
+<a href="#l585" class="line" id="l585">    585</a>             for (auto&amp;&amp; source : forOrigin)
+<a href="#l586" class="line" id="l586">    586</a>             {
+<a href="#l587" class="line" id="l587">    587</a>                 auto foundSource = GetSource(source.Name);
+<a href="#l588" class="line" id="l588">    588</a>                 if (!foundSource)
+<a href="#l589" class="line" id="l589">    589</a>                 {
+<a href="#l590" class="line" id="l590">    590</a>                     // Name not already defined, add it
+<a href="#l591" class="line" id="l591">    591</a>                     m_sourceList.emplace_back(std::move(source));
+<a href="#l592" class="line" id="l592">    592</a>                 }
+<a href="#l593" class="line" id="l593">    593</a>                 else
+<a href="#l594" class="line" id="l594">    594</a>                 {
+<a href="#l595" class="line" id="l595">    595</a>                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Source named &#39;&quot; &lt;&lt; foundSource-&gt;Name &lt;&lt; &quot;&#39; is already defined at origin &quot; &lt;&lt; ToString(foundSource-&gt;Origin) &lt;&lt;
+<a href="#l596" class="line" id="l596">    596</a>                         &quot;. The source from origin &quot; &lt;&lt; ToString(origin) &lt;&lt; &quot; is dropped.&quot;);
+<a href="#l597" class="line" id="l597">    597</a>                 }
+<a href="#l598" class="line" id="l598">    598</a>             }
+<a href="#l599" class="line" id="l599">    599</a>         }
+<a href="#l600" class="line" id="l600">    600</a>     }
+<a href="#l601" class="line" id="l601">    601</a> 
+<a href="#l602" class="line" id="l602">    602</a>     void SourceList::OverwriteMetadata()
+<a href="#l603" class="line" id="l603">    603</a>     {
+<a href="#l604" class="line" id="l604">    604</a>         auto metadata = GetMetadata();
+<a href="#l605" class="line" id="l605">    605</a>         for (auto&amp; metaSource : metadata)
+<a href="#l606" class="line" id="l606">    606</a>         {
+<a href="#l607" class="line" id="l607">    607</a>             auto source = GetSource(metaSource.Name);
+<a href="#l608" class="line" id="l608">    608</a>             if (source)
+<a href="#l609" class="line" id="l609">    609</a>             {
+<a href="#l610" class="line" id="l610">    610</a>                 metaSource.CopyMetadataFieldsTo(*source);
+<a href="#l611" class="line" id="l611">    611</a>             }
+<a href="#l612" class="line" id="l612">    612</a>             else
+<a href="#l613" class="line" id="l613">    613</a>             {
+<a href="#l614" class="line" id="l614">    614</a>                 m_sourceList.emplace_back(std::move(metaSource));
+<a href="#l615" class="line" id="l615">    615</a>             }
+<a href="#l616" class="line" id="l616">    616</a>         }
+<a href="#l617" class="line" id="l617">    617</a>     }
+<a href="#l618" class="line" id="l618">    618</a> 
+<a href="#l619" class="line" id="l619">    619</a>     // Gets the sources from a particular origin.
+<a href="#l620" class="line" id="l620">    620</a>     std::vector&lt;SourceDetailsInternal&gt; SourceList::GetSourcesByOrigin(SourceOrigin origin)
+<a href="#l621" class="line" id="l621">    621</a>     {
+<a href="#l622" class="line" id="l622">    622</a>         std::vector&lt;SourceDetailsInternal&gt; result;
+<a href="#l623" class="line" id="l623">    623</a> 
+<a href="#l624" class="line" id="l624">    624</a>         switch (origin)
+<a href="#l625" class="line" id="l625">    625</a>         {
+<a href="#l626" class="line" id="l626">    626</a>         case SourceOrigin::Default:
+<a href="#l627" class="line" id="l627">    627</a>         {
+<a href="#l628" class="line" id="l628">    628</a>             if (IsWellKnownSourceEnabled(WellKnownSource::MicrosoftStore))
+<a href="#l629" class="line" id="l629">    629</a>             {
+<a href="#l630" class="line" id="l630">    630</a>                 result.emplace_back(GetWellKnownSourceDetailsInternal(WellKnownSource::MicrosoftStore));
+<a href="#l631" class="line" id="l631">    631</a>             }
+<a href="#l632" class="line" id="l632">    632</a> 
+<a href="#l633" class="line" id="l633">    633</a>             if (IsWellKnownSourceEnabled(WellKnownSource::WinGet))
+<a href="#l634" class="line" id="l634">    634</a>             {
+<a href="#l635" class="line" id="l635">    635</a>                 result.emplace_back(GetWellKnownSourceDetailsInternal(WellKnownSource::WinGet));
+<a href="#l636" class="line" id="l636">    636</a>             }
+<a href="#l637" class="line" id="l637">    637</a> 
+<a href="#l638" class="line" id="l638">    638</a>             // Since the source is not visible outside, this is added just to have the source in the internal
+<a href="#l639" class="line" id="l639">    639</a>             // list for tracking updates.  Thus there is no need to check a policy.
+<a href="#l640" class="line" id="l640">    640</a>             result.emplace_back(GetWellKnownSourceDetailsInternal(WellKnownSource::DesktopFrameworks));
+<a href="#l641" class="line" id="l641">    641</a>         }
+<a href="#l642" class="line" id="l642">    642</a>         break;
+<a href="#l643" class="line" id="l643">    643</a>         case SourceOrigin::User:
+<a href="#l644" class="line" id="l644">    644</a>         {
+<a href="#l645" class="line" id="l645">    645</a>             std::vector&lt;SourceDetailsInternal&gt; userSources = GetSourcesFromSetting(
+<a href="#l646" class="line" id="l646">    646</a>                 m_userSourcesStream,
+<a href="#l647" class="line" id="l647">    647</a>                 s_SourcesYaml_Sources,
+<a href="#l648" class="line" id="l648">    648</a>                 [&amp;](SourceDetailsInternal&amp; details, const std::string&amp; settingValue, const YAML::Node&amp; source)
+<a href="#l649" class="line" id="l649">    649</a>                 {
+<a href="#l650" class="line" id="l650">    650</a>                     std::string_view name = m_userSourcesStream.GetName();
+<a href="#l651" class="line" id="l651">    651</a>                     if (!TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_Name, details.Name)) { return false; }
+<a href="#l652" class="line" id="l652">    652</a>                     if (!TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_Type, details.Type)) { return false; }
+<a href="#l653" class="line" id="l653">    653</a>                     if (!TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_Arg, details.Arg)) { return false; }
+<a href="#l654" class="line" id="l654">    654</a>                     if (!TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_Data, details.Data)) { return false; }
+<a href="#l655" class="line" id="l655">    655</a>                     if (!TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_IsTombstone, details.IsTombstone)) { return false; }
+<a href="#l656" class="line" id="l656">    656</a>                     TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_Explicit, details.Explicit, false);
+<a href="#l657" class="line" id="l657">    657</a>                     TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_Identifier, details.Identifier, false);
+<a href="#l658" class="line" id="l658">    658</a> 
+<a href="#l659" class="line" id="l659">    659</a>                     int64_t trustLevelValue;
+<a href="#l660" class="line" id="l660">    660</a>                     if (TryReadScalar(name, settingValue, source, s_SourcesYaml_Source_TrustLevel, trustLevelValue, false))
+<a href="#l661" class="line" id="l661">    661</a>                     {
+<a href="#l662" class="line" id="l662">    662</a>                         details.TrustLevel = static_cast&lt;Repository::SourceTrustLevel&gt;(trustLevelValue);
+<a href="#l663" class="line" id="l663">    663</a>                     }
+<a href="#l664" class="line" id="l664">    664</a> 
+<a href="#l665" class="line" id="l665">    665</a>                     return true;
+<a href="#l666" class="line" id="l666">    666</a>                 });
+<a href="#l667" class="line" id="l667">    667</a> 
+<a href="#l668" class="line" id="l668">    668</a>             for (auto&amp; source : userSources)
+<a href="#l669" class="line" id="l669">    669</a>             {
+<a href="#l670" class="line" id="l670">    670</a>                 // Check source against list of allowed sources and drop tombstones for required sources
+<a href="#l671" class="line" id="l671">    671</a>                 if (!IsUserSourceAllowedByPolicy(source.Name, source.Type, source.Arg, source.IsTombstone))
+<a href="#l672" class="line" id="l672">    672</a>                 {
+<a href="#l673" class="line" id="l673">    673</a>                     AICLI_LOG(Repo, Warning, &lt;&lt; &quot;User source &quot; &lt;&lt; source.Name &lt;&lt; &quot; dropped because of group policy&quot;);
+<a href="#l674" class="line" id="l674">    674</a>                     continue;
+<a href="#l675" class="line" id="l675">    675</a>                 }
+<a href="#l676" class="line" id="l676">    676</a> 
+<a href="#l677" class="line" id="l677">    677</a>                 result.emplace_back(std::move(source));
+<a href="#l678" class="line" id="l678">    678</a>             }
+<a href="#l679" class="line" id="l679">    679</a>         }
+<a href="#l680" class="line" id="l680">    680</a>         break;
+<a href="#l681" class="line" id="l681">    681</a>         case SourceOrigin::GroupPolicy:
+<a href="#l682" class="line" id="l682">    682</a>         {
+<a href="#l683" class="line" id="l683">    683</a>             if (GroupPolicies().GetState(TogglePolicy::Policy::AdditionalSources) == PolicyState::Enabled)
+<a href="#l684" class="line" id="l684">    684</a>             {
+<a href="#l685" class="line" id="l685">    685</a>                 AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Additional sources GP is enabled...&quot;);
+<a href="#l686" class="line" id="l686">    686</a>                 auto additionalSourcesOpt = GroupPolicies().GetValueRef&lt;ValuePolicy::AdditionalSources&gt;();
+<a href="#l687" class="line" id="l687">    687</a>                 if (additionalSourcesOpt.has_value())
+<a href="#l688" class="line" id="l688">    688</a>                 {
+<a href="#l689" class="line" id="l689">    689</a>                     const auto&amp; additionalSources = additionalSourcesOpt-&gt;get();
+<a href="#l690" class="line" id="l690">    690</a>                     for (const auto&amp; additionalSource : additionalSources)
+<a href="#l691" class="line" id="l691">    691</a>                     {
+<a href="#l692" class="line" id="l692">    692</a>                         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;... with configured source &quot; &lt;&lt; additionalSource.Name);
+<a href="#l693" class="line" id="l693">    693</a>                         SourceDetailsInternal details;
+<a href="#l694" class="line" id="l694">    694</a>                         details.Name = additionalSource.Name;
+<a href="#l695" class="line" id="l695">    695</a>                         details.Type = additionalSource.Type;
+<a href="#l696" class="line" id="l696">    696</a>                         details.Arg = additionalSource.Arg;
+<a href="#l697" class="line" id="l697">    697</a>                         details.Data = additionalSource.Data;
+<a href="#l698" class="line" id="l698">    698</a>                         details.Identifier = additionalSource.Identifier;
+<a href="#l699" class="line" id="l699">    699</a>                         details.Origin = SourceOrigin::GroupPolicy;
+<a href="#l700" class="line" id="l700">    700</a>                         details.Explicit = additionalSource.Explicit;
+<a href="#l701" class="line" id="l701">    701</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l702" class="line" id="l702">    702</a>                         details.CertificatePinningConfiguration = additionalSource.PinningConfiguration;
+<a href="#l703" class="line" id="l703">    703</a> #endif
+<a href="#l704" class="line" id="l704">    704</a>                         try
+<a href="#l705" class="line" id="l705">    705</a>                         {
+<a href="#l706" class="line" id="l706">    706</a>                             details.TrustLevel = Repository::ConvertToSourceTrustLevelFlag(additionalSource.TrustLevel);
+<a href="#l707" class="line" id="l707">    707</a>                         }
+<a href="#l708" class="line" id="l708">    708</a>                         catch (...)
+<a href="#l709" class="line" id="l709">    709</a>                         {
+<a href="#l710" class="line" id="l710">    710</a>                             details.TrustLevel = Repository::SourceTrustLevel::None;
+<a href="#l711" class="line" id="l711">    711</a>                             AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Invalid source trust level from policy. Trust level set to None.&quot;);
+<a href="#l712" class="line" id="l712">    712</a>                         }
+<a href="#l713" class="line" id="l713">    713</a> 
+<a href="#l714" class="line" id="l714">    714</a>                         result.emplace_back(std::move(details));
+<a href="#l715" class="line" id="l715">    715</a>                     }
+<a href="#l716" class="line" id="l716">    716</a>                 }
+<a href="#l717" class="line" id="l717">    717</a>                 else
+<a href="#l718" class="line" id="l718">    718</a>                 {
+<a href="#l719" class="line" id="l719">    719</a>                     AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;... but has no values.&quot;);
+<a href="#l720" class="line" id="l720">    720</a>                 }
+<a href="#l721" class="line" id="l721">    721</a>             }
+<a href="#l722" class="line" id="l722">    722</a>             else
+<a href="#l723" class="line" id="l723">    723</a>             {
+<a href="#l724" class="line" id="l724">    724</a>                 AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Additional sources GP is not enabled.&quot;);
+<a href="#l725" class="line" id="l725">    725</a>             }
+<a href="#l726" class="line" id="l726">    726</a>         }
+<a href="#l727" class="line" id="l727">    727</a>         break;
+<a href="#l728" class="line" id="l728">    728</a>         default:
+<a href="#l729" class="line" id="l729">    729</a>             THROW_HR(E_UNEXPECTED);
+<a href="#l730" class="line" id="l730">    730</a>         }
+<a href="#l731" class="line" id="l731">    731</a> 
+<a href="#l732" class="line" id="l732">    732</a>         for (auto&amp; source : result)
+<a href="#l733" class="line" id="l733">    733</a>         {
+<a href="#l734" class="line" id="l734">    734</a>             source.Origin = origin;
+<a href="#l735" class="line" id="l735">    735</a>         }
+<a href="#l736" class="line" id="l736">    736</a> 
+<a href="#l737" class="line" id="l737">    737</a>         return result;
+<a href="#l738" class="line" id="l738">    738</a>     }
+<a href="#l739" class="line" id="l739">    739</a> 
+<a href="#l740" class="line" id="l740">    740</a>     bool SourceList::SetSourcesByOrigin(SourceOrigin origin, const std::vector&lt;SourceDetailsInternal&gt;&amp; sources)
+<a href="#l741" class="line" id="l741">    741</a>     {
+<a href="#l742" class="line" id="l742">    742</a>         switch (origin)
+<a href="#l743" class="line" id="l743">    743</a>         {
+<a href="#l744" class="line" id="l744">    744</a>         case SourceOrigin::User:
+<a href="#l745" class="line" id="l745">    745</a>             return SetSourcesToSettingWithFilter(m_userSourcesStream, SourceOrigin::User, sources);
+<a href="#l746" class="line" id="l746">    746</a>         }
+<a href="#l747" class="line" id="l747">    747</a> 
+<a href="#l748" class="line" id="l748">    748</a>         THROW_HR(E_UNEXPECTED);
+<a href="#l749" class="line" id="l749">    749</a>     }
+<a href="#l750" class="line" id="l750">    750</a> 
+<a href="#l751" class="line" id="l751">    751</a>     std::vector&lt;SourceDetailsInternal&gt; SourceList::GetMetadata()
+<a href="#l752" class="line" id="l752">    752</a>     {
+<a href="#l753" class="line" id="l753">    753</a>         return GetSourcesFromSetting(
+<a href="#l754" class="line" id="l754">    754</a>             m_metadataStream,
+<a href="#l755" class="line" id="l755">    755</a>             s_MetadataYaml_Sources,
+<a href="#l756" class="line" id="l756">    756</a>             [&amp;](SourceDetailsInternal&amp; details, const std::string&amp; settingValue, const YAML::Node&amp; source)
+<a href="#l757" class="line" id="l757">    757</a>             {
+<a href="#l758" class="line" id="l758">    758</a>                 details.Origin = SourceOrigin::Metadata;
+<a href="#l759" class="line" id="l759">    759</a>                 std::string_view name = m_metadataStream.GetName();
+<a href="#l760" class="line" id="l760">    760</a>                 if (!TryReadScalar(name, settingValue, source, s_MetadataYaml_Source_Name, details.Name)) { return false; }
+<a href="#l761" class="line" id="l761">    761</a> 
+<a href="#l762" class="line" id="l762">    762</a>                 int64_t lastUpdateInEpoch{};
+<a href="#l763" class="line" id="l763">    763</a>                 if (!TryReadScalar(name, settingValue, source, s_MetadataYaml_Source_LastUpdate, lastUpdateInEpoch)) { return false; }
+<a href="#l764" class="line" id="l764">    764</a>                 details.LastUpdateTime = Utility::ConvertUnixEpochToSystemClock(lastUpdateInEpoch);
+<a href="#l765" class="line" id="l765">    765</a> 
+<a href="#l766" class="line" id="l766">    766</a>                 int64_t doNotUpdateBeforeInEpoch{};
+<a href="#l767" class="line" id="l767">    767</a>                 if (TryReadScalar(name, settingValue, source, s_MetadataYaml_Source_DoNotUpdateBefore, doNotUpdateBeforeInEpoch, false))
+<a href="#l768" class="line" id="l768">    768</a>                 {
+<a href="#l769" class="line" id="l769">    769</a>                     details.DoNotUpdateBefore = Utility::ConvertUnixEpochToSystemClock(doNotUpdateBeforeInEpoch);
+<a href="#l770" class="line" id="l770">    770</a>                 }
+<a href="#l771" class="line" id="l771">    771</a> 
+<a href="#l772" class="line" id="l772">    772</a>                 TryReadScalar(name, settingValue, source, s_MetadataYaml_Source_AcceptedAgreementsIdentifier, details.AcceptedAgreementsIdentifier, false);
+<a href="#l773" class="line" id="l773">    773</a>                 TryReadScalar(name, settingValue, source, s_MetadataYaml_Source_AcceptedAgreementFields, details.AcceptedAgreementFields, false);
+<a href="#l774" class="line" id="l774">    774</a>                 return true;
+<a href="#l775" class="line" id="l775">    775</a>             });
+<a href="#l776" class="line" id="l776">    776</a>     }
+<a href="#l777" class="line" id="l777">    777</a> 
+<a href="#l778" class="line" id="l778">    778</a>     bool SourceList::SetMetadata(const std::vector&lt;SourceDetailsInternal&gt;&amp; sources)
+<a href="#l779" class="line" id="l779">    779</a>     {
+<a href="#l780" class="line" id="l780">    780</a>         YAML::Emitter out;
+<a href="#l781" class="line" id="l781">    781</a>         out &lt;&lt; YAML::BeginMap;
+<a href="#l782" class="line" id="l782">    782</a>         out &lt;&lt; YAML::Key &lt;&lt; s_MetadataYaml_Sources;
+<a href="#l783" class="line" id="l783">    783</a>         out &lt;&lt; YAML::BeginSeq;
+<a href="#l784" class="line" id="l784">    784</a> 
+<a href="#l785" class="line" id="l785">    785</a>         for (const auto&amp; details : sources)
+<a href="#l786" class="line" id="l786">    786</a>         {
+<a href="#l787" class="line" id="l787">    787</a>             out &lt;&lt; YAML::BeginMap;
+<a href="#l788" class="line" id="l788">    788</a>             out &lt;&lt; YAML::Key &lt;&lt; s_MetadataYaml_Source_Name &lt;&lt; YAML::Value &lt;&lt; details.Name;
+<a href="#l789" class="line" id="l789">    789</a>             out &lt;&lt; YAML::Key &lt;&lt; s_MetadataYaml_Source_LastUpdate &lt;&lt; YAML::Value &lt;&lt; Utility::ConvertSystemClockToUnixEpoch(details.LastUpdateTime);
+<a href="#l790" class="line" id="l790">    790</a>             out &lt;&lt; YAML::Key &lt;&lt; s_MetadataYaml_Source_DoNotUpdateBefore &lt;&lt; YAML::Value &lt;&lt; Utility::ConvertSystemClockToUnixEpoch(details.DoNotUpdateBefore);
+<a href="#l791" class="line" id="l791">    791</a>             out &lt;&lt; YAML::Key &lt;&lt; s_MetadataYaml_Source_AcceptedAgreementsIdentifier &lt;&lt; YAML::Value &lt;&lt; details.AcceptedAgreementsIdentifier;
+<a href="#l792" class="line" id="l792">    792</a>             out &lt;&lt; YAML::Key &lt;&lt; s_MetadataYaml_Source_AcceptedAgreementFields &lt;&lt; YAML::Value &lt;&lt; details.AcceptedAgreementFields;
+<a href="#l793" class="line" id="l793">    793</a>             out &lt;&lt; YAML::EndMap;
+<a href="#l794" class="line" id="l794">    794</a>         }
+<a href="#l795" class="line" id="l795">    795</a> 
+<a href="#l796" class="line" id="l796">    796</a>         out &lt;&lt; YAML::EndSeq;
+<a href="#l797" class="line" id="l797">    797</a>         out &lt;&lt; YAML::EndMap;
+<a href="#l798" class="line" id="l798">    798</a> 
+<a href="#l799" class="line" id="l799">    799</a>         return m_metadataStream.Set(out.str());
+<a href="#l800" class="line" id="l800">    800</a>     }
+<a href="#l801" class="line" id="l801">    801</a> 
+<a href="#l802" class="line" id="l802">    802</a>     void SourceList::SaveMetadataInternal(const SourceDetailsInternal&amp; detailsRef, bool remove)
+<a href="#l803" class="line" id="l803">    803</a>     {
+<a href="#l804" class="line" id="l804">    804</a>         // Copy the incoming details because we might overwrite the metadata
+<a href="#l805" class="line" id="l805">    805</a>         // when reloading the source details from settings.
+<a href="#l806" class="line" id="l806">    806</a>         SourceDetailsInternal details = detailsRef;
+<a href="#l807" class="line" id="l807">    807</a>         bool metadataSet = false;
+<a href="#l808" class="line" id="l808">    808</a> 
+<a href="#l809" class="line" id="l809">    809</a>         for (size_t i = 0; !metadataSet &amp;&amp; i &lt; 10; ++i)
+<a href="#l810" class="line" id="l810">    810</a>         {
+<a href="#l811" class="line" id="l811">    811</a>             metadataSet = SetMetadata(m_sourceList);
+<a href="#l812" class="line" id="l812">    812</a> 
+<a href="#l813" class="line" id="l813">    813</a>             if (!metadataSet)
+<a href="#l814" class="line" id="l814">    814</a>             {
+<a href="#l815" class="line" id="l815">    815</a>                 OverwriteMetadata();
+<a href="#l816" class="line" id="l816">    816</a> 
+<a href="#l817" class="line" id="l817">    817</a>                 auto target = FindSource(details.Name, true);
+<a href="#l818" class="line" id="l818">    818</a>                 if (target == m_sourceList.end())
+<a href="#l819" class="line" id="l819">    819</a>                 {
+<a href="#l820" class="line" id="l820">    820</a>                     // Didn&#39;t find the metadata, so we consider this a success
+<a href="#l821" class="line" id="l821">    821</a>                     return;
+<a href="#l822" class="line" id="l822">    822</a>                 }
+<a href="#l823" class="line" id="l823">    823</a> 
+<a href="#l824" class="line" id="l824">    824</a>                 if (remove)
+<a href="#l825" class="line" id="l825">    825</a>                 {
+<a href="#l826" class="line" id="l826">    826</a>                     // The remove will have removed the source but not the metadata.
+<a href="#l827" class="line" id="l827">    827</a>                     // Remove it again here.
+<a href="#l828" class="line" id="l828">    828</a>                     m_sourceList.erase(target);
+<a href="#l829" class="line" id="l829">    829</a>                 }
+<a href="#l830" class="line" id="l830">    830</a>                 else
+<a href="#l831" class="line" id="l831">    831</a>                 {
+<a href="#l832" class="line" id="l832">    832</a>                     // Update the freshly read metadata with the update that was requested.
+<a href="#l833" class="line" id="l833">    833</a>                     details.CopyMetadataFieldsTo(*target);
+<a href="#l834" class="line" id="l834">    834</a>                 }
+<a href="#l835" class="line" id="l835">    835</a>             }
+<a href="#l836" class="line" id="l836">    836</a>         }
+<a href="#l837" class="line" id="l837">    837</a> 
+<a href="#l838" class="line" id="l838">    838</a>         THROW_HR_IF_MSG(E_UNEXPECTED, !metadataSet, &quot;Too many attempts at SetMetadata&quot;);
+<a href="#l839" class="line" id="l839">    839</a>     }
+<a href="#l840" class="line" id="l840">    840</a> }
+</pre>
+</div>
+</body>
+</html>

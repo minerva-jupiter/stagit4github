@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix DLL load error in WinGetUtil (#1844) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/cee95925c544d7d1493a5d3300004c87290a51bf.html">cee95925c544d7d1493a5d3300004c87290a51bf</a>
+<b>parent</b> <a href="../commit/7481c148ac71e822d2a211c6055070b36275b38a.html">7481c148ac71e822d2a211c6055070b36275b38a</a>
+<b>Author:</b> Chacón &lt;<a href="mailto:lechacon@users.noreply.github.com">lechacon@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Wed, 12 Jan 2022 14:44:43 -0800
+
+Fix DLL load error in WinGetUtil (#1844)
+
+Load and call `IsWow64GuestMachineSupported()` dynamically only if it is available, instead of calling it directly. This prevents a DLL load error when running on RS1, as happens on the Azure Functions of the service.
+
+This is based on the existing pattern to call `GetMachineTypeAttributes()`.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLI.sln</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Architecture.cpp</a></td><td> | </td><td class="num">62</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------</span></td></tr>
+</table></pre><pre>2 files changed, 54 insertions(+), 9 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLI.sln.html">src/AppInstallerCLI.sln</a> b/<a href="../file/src/AppInstallerCLI.sln.html">src/AppInstallerCLI.sln</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -26,6 +26,7 @@ Project(&quot;{2150E333-8FDC-42A3-9474-1A3956D46DE8}&quot;) = &quot;Project&quot;, &quot;Project&quot;, &quot;{8D53
+</a> 		..\cgmanifest.json = ..\cgmanifest.json
+ 		..\README.md = ..\README.md
+ 		..\doc\Settings.md = ..\doc\Settings.md
+<a href="#h0-0-3" id="h0-0-3" class="i">+		..\WinGetUtil.nuspec = ..\WinGetUtil.nuspec
+</a> 	EndProjectSection
+ EndProject
+ Project(&quot;{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}&quot;) = &quot;catch2&quot;, &quot;catch2\catch2.vcxitems&quot;, &quot;{5295E21E-9868-4DE2-A177-FBB97B36579B}&quot;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Architecture.cpp.html">src/AppInstallerCommonCore/Architecture.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Architecture.cpp.html">src/AppInstallerCommonCore/Architecture.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -10,15 +10,55 @@ namespace AppInstaller::Utility
+</a> {
+     namespace
+     {
+<a href="#h1-0-3" id="h1-0-3" class="d">-        void AddArchitectureIfGuestMachineSupported(std::vector&lt;Architecture&gt;&amp; target, Architecture architecture, USHORT guestMachine)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        // IsWow64GuestMachineSupported() is available starting on Windows 10, version 1709 (RS3).
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        // We generally target a later version (version 1809, RS5), but the WinGetUtil is used in
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        // Azure Functions that run on version 1607 (RS1) where it is not available. So, we load and
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+        // call this function only if available.
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        using IsWow64GuestMachineSupportedPtr = decltype(&amp;IsWow64GuestMachineSupported);
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+        struct IsWow64GuestMachineSupportedHelper
+</a>         {
+<a href="#h1-0-12" id="h1-0-12" class="d">-            BOOL supported = FALSE;
+</a><a href="#h1-0-13" id="h1-0-13" class="d">-            LOG_IF_FAILED(IsWow64GuestMachineSupported(guestMachine, &amp;supported));
+</a><a href="#h1-0-14" id="h1-0-14" class="d">-            
+</a><a href="#h1-0-15" id="h1-0-15" class="d">-            if (supported)
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+            IsWow64GuestMachineSupportedHelper()
+</a>             {
+<a href="#h1-0-18" id="h1-0-18" class="d">-                target.push_back(architecture);
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+                m_module.reset(LoadLibraryEx(L&quot;api-ms-win-core-wow64-l1-1-2.dll&quot;, NULL, LOAD_LIBRARY_SEARCH_SYSTEM32));
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+                if (!m_module)
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+                {
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+                    AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Could not load api-ms-win-core-wow64-l1-1-2.dll&quot;);
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+                    return;
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+                }
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+                m_isWow64GuestMachineSupported =
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+                    reinterpret_cast&lt;IsWow64GuestMachineSupportedPtr&gt;(GetProcAddress(m_module.get(), &quot;IsWow64GuestMachineSupported&quot;));
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+                if (!m_isWow64GuestMachineSupported)
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+                {
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+                    AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Could not get proc address of IsWow64GuestMachineSupported&quot;);
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+                    return;
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+                }
+</a>             }
+<a href="#h1-0-34" id="h1-0-34" class="i">+
+</a><a href="#h1-0-35" id="h1-0-35" class="i">+            void AddArchitectureIfGuestMachineSupported(std::vector&lt;Architecture&gt;&amp; target, Architecture architecture, USHORT guestMachine)
+</a><a href="#h1-0-36" id="h1-0-36" class="i">+            {
+</a><a href="#h1-0-37" id="h1-0-37" class="i">+                if (m_isWow64GuestMachineSupported)
+</a><a href="#h1-0-38" id="h1-0-38" class="i">+                {
+</a><a href="#h1-0-39" id="h1-0-39" class="i">+                    BOOL supported = FALSE;
+</a><a href="#h1-0-40" id="h1-0-40" class="i">+                    LOG_IF_FAILED(m_isWow64GuestMachineSupported(guestMachine, &amp;supported));
+</a><a href="#h1-0-41" id="h1-0-41" class="i">+
+</a><a href="#h1-0-42" id="h1-0-42" class="i">+                    if (supported)
+</a><a href="#h1-0-43" id="h1-0-43" class="i">+                    {
+</a><a href="#h1-0-44" id="h1-0-44" class="i">+                        target.push_back(architecture);
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+                    }
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+                }
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+            }
+</a><a href="#h1-0-48" id="h1-0-48" class="i">+
+</a><a href="#h1-0-49" id="h1-0-49" class="i">+        private:
+</a><a href="#h1-0-50" id="h1-0-50" class="i">+            wil::unique_hmodule m_module;
+</a><a href="#h1-0-51" id="h1-0-51" class="i">+            IsWow64GuestMachineSupportedPtr m_isWow64GuestMachineSupported = nullptr;
+</a><a href="#h1-0-52" id="h1-0-52" class="i">+        };
+</a><a href="#h1-0-53" id="h1-0-53" class="i">+
+</a><a href="#h1-0-54" id="h1-0-54" class="i">+        void AddArchitectureIfGuestMachineSupported(std::vector&lt;Architecture&gt;&amp; target, Architecture architecture, USHORT guestMachine)
+</a><a href="#h1-0-55" id="h1-0-55" class="i">+        {
+</a><a href="#h1-0-56" id="h1-0-56" class="i">+            IsWow64GuestMachineSupportedHelper helper;
+</a><a href="#h1-0-57" id="h1-0-57" class="i">+            helper.AddArchitectureIfGuestMachineSupported(target, architecture, guestMachine);
+</a>         }
+ 
+         // These types are defined in a future SDK and can be removed when we actually have them available.
+<a href="#h1-1" id="h1-1" class="h">@@ -75,6 +115,12 @@ namespace AppInstaller::Utility
+</a>             GetMachineTypeAttributesPtr m_getMachineTypeAttributes = nullptr;
+         };
+ 
+<a href="#h1-1-3" id="h1-1-3" class="i">+        void AddArchitectureIfMachineTypeAttributesUserEnabled(std::vector&lt;Architecture&gt;&amp; target, Architecture architecture, USHORT guestMachine)
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        {
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+            GetMachineTypeAttributesHelper helper;
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+            helper.AddArchitectureIfMachineTypeAttributesUserEnabled(target, architecture, guestMachine);
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+        }
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+
+</a>         // Gets the applicable architectures for the current machine.
+         std::vector&lt;Architecture&gt; CreateApplicableArchitecturesVector()
+         {
+<a href="#h1-2" id="h1-2" class="h">@@ -84,11 +130,9 @@ namespace AppInstaller::Utility
+</a>             {
+             case Architecture::Arm64:
+             {
+<a href="#h1-2-3" id="h1-2-3" class="d">-                GetMachineTypeAttributesHelper helper;
+</a><a href="#h1-2-4" id="h1-2-4" class="d">-
+</a>                 applicableArchs.push_back(Architecture::Arm64);
+                 AddArchitectureIfGuestMachineSupported(applicableArchs, Architecture::Arm, IMAGE_FILE_MACHINE_ARMNT);
+<a href="#h1-2-7" id="h1-2-7" class="d">-                helper.AddArchitectureIfMachineTypeAttributesUserEnabled(applicableArchs, Architecture::X64, IMAGE_FILE_MACHINE_AMD64);
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+                AddArchitectureIfMachineTypeAttributesUserEnabled(applicableArchs, Architecture::X64, IMAGE_FILE_MACHINE_AMD64);
+</a>                 AddArchitectureIfGuestMachineSupported(applicableArchs, Architecture::X86, IMAGE_FILE_MACHINE_I386);
+                 applicableArchs.push_back(Architecture::Neutral);
+             }
+</pre>
+</div>
+</body>
+</html>

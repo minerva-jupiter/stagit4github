@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Make CrossProcessReaderWriteLock resilient to process termination (#1098) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/b78cf8b7ea5639ef104baaa422f0372ef6f765c9.html">b78cf8b7ea5639ef104baaa422f0372ef6f765c9</a>
+<b>parent</b> <a href="../commit/b94e128bdf773e185b87fce985d213c9d82ed742.html">b94e128bdf773e185b87fce985d213c9d82ed742</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu,  3 Jun 2021 16:21:55 -0700
+
+Make CrossProcessReaderWriteLock resilient to process termination (#1098)
+
+The previous implementation (using a semaphore) was not resilient to unexpected process termination, as Windows does not track semaphore ownership.  This could lead to a deadlock in a waiting process, and at least one user even experienced an ongoing deadlock despite having killed all of the active processes (which should have destroyed and thus reset the named semaphore).
+
+This version uses a set of named mutexes instead, which Windows will release for us in the event of abandonment.  As part of the change I have also added the ability to pass in an `IProgressCallback` to allow for cancellation of the wait.
+
+On top of that change, I realized the the source management functions were not properly indicating that they were cancelled.  While a CTRL+C in the middle of a `source add` would in fact cancel the action internally, it would still add the source information into the settings stream.  I have updated the stack to handle cancellation now, including the output from top level now saying `Cancelled` rather than `Done` to indicate that CTRL+C actually did stop the action.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/allow.txt</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/SourceFlow.cpp</a></td><td> | </td><td class="num">31</td><td><span class="i">++++++++++++++++++++++++</span><span class="d">-------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLITests/Synchronization.cpp</a></td><td> | </td><td class="num">41</td><td><span class="i">+++++++++++++++++++++++++++++++++</span><span class="d">--------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLITests/TestSource.cpp</a></td><td> | </td><td class="num">9</td><td><span class="i">++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCLITests/TestSource.h</a></td><td> | </td><td class="num">6</td><td><span class="i">+++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a></td><td> | </td><td class="num">23</td><td><span class="i">++++++++++++++</span><span class="d">---------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerCommonCore/Synchronization.cpp</a></td><td> | </td><td class="num">251</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></td><td> | </td><td class="num">105</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">+++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/AppInstallerRepositoryCore/Public/AppInstallerRepositorySource.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h12">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></td><td> | </td><td class="num">79</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h13">src/AppInstallerRepositoryCore/Rest/RestSourceFactory.cpp</a></td><td> | </td><td class="num">10</td><td><span class="i">+++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h14">src/AppInstallerRepositoryCore/SourceFactory.h</a></td><td> | </td><td class="num">18</td><td><span class="i">+++++++++++++++</span><span class="d">---</span></td></tr>
+</table></pre><pre>15 files changed, 457 insertions(+), 130 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a> b/<a href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -257,6 +257,7 @@ msrc
+</a> Multifile
+ Multimatch
+ mutex
+<a href="#h0-0-3" id="h0-0-3" class="i">+mutexes
+</a> namespace
+ namespaces
+ Nelon
+<a href="#h0-1" id="h0-1" class="h">@@ -530,6 +531,7 @@ woah
+</a> wofstream
+ workaround
+ workflow
+<a href="#h0-1-3" id="h0-1-3" class="i">+wostringstream
+</a> wostream
+ wpfn
+ wrl
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -27,6 +27,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(AvailableOptions);
+         WINGET_DEFINE_RESOURCE_STRINGID(AvailableSubcommands);
+         WINGET_DEFINE_RESOURCE_STRINGID(BothManifestAndSearchQueryProvided);
+<a href="#h1-0-3" id="h1-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(Cancelled);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ChannelArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(Command);
+         WINGET_DEFINE_RESOURCE_STRINGID(CommandArgumentDescription);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/SourceFlow.cpp.html">src/AppInstallerCLICore/Workflows/SourceFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/SourceFlow.cpp.html">src/AppInstallerCLICore/Workflows/SourceFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -94,9 +94,14 @@ namespace AppInstaller::CLI::Workflow
+</a>             Resource::String::SourceAddBegin &lt;&lt; std::endl &lt;&lt;
+             &quot;  &quot;_liv &lt;&lt; name &lt;&lt; &quot; -&gt; &quot;_liv &lt;&lt; arg &lt;&lt; std::endl;
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-        context.Reporter.ExecuteWithProgress(std::bind(Repository::AddSource, std::move(name), std::move(type), std::move(arg), std::placeholders::_1));
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-        context.Reporter.Info() &lt;&lt; Resource::String::Done;
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        if (context.Reporter.ExecuteWithProgress(std::bind(Repository::AddSource, std::move(name), std::move(type), std::move(arg), std::placeholders::_1)))
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+        {
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+            context.Reporter.Info() &lt;&lt; Resource::String::Done;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+        }
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+        else
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+        {
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+            context.Reporter.Info() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+        }
+</a>     }
+ 
+     void ListSources(Execution::Context&amp; context)
+<a href="#h2-1" id="h2-1" class="h">@@ -160,8 +165,14 @@ namespace AppInstaller::CLI::Workflow
+</a>         for (const auto&amp; sd : sources)
+         {
+             context.Reporter.Info() &lt;&lt; Resource::String::SourceUpdateOne &lt;&lt; &#39; &#39; &lt;&lt; sd.Name &lt;&lt; &quot;...&quot;_liv &lt;&lt; std::endl;
+<a href="#h2-1-3" id="h2-1-3" class="d">-            context.Reporter.ExecuteWithProgress(std::bind(Repository::UpdateSource, sd.Name, std::placeholders::_1));
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-            context.Reporter.Info() &lt;&lt; Resource::String::Done &lt;&lt; std::endl;
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+            if (context.Reporter.ExecuteWithProgress(std::bind(Repository::UpdateSource, sd.Name, std::placeholders::_1)))
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+            {
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+                context.Reporter.Info() &lt;&lt; Resource::String::Done &lt;&lt; std::endl;
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+            }
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+            else
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+            {
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+                context.Reporter.Info() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+            }
+</a>         }
+     }
+ 
+<a href="#h2-2" id="h2-2" class="h">@@ -178,8 +189,14 @@ namespace AppInstaller::CLI::Workflow
+</a>         for (const auto&amp; sd : sources)
+         {
+             context.Reporter.Info() &lt;&lt; Resource::String::SourceRemoveOne &lt;&lt; &#39; &#39; &lt;&lt; sd.Name &lt;&lt; &quot;...&quot;_liv &lt;&lt; std::endl;
+<a href="#h2-2-3" id="h2-2-3" class="d">-            context.Reporter.ExecuteWithProgress(std::bind(Repository::RemoveSource, sd.Name, std::placeholders::_1));
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-            context.Reporter.Info() &lt;&lt; Resource::String::Done &lt;&lt; std::endl;
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+            if (context.Reporter.ExecuteWithProgress(std::bind(Repository::RemoveSource, sd.Name, std::placeholders::_1)))
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+            {
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+                context.Reporter.Info() &lt;&lt; Resource::String::Done &lt;&lt; std::endl;
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+            }
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+            else
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+            {
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+                context.Reporter.Info() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+</a><a href="#h2-2-12" id="h2-2-12" class="i">+            }
+</a>         }
+     }
+ 
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -918,4 +918,7 @@ Configuration is disabled due to Group Policy.&lt;/value&gt;
+</a>     &lt;value&gt;The value provided for the `%1` argument is invalid&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;%1&quot;} The value will be replaced with the argument name&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h3-0-3" id="h3-0-3" class="i">+  &lt;data name=&quot;Cancelled&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    &lt;value&gt;Cancelled&lt;/value&gt;
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLITests/Synchronization.cpp.html">src/AppInstallerCLITests/Synchronization.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Synchronization.cpp.html">src/AppInstallerCLITests/Synchronization.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -14,10 +14,10 @@ TEST_CASE(&quot;CPRWL_MultipleReaders&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>     wil::unique_event signal;
+     signal.create();
+ 
+<a href="#h4-0-3" id="h4-0-3" class="d">-    CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockForRead(name);
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+    CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a> 
+     std::thread otherThread([&amp;name, &amp;signal]() {
+<a href="#h4-0-7" id="h4-0-7" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockForRead(name);
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a>             signal.SetEvent();
+         });
+     // In the event of bugs, we don&#39;t want to block the test waiting forever
+<a href="#h4-1" id="h4-1" class="h">@@ -35,10 +35,10 @@ TEST_CASE(&quot;CPRWL_WriterBlocksReader&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>     signal.create();
+ 
+     {
+<a href="#h4-1-3" id="h4-1-3" class="d">-        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockForWrite(name);
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a> 
+         std::thread otherThread([&amp;name, &amp;signal]() {
+<a href="#h4-1-7" id="h4-1-7" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockForRead(name);
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a>             signal.SetEvent();
+             });
+         // In the event of bugs, we don&#39;t want to block the test waiting forever
+<a href="#h4-2" id="h4-2" class="h">@@ -59,10 +59,10 @@ TEST_CASE(&quot;CPRWL_ReaderBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>     signal.create();
+ 
+     {
+<a href="#h4-2-3" id="h4-2-3" class="d">-        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockForRead(name);
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a> 
+         std::thread otherThread([&amp;name, &amp;signal]() {
+<a href="#h4-2-7" id="h4-2-7" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockForWrite(name);
+</a><a href="#h4-2-8" id="h4-2-8" class="i">+            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a>             signal.SetEvent();
+             });
+         // In the event of bugs, we don&#39;t want to block the test waiting forever
+<a href="#h4-3" id="h4-3" class="h">@@ -83,10 +83,10 @@ TEST_CASE(&quot;CPRWL_WriterBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>     signal.create();
+ 
+     {
+<a href="#h4-3-3" id="h4-3-3" class="d">-        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockForWrite(name);
+</a><a href="#h4-3-4" id="h4-3-4" class="i">+        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a> 
+         std::thread otherThread([&amp;name, &amp;signal]() {
+<a href="#h4-3-7" id="h4-3-7" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockForWrite(name);
+</a><a href="#h4-3-8" id="h4-3-8" class="i">+            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a>             signal.SetEvent();
+             });
+         // In the event of bugs, we don&#39;t want to block the test waiting forever
+<a href="#h4-4" id="h4-4" class="h">@@ -98,3 +98,28 @@ TEST_CASE(&quot;CPRWL_WriterBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>     // Upon release of the writer, the other thread should signal
+     REQUIRE(signal.wait(1000));
+ }
+<a href="#h4-4-3" id="h4-4-3" class="i">+
+</a><a href="#h4-4-4" id="h4-4-4" class="i">+TEST_CASE(&quot;CPRWL_CancelEndsWait&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a><a href="#h4-4-5" id="h4-4-5" class="i">+{
+</a><a href="#h4-4-6" id="h4-4-6" class="i">+    std::string name = &quot;AppInstCPRWLTests&quot;;
+</a><a href="#h4-4-7" id="h4-4-7" class="i">+
+</a><a href="#h4-4-8" id="h4-4-8" class="i">+    wil::unique_event signal;
+</a><a href="#h4-4-9" id="h4-4-9" class="i">+    signal.create();
+</a><a href="#h4-4-10" id="h4-4-10" class="i">+    AppInstaller::ProgressCallback progress;
+</a><a href="#h4-4-11" id="h4-4-11" class="i">+
+</a><a href="#h4-4-12" id="h4-4-12" class="i">+    CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a><a href="#h4-4-13" id="h4-4-13" class="i">+
+</a><a href="#h4-4-14" id="h4-4-14" class="i">+    std::thread otherThread([&amp;name, &amp;signal, &amp;progress]() {
+</a><a href="#h4-4-15" id="h4-4-15" class="i">+        CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockExclusive(name, progress);
+</a><a href="#h4-4-16" id="h4-4-16" class="i">+        signal.SetEvent();
+</a><a href="#h4-4-17" id="h4-4-17" class="i">+        });
+</a><a href="#h4-4-18" id="h4-4-18" class="i">+    // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h4-4-19" id="h4-4-19" class="i">+    otherThread.detach();
+</a><a href="#h4-4-20" id="h4-4-20" class="i">+
+</a><a href="#h4-4-21" id="h4-4-21" class="i">+    REQUIRE(!signal.wait(1000));
+</a><a href="#h4-4-22" id="h4-4-22" class="i">+
+</a><a href="#h4-4-23" id="h4-4-23" class="i">+    progress.Cancel();
+</a><a href="#h4-4-24" id="h4-4-24" class="i">+
+</a><a href="#h4-4-25" id="h4-4-25" class="i">+    // Upon release of the writer, the other thread should signal
+</a><a href="#h4-4-26" id="h4-4-26" class="i">+    REQUIRE(signal.wait(1000));
+</a><a href="#h4-4-27" id="h4-4-27" class="i">+}
+</a><b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLITests/TestSource.cpp.html">src/AppInstallerCLITests/TestSource.cpp</a> b/<a href="../file/src/AppInstallerCLITests/TestSource.cpp.html">src/AppInstallerCLITests/TestSource.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -271,28 +271,31 @@ namespace TestCommon
+</a>         return OnCreate(details);
+     }
+ 
+<a href="#h5-0-3" id="h5-0-3" class="d">-    void TestSourceFactory::Add(SourceDetails&amp; details, IProgressCallback&amp;)
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    bool TestSourceFactory::Add(SourceDetails&amp; details, IProgressCallback&amp;)
+</a>     {
+         if (OnAdd)
+         {
+             OnAdd(details);
+         }
+<a href="#h5-0-10" id="h5-0-10" class="i">+        return true;
+</a>     }
+ 
+<a href="#h5-0-13" id="h5-0-13" class="d">-    void TestSourceFactory::Update(const SourceDetails&amp; details, IProgressCallback&amp;)
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+    bool TestSourceFactory::Update(const SourceDetails&amp; details, IProgressCallback&amp;)
+</a>     {
+         if (OnUpdate)
+         {
+             OnUpdate(details);
+         }
+<a href="#h5-0-20" id="h5-0-20" class="i">+        return true;
+</a>     }
+ 
+<a href="#h5-0-23" id="h5-0-23" class="d">-    void TestSourceFactory::Remove(const SourceDetails&amp; details, IProgressCallback&amp;)
+</a><a href="#h5-0-24" id="h5-0-24" class="i">+    bool TestSourceFactory::Remove(const SourceDetails&amp; details, IProgressCallback&amp;)
+</a>     {
+         if (OnRemove)
+         {
+             OnRemove(details);
+         }
+<a href="#h5-0-30" id="h5-0-30" class="i">+        return true;
+</a>     }
+ 
+     // Make copies of self when requested.
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCLITests/TestSource.h.html">src/AppInstallerCLITests/TestSource.h</a> b/<a href="../file/src/AppInstallerCLITests/TestSource.h.html">src/AppInstallerCLITests/TestSource.h</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -98,9 +98,9 @@ namespace TestCommon
+</a> 
+         // ISourceFactory
+         std::shared_ptr&lt;AppInstaller::Repository::ISource&gt; Create(const AppInstaller::Repository::SourceDetails&amp; details, AppInstaller::IProgressCallback&amp;) override;
+<a href="#h6-0-3" id="h6-0-3" class="d">-        void Add(AppInstaller::Repository::SourceDetails&amp; details, AppInstaller::IProgressCallback&amp;) override;
+</a><a href="#h6-0-4" id="h6-0-4" class="d">-        void Update(const AppInstaller::Repository::SourceDetails&amp; details, AppInstaller::IProgressCallback&amp;) override;
+</a><a href="#h6-0-5" id="h6-0-5" class="d">-        void Remove(const AppInstaller::Repository::SourceDetails&amp; details, AppInstaller::IProgressCallback&amp;) override;
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+        bool Add(AppInstaller::Repository::SourceDetails&amp; details, AppInstaller::IProgressCallback&amp;) override;
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+        bool Update(const AppInstaller::Repository::SourceDetails&amp; details, AppInstaller::IProgressCallback&amp;) override;
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+        bool Remove(const AppInstaller::Repository::SourceDetails&amp; details, AppInstaller::IProgressCallback&amp;) override;
+</a> 
+         // Make copies of self when requested.
+         operator std::function&lt;std::unique_ptr&lt;AppInstaller::Repository::ISourceFactory&gt;()&gt;();
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h.html">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h.html">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -2,9 +2,14 @@
+</a> // Licensed under the MIT License.
+ #pragma once
+ #include &lt;AppInstallerLanguageUtilities.h&gt;
+<a href="#h7-0-3" id="h7-0-3" class="i">+#include &lt;AppInstallerProgress.h&gt;
+</a> #include &lt;wil/resource.h&gt;
+ 
+<a href="#h7-0-6" id="h7-0-6" class="i">+#include &lt;chrono&gt;
+</a> #include &lt;string_view&gt;
+<a href="#h7-0-8" id="h7-0-8" class="i">+#include &lt;vector&gt;
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+
+</a><a href="#h7-0-10" id="h7-0-10" class="i">+using namespace std::chrono_literals;
+</a> 
+ 
+ namespace AppInstaller::Synchronization
+<a href="#h7-1" id="h7-1" class="h">@@ -12,7 +17,7 @@ namespace AppInstaller::Synchronization
+</a>     // A fairly simple cross process (same session) reader-writer lock.
+     // The primary purpose is for sources to control access to their backing stores.
+     // Due to this design goal, these limitations exist:
+<a href="#h7-1-3" id="h7-1-3" class="d">-    // - Starves readers when a writer comes in.
+</a><a href="#h7-1-4" id="h7-1-4" class="i">+    // - Starves new readers when a writer comes in.
+</a>     // - Readers are limited to an arbitrarily chosen limit.
+     // - Not re-entrant (although repeated read locking will work, it will consume additional slots).
+     // - No upgrade from reader to writer.
+<a href="#h7-2" id="h7-2" class="h">@@ -29,18 +34,18 @@ namespace AppInstaller::Synchronization
+</a>         CrossProcessReaderWriteLock(CrossProcessReaderWriteLock&amp;&amp;) = default;
+         CrossProcessReaderWriteLock&amp; operator=(CrossProcessReaderWriteLock&amp;&amp;) = default;
+ 
+<a href="#h7-2-3" id="h7-2-3" class="d">-        static CrossProcessReaderWriteLock LockForRead(std::string_view name);
+</a><a href="#h7-2-4" id="h7-2-4" class="i">+        static CrossProcessReaderWriteLock LockShared(std::string_view name);
+</a><a href="#h7-2-5" id="h7-2-5" class="i">+        static CrossProcessReaderWriteLock LockShared(std::string_view name, IProgressCallback&amp; progress);
+</a> 
+<a href="#h7-2-7" id="h7-2-7" class="d">-        static CrossProcessReaderWriteLock LockForWrite(std::string_view name);
+</a><a href="#h7-2-8" id="h7-2-8" class="i">+        static CrossProcessReaderWriteLock LockExclusive(std::string_view name);
+</a><a href="#h7-2-9" id="h7-2-9" class="i">+        static CrossProcessReaderWriteLock LockExclusive(std::string_view name, IProgressCallback&amp; progress);
+</a><a href="#h7-2-10" id="h7-2-10" class="i">+        static CrossProcessReaderWriteLock LockExclusive(std::string_view name, std::chrono::milliseconds timeout);
+</a> 
+<a href="#h7-2-12" id="h7-2-12" class="d">-        bool WasAbandoned() { return m_wasAbandoned; }
+</a><a href="#h7-2-13" id="h7-2-13" class="i">+        operator bool() const;
+</a> 
+     private:
+<a href="#h7-2-16" id="h7-2-16" class="d">-        CrossProcessReaderWriteLock(std::string_view name);
+</a><a href="#h7-2-17" id="h7-2-17" class="i">+        static CrossProcessReaderWriteLock Lock(bool shared, std::string_view name, std::chrono::milliseconds timeout, IProgressCallback* progress);
+</a> 
+<a href="#h7-2-19" id="h7-2-19" class="d">-        wil::unique_mutex m_mutex;
+</a><a href="#h7-2-20" id="h7-2-20" class="d">-        wil::unique_semaphore m_semaphore;
+</a><a href="#h7-2-21" id="h7-2-21" class="d">-        ResetWhenMovedFrom&lt;LONG&gt; m_semaphoreReleases{ 0 };
+</a><a href="#h7-2-22" id="h7-2-22" class="d">-        bool m_wasAbandoned = false;
+</a><a href="#h7-2-23" id="h7-2-23" class="i">+        std::vector&lt;wil::unique_mutex&gt; m_mutexesHeld;
+</a>     };
+ }
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerCommonCore/Synchronization.cpp.html">src/AppInstallerCommonCore/Synchronization.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Synchronization.cpp.html">src/AppInstallerCommonCore/Synchronization.cpp</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -11,66 +11,247 @@ namespace AppInstaller::Synchronization
+</a>     using namespace std::string_view_literals;
+ 
+     constexpr std::wstring_view s_CrossProcessReaderWriteLock_MutexSuffix = L&quot;.mutex&quot;sv;
+<a href="#h8-0-3" id="h8-0-3" class="d">-    constexpr std::wstring_view s_CrossProcessReaderWriteLock_SemaphoreSuffix = L&quot;.sem&quot;sv;
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+    // A milliseconds version of INFINITE
+</a><a href="#h8-0-6" id="h8-0-6" class="i">+    constexpr std::chrono::milliseconds s_CrossProcessReaderWriteLock_Infinite = static_cast&lt;std::chrono::milliseconds&gt;(INFINITE);
+</a><a href="#h8-0-7" id="h8-0-7" class="i">+
+</a><a href="#h8-0-8" id="h8-0-8" class="i">+    // The amount of time that we wait in between checking for cancellation
+</a><a href="#h8-0-9" id="h8-0-9" class="i">+    constexpr std::chrono::milliseconds s_CrossProcessReaderWriteLock_WaitLoopTime = 250ms;
+</a> 
+     // Arbitrary limit that should not ever cause a problem (theoretically 1 per process)
+<a href="#h8-0-12" id="h8-0-12" class="d">-    constexpr LONG s_CrossProcessReaderWriteLock_MaxReaders = 16;
+</a><a href="#h8-0-13" id="h8-0-13" class="i">+    constexpr size_t s_CrossProcessReaderWriteLock_MaxReaders = 8;
+</a><a href="#h8-0-14" id="h8-0-14" class="i">+
+</a><a href="#h8-0-15" id="h8-0-15" class="i">+    namespace
+</a><a href="#h8-0-16" id="h8-0-16" class="i">+    {
+</a><a href="#h8-0-17" id="h8-0-17" class="i">+        wil::unique_mutex OpenControlMutex(const std::wstring&amp; name)
+</a><a href="#h8-0-18" id="h8-0-18" class="i">+        {
+</a><a href="#h8-0-19" id="h8-0-19" class="i">+            std::wstring mutexName = name;
+</a><a href="#h8-0-20" id="h8-0-20" class="i">+            mutexName += s_CrossProcessReaderWriteLock_MutexSuffix;
+</a><a href="#h8-0-21" id="h8-0-21" class="i">+
+</a><a href="#h8-0-22" id="h8-0-22" class="i">+            wil::unique_mutex result;
+</a><a href="#h8-0-23" id="h8-0-23" class="i">+            result.create(mutexName.c_str(), 0, SYNCHRONIZE);
+</a><a href="#h8-0-24" id="h8-0-24" class="i">+            return result;
+</a><a href="#h8-0-25" id="h8-0-25" class="i">+        }
+</a><a href="#h8-0-26" id="h8-0-26" class="i">+
+</a><a href="#h8-0-27" id="h8-0-27" class="i">+        wil::unique_mutex OpenAccessMutex(const std::wstring&amp; name, size_t index)
+</a><a href="#h8-0-28" id="h8-0-28" class="i">+        {
+</a><a href="#h8-0-29" id="h8-0-29" class="i">+            THROW_HR_IF(E_INVALIDARG, index &gt;= s_CrossProcessReaderWriteLock_MaxReaders);
+</a><a href="#h8-0-30" id="h8-0-30" class="i">+            std::wostringstream strstr;
+</a><a href="#h8-0-31" id="h8-0-31" class="i">+            strstr &lt;&lt; name &lt;&lt; L&#39;.&#39; &lt;&lt; index;
+</a><a href="#h8-0-32" id="h8-0-32" class="i">+
+</a><a href="#h8-0-33" id="h8-0-33" class="i">+            wil::unique_mutex result;
+</a><a href="#h8-0-34" id="h8-0-34" class="i">+            result.create(strstr.str().c_str(), 0, SYNCHRONIZE);
+</a><a href="#h8-0-35" id="h8-0-35" class="i">+            return result;
+</a><a href="#h8-0-36" id="h8-0-36" class="i">+        }
+</a><a href="#h8-0-37" id="h8-0-37" class="i">+    }
+</a> 
+     CrossProcessReaderWriteLock::~CrossProcessReaderWriteLock()
+     {
+<a href="#h8-0-41" id="h8-0-41" class="d">-        for (LONG i = 0; i &lt; m_semaphoreReleases; ++i)
+</a><a href="#h8-0-42" id="h8-0-42" class="i">+        for (auto&amp; mutex : m_mutexesHeld)
+</a>         {
+<a href="#h8-0-44" id="h8-0-44" class="d">-            m_semaphore.ReleaseSemaphore();
+</a><a href="#h8-0-45" id="h8-0-45" class="i">+            ReleaseMutex(mutex.get());
+</a>         }
+     }
+ 
+<a href="#h8-0-49" id="h8-0-49" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockForRead(std::string_view name)
+</a><a href="#h8-0-50" id="h8-0-50" class="i">+    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockShared(std::string_view name)
+</a>     {
+<a href="#h8-0-52" id="h8-0-52" class="d">-        CrossProcessReaderWriteLock result(name);
+</a><a href="#h8-0-53" id="h8-0-53" class="i">+        return Lock(true, name, s_CrossProcessReaderWriteLock_Infinite, nullptr);
+</a><a href="#h8-0-54" id="h8-0-54" class="i">+    }
+</a> 
+<a href="#h8-0-56" id="h8-0-56" class="d">-        DWORD status = 0;
+</a><a href="#h8-0-57" id="h8-0-57" class="d">-        auto lock = result.m_mutex.acquire(&amp;status);
+</a><a href="#h8-0-58" id="h8-0-58" class="d">-        THROW_HR_IF(E_UNEXPECTED, status != WAIT_OBJECT_0);
+</a><a href="#h8-0-59" id="h8-0-59" class="i">+    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockShared(std::string_view name, IProgressCallback&amp; progress)
+</a><a href="#h8-0-60" id="h8-0-60" class="i">+    {
+</a><a href="#h8-0-61" id="h8-0-61" class="i">+        return Lock(true, name, s_CrossProcessReaderWriteLock_Infinite, &amp;progress);
+</a><a href="#h8-0-62" id="h8-0-62" class="i">+    }
+</a> 
+<a href="#h8-0-64" id="h8-0-64" class="d">-        // We are taking ownership of releasing this in the destructor
+</a><a href="#h8-0-65" id="h8-0-65" class="d">-        status = ::WaitForSingleObjectEx(result.m_semaphore.get(), INFINITE, FALSE);
+</a><a href="#h8-0-66" id="h8-0-66" class="d">-        THROW_HR_IF(E_UNEXPECTED, status != WAIT_OBJECT_0);
+</a><a href="#h8-0-67" id="h8-0-67" class="i">+    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockExclusive(std::string_view name)
+</a><a href="#h8-0-68" id="h8-0-68" class="i">+    {
+</a><a href="#h8-0-69" id="h8-0-69" class="i">+        return Lock(false, name, s_CrossProcessReaderWriteLock_Infinite, nullptr);
+</a><a href="#h8-0-70" id="h8-0-70" class="i">+    }
+</a> 
+<a href="#h8-0-72" id="h8-0-72" class="d">-        result.m_semaphoreReleases = 1;
+</a><a href="#h8-0-73" id="h8-0-73" class="d">-        return result;
+</a><a href="#h8-0-74" id="h8-0-74" class="i">+    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockExclusive(std::string_view name, IProgressCallback&amp; progress)
+</a><a href="#h8-0-75" id="h8-0-75" class="i">+    {
+</a><a href="#h8-0-76" id="h8-0-76" class="i">+        return Lock(false, name, s_CrossProcessReaderWriteLock_Infinite, &amp;progress);
+</a>     }
+ 
+<a href="#h8-0-79" id="h8-0-79" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockForWrite(std::string_view name)
+</a><a href="#h8-0-80" id="h8-0-80" class="i">+    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockExclusive(std::string_view name, std::chrono::milliseconds timeout)
+</a>     {
+<a href="#h8-0-82" id="h8-0-82" class="d">-        CrossProcessReaderWriteLock result(name);
+</a><a href="#h8-0-83" id="h8-0-83" class="i">+        return Lock(false, name, timeout, nullptr);
+</a><a href="#h8-0-84" id="h8-0-84" class="i">+    }
+</a><a href="#h8-0-85" id="h8-0-85" class="i">+
+</a><a href="#h8-0-86" id="h8-0-86" class="i">+    CrossProcessReaderWriteLock::operator bool() const
+</a><a href="#h8-0-87" id="h8-0-87" class="i">+    {
+</a><a href="#h8-0-88" id="h8-0-88" class="i">+        return !m_mutexesHeld.empty();
+</a><a href="#h8-0-89" id="h8-0-89" class="i">+    }
+</a><a href="#h8-0-90" id="h8-0-90" class="i">+
+</a><a href="#h8-0-91" id="h8-0-91" class="i">+    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::Lock(
+</a><a href="#h8-0-92" id="h8-0-92" class="i">+        bool shared,
+</a><a href="#h8-0-93" id="h8-0-93" class="i">+        std::string_view name,
+</a><a href="#h8-0-94" id="h8-0-94" class="i">+        std::chrono::milliseconds timeout,
+</a><a href="#h8-0-95" id="h8-0-95" class="i">+        IProgressCallback* progress)
+</a><a href="#h8-0-96" id="h8-0-96" class="i">+    {
+</a><a href="#h8-0-97" id="h8-0-97" class="i">+        auto start = std::chrono::steady_clock::now();
+</a><a href="#h8-0-98" id="h8-0-98" class="i">+
+</a><a href="#h8-0-99" id="h8-0-99" class="i">+        // Verify inputs
+</a><a href="#h8-0-100" id="h8-0-100" class="i">+        THROW_HR_IF(E_INVALIDARG, name.find(&#39;\\&#39;) != std::string::npos);
+</a><a href="#h8-0-101" id="h8-0-101" class="i">+        THROW_HR_IF(E_INVALIDARG, timeout.count() &gt; INFINITE);
+</a><a href="#h8-0-102" id="h8-0-102" class="i">+
+</a><a href="#h8-0-103" id="h8-0-103" class="i">+        CrossProcessReaderWriteLock result;
+</a><a href="#h8-0-104" id="h8-0-104" class="i">+        std::wstring wideName = Utility::ConvertToUTF16(name);
+</a> 
+<a href="#h8-0-106" id="h8-0-106" class="i">+        // Acquire overall control mutex
+</a>         DWORD status = 0;
+<a href="#h8-0-108" id="h8-0-108" class="d">-        auto lock = result.m_mutex.acquire(&amp;status);
+</a><a href="#h8-0-109" id="h8-0-109" class="d">-        THROW_HR_IF_NULL(E_UNEXPECTED, lock);
+</a><a href="#h8-0-110" id="h8-0-110" class="d">-        result.m_wasAbandoned = (status == WAIT_ABANDONED);
+</a><a href="#h8-0-111" id="h8-0-111" class="i">+        wil::unique_mutex controlMutex = OpenControlMutex(wideName);
+</a><a href="#h8-0-112" id="h8-0-112" class="i">+        auto lock = controlMutex.acquire(&amp;status, static_cast&lt;DWORD&gt;(timeout.count()));
+</a><a href="#h8-0-113" id="h8-0-113" class="i">+        THROW_LAST_ERROR_IF(status == WAIT_FAILED);
+</a> 
+<a href="#h8-0-115" id="h8-0-115" class="d">-        for (LONG i = 0; i &lt; s_CrossProcessReaderWriteLock_MaxReaders; ++i)
+</a><a href="#h8-0-116" id="h8-0-116" class="i">+        if (status == WAIT_TIMEOUT || (progress &amp;&amp; progress-&gt;IsCancelled()))
+</a>         {
+<a href="#h8-0-118" id="h8-0-118" class="d">-            // We are taking ownership of releasing these in the destructor
+</a><a href="#h8-0-119" id="h8-0-119" class="d">-            status = ::WaitForSingleObjectEx(result.m_semaphore.get(), INFINITE, FALSE);
+</a><a href="#h8-0-120" id="h8-0-120" class="d">-            THROW_HR_IF(E_UNEXPECTED, status != WAIT_OBJECT_0);
+</a><a href="#h8-0-121" id="h8-0-121" class="d">-            result.m_semaphoreReleases = i + 1;
+</a><a href="#h8-0-122" id="h8-0-122" class="i">+            return result;
+</a>         }
+ 
+<a href="#h8-0-125" id="h8-0-125" class="d">-        return result;
+</a><a href="#h8-0-126" id="h8-0-126" class="d">-    }
+</a><a href="#h8-0-127" id="h8-0-127" class="i">+        // Open all needed access mutexes
+</a><a href="#h8-0-128" id="h8-0-128" class="i">+        std::vector&lt;wil::unique_mutex&gt; allAccessMutexes;
+</a><a href="#h8-0-129" id="h8-0-129" class="i">+        HANDLE waitHandles[s_CrossProcessReaderWriteLock_MaxReaders]{};
+</a> 
+<a href="#h8-0-131" id="h8-0-131" class="d">-    CrossProcessReaderWriteLock::CrossProcessReaderWriteLock(std::string_view name)
+</a><a href="#h8-0-132" id="h8-0-132" class="d">-    {
+</a><a href="#h8-0-133" id="h8-0-133" class="d">-        THROW_HR_IF(E_INVALIDARG, name.find(&#39;\\&#39;) != std::string::npos);
+</a><a href="#h8-0-134" id="h8-0-134" class="i">+        if (shared)
+</a><a href="#h8-0-135" id="h8-0-135" class="i">+        {
+</a><a href="#h8-0-136" id="h8-0-136" class="i">+            // Acquire the first access mutex we can find that is open, or all of them if needed.
+</a><a href="#h8-0-137" id="h8-0-137" class="i">+            // Use the process id as an arbitrary value in an attempt to reduce collisions
+</a><a href="#h8-0-138" id="h8-0-138" class="i">+            // while still allowing for re-entrance to not be arbitrary.
+</a><a href="#h8-0-139" id="h8-0-139" class="i">+            size_t offset = GetProcessId(GetCurrentProcess()) % s_CrossProcessReaderWriteLock_MaxReaders;
+</a> 
+<a href="#h8-0-141" id="h8-0-141" class="d">-        std::wstring mutexName = Utility::ConvertToUTF16(name);
+</a><a href="#h8-0-142" id="h8-0-142" class="d">-        std::wstring semName = mutexName;
+</a><a href="#h8-0-143" id="h8-0-143" class="i">+            for (size_t i = 0; i &lt; s_CrossProcessReaderWriteLock_MaxReaders; ++i)
+</a><a href="#h8-0-144" id="h8-0-144" class="i">+            {
+</a><a href="#h8-0-145" id="h8-0-145" class="i">+                size_t index = (i + offset) % s_CrossProcessReaderWriteLock_MaxReaders;
+</a><a href="#h8-0-146" id="h8-0-146" class="i">+
+</a><a href="#h8-0-147" id="h8-0-147" class="i">+                wil::unique_mutex current = OpenAccessMutex(wideName, index);
+</a><a href="#h8-0-148" id="h8-0-148" class="i">+                status = ::WaitForSingleObjectEx(current.get(), 0, FALSE);
+</a><a href="#h8-0-149" id="h8-0-149" class="i">+
+</a><a href="#h8-0-150" id="h8-0-150" class="i">+                if (status == WAIT_OBJECT_0 || status == WAIT_ABANDONED)
+</a><a href="#h8-0-151" id="h8-0-151" class="i">+                {
+</a><a href="#h8-0-152" id="h8-0-152" class="i">+                    // We found an empty one, continue on with it
+</a><a href="#h8-0-153" id="h8-0-153" class="i">+                    result.m_mutexesHeld.emplace_back(std::move(current));
+</a><a href="#h8-0-154" id="h8-0-154" class="i">+                    return result;
+</a><a href="#h8-0-155" id="h8-0-155" class="i">+                }
+</a><a href="#h8-0-156" id="h8-0-156" class="i">+                else if (status == WAIT_TIMEOUT)
+</a><a href="#h8-0-157" id="h8-0-157" class="i">+                {
+</a><a href="#h8-0-158" id="h8-0-158" class="i">+                    waitHandles[i] = current.get();
+</a><a href="#h8-0-159" id="h8-0-159" class="i">+                    allAccessMutexes.emplace_back(std::move(current));
+</a><a href="#h8-0-160" id="h8-0-160" class="i">+                }
+</a><a href="#h8-0-161" id="h8-0-161" class="i">+                else
+</a><a href="#h8-0-162" id="h8-0-162" class="i">+                {
+</a><a href="#h8-0-163" id="h8-0-163" class="i">+                    THROW_LAST_ERROR();
+</a><a href="#h8-0-164" id="h8-0-164" class="i">+                }
+</a><a href="#h8-0-165" id="h8-0-165" class="i">+            }
+</a><a href="#h8-0-166" id="h8-0-166" class="i">+        }
+</a><a href="#h8-0-167" id="h8-0-167" class="i">+        else
+</a><a href="#h8-0-168" id="h8-0-168" class="i">+        {
+</a><a href="#h8-0-169" id="h8-0-169" class="i">+            // Open all of the access mutexes.
+</a><a href="#h8-0-170" id="h8-0-170" class="i">+            for (size_t i = 0; i &lt; s_CrossProcessReaderWriteLock_MaxReaders; ++i)
+</a><a href="#h8-0-171" id="h8-0-171" class="i">+            {
+</a><a href="#h8-0-172" id="h8-0-172" class="i">+                wil::unique_mutex current = OpenAccessMutex(wideName, i);
+</a><a href="#h8-0-173" id="h8-0-173" class="i">+                waitHandles[i] = current.get();
+</a><a href="#h8-0-174" id="h8-0-174" class="i">+                allAccessMutexes.emplace_back(std::move(current));
+</a><a href="#h8-0-175" id="h8-0-175" class="i">+            }
+</a><a href="#h8-0-176" id="h8-0-176" class="i">+        }
+</a><a href="#h8-0-177" id="h8-0-177" class="i">+
+</a><a href="#h8-0-178" id="h8-0-178" class="i">+        // Wait for one/all of the mutexes (or cancellation)
+</a><a href="#h8-0-179" id="h8-0-179" class="i">+        bool waitAgain = true;
+</a><a href="#h8-0-180" id="h8-0-180" class="i">+        while (waitAgain &amp;&amp; (!progress || !progress-&gt;IsCancelled()))
+</a><a href="#h8-0-181" id="h8-0-181" class="i">+        {
+</a><a href="#h8-0-182" id="h8-0-182" class="i">+            DWORD millisecondsToWait = 0;
+</a><a href="#h8-0-183" id="h8-0-183" class="i">+            if (progress)
+</a><a href="#h8-0-184" id="h8-0-184" class="i">+            {
+</a><a href="#h8-0-185" id="h8-0-185" class="i">+                if (timeout == s_CrossProcessReaderWriteLock_Infinite)
+</a><a href="#h8-0-186" id="h8-0-186" class="i">+                {
+</a><a href="#h8-0-187" id="h8-0-187" class="i">+                    millisecondsToWait = static_cast&lt;DWORD&gt;(s_CrossProcessReaderWriteLock_WaitLoopTime.count());
+</a><a href="#h8-0-188" id="h8-0-188" class="i">+                }
+</a><a href="#h8-0-189" id="h8-0-189" class="i">+                else
+</a><a href="#h8-0-190" id="h8-0-190" class="i">+                {
+</a><a href="#h8-0-191" id="h8-0-191" class="i">+                    auto currentDuration = std::chrono::steady_clock::now() - start;
+</a><a href="#h8-0-192" id="h8-0-192" class="i">+                    if (currentDuration &gt;= timeout)
+</a><a href="#h8-0-193" id="h8-0-193" class="i">+                    {
+</a><a href="#h8-0-194" id="h8-0-194" class="i">+                        // Allow an attempt to acquire with no wait
+</a><a href="#h8-0-195" id="h8-0-195" class="i">+                        millisecondsToWait = 0;
+</a><a href="#h8-0-196" id="h8-0-196" class="i">+                        waitAgain = false;
+</a><a href="#h8-0-197" id="h8-0-197" class="i">+                    }
+</a><a href="#h8-0-198" id="h8-0-198" class="i">+                    else
+</a><a href="#h8-0-199" id="h8-0-199" class="i">+                    {
+</a><a href="#h8-0-200" id="h8-0-200" class="i">+                        auto durationToWait = timeout - currentDuration;
+</a><a href="#h8-0-201" id="h8-0-201" class="i">+                        if (durationToWait &gt; s_CrossProcessReaderWriteLock_WaitLoopTime)
+</a><a href="#h8-0-202" id="h8-0-202" class="i">+                        {
+</a><a href="#h8-0-203" id="h8-0-203" class="i">+                            durationToWait = s_CrossProcessReaderWriteLock_WaitLoopTime;
+</a><a href="#h8-0-204" id="h8-0-204" class="i">+                        }
+</a><a href="#h8-0-205" id="h8-0-205" class="i">+                        else
+</a><a href="#h8-0-206" id="h8-0-206" class="i">+                        {
+</a><a href="#h8-0-207" id="h8-0-207" class="i">+                            waitAgain = false;
+</a><a href="#h8-0-208" id="h8-0-208" class="i">+                        }
+</a><a href="#h8-0-209" id="h8-0-209" class="i">+                        millisecondsToWait = static_cast&lt;DWORD&gt;(std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(durationToWait).count());
+</a><a href="#h8-0-210" id="h8-0-210" class="i">+                    }
+</a><a href="#h8-0-211" id="h8-0-211" class="i">+                }
+</a><a href="#h8-0-212" id="h8-0-212" class="i">+            }
+</a><a href="#h8-0-213" id="h8-0-213" class="i">+            else
+</a><a href="#h8-0-214" id="h8-0-214" class="i">+            {
+</a><a href="#h8-0-215" id="h8-0-215" class="i">+                // If there is no progress, we will do the full wait this time
+</a><a href="#h8-0-216" id="h8-0-216" class="i">+                waitAgain = false;
+</a> 
+<a href="#h8-0-218" id="h8-0-218" class="d">-        mutexName += s_CrossProcessReaderWriteLock_MutexSuffix;
+</a><a href="#h8-0-219" id="h8-0-219" class="d">-        semName += s_CrossProcessReaderWriteLock_SemaphoreSuffix;
+</a><a href="#h8-0-220" id="h8-0-220" class="i">+                if (timeout == s_CrossProcessReaderWriteLock_Infinite)
+</a><a href="#h8-0-221" id="h8-0-221" class="i">+                {
+</a><a href="#h8-0-222" id="h8-0-222" class="i">+                    millisecondsToWait = INFINITE;
+</a><a href="#h8-0-223" id="h8-0-223" class="i">+                }
+</a><a href="#h8-0-224" id="h8-0-224" class="i">+                else
+</a><a href="#h8-0-225" id="h8-0-225" class="i">+                {
+</a><a href="#h8-0-226" id="h8-0-226" class="i">+                    auto currentDuration = std::chrono::steady_clock::now() - start;
+</a><a href="#h8-0-227" id="h8-0-227" class="i">+                    if (currentDuration &gt;= timeout)
+</a><a href="#h8-0-228" id="h8-0-228" class="i">+                    {
+</a><a href="#h8-0-229" id="h8-0-229" class="i">+                        // Allow an attempt to acquire with no wait
+</a><a href="#h8-0-230" id="h8-0-230" class="i">+                        millisecondsToWait = 0;
+</a><a href="#h8-0-231" id="h8-0-231" class="i">+                    }
+</a><a href="#h8-0-232" id="h8-0-232" class="i">+                    else
+</a><a href="#h8-0-233" id="h8-0-233" class="i">+                    {
+</a><a href="#h8-0-234" id="h8-0-234" class="i">+                        millisecondsToWait = static_cast&lt;DWORD&gt;(std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(timeout - currentDuration).count());
+</a><a href="#h8-0-235" id="h8-0-235" class="i">+                    }
+</a><a href="#h8-0-236" id="h8-0-236" class="i">+                }
+</a><a href="#h8-0-237" id="h8-0-237" class="i">+            }
+</a> 
+<a href="#h8-0-239" id="h8-0-239" class="d">-        m_mutex.create(mutexName.c_str(), 0, SYNCHRONIZE);
+</a><a href="#h8-0-240" id="h8-0-240" class="d">-        m_semaphore.create(s_CrossProcessReaderWriteLock_MaxReaders, s_CrossProcessReaderWriteLock_MaxReaders, semName.c_str(), SYNCHRONIZE | SEMAPHORE_MODIFY_STATE);
+</a><a href="#h8-0-241" id="h8-0-241" class="i">+            status = WaitForMultipleObjectsEx(s_CrossProcessReaderWriteLock_MaxReaders, waitHandles, (shared ? FALSE : TRUE), millisecondsToWait, FALSE);
+</a><a href="#h8-0-242" id="h8-0-242" class="i">+            THROW_LAST_ERROR_IF(status == WAIT_FAILED);
+</a><a href="#h8-0-243" id="h8-0-243" class="i">+
+</a><a href="#h8-0-244" id="h8-0-244" class="i">+            if (status != WAIT_TIMEOUT)
+</a><a href="#h8-0-245" id="h8-0-245" class="i">+            {
+</a><a href="#h8-0-246" id="h8-0-246" class="i">+                break;
+</a><a href="#h8-0-247" id="h8-0-247" class="i">+            }
+</a><a href="#h8-0-248" id="h8-0-248" class="i">+        }
+</a><a href="#h8-0-249" id="h8-0-249" class="i">+
+</a><a href="#h8-0-250" id="h8-0-250" class="i">+        if (status == WAIT_TIMEOUT || (progress &amp;&amp; progress-&gt;IsCancelled()))
+</a><a href="#h8-0-251" id="h8-0-251" class="i">+        {
+</a><a href="#h8-0-252" id="h8-0-252" class="i">+            return result;
+</a><a href="#h8-0-253" id="h8-0-253" class="i">+        }
+</a><a href="#h8-0-254" id="h8-0-254" class="i">+
+</a><a href="#h8-0-255" id="h8-0-255" class="i">+        if (shared)
+</a><a href="#h8-0-256" id="h8-0-256" class="i">+        {
+</a><a href="#h8-0-257" id="h8-0-257" class="i">+            size_t acquiredIndex = 0;
+</a><a href="#h8-0-258" id="h8-0-258" class="i">+            if (status &gt;= WAIT_OBJECT_0 &amp;&amp; status &lt; (WAIT_OBJECT_0 + s_CrossProcessReaderWriteLock_MaxReaders))
+</a><a href="#h8-0-259" id="h8-0-259" class="i">+            {
+</a><a href="#h8-0-260" id="h8-0-260" class="i">+                acquiredIndex = status - WAIT_OBJECT_0;
+</a><a href="#h8-0-261" id="h8-0-261" class="i">+            }
+</a><a href="#h8-0-262" id="h8-0-262" class="i">+            else if (status &gt;= WAIT_ABANDONED_0 &amp;&amp; status &lt; (WAIT_ABANDONED_0 + s_CrossProcessReaderWriteLock_MaxReaders))
+</a><a href="#h8-0-263" id="h8-0-263" class="i">+            {
+</a><a href="#h8-0-264" id="h8-0-264" class="i">+                acquiredIndex = status - WAIT_ABANDONED_0;
+</a><a href="#h8-0-265" id="h8-0-265" class="i">+            }
+</a><a href="#h8-0-266" id="h8-0-266" class="i">+            else
+</a><a href="#h8-0-267" id="h8-0-267" class="i">+            {
+</a><a href="#h8-0-268" id="h8-0-268" class="i">+                THROW_HR(E_UNEXPECTED);
+</a><a href="#h8-0-269" id="h8-0-269" class="i">+            }
+</a><a href="#h8-0-270" id="h8-0-270" class="i">+
+</a><a href="#h8-0-271" id="h8-0-271" class="i">+            // Take the one that was acquired
+</a><a href="#h8-0-272" id="h8-0-272" class="i">+            result.m_mutexesHeld.emplace_back(std::move(allAccessMutexes[acquiredIndex]));
+</a><a href="#h8-0-273" id="h8-0-273" class="i">+        }
+</a><a href="#h8-0-274" id="h8-0-274" class="i">+        else
+</a><a href="#h8-0-275" id="h8-0-275" class="i">+        {
+</a><a href="#h8-0-276" id="h8-0-276" class="i">+            result.m_mutexesHeld = std::move(allAccessMutexes);
+</a><a href="#h8-0-277" id="h8-0-277" class="i">+        }
+</a><a href="#h8-0-278" id="h8-0-278" class="i">+
+</a><a href="#h8-0-279" id="h8-0-279" class="i">+        return result;
+</a>     }
+ }
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -54,13 +54,18 @@ namespace AppInstaller::Repository::Microsoft
+</a>             {
+                 THROW_HR_IF(E_INVALIDARG, details.Type != PreIndexedPackageSourceFactory::Type());
+ 
+<a href="#h9-0-3" id="h9-0-3" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockForRead(CreateNameForCPRWL(details));
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+                auto lock = Synchronization::CrossProcessReaderWriteLock::LockShared(CreateNameForCPRWL(details), progress);
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+                if (!lock)
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+                {
+</a><a href="#h9-0-7" id="h9-0-7" class="i">+                    return {};
+</a><a href="#h9-0-8" id="h9-0-8" class="i">+                }
+</a><a href="#h9-0-9" id="h9-0-9" class="i">+
+</a>                 return CreateInternal(details, std::move(lock), progress);
+             }
+ 
+             virtual std::shared_ptr&lt;ISource&gt; CreateInternal(const SourceDetails&amp; details, Synchronization::CrossProcessReaderWriteLock&amp;&amp; lock, IProgressCallback&amp; progress) = 0;
+ 
+<a href="#h9-0-15" id="h9-0-15" class="d">-            void Add(SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+</a><a href="#h9-0-16" id="h9-0-16" class="i">+            bool Add(SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+</a>             {
+                 if (details.Type.empty())
+                 {
+<a href="#h9-1" id="h9-1" class="h">@@ -88,12 +93,56 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 details.Data = Msix::GetPackageFamilyNameFromFullName(fullName);
+                 details.Identifier = Msix::GetPackageFamilyNameFromFullName(fullName);
+ 
+<a href="#h9-1-3" id="h9-1-3" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockForWrite(CreateNameForCPRWL(details));
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+                auto lock = LockExclusive(details, progress);
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+                if (!lock)
+</a><a href="#h9-1-6" id="h9-1-6" class="i">+                {
+</a><a href="#h9-1-7" id="h9-1-7" class="i">+                    return false;
+</a><a href="#h9-1-8" id="h9-1-8" class="i">+                }
+</a> 
+<a href="#h9-1-10" id="h9-1-10" class="d">-                UpdateInternal(packageLocation, packageInfo, details, progress);
+</a><a href="#h9-1-11" id="h9-1-11" class="i">+                return UpdateInternal(packageLocation, packageInfo, details, progress);
+</a>             }
+ 
+<a href="#h9-1-14" id="h9-1-14" class="d">-            void Update(const SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+</a><a href="#h9-1-15" id="h9-1-15" class="i">+            bool Update(const SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+</a><a href="#h9-1-16" id="h9-1-16" class="i">+            {
+</a><a href="#h9-1-17" id="h9-1-17" class="i">+                return UpdateBase(details, false, progress);
+</a><a href="#h9-1-18" id="h9-1-18" class="i">+            }
+</a><a href="#h9-1-19" id="h9-1-19" class="i">+
+</a><a href="#h9-1-20" id="h9-1-20" class="i">+            bool BackgroundUpdate(const SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+</a><a href="#h9-1-21" id="h9-1-21" class="i">+            {
+</a><a href="#h9-1-22" id="h9-1-22" class="i">+                return UpdateBase(details, true, progress);
+</a><a href="#h9-1-23" id="h9-1-23" class="i">+            }
+</a><a href="#h9-1-24" id="h9-1-24" class="i">+
+</a><a href="#h9-1-25" id="h9-1-25" class="i">+            virtual bool UpdateInternal(const std::string&amp; packageLocation, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a><a href="#h9-1-26" id="h9-1-26" class="i">+
+</a><a href="#h9-1-27" id="h9-1-27" class="i">+            bool Remove(const SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+</a><a href="#h9-1-28" id="h9-1-28" class="i">+            {
+</a><a href="#h9-1-29" id="h9-1-29" class="i">+                THROW_HR_IF(E_INVALIDARG, details.Type != PreIndexedPackageSourceFactory::Type());
+</a><a href="#h9-1-30" id="h9-1-30" class="i">+                auto lock = LockExclusive(details, progress);
+</a><a href="#h9-1-31" id="h9-1-31" class="i">+                if (!lock)
+</a><a href="#h9-1-32" id="h9-1-32" class="i">+                {
+</a><a href="#h9-1-33" id="h9-1-33" class="i">+                    return false;
+</a><a href="#h9-1-34" id="h9-1-34" class="i">+                }
+</a><a href="#h9-1-35" id="h9-1-35" class="i">+
+</a><a href="#h9-1-36" id="h9-1-36" class="i">+                return RemoveInternal(details, progress);
+</a><a href="#h9-1-37" id="h9-1-37" class="i">+            }
+</a><a href="#h9-1-38" id="h9-1-38" class="i">+
+</a><a href="#h9-1-39" id="h9-1-39" class="i">+            virtual bool RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp;) = 0;
+</a><a href="#h9-1-40" id="h9-1-40" class="i">+
+</a><a href="#h9-1-41" id="h9-1-41" class="i">+        private:
+</a><a href="#h9-1-42" id="h9-1-42" class="i">+            Synchronization::CrossProcessReaderWriteLock LockExclusive(const SourceDetails&amp; details, IProgressCallback&amp; progress, bool isBackground = false)
+</a><a href="#h9-1-43" id="h9-1-43" class="i">+            {
+</a><a href="#h9-1-44" id="h9-1-44" class="i">+                if (isBackground)
+</a><a href="#h9-1-45" id="h9-1-45" class="i">+                {
+</a><a href="#h9-1-46" id="h9-1-46" class="i">+                    // If this is a background update, don&#39;t wait on the lock.
+</a><a href="#h9-1-47" id="h9-1-47" class="i">+                    return Synchronization::CrossProcessReaderWriteLock::LockExclusive(CreateNameForCPRWL(details), 0ms);
+</a><a href="#h9-1-48" id="h9-1-48" class="i">+                }
+</a><a href="#h9-1-49" id="h9-1-49" class="i">+                else
+</a><a href="#h9-1-50" id="h9-1-50" class="i">+                {
+</a><a href="#h9-1-51" id="h9-1-51" class="i">+                    return Synchronization::CrossProcessReaderWriteLock::LockExclusive(CreateNameForCPRWL(details), progress);
+</a><a href="#h9-1-52" id="h9-1-52" class="i">+                }
+</a><a href="#h9-1-53" id="h9-1-53" class="i">+            }
+</a><a href="#h9-1-54" id="h9-1-54" class="i">+
+</a><a href="#h9-1-55" id="h9-1-55" class="i">+            bool UpdateBase(const SourceDetails&amp; details, bool isBackground, IProgressCallback&amp; progress)
+</a>             {
+                 THROW_HR_IF(E_INVALIDARG, details.Type != PreIndexedPackageSourceFactory::Type());
+ 
+<a href="#h9-2" id="h9-2" class="h">@@ -110,25 +159,17 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 if (progress.IsCancelled())
+                 {
+                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Cancelling update upon request&quot;);
+<a href="#h9-2-3" id="h9-2-3" class="d">-                    return;
+</a><a href="#h9-2-4" id="h9-2-4" class="i">+                    return false;
+</a>                 }
+ 
+<a href="#h9-2-7" id="h9-2-7" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockForWrite(CreateNameForCPRWL(details));
+</a><a href="#h9-2-8" id="h9-2-8" class="d">-
+</a><a href="#h9-2-9" id="h9-2-9" class="d">-                UpdateInternal(packageLocation, packageInfo, details, progress);
+</a><a href="#h9-2-10" id="h9-2-10" class="d">-            }
+</a><a href="#h9-2-11" id="h9-2-11" class="d">-
+</a><a href="#h9-2-12" id="h9-2-12" class="d">-            virtual void UpdateInternal(const std::string&amp; packageLocation, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a><a href="#h9-2-13" id="h9-2-13" class="d">-
+</a><a href="#h9-2-14" id="h9-2-14" class="d">-            void Remove(const SourceDetails&amp; details, IProgressCallback&amp; progress) override final
+</a><a href="#h9-2-15" id="h9-2-15" class="d">-            {
+</a><a href="#h9-2-16" id="h9-2-16" class="d">-                THROW_HR_IF(E_INVALIDARG, details.Type != PreIndexedPackageSourceFactory::Type());
+</a><a href="#h9-2-17" id="h9-2-17" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockForWrite(CreateNameForCPRWL(details));
+</a><a href="#h9-2-18" id="h9-2-18" class="i">+                auto lock = LockExclusive(details, progress, isBackground);
+</a><a href="#h9-2-19" id="h9-2-19" class="i">+                if (!lock)
+</a><a href="#h9-2-20" id="h9-2-20" class="i">+                {
+</a><a href="#h9-2-21" id="h9-2-21" class="i">+                    return false;
+</a><a href="#h9-2-22" id="h9-2-22" class="i">+                }
+</a> 
+<a href="#h9-2-24" id="h9-2-24" class="d">-                RemoveInternal(details, progress);
+</a><a href="#h9-2-25" id="h9-2-25" class="i">+                return UpdateInternal(packageLocation, packageInfo, details, progress);
+</a>             }
+<a href="#h9-2-27" id="h9-2-27" class="d">-
+</a><a href="#h9-2-28" id="h9-2-28" class="d">-            virtual void RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp;) = 0;
+</a>         };
+ 
+         // Source factory for running within a packaged context
+<a href="#h9-3" id="h9-3" class="h">@@ -166,7 +207,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 return std::make_shared&lt;SQLiteIndexSource&gt;(details, GetPackageFamilyNameFromDetails(details), std::move(index), std::move(lock));
+             }
+ 
+<a href="#h9-3-3" id="h9-3-3" class="d">-            void UpdateInternal(const std::string&amp; packageLocation, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a><a href="#h9-3-4" id="h9-3-4" class="i">+            bool UpdateInternal(const std::string&amp; packageLocation, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a>             {
+                 // Check if the package is newer before calling into deployment.
+                 // This can save us a lot of time over letting deployment detect same version.
+<a href="#h9-4" id="h9-4" class="h">@@ -176,14 +217,14 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     if (!packageInfo.IsNewerThan(extension-&gt;GetPackageVersion()))
+                     {
+                         AICLI_LOG(Repo, Info, &lt;&lt; &quot;Remote source data was not newer than existing, no update needed&quot;);
+<a href="#h9-4-3" id="h9-4-3" class="d">-                        return;
+</a><a href="#h9-4-4" id="h9-4-4" class="i">+                        return true;
+</a>                     }
+                 }
+ 
+                 if (progress.IsCancelled())
+                 {
+                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Cancelling update upon request&quot;);
+<a href="#h9-4-11" id="h9-4-11" class="d">-                    return;
+</a><a href="#h9-4-12" id="h9-4-12" class="i">+                    return false;
+</a>                 }
+ 
+                 // Due to complications with deployment, download the file and deploy from
+<a href="#h9-5" id="h9-5" class="h">@@ -239,9 +280,11 @@ namespace AppInstaller::Repository::Microsoft
+</a>                         }
+                     }
+                 }
+<a href="#h9-5-3" id="h9-5-3" class="i">+
+</a><a href="#h9-5-4" id="h9-5-4" class="i">+                return true;
+</a>             }
+ 
+<a href="#h9-5-7" id="h9-5-7" class="d">-            void RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp; callback) override
+</a><a href="#h9-5-8" id="h9-5-8" class="i">+            bool RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp; callback) override
+</a>             {
+                 auto fullName = Msix::GetPackageFullNameFromFamilyName(GetPackageFamilyNameFromDetails(details));
+ 
+<a href="#h9-6" id="h9-6" class="h">@@ -254,6 +297,8 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Removing package: &quot; &lt;&lt; *fullName);
+                     Deployment::RemovePackage(*fullName, callback);
+                 }
+<a href="#h9-6-3" id="h9-6-3" class="i">+
+</a><a href="#h9-6-4" id="h9-6-4" class="i">+                return true;
+</a>             }
+         };
+ 
+<a href="#h9-7" id="h9-7" class="h">@@ -287,7 +332,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 return std::make_shared&lt;SQLiteIndexSource&gt;(details, GetPackageFamilyNameFromDetails(details), std::move(index), std::move(lock));
+             }
+ 
+<a href="#h9-7-3" id="h9-7-3" class="d">-            void UpdateInternal(const std::string&amp;, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a><a href="#h9-7-4" id="h9-7-4" class="i">+            bool UpdateInternal(const std::string&amp;, Msix::MsixInfo&amp; packageInfo, const SourceDetails&amp; details, IProgressCallback&amp; progress) override
+</a>             {
+                 // We will extract the manifest and index files directly to this location
+                 std::filesystem::path packageState = GetStatePathFromDetails(details);
+<a href="#h9-8" id="h9-8" class="h">@@ -302,21 +347,23 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     if (!packageInfo.IsNewerThan(manifestPath))
+                     {
+                         AICLI_LOG(Repo, Info, &lt;&lt; &quot;Remote source data was not newer than existing, no update needed&quot;);
+<a href="#h9-8-3" id="h9-8-3" class="d">-                        return;
+</a><a href="#h9-8-4" id="h9-8-4" class="i">+                        return true;
+</a>                     }
+                 }
+ 
+                 if (progress.IsCancelled())
+                 {
+                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Cancelling update upon request&quot;);
+<a href="#h9-8-11" id="h9-8-11" class="d">-                    return;
+</a><a href="#h9-8-12" id="h9-8-12" class="i">+                    return false;
+</a>                 }
+ 
+                 packageInfo.WriteToFile(s_PreIndexedPackageSourceFactory_IndexFilePath, indexPath, progress);
+                 packageInfo.WriteManifestToFile(manifestPath, progress);
+<a href="#h9-8-17" id="h9-8-17" class="i">+
+</a><a href="#h9-8-18" id="h9-8-18" class="i">+                return true;
+</a>             }
+ 
+<a href="#h9-8-21" id="h9-8-21" class="d">-            void RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp;) override
+</a><a href="#h9-8-22" id="h9-8-22" class="i">+            bool RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp;) override
+</a>             {
+                 std::filesystem::path packageState = GetStatePathFromDetails(details);
+ 
+<a href="#h9-9" id="h9-9" class="h">@@ -329,6 +376,8 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Removing state found for source: &quot; &lt;&lt; packageState.u8string());
+                     std::filesystem::remove_all(packageState);
+                 }
+<a href="#h9-9-3" id="h9-9-3" class="i">+
+</a><a href="#h9-9-4" id="h9-9-4" class="i">+                return true;
+</a>             }
+         };
+     }
+<b>diff --git a/<a id="h10" href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -131,19 +131,19 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 return std::make_shared&lt;SQLiteIndexSource&gt;(details, &quot;*PredefinedInstalledSource&quot;, std::move(index), Synchronization::CrossProcessReaderWriteLock{}, true);
+             }
+ 
+<a href="#h10-0-3" id="h10-0-3" class="d">-            void Add(SourceDetails&amp;, IProgressCallback&amp;) override final
+</a><a href="#h10-0-4" id="h10-0-4" class="i">+            bool Add(SourceDetails&amp;, IProgressCallback&amp;) override final
+</a>             {
+                 // Add should never be needed, as this is predefined.
+                 THROW_HR(E_NOTIMPL);
+             }
+ 
+<a href="#h10-0-10" id="h10-0-10" class="d">-            void Update(const SourceDetails&amp;, IProgressCallback&amp;) override final
+</a><a href="#h10-0-11" id="h10-0-11" class="i">+            bool Update(const SourceDetails&amp;, IProgressCallback&amp;) override final
+</a>             {
+                 // Update could be used later, but not for now.
+                 THROW_HR(E_NOTIMPL);
+             }
+ 
+<a href="#h10-0-17" id="h10-0-17" class="d">-            void Remove(const SourceDetails&amp;, IProgressCallback&amp;) override final
+</a><a href="#h10-0-18" id="h10-0-18" class="i">+            bool Remove(const SourceDetails&amp;, IProgressCallback&amp;) override final
+</a>             {
+                 // Similar to add, remove should never be needed.
+                 THROW_HR(E_NOTIMPL);
+<b>diff --git a/<a id="h11" href="../file/src/AppInstallerRepositoryCore/Public/AppInstallerRepositorySource.h.html">src/AppInstallerRepositoryCore/Public/AppInstallerRepositorySource.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/AppInstallerRepositorySource.h.html">src/AppInstallerRepositoryCore/Public/AppInstallerRepositorySource.h</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -102,7 +102,7 @@ namespace AppInstaller::Repository
+</a>     std::optional&lt;SourceDetails&gt; GetSource(std::string_view name);
+ 
+     // Adds a new source for the user.
+<a href="#h11-0-3" id="h11-0-3" class="d">-    void AddSource(std::string_view name, std::string_view type, std::string_view arg, IProgressCallback&amp; progress);
+</a><a href="#h11-0-4" id="h11-0-4" class="i">+    bool AddSource(std::string_view name, std::string_view type, std::string_view arg, IProgressCallback&amp; progress);
+</a> 
+     struct OpenSourceResult
+     {
+<b>diff --git a/<a id="h12" href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></b>
+<a href="#h12-0" id="h12-0" class="h">@@ -590,16 +590,20 @@ namespace AppInstaller::Repository
+</a>         }
+ 
+         template &lt;typename MemberFunc&gt;
+<a href="#h12-0-3" id="h12-0-3" class="d">-        void AddOrUpdateFromDetails(SourceDetails&amp; details, MemberFunc member, IProgressCallback&amp; progress)
+</a><a href="#h12-0-4" id="h12-0-4" class="i">+        bool AddOrUpdateFromDetails(SourceDetails&amp; details, MemberFunc member, IProgressCallback&amp; progress)
+</a>         {
+<a href="#h12-0-6" id="h12-0-6" class="i">+            bool result = false;
+</a>             auto factory = GetFactoryForType(details.Type);
+ 
+             // Attempt; if it fails, wait a short time and retry.
+             try
+             {
+<a href="#h12-0-12" id="h12-0-12" class="d">-                (factory.get()-&gt;*member)(details, progress);
+</a><a href="#h12-0-13" id="h12-0-13" class="d">-                details.LastUpdateTime = std::chrono::system_clock::now();
+</a><a href="#h12-0-14" id="h12-0-14" class="d">-                return;
+</a><a href="#h12-0-15" id="h12-0-15" class="i">+                result = (factory.get()-&gt;*member)(details, progress);
+</a><a href="#h12-0-16" id="h12-0-16" class="i">+                if (result)
+</a><a href="#h12-0-17" id="h12-0-17" class="i">+                {
+</a><a href="#h12-0-18" id="h12-0-18" class="i">+                    details.LastUpdateTime = std::chrono::system_clock::now();
+</a><a href="#h12-0-19" id="h12-0-19" class="i">+                }
+</a><a href="#h12-0-20" id="h12-0-20" class="i">+                return result;
+</a>             }
+             CATCH_LOG();
+ 
+<a href="#h12-1" id="h12-1" class="h">@@ -607,25 +611,34 @@ namespace AppInstaller::Repository
+</a>             std::this_thread::sleep_for(2s);
+ 
+             // If this one fails, maybe the problem is persistent.
+<a href="#h12-1-3" id="h12-1-3" class="d">-            (factory.get()-&gt;*member)(details, progress);
+</a><a href="#h12-1-4" id="h12-1-4" class="d">-            details.LastUpdateTime = std::chrono::system_clock::now();
+</a><a href="#h12-1-5" id="h12-1-5" class="i">+            result = (factory.get()-&gt;*member)(details, progress);
+</a><a href="#h12-1-6" id="h12-1-6" class="i">+            if (result)
+</a><a href="#h12-1-7" id="h12-1-7" class="i">+            {
+</a><a href="#h12-1-8" id="h12-1-8" class="i">+                details.LastUpdateTime = std::chrono::system_clock::now();
+</a><a href="#h12-1-9" id="h12-1-9" class="i">+            }
+</a><a href="#h12-1-10" id="h12-1-10" class="i">+            return result;
+</a><a href="#h12-1-11" id="h12-1-11" class="i">+        }
+</a><a href="#h12-1-12" id="h12-1-12" class="i">+
+</a><a href="#h12-1-13" id="h12-1-13" class="i">+        bool AddSourceFromDetails(SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a><a href="#h12-1-14" id="h12-1-14" class="i">+        {
+</a><a href="#h12-1-15" id="h12-1-15" class="i">+            return AddOrUpdateFromDetails(details, &amp;ISourceFactory::Add, progress);
+</a>         }
+ 
+<a href="#h12-1-18" id="h12-1-18" class="d">-        void AddSourceFromDetails(SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a><a href="#h12-1-19" id="h12-1-19" class="i">+        bool UpdateSourceFromDetails(SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a>         {
+<a href="#h12-1-21" id="h12-1-21" class="d">-            AddOrUpdateFromDetails(details, &amp;ISourceFactory::Add, progress);
+</a><a href="#h12-1-22" id="h12-1-22" class="i">+            return AddOrUpdateFromDetails(details, &amp;ISourceFactory::Update, progress);
+</a>         }
+ 
+<a href="#h12-1-25" id="h12-1-25" class="d">-        void UpdateSourceFromDetails(SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a><a href="#h12-1-26" id="h12-1-26" class="i">+        bool BackgroundUpdateSourceFromDetails(SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a>         {
+<a href="#h12-1-28" id="h12-1-28" class="d">-            AddOrUpdateFromDetails(details, &amp;ISourceFactory::Update, progress);
+</a><a href="#h12-1-29" id="h12-1-29" class="i">+            return AddOrUpdateFromDetails(details, &amp;ISourceFactory::BackgroundUpdate, progress);
+</a>         }
+ 
+<a href="#h12-1-32" id="h12-1-32" class="d">-        void RemoveSourceFromDetails(const SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a><a href="#h12-1-33" id="h12-1-33" class="i">+        bool RemoveSourceFromDetails(const SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a>         {
+             auto factory = GetFactoryForType(details.Type);
+ 
+<a href="#h12-1-37" id="h12-1-37" class="d">-            factory-&gt;Remove(details, progress);
+</a><a href="#h12-1-38" id="h12-1-38" class="i">+            return factory-&gt;Remove(details, progress);
+</a>         }
+ 
+         // Determines whether (and logs why) a source should be updated before it is opened.
+<a href="#h12-2" id="h12-2" class="h">@@ -847,7 +860,7 @@ namespace AppInstaller::Repository
+</a>         }
+     }
+ 
+<a href="#h12-2-3" id="h12-2-3" class="d">-    void AddSource(std::string_view name, std::string_view type, std::string_view arg, IProgressCallback&amp; progress)
+</a><a href="#h12-2-4" id="h12-2-4" class="i">+    bool AddSource(std::string_view name, std::string_view type, std::string_view arg, IProgressCallback&amp; progress)
+</a>     {
+         THROW_HR_IF(E_INVALIDARG, name.empty());
+ 
+<a href="#h12-3" id="h12-3" class="h">@@ -873,12 +886,16 @@ namespace AppInstaller::Repository
+</a>         details.LastUpdateTime = Utility::ConvertUnixEpochToSystemClock(0);
+         details.Origin = SourceOrigin::User;
+ 
+<a href="#h12-3-3" id="h12-3-3" class="d">-        AddSourceFromDetails(details, progress);
+</a><a href="#h12-3-4" id="h12-3-4" class="i">+        bool result = AddSourceFromDetails(details, progress);
+</a><a href="#h12-3-5" id="h12-3-5" class="i">+        if (result)
+</a><a href="#h12-3-6" id="h12-3-6" class="i">+        {
+</a><a href="#h12-3-7" id="h12-3-7" class="i">+            AICLI_LOG(Repo, Info, &lt;&lt; &quot;Source created with extra data: &quot; &lt;&lt; details.Data);
+</a><a href="#h12-3-8" id="h12-3-8" class="i">+            AICLI_LOG(Repo, Info, &lt;&lt; &quot;Source created with identifier: &quot; &lt;&lt; details.Identifier);
+</a> 
+<a href="#h12-3-10" id="h12-3-10" class="d">-        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Source created with extra data: &quot; &lt;&lt; details.Data);
+</a><a href="#h12-3-11" id="h12-3-11" class="d">-        AICLI_LOG(Repo, Info, &lt;&lt; &quot;Source created with identifier: &quot; &lt;&lt; details.Identifier);
+</a><a href="#h12-3-12" id="h12-3-12" class="i">+            sourceList.AddSource(details);
+</a><a href="#h12-3-13" id="h12-3-13" class="i">+        }
+</a> 
+<a href="#h12-3-15" id="h12-3-15" class="d">-        sourceList.AddSource(details);
+</a><a href="#h12-3-16" id="h12-3-16" class="i">+        return result;
+</a>     }
+ 
+     OpenSourceResult OpenSource(std::string_view name, IProgressCallback&amp; progress)
+<a href="#h12-4" id="h12-4" class="h">@@ -915,8 +932,7 @@ namespace AppInstaller::Repository
+</a>                         {
+                             // TODO: Consider adding a context callback to indicate we are doing the same action
+                             // to avoid the progress bar fill up multiple times.
+<a href="#h12-4-3" id="h12-4-3" class="d">-                            UpdateSourceFromDetails(source, progress);
+</a><a href="#h12-4-4" id="h12-4-4" class="d">-                            sourceUpdated = true;
+</a><a href="#h12-4-5" id="h12-4-5" class="i">+                            sourceUpdated = BackgroundUpdateSourceFromDetails(source, progress) || sourceUpdated;
+</a>                         }
+                         catch (...)
+                         {
+<a href="#h12-5" id="h12-5" class="h">@@ -954,8 +970,10 @@ namespace AppInstaller::Repository
+</a>                 {
+                     try
+                     {
+<a href="#h12-5-3" id="h12-5-3" class="d">-                        UpdateSourceFromDetails(*source, progress);
+</a><a href="#h12-5-4" id="h12-5-4" class="d">-                        sourceList.SaveMetadata();
+</a><a href="#h12-5-5" id="h12-5-5" class="i">+                        if (BackgroundUpdateSourceFromDetails(*source, progress))
+</a><a href="#h12-5-6" id="h12-5-6" class="i">+                        {
+</a><a href="#h12-5-7" id="h12-5-7" class="i">+                            sourceList.SaveMetadata();
+</a><a href="#h12-5-8" id="h12-5-8" class="i">+                        }
+</a>                     }
+                     catch (...)
+                     {
+<a href="#h12-6" id="h12-6" class="h">@@ -1025,10 +1043,13 @@ namespace AppInstaller::Repository
+</a>         {
+             AICLI_LOG(Repo, Info, &lt;&lt; &quot;Named source to be updated, found: &quot; &lt;&lt; source-&gt;Name);
+ 
+<a href="#h12-6-3" id="h12-6-3" class="d">-            UpdateSourceFromDetails(*source, progress);
+</a><a href="#h12-6-4" id="h12-6-4" class="i">+            bool result = UpdateSourceFromDetails(*source, progress);
+</a><a href="#h12-6-5" id="h12-6-5" class="i">+            if (result)
+</a><a href="#h12-6-6" id="h12-6-6" class="i">+            {
+</a><a href="#h12-6-7" id="h12-6-7" class="i">+                sourceList.SaveMetadata();
+</a><a href="#h12-6-8" id="h12-6-8" class="i">+            }
+</a> 
+<a href="#h12-6-10" id="h12-6-10" class="d">-            sourceList.SaveMetadata();
+</a><a href="#h12-6-11" id="h12-6-11" class="d">-            return true;
+</a><a href="#h12-6-12" id="h12-6-12" class="i">+            return result;
+</a>         }
+     }
+ 
+<a href="#h12-7" id="h12-7" class="h">@@ -1049,10 +1070,14 @@ namespace AppInstaller::Repository
+</a>             AICLI_LOG(Repo, Info, &lt;&lt; &quot;Named source to be removed, found: &quot; &lt;&lt; source-&gt;Name &lt;&lt; &quot; [&quot; &lt;&lt; ToString(source-&gt;Origin) &lt;&lt; &#39;]&#39;);
+ 
+             EnsureSourceIsRemovable(*source);
+<a href="#h12-7-3" id="h12-7-3" class="d">-            RemoveSourceFromDetails(*source, progress);
+</a><a href="#h12-7-4" id="h12-7-4" class="d">-            sourceList.RemoveSource(*source);
+</a> 
+<a href="#h12-7-6" id="h12-7-6" class="d">-            return true;
+</a><a href="#h12-7-7" id="h12-7-7" class="i">+            bool result = RemoveSourceFromDetails(*source, progress);
+</a><a href="#h12-7-8" id="h12-7-8" class="i">+            if (result)
+</a><a href="#h12-7-9" id="h12-7-9" class="i">+            {
+</a><a href="#h12-7-10" id="h12-7-10" class="i">+                sourceList.RemoveSource(*source);
+</a><a href="#h12-7-11" id="h12-7-11" class="i">+            }
+</a><a href="#h12-7-12" id="h12-7-12" class="i">+
+</a><a href="#h12-7-13" id="h12-7-13" class="i">+            return result;
+</a>         }
+     }
+ 
+<b>diff --git a/<a id="h13" href="../file/src/AppInstallerRepositoryCore/Rest/RestSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Rest/RestSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Rest/RestSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Rest/RestSourceFactory.cpp</a></b>
+<a href="#h13-0" id="h13-0" class="h">@@ -24,7 +24,7 @@ namespace AppInstaller::Repository::Rest
+</a>                 return std::make_shared&lt;RestSource&gt;(details, restClient.GetSourceIdentifier(), std::move(restClient));
+             }
+ 
+<a href="#h13-0-3" id="h13-0-3" class="d">-            void Add(SourceDetails&amp; details, IProgressCallback&amp;) override final
+</a><a href="#h13-0-4" id="h13-0-4" class="i">+            bool Add(SourceDetails&amp; details, IProgressCallback&amp;) override final
+</a>             {
+                 if (details.Type.empty())
+                 {
+<a href="#h13-1" id="h13-1" class="h">@@ -38,16 +38,20 @@ namespace AppInstaller::Repository::Rest
+</a>                 // Check if URL is remote and secure
+                 THROW_HR_IF(APPINSTALLER_CLI_ERROR_SOURCE_NOT_REMOTE, !Utility::IsUrlRemote(details.Arg));
+                 THROW_HR_IF(APPINSTALLER_CLI_ERROR_SOURCE_NOT_SECURE, !Utility::IsUrlSecure(details.Arg));
+<a href="#h13-1-3" id="h13-1-3" class="i">+
+</a><a href="#h13-1-4" id="h13-1-4" class="i">+                return true;
+</a>             }
+ 
+<a href="#h13-1-7" id="h13-1-7" class="d">-            void Update(const SourceDetails&amp; details, IProgressCallback&amp;) override final
+</a><a href="#h13-1-8" id="h13-1-8" class="i">+            bool Update(const SourceDetails&amp; details, IProgressCallback&amp;) override final
+</a>             {
+                 THROW_HR_IF(E_INVALIDARG, !Utility::CaseInsensitiveEquals(details.Type, RestSourceFactory::Type()));
+<a href="#h13-1-11" id="h13-1-11" class="i">+                return true;
+</a>             }
+ 
+<a href="#h13-1-14" id="h13-1-14" class="d">-            void Remove(const SourceDetails&amp; details, IProgressCallback&amp;) override final
+</a><a href="#h13-1-15" id="h13-1-15" class="i">+            bool Remove(const SourceDetails&amp; details, IProgressCallback&amp;) override final
+</a>             {
+                 THROW_HR_IF(E_INVALIDARG, !Utility::CaseInsensitiveEquals(details.Type, RestSourceFactory::Type()));
+<a href="#h13-1-18" id="h13-1-18" class="i">+                return true;
+</a>             }
+         };
+     }
+<b>diff --git a/<a id="h14" href="../file/src/AppInstallerRepositoryCore/SourceFactory.h.html">src/AppInstallerRepositoryCore/SourceFactory.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/SourceFactory.h.html">src/AppInstallerRepositoryCore/SourceFactory.h</a></b>
+<a href="#h14-0" id="h14-0" class="h">@@ -18,12 +18,24 @@ namespace AppInstaller::Repository
+</a>         virtual std::shared_ptr&lt;ISource&gt; Create(const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+ 
+         // Adds the source from the given details, writing back to the details any changes.
+<a href="#h14-0-3" id="h14-0-3" class="d">-        virtual void Add(SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a><a href="#h14-0-4" id="h14-0-4" class="i">+        // Return value indicates whether the action completed.
+</a><a href="#h14-0-5" id="h14-0-5" class="i">+        virtual bool Add(SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a> 
+         // Updates the source from the given details (may not change the details).
+<a href="#h14-0-8" id="h14-0-8" class="d">-        virtual void Update(const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a><a href="#h14-0-9" id="h14-0-9" class="i">+        // Return value indicates whether the action completed.
+</a><a href="#h14-0-10" id="h14-0-10" class="i">+        virtual bool Update(const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a><a href="#h14-0-11" id="h14-0-11" class="i">+
+</a><a href="#h14-0-12" id="h14-0-12" class="i">+        // Updates the source from the given details (may not change the details).
+</a><a href="#h14-0-13" id="h14-0-13" class="i">+        // This version is for use in automatic, background updates to the source.
+</a><a href="#h14-0-14" id="h14-0-14" class="i">+        // It is done this way to preserve the signature for use with member function pointers.
+</a><a href="#h14-0-15" id="h14-0-15" class="i">+        // Return value indicates whether the action completed.
+</a><a href="#h14-0-16" id="h14-0-16" class="i">+        virtual bool BackgroundUpdate(const SourceDetails&amp; details, IProgressCallback&amp; progress)
+</a><a href="#h14-0-17" id="h14-0-17" class="i">+        {
+</a><a href="#h14-0-18" id="h14-0-18" class="i">+            return Update(details, progress);
+</a><a href="#h14-0-19" id="h14-0-19" class="i">+        }
+</a> 
+         // Removes the source from the given details.
+<a href="#h14-0-22" id="h14-0-22" class="d">-        virtual void Remove(const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a><a href="#h14-0-23" id="h14-0-23" class="i">+        // Return value indicates whether the action completed.
+</a><a href="#h14-0-24" id="h14-0-24" class="i">+        virtual bool Remove(const SourceDetails&amp; details, IProgressCallback&amp; progress) = 0;
+</a>     };
+ }
+</pre>
+</div>
+</body>
+</html>

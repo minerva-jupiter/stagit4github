@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>OneToManyTable.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../../../"><img src="../../../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../../../log.html">Log</a> | <a href="../../../../../../files.html">Files</a> | <a href="../../../../../../refs.html">Refs</a> | <a href="../../../../../../file/README.md.html">README</a> | <a href="../../../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> OneToManyTable.cpp (21776B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;Microsoft/Schema/1_0/OneToManyTable.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;Microsoft/Schema/1_0/OneToOneTable.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Microsoft/Schema/1_0/ManifestTable.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Microsoft/Schema/1_0/IdTable.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;winget/SQLiteStatementBuilder.h&gt;
+<a href="#l9" class="line" id="l9">      9</a> 
+<a href="#l10" class="line" id="l10">     10</a> 
+<a href="#l11" class="line" id="l11">     11</a> namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+<a href="#l12" class="line" id="l12">     12</a> {
+<a href="#l13" class="line" id="l13">     13</a>     namespace details
+<a href="#l14" class="line" id="l14">     14</a>     {
+<a href="#l15" class="line" id="l15">     15</a>         using namespace std::string_view_literals;
+<a href="#l16" class="line" id="l16">     16</a>         static constexpr std::string_view s_OneToManyTable_MapTable_ManifestName = &quot;manifest&quot;sv;
+<a href="#l17" class="line" id="l17">     17</a>         static constexpr std::string_view s_OneToManyTable_MapTable_Suffix = &quot;_map&quot;sv;
+<a href="#l18" class="line" id="l18">     18</a>         static constexpr std::string_view s_OneToManyTable_MapTable_PrimaryKeyIndexSuffix = &quot;_pkindex&quot;sv;
+<a href="#l19" class="line" id="l19">     19</a>         static constexpr std::string_view s_OneToManyTable_MapTable_IndexSuffix = &quot;_index&quot;sv;
+<a href="#l20" class="line" id="l20">     20</a> 
+<a href="#l21" class="line" id="l21">     21</a>         namespace
+<a href="#l22" class="line" id="l22">     22</a>         {
+<a href="#l23" class="line" id="l23">     23</a>             // Create the mapping table insert statement for multiple use.
+<a href="#l24" class="line" id="l24">     24</a>             // Bind the rowid of the value to 2.
+<a href="#l25" class="line" id="l25">     25</a>             SQLite::Statement CreateMappingInsertStatementForManifestId(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, SQLite::rowid_t manifestId)
+<a href="#l26" class="line" id="l26">     26</a>             {
+<a href="#l27" class="line" id="l27">     27</a>                 SQLite::Builder::StatementBuilder insertMappingBuilder;
+<a href="#l28" class="line" id="l28">     28</a>                 insertMappingBuilder.InsertInto({ tableName, s_OneToManyTable_MapTable_Suffix }).
+<a href="#l29" class="line" id="l29">     29</a>                     Columns({ s_OneToManyTable_MapTable_ManifestName, valueName }).Values(manifestId, SQLite::Builder::Unbound);
+<a href="#l30" class="line" id="l30">     30</a> 
+<a href="#l31" class="line" id="l31">     31</a>                 return insertMappingBuilder.Prepare(connection);
+<a href="#l32" class="line" id="l32">     32</a>             }
+<a href="#l33" class="line" id="l33">     33</a> 
+<a href="#l34" class="line" id="l34">     34</a>             // Get a collection of the value ids associated with the given manifest id.
+<a href="#l35" class="line" id="l35">     35</a>             std::vector&lt;SQLite::rowid_t&gt; GetValueIdsByManifestId(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, SQLite::rowid_t manifestId)
+<a href="#l36" class="line" id="l36">     36</a>             {
+<a href="#l37" class="line" id="l37">     37</a>                 std::vector&lt;SQLite::rowid_t&gt; result;
+<a href="#l38" class="line" id="l38">     38</a> 
+<a href="#l39" class="line" id="l39">     39</a>                 SQLite::Builder::StatementBuilder selectMappingBuilder;
+<a href="#l40" class="line" id="l40">     40</a>                 selectMappingBuilder.Select(valueName).From({ tableName, s_OneToManyTable_MapTable_Suffix }).Where(s_OneToManyTable_MapTable_ManifestName).Equals(manifestId);
+<a href="#l41" class="line" id="l41">     41</a> 
+<a href="#l42" class="line" id="l42">     42</a>                 SQLite::Statement selectMappingStatement = selectMappingBuilder.Prepare(connection);
+<a href="#l43" class="line" id="l43">     43</a> 
+<a href="#l44" class="line" id="l44">     44</a>                 while (selectMappingStatement.Step())
+<a href="#l45" class="line" id="l45">     45</a>                 {
+<a href="#l46" class="line" id="l46">     46</a>                     result.push_back(selectMappingStatement.GetColumn&lt;SQLite::rowid_t&gt;(0));
+<a href="#l47" class="line" id="l47">     47</a>                 }
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a>                 return result;
+<a href="#l50" class="line" id="l50">     50</a>             }
+<a href="#l51" class="line" id="l51">     51</a> 
+<a href="#l52" class="line" id="l52">     52</a>             struct DeleteValueIfNotNeededStatements
+<a href="#l53" class="line" id="l53">     53</a>             {
+<a href="#l54" class="line" id="l54">     54</a>                 DeleteValueIfNotNeededStatements(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName)
+<a href="#l55" class="line" id="l55">     55</a>                 {
+<a href="#l56" class="line" id="l56">     56</a>                     SQLite::Builder::StatementBuilder selectValueMappingBuilder;
+<a href="#l57" class="line" id="l57">     57</a>                     selectValueMappingBuilder.Select(s_OneToManyTable_MapTable_ManifestName).From({ tableName, s_OneToManyTable_MapTable_Suffix }).Where(valueName).Equals(SQLite::Builder::Unbound).Limit(1);
+<a href="#l58" class="line" id="l58">     58</a> 
+<a href="#l59" class="line" id="l59">     59</a>                     SelectIfAnyMappingsByValueId = selectValueMappingBuilder.Prepare(connection);
+<a href="#l60" class="line" id="l60">     60</a> 
+<a href="#l61" class="line" id="l61">     61</a>                     SQLite::Builder::StatementBuilder deleteValueBuilder;
+<a href="#l62" class="line" id="l62">     62</a>                     deleteValueBuilder.DeleteFrom(tableName).Where(SQLite::RowIDName).Equals(SQLite::Builder::Unbound);
+<a href="#l63" class="line" id="l63">     63</a> 
+<a href="#l64" class="line" id="l64">     64</a>                     DeleteValueById = deleteValueBuilder.Prepare(connection);
+<a href="#l65" class="line" id="l65">     65</a>                 }
+<a href="#l66" class="line" id="l66">     66</a> 
+<a href="#l67" class="line" id="l67">     67</a>                 void Execute(SQLite::rowid_t valueId)
+<a href="#l68" class="line" id="l68">     68</a>                 {
+<a href="#l69" class="line" id="l69">     69</a>                     SelectIfAnyMappingsByValueId.Reset();
+<a href="#l70" class="line" id="l70">     70</a>                     SelectIfAnyMappingsByValueId.Bind(1, valueId);
+<a href="#l71" class="line" id="l71">     71</a> 
+<a href="#l72" class="line" id="l72">     72</a>                     // If no rows are found, we can delete the data.
+<a href="#l73" class="line" id="l73">     73</a>                     if (!SelectIfAnyMappingsByValueId.Step())
+<a href="#l74" class="line" id="l74">     74</a>                     {
+<a href="#l75" class="line" id="l75">     75</a>                         DeleteValueById.Reset();
+<a href="#l76" class="line" id="l76">     76</a>                         DeleteValueById.Bind(1, valueId);
+<a href="#l77" class="line" id="l77">     77</a> 
+<a href="#l78" class="line" id="l78">     78</a>                         DeleteValueById.Execute();
+<a href="#l79" class="line" id="l79">     79</a>                     }
+<a href="#l80" class="line" id="l80">     80</a>                 }
+<a href="#l81" class="line" id="l81">     81</a> 
+<a href="#l82" class="line" id="l82">     82</a>             private:
+<a href="#l83" class="line" id="l83">     83</a>                 // Bind valid rowid to 1.
+<a href="#l84" class="line" id="l84">     84</a>                 SQLite::Statement SelectIfAnyMappingsByValueId;
+<a href="#l85" class="line" id="l85">     85</a>                 // Bind valid rowid to 1.
+<a href="#l86" class="line" id="l86">     86</a>                 SQLite::Statement DeleteValueById;
+<a href="#l87" class="line" id="l87">     87</a>             };
+<a href="#l88" class="line" id="l88">     88</a> 
+<a href="#l89" class="line" id="l89">     89</a>             bool SchemaVersionUsesNamedIndices(OneToManyTableSchema schemaVersion)
+<a href="#l90" class="line" id="l90">     90</a>             {
+<a href="#l91" class="line" id="l91">     91</a>                 return schemaVersion != OneToManyTableSchema::Version_1_0;
+<a href="#l92" class="line" id="l92">     92</a>             }
+<a href="#l93" class="line" id="l93">     93</a>         }
+<a href="#l94" class="line" id="l94">     94</a> 
+<a href="#l95" class="line" id="l95">     95</a>         std::string OneToManyTableGetMapTableName(std::string_view tableName)
+<a href="#l96" class="line" id="l96">     96</a>         {
+<a href="#l97" class="line" id="l97">     97</a>             std::string result(tableName);
+<a href="#l98" class="line" id="l98">     98</a>             result += s_OneToManyTable_MapTable_Suffix;
+<a href="#l99" class="line" id="l99">     99</a>             return result;
+<a href="#l100" class="line" id="l100">    100</a>         }
+<a href="#l101" class="line" id="l101">    101</a> 
+<a href="#l102" class="line" id="l102">    102</a>         std::string_view OneToManyTableGetManifestColumnName()
+<a href="#l103" class="line" id="l103">    103</a>         {
+<a href="#l104" class="line" id="l104">    104</a>             return s_OneToManyTable_MapTable_ManifestName;
+<a href="#l105" class="line" id="l105">    105</a>         }
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a>         void CreateOneToManyTable(SQLite::Connection&amp; connection, OneToManyTableSchema schemaVersion, std::string_view tableName, std::string_view valueName)
+<a href="#l108" class="line" id="l108">    108</a>         {
+<a href="#l109" class="line" id="l109">    109</a>             using namespace SQLite::Builder;
+<a href="#l110" class="line" id="l110">    110</a> 
+<a href="#l111" class="line" id="l111">    111</a>             SQLite::Savepoint savepoint = SQLite::Savepoint::Create(connection, std::string{ tableName } + &quot;_create_v1_0&quot;);
+<a href="#l112" class="line" id="l112">    112</a> 
+<a href="#l113" class="line" id="l113">    113</a>             // Create the data table as a 1:1
+<a href="#l114" class="line" id="l114">    114</a>             CreateOneToOneTable(connection, tableName, valueName, SchemaVersionUsesNamedIndices(schemaVersion));
+<a href="#l115" class="line" id="l115">    115</a> 
+<a href="#l116" class="line" id="l116">    116</a>             switch (schemaVersion)
+<a href="#l117" class="line" id="l117">    117</a>             {
+<a href="#l118" class="line" id="l118">    118</a>             case OneToManyTableSchema::Version_1_0:
+<a href="#l119" class="line" id="l119">    119</a>             {
+<a href="#l120" class="line" id="l120">    120</a>                 // Create the mapping table
+<a href="#l121" class="line" id="l121">    121</a>                 StatementBuilder createMapTableBuilder;
+<a href="#l122" class="line" id="l122">    122</a>                 createMapTableBuilder.CreateTable({ tableName, s_OneToManyTable_MapTable_Suffix }).Columns({
+<a href="#l123" class="line" id="l123">    123</a>                     ColumnBuilder(s_OneToManyTable_MapTable_ManifestName, Type::Int64).NotNull(),
+<a href="#l124" class="line" id="l124">    124</a>                     ColumnBuilder(valueName, Type::Int64).NotNull(),
+<a href="#l125" class="line" id="l125">    125</a>                     PrimaryKeyBuilder({ valueName, s_OneToManyTable_MapTable_ManifestName })
+<a href="#l126" class="line" id="l126">    126</a>                     });
+<a href="#l127" class="line" id="l127">    127</a> 
+<a href="#l128" class="line" id="l128">    128</a>                 createMapTableBuilder.Execute(connection);
+<a href="#l129" class="line" id="l129">    129</a>             }
+<a href="#l130" class="line" id="l130">    130</a>                 break;
+<a href="#l131" class="line" id="l131">    131</a>             case OneToManyTableSchema::Version_1_1:
+<a href="#l132" class="line" id="l132">    132</a>             {
+<a href="#l133" class="line" id="l133">    133</a>                 // Create the mapping table
+<a href="#l134" class="line" id="l134">    134</a>                 StatementBuilder createMapTableBuilder;
+<a href="#l135" class="line" id="l135">    135</a>                 createMapTableBuilder.CreateTable({ tableName, s_OneToManyTable_MapTable_Suffix }).Columns({
+<a href="#l136" class="line" id="l136">    136</a>                     ColumnBuilder(s_OneToManyTable_MapTable_ManifestName, Type::Int64).NotNull(),
+<a href="#l137" class="line" id="l137">    137</a>                     ColumnBuilder(valueName, Type::Int64).NotNull()
+<a href="#l138" class="line" id="l138">    138</a>                     });
+<a href="#l139" class="line" id="l139">    139</a> 
+<a href="#l140" class="line" id="l140">    140</a>                 createMapTableBuilder.Execute(connection);
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>                 StatementBuilder pkIndexBuilder;
+<a href="#l143" class="line" id="l143">    143</a>                 pkIndexBuilder.CreateUniqueIndex({ tableName, s_OneToManyTable_MapTable_Suffix, s_OneToManyTable_MapTable_PrimaryKeyIndexSuffix }).
+<a href="#l144" class="line" id="l144">    144</a>                     On({ tableName, s_OneToManyTable_MapTable_Suffix }).Columns({ valueName, s_OneToManyTable_MapTable_ManifestName });
+<a href="#l145" class="line" id="l145">    145</a>                 pkIndexBuilder.Execute(connection);
+<a href="#l146" class="line" id="l146">    146</a>             }
+<a href="#l147" class="line" id="l147">    147</a>                 break;
+<a href="#l148" class="line" id="l148">    148</a>             case OneToManyTableSchema::Version_1_7:
+<a href="#l149" class="line" id="l149">    149</a>             {
+<a href="#l150" class="line" id="l150">    150</a>                 // Create the mapping table
+<a href="#l151" class="line" id="l151">    151</a>                 StatementBuilder createMapTableBuilder;
+<a href="#l152" class="line" id="l152">    152</a>                 createMapTableBuilder.CreateTable({ tableName, s_OneToManyTable_MapTable_Suffix }).Columns({
+<a href="#l153" class="line" id="l153">    153</a>                     ColumnBuilder(s_OneToManyTable_MapTable_ManifestName, Type::Int64).NotNull(),
+<a href="#l154" class="line" id="l154">    154</a>                     ColumnBuilder(valueName, Type::Int64).NotNull(),
+<a href="#l155" class="line" id="l155">    155</a>                     PrimaryKeyBuilder({ valueName, s_OneToManyTable_MapTable_ManifestName })
+<a href="#l156" class="line" id="l156">    156</a>                     }).WithoutRowID();
+<a href="#l157" class="line" id="l157">    157</a> 
+<a href="#l158" class="line" id="l158">    158</a>                 createMapTableBuilder.Execute(connection);
+<a href="#l159" class="line" id="l159">    159</a>             }
+<a href="#l160" class="line" id="l160">    160</a>                 break;
+<a href="#l161" class="line" id="l161">    161</a>             default:
+<a href="#l162" class="line" id="l162">    162</a>                 THROW_HR(E_UNEXPECTED);
+<a href="#l163" class="line" id="l163">    163</a>             }
+<a href="#l164" class="line" id="l164">    164</a> 
+<a href="#l165" class="line" id="l165">    165</a>             StatementBuilder createMapTableIndexBuilder;
+<a href="#l166" class="line" id="l166">    166</a>             createMapTableIndexBuilder.CreateIndex({ tableName, s_OneToManyTable_MapTable_Suffix, s_OneToManyTable_MapTable_IndexSuffix }).
+<a href="#l167" class="line" id="l167">    167</a>                 On({ tableName, s_OneToManyTable_MapTable_Suffix }).Columns({ s_OneToManyTable_MapTable_ManifestName, valueName });
+<a href="#l168" class="line" id="l168">    168</a> 
+<a href="#l169" class="line" id="l169">    169</a>             createMapTableIndexBuilder.Execute(connection);
+<a href="#l170" class="line" id="l170">    170</a> 
+<a href="#l171" class="line" id="l171">    171</a>             savepoint.Commit();
+<a href="#l172" class="line" id="l172">    172</a>         }
+<a href="#l173" class="line" id="l173">    173</a> 
+<a href="#l174" class="line" id="l174">    174</a>         void DropOneToManyTable(SQLite::Connection&amp; connection, std::string_view tableName)
+<a href="#l175" class="line" id="l175">    175</a>         {
+<a href="#l176" class="line" id="l176">    176</a>             SQLite::Savepoint savepoint = SQLite::Savepoint::Create(connection, std::string{ tableName } + &quot;_drop_v1_0&quot;);
+<a href="#l177" class="line" id="l177">    177</a> 
+<a href="#l178" class="line" id="l178">    178</a>             DropOneToOneTable(connection, tableName);
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>             SQLite::Builder::StatementBuilder dropTableBuilder;
+<a href="#l181" class="line" id="l181">    181</a>             dropTableBuilder.DropTable({ tableName, s_OneToManyTable_MapTable_Suffix });
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a>             dropTableBuilder.Execute(connection);
+<a href="#l184" class="line" id="l184">    184</a> 
+<a href="#l185" class="line" id="l185">    185</a>             savepoint.Commit();
+<a href="#l186" class="line" id="l186">    186</a>         }
+<a href="#l187" class="line" id="l187">    187</a> 
+<a href="#l188" class="line" id="l188">    188</a>         std::vector&lt;std::string&gt; OneToManyTableGetValuesByManifestId(
+<a href="#l189" class="line" id="l189">    189</a>             const SQLite::Connection&amp; connection,
+<a href="#l190" class="line" id="l190">    190</a>             std::string_view tableName,
+<a href="#l191" class="line" id="l191">    191</a>             std::string_view valueName,
+<a href="#l192" class="line" id="l192">    192</a>             SQLite::rowid_t manifestId)
+<a href="#l193" class="line" id="l193">    193</a>         {
+<a href="#l194" class="line" id="l194">    194</a>             using QCol = SQLite::Builder::QualifiedColumn;
+<a href="#l195" class="line" id="l195">    195</a> 
+<a href="#l196" class="line" id="l196">    196</a>             std::vector&lt;std::string&gt; result;
+<a href="#l197" class="line" id="l197">    197</a> 
+<a href="#l198" class="line" id="l198">    198</a>             SQLite::Builder::StatementBuilder builder;
+<a href="#l199" class="line" id="l199">    199</a>             builder.Select(QCol(tableName, valueName)).
+<a href="#l200" class="line" id="l200">    200</a>                 From({ tableName, s_OneToManyTable_MapTable_Suffix }).As(&quot;map&quot;).Join(tableName).
+<a href="#l201" class="line" id="l201">    201</a>                 On(QCol(&quot;map&quot;, valueName), QCol(tableName, SQLite::RowIDName)).Where(QCol(&quot;map&quot;, s_OneToManyTable_MapTable_ManifestName)).Equals(manifestId);
+<a href="#l202" class="line" id="l202">    202</a> 
+<a href="#l203" class="line" id="l203">    203</a>             SQLite::Statement statement = builder.Prepare(connection);
+<a href="#l204" class="line" id="l204">    204</a> 
+<a href="#l205" class="line" id="l205">    205</a>             while (statement.Step())
+<a href="#l206" class="line" id="l206">    206</a>             {
+<a href="#l207" class="line" id="l207">    207</a>                 result.emplace_back(statement.GetColumn&lt;std::string&gt;(0));
+<a href="#l208" class="line" id="l208">    208</a>             }
+<a href="#l209" class="line" id="l209">    209</a> 
+<a href="#l210" class="line" id="l210">    210</a>             return result;
+<a href="#l211" class="line" id="l211">    211</a>         }
+<a href="#l212" class="line" id="l212">    212</a> 
+<a href="#l213" class="line" id="l213">    213</a>         void OneToManyTableEnsureExistsAndInsert(SQLite::Connection&amp; connection,
+<a href="#l214" class="line" id="l214">    214</a>             std::string_view tableName, std::string_view valueName,
+<a href="#l215" class="line" id="l215">    215</a>             const std::vector&lt;Utility::NormalizedString&gt;&amp; values, SQLite::rowid_t manifestId)
+<a href="#l216" class="line" id="l216">    216</a>         {
+<a href="#l217" class="line" id="l217">    217</a>             SQLite::Savepoint savepoint = SQLite::Savepoint::Create(connection, std::string{ tableName } + &quot;_ensureandinsert_v1_0&quot;);
+<a href="#l218" class="line" id="l218">    218</a> 
+<a href="#l219" class="line" id="l219">    219</a>             SQLite::Statement insertMapping = CreateMappingInsertStatementForManifestId(connection, tableName, valueName, manifestId);
+<a href="#l220" class="line" id="l220">    220</a> 
+<a href="#l221" class="line" id="l221">    221</a>             for (const std::string&amp; value : values)
+<a href="#l222" class="line" id="l222">    222</a>             {
+<a href="#l223" class="line" id="l223">    223</a>                 // First, ensure that the data exists
+<a href="#l224" class="line" id="l224">    224</a>                 SQLite::rowid_t dataId = OneToOneTableEnsureExists(connection, tableName, valueName, value);
+<a href="#l225" class="line" id="l225">    225</a> 
+<a href="#l226" class="line" id="l226">    226</a>                 // Second, insert into the mapping table
+<a href="#l227" class="line" id="l227">    227</a>                 insertMapping.Reset();
+<a href="#l228" class="line" id="l228">    228</a>                 insertMapping.Bind(2, dataId);
+<a href="#l229" class="line" id="l229">    229</a> 
+<a href="#l230" class="line" id="l230">    230</a>                 insertMapping.Execute();
+<a href="#l231" class="line" id="l231">    231</a>             }
+<a href="#l232" class="line" id="l232">    232</a> 
+<a href="#l233" class="line" id="l233">    233</a>             savepoint.Commit();
+<a href="#l234" class="line" id="l234">    234</a>         }
+<a href="#l235" class="line" id="l235">    235</a> 
+<a href="#l236" class="line" id="l236">    236</a>         bool OneToManyTableUpdateIfNeededByManifestId(SQLite::Connection&amp; connection,
+<a href="#l237" class="line" id="l237">    237</a>             std::string_view tableName, std::string_view valueName,
+<a href="#l238" class="line" id="l238">    238</a>             const std::vector&lt;Utility::NormalizedString&gt;&amp; values, SQLite::rowid_t manifestId)
+<a href="#l239" class="line" id="l239">    239</a>         {
+<a href="#l240" class="line" id="l240">    240</a>             std::vector&lt;SQLite::rowid_t&gt; oldValueIds = GetValueIdsByManifestId(connection, tableName, valueName, manifestId);
+<a href="#l241" class="line" id="l241">    241</a>             bool modificationNeeded = false;
+<a href="#l242" class="line" id="l242">    242</a> 
+<a href="#l243" class="line" id="l243">    243</a>             SQLite::Statement insertMapping = CreateMappingInsertStatementForManifestId(connection, tableName, valueName, manifestId);
+<a href="#l244" class="line" id="l244">    244</a> 
+<a href="#l245" class="line" id="l245">    245</a>             for (const std::string&amp; value : values)
+<a href="#l246" class="line" id="l246">    246</a>             {
+<a href="#l247" class="line" id="l247">    247</a>                 SQLite::rowid_t valueId = OneToOneTableEnsureExists(connection, tableName, valueName, value);
+<a href="#l248" class="line" id="l248">    248</a> 
+<a href="#l249" class="line" id="l249">    249</a>                 auto itr = std::find(oldValueIds.begin(), oldValueIds.end(), valueId);
+<a href="#l250" class="line" id="l250">    250</a>                 if (itr != oldValueIds.end())
+<a href="#l251" class="line" id="l251">    251</a>                 {
+<a href="#l252" class="line" id="l252">    252</a>                     oldValueIds.erase(itr);
+<a href="#l253" class="line" id="l253">    253</a>                 }
+<a href="#l254" class="line" id="l254">    254</a>                 else
+<a href="#l255" class="line" id="l255">    255</a>                 {
+<a href="#l256" class="line" id="l256">    256</a>                     modificationNeeded = true;
+<a href="#l257" class="line" id="l257">    257</a> 
+<a href="#l258" class="line" id="l258">    258</a>                     insertMapping.Reset();
+<a href="#l259" class="line" id="l259">    259</a>                     insertMapping.Bind(2, valueId);
+<a href="#l260" class="line" id="l260">    260</a> 
+<a href="#l261" class="line" id="l261">    261</a>                     insertMapping.Execute();
+<a href="#l262" class="line" id="l262">    262</a>                 }
+<a href="#l263" class="line" id="l263">    263</a>             }
+<a href="#l264" class="line" id="l264">    264</a> 
+<a href="#l265" class="line" id="l265">    265</a>             // All incoming values are now present, we just need to delete the remaining old ones.
+<a href="#l266" class="line" id="l266">    266</a>             SQLite::Builder::StatementBuilder deleteBuilder;
+<a href="#l267" class="line" id="l267">    267</a>             deleteBuilder.DeleteFrom({ tableName, s_OneToManyTable_MapTable_Suffix }).
+<a href="#l268" class="line" id="l268">    268</a>                 Where(s_OneToManyTable_MapTable_ManifestName).Equals(manifestId).And(valueName).Equals(SQLite::Builder::Unbound);
+<a href="#l269" class="line" id="l269">    269</a> 
+<a href="#l270" class="line" id="l270">    270</a>             SQLite::Statement deleteStatement = deleteBuilder.Prepare(connection);
+<a href="#l271" class="line" id="l271">    271</a> 
+<a href="#l272" class="line" id="l272">    272</a>             DeleteValueIfNotNeededStatements dvinns(connection, tableName, valueName);
+<a href="#l273" class="line" id="l273">    273</a> 
+<a href="#l274" class="line" id="l274">    274</a>             for (SQLite::rowid_t valueId : oldValueIds)
+<a href="#l275" class="line" id="l275">    275</a>             {
+<a href="#l276" class="line" id="l276">    276</a>                 modificationNeeded = true;
+<a href="#l277" class="line" id="l277">    277</a> 
+<a href="#l278" class="line" id="l278">    278</a>                 // First, delete the mapping
+<a href="#l279" class="line" id="l279">    279</a>                 deleteStatement.Reset();
+<a href="#l280" class="line" id="l280">    280</a>                 deleteStatement.Bind(2, valueId);
+<a href="#l281" class="line" id="l281">    281</a> 
+<a href="#l282" class="line" id="l282">    282</a>                 deleteStatement.Execute();
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a>                 // Second, delete the value itself if not needed
+<a href="#l285" class="line" id="l285">    285</a>                 dvinns.Execute(valueId);
+<a href="#l286" class="line" id="l286">    286</a>             }
+<a href="#l287" class="line" id="l287">    287</a> 
+<a href="#l288" class="line" id="l288">    288</a>             return modificationNeeded;
+<a href="#l289" class="line" id="l289">    289</a>         }
+<a href="#l290" class="line" id="l290">    290</a> 
+<a href="#l291" class="line" id="l291">    291</a>         void OneToManyTableDeleteIfNotNeededByManifestId(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, SQLite::rowid_t manifestId)
+<a href="#l292" class="line" id="l292">    292</a>         {
+<a href="#l293" class="line" id="l293">    293</a>             SQLite::Savepoint savepoint = SQLite::Savepoint::Create(connection, std::string{ tableName } + &quot;_deleteifnotneeded_v1_0&quot;);
+<a href="#l294" class="line" id="l294">    294</a> 
+<a href="#l295" class="line" id="l295">    295</a>             // Get values referenced by the manifest id.
+<a href="#l296" class="line" id="l296">    296</a>             std::vector&lt;SQLite::rowid_t&gt; values = GetValueIdsByManifestId(connection, tableName, valueName, manifestId);
+<a href="#l297" class="line" id="l297">    297</a> 
+<a href="#l298" class="line" id="l298">    298</a>             // Delete the mapping table rows with the manifest id.
+<a href="#l299" class="line" id="l299">    299</a>             SQLite::Builder::StatementBuilder deleteBuilder;
+<a href="#l300" class="line" id="l300">    300</a>             deleteBuilder.DeleteFrom({ tableName, s_OneToManyTable_MapTable_Suffix }).Where(s_OneToManyTable_MapTable_ManifestName).Equals(manifestId);
+<a href="#l301" class="line" id="l301">    301</a> 
+<a href="#l302" class="line" id="l302">    302</a>             deleteBuilder.Execute(connection);
+<a href="#l303" class="line" id="l303">    303</a> 
+<a href="#l304" class="line" id="l304">    304</a>             // For each value, see if any references exist
+<a href="#l305" class="line" id="l305">    305</a>             DeleteValueIfNotNeededStatements dvinns(connection, tableName, valueName);
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>             for (SQLite::rowid_t value : values)
+<a href="#l308" class="line" id="l308">    308</a>             {
+<a href="#l309" class="line" id="l309">    309</a>                 dvinns.Execute(value);
+<a href="#l310" class="line" id="l310">    310</a>             }
+<a href="#l311" class="line" id="l311">    311</a> 
+<a href="#l312" class="line" id="l312">    312</a>             savepoint.Commit();
+<a href="#l313" class="line" id="l313">    313</a>         }
+<a href="#l314" class="line" id="l314">    314</a> 
+<a href="#l315" class="line" id="l315">    315</a>         void OneToManyTablePrepareForPackaging(SQLite::Connection&amp; connection, std::string_view tableName, OneToManyTableSchema schemaVersion, bool preserveManifestIndex, bool preserveValuesIndex)
+<a href="#l316" class="line" id="l316">    316</a>         {
+<a href="#l317" class="line" id="l317">    317</a>             if (!preserveManifestIndex)
+<a href="#l318" class="line" id="l318">    318</a>             {
+<a href="#l319" class="line" id="l319">    319</a>                 SQLite::Builder::StatementBuilder dropMapTableIndexBuilder;
+<a href="#l320" class="line" id="l320">    320</a>                 dropMapTableIndexBuilder.DropIndex({ tableName, s_OneToManyTable_MapTable_Suffix, s_OneToManyTable_MapTable_IndexSuffix });
+<a href="#l321" class="line" id="l321">    321</a> 
+<a href="#l322" class="line" id="l322">    322</a>                 dropMapTableIndexBuilder.Execute(connection);
+<a href="#l323" class="line" id="l323">    323</a>             }
+<a href="#l324" class="line" id="l324">    324</a> 
+<a href="#l325" class="line" id="l325">    325</a>             OneToOneTablePrepareForPackaging(connection, tableName, SchemaVersionUsesNamedIndices(schemaVersion), preserveValuesIndex);
+<a href="#l326" class="line" id="l326">    326</a>         }
+<a href="#l327" class="line" id="l327">    327</a> 
+<a href="#l328" class="line" id="l328">    328</a>         bool OneToManyTableCheckConsistency(const SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, bool log)
+<a href="#l329" class="line" id="l329">    329</a>         {
+<a href="#l330" class="line" id="l330">    330</a>             using QCol = SQLite::Builder::QualifiedColumn;
+<a href="#l331" class="line" id="l331">    331</a>             constexpr std::string_view s_map = &quot;map&quot;sv;
+<a href="#l332" class="line" id="l332">    332</a> 
+<a href="#l333" class="line" id="l333">    333</a>             bool result = true;
+<a href="#l334" class="line" id="l334">    334</a> 
+<a href="#l335" class="line" id="l335">    335</a>             {
+<a href="#l336" class="line" id="l336">    336</a>                 // Build a select statement to find map rows containing references to manifests with nonexistent rowids
+<a href="#l337" class="line" id="l337">    337</a>                 // Such as:
+<a href="#l338" class="line" id="l338">    338</a>                 // Select map.rowid, map.manifest from tags_map as map left outer join manifest on map.manifest = manifest.rowid where manifest.id is null
+<a href="#l339" class="line" id="l339">    339</a> 
+<a href="#l340" class="line" id="l340">    340</a>                 SQLite::Builder::StatementBuilder builder;
+<a href="#l341" class="line" id="l341">    341</a>                 builder.
+<a href="#l342" class="line" id="l342">    342</a>                     Select({ QCol(s_map, s_OneToManyTable_MapTable_ManifestName), QCol(s_map, valueName) }).
+<a href="#l343" class="line" id="l343">    343</a>                     From({ tableName, s_OneToManyTable_MapTable_Suffix }).As(s_map).
+<a href="#l344" class="line" id="l344">    344</a>                     LeftOuterJoin(ManifestTable::TableName()).On(QCol(s_map, s_OneToManyTable_MapTable_ManifestName), QCol(ManifestTable::TableName(), SQLite::RowIDName)).
+<a href="#l345" class="line" id="l345">    345</a>                     Where(QCol(ManifestTable::TableName(), SQLite::RowIDName)).IsNull();
+<a href="#l346" class="line" id="l346">    346</a> 
+<a href="#l347" class="line" id="l347">    347</a>                 SQLite::Statement select = builder.Prepare(connection);
+<a href="#l348" class="line" id="l348">    348</a> 
+<a href="#l349" class="line" id="l349">    349</a>                 while (select.Step())
+<a href="#l350" class="line" id="l350">    350</a>                 {
+<a href="#l351" class="line" id="l351">    351</a>                     result = false;
+<a href="#l352" class="line" id="l352">    352</a> 
+<a href="#l353" class="line" id="l353">    353</a>                     if (!log)
+<a href="#l354" class="line" id="l354">    354</a>                     {
+<a href="#l355" class="line" id="l355">    355</a>                         break;
+<a href="#l356" class="line" id="l356">    356</a>                     }
+<a href="#l357" class="line" id="l357">    357</a> 
+<a href="#l358" class="line" id="l358">    358</a>                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;  [INVALID] &quot; &lt;&lt; tableName &lt;&lt; s_OneToManyTable_MapTable_Suffix &lt;&lt; &quot; [&quot; &lt;&lt; select.GetColumn&lt;SQLite::rowid_t&gt;(0) &lt;&lt;
+<a href="#l359" class="line" id="l359">    359</a>                         &quot;, &quot; &lt;&lt; select.GetColumn&lt;SQLite::rowid_t&gt;(1) &lt;&lt; &quot;] refers to invalid &quot; &lt;&lt; ManifestTable::TableName());
+<a href="#l360" class="line" id="l360">    360</a>                 }
+<a href="#l361" class="line" id="l361">    361</a>             }
+<a href="#l362" class="line" id="l362">    362</a> 
+<a href="#l363" class="line" id="l363">    363</a>             if (!result &amp;&amp; !log)
+<a href="#l364" class="line" id="l364">    364</a>             {
+<a href="#l365" class="line" id="l365">    365</a>                 return result;
+<a href="#l366" class="line" id="l366">    366</a>             }
+<a href="#l367" class="line" id="l367">    367</a> 
+<a href="#l368" class="line" id="l368">    368</a>             {
+<a href="#l369" class="line" id="l369">    369</a>                 // Build a select statement to find map rows containing references to 1:1 tables with nonexistent rowids
+<a href="#l370" class="line" id="l370">    370</a>                 // Such as:
+<a href="#l371" class="line" id="l371">    371</a>                 // Select map.rowid, map.tag from tags_map as map left outer join tags on map.tag = tags.rowid where tags.tag is null
+<a href="#l372" class="line" id="l372">    372</a>                 SQLite::Builder::StatementBuilder builder;
+<a href="#l373" class="line" id="l373">    373</a>                 builder.
+<a href="#l374" class="line" id="l374">    374</a>                     Select({ QCol(s_map, s_OneToManyTable_MapTable_ManifestName), QCol(s_map, valueName) }).
+<a href="#l375" class="line" id="l375">    375</a>                     From({ tableName, s_OneToManyTable_MapTable_Suffix }).As(s_map).
+<a href="#l376" class="line" id="l376">    376</a>                     LeftOuterJoin(tableName).On(QCol(s_map, valueName), QCol(tableName, SQLite::RowIDName)).
+<a href="#l377" class="line" id="l377">    377</a>                     Where(QCol(tableName, valueName)).IsNull();
+<a href="#l378" class="line" id="l378">    378</a> 
+<a href="#l379" class="line" id="l379">    379</a>                 SQLite::Statement select = builder.Prepare(connection);
+<a href="#l380" class="line" id="l380">    380</a>                 bool secondaryResult = true;
+<a href="#l381" class="line" id="l381">    381</a> 
+<a href="#l382" class="line" id="l382">    382</a>                 while (select.Step())
+<a href="#l383" class="line" id="l383">    383</a>                 {
+<a href="#l384" class="line" id="l384">    384</a>                     secondaryResult = false;
+<a href="#l385" class="line" id="l385">    385</a> 
+<a href="#l386" class="line" id="l386">    386</a>                     if (!log)
+<a href="#l387" class="line" id="l387">    387</a>                     {
+<a href="#l388" class="line" id="l388">    388</a>                         break;
+<a href="#l389" class="line" id="l389">    389</a>                     }
+<a href="#l390" class="line" id="l390">    390</a> 
+<a href="#l391" class="line" id="l391">    391</a>                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;  [INVALID] &quot; &lt;&lt; tableName &lt;&lt; s_OneToManyTable_MapTable_Suffix &lt;&lt; &quot; [&quot; &lt;&lt; select.GetColumn&lt;SQLite::rowid_t&gt;(0) &lt;&lt;
+<a href="#l392" class="line" id="l392">    392</a>                         &quot;, &quot; &lt;&lt; select.GetColumn&lt;SQLite::rowid_t&gt;(1) &lt;&lt; &quot;] refers to invalid &quot; &lt;&lt; tableName);
+<a href="#l393" class="line" id="l393">    393</a>                 }
+<a href="#l394" class="line" id="l394">    394</a> 
+<a href="#l395" class="line" id="l395">    395</a>                 result = result &amp;&amp; secondaryResult;
+<a href="#l396" class="line" id="l396">    396</a>             }
+<a href="#l397" class="line" id="l397">    397</a> 
+<a href="#l398" class="line" id="l398">    398</a>             if (!result &amp;&amp; !log)
+<a href="#l399" class="line" id="l399">    399</a>             {
+<a href="#l400" class="line" id="l400">    400</a>                 return result;
+<a href="#l401" class="line" id="l401">    401</a>             }
+<a href="#l402" class="line" id="l402">    402</a> 
+<a href="#l403" class="line" id="l403">    403</a>             result = OneToOneTableCheckConsistency(connection, tableName, valueName, log) &amp;&amp; result;
+<a href="#l404" class="line" id="l404">    404</a> 
+<a href="#l405" class="line" id="l405">    405</a>             return result;
+<a href="#l406" class="line" id="l406">    406</a>         }
+<a href="#l407" class="line" id="l407">    407</a> 
+<a href="#l408" class="line" id="l408">    408</a>         bool OneToManyTableIsEmpty(SQLite::Connection&amp; connection, std::string_view tableName)
+<a href="#l409" class="line" id="l409">    409</a>         {
+<a href="#l410" class="line" id="l410">    410</a>             SQLite::Builder::StatementBuilder countBuilder;
+<a href="#l411" class="line" id="l411">    411</a>             countBuilder.Select(SQLite::Builder::RowCount).From(tableName);
+<a href="#l412" class="line" id="l412">    412</a> 
+<a href="#l413" class="line" id="l413">    413</a>             SQLite::Statement countStatement = countBuilder.Prepare(connection);
+<a href="#l414" class="line" id="l414">    414</a> 
+<a href="#l415" class="line" id="l415">    415</a>             THROW_HR_IF(E_UNEXPECTED, !countStatement.Step());
+<a href="#l416" class="line" id="l416">    416</a> 
+<a href="#l417" class="line" id="l417">    417</a>             SQLite::Builder::StatementBuilder countMapBuilder;
+<a href="#l418" class="line" id="l418">    418</a>             countMapBuilder.Select(SQLite::Builder::RowCount).From({ tableName, s_OneToManyTable_MapTable_Suffix });
+<a href="#l419" class="line" id="l419">    419</a> 
+<a href="#l420" class="line" id="l420">    420</a>             SQLite::Statement countMapStatement = countMapBuilder.Prepare(connection);
+<a href="#l421" class="line" id="l421">    421</a> 
+<a href="#l422" class="line" id="l422">    422</a>             THROW_HR_IF(E_UNEXPECTED, !countMapStatement.Step());
+<a href="#l423" class="line" id="l423">    423</a> 
+<a href="#l424" class="line" id="l424">    424</a>             return ((countStatement.GetColumn&lt;int&gt;(0) == 0) &amp;&amp; (countMapStatement.GetColumn&lt;int&gt;(0) == 0));
+<a href="#l425" class="line" id="l425">    425</a>         }
+<a href="#l426" class="line" id="l426">    426</a> 
+<a href="#l427" class="line" id="l427">    427</a>         SQLite::Statement OneToManyTablePrepareMapDataFoldingStatement(const SQLite::Connection&amp; connection, std::string_view tableName)
+<a href="#l428" class="line" id="l428">    428</a>         {
+<a href="#l429" class="line" id="l429">    429</a>             using namespace SQLite::Builder;
+<a href="#l430" class="line" id="l430">    430</a>             StatementBuilder builder;
+<a href="#l431" class="line" id="l431">    431</a> 
+<a href="#l432" class="line" id="l432">    432</a>             // Create a statement that will collapse (and dedupe) all rows in the map to the latest (max) manifest for a given id, like:
+<a href="#l433" class="line" id="l433">    433</a>             // UPDATE OR REPLACE map SET manifest = (SELECT MAX(rowid) FROM manifest_table WHERE id = ?1) WHERE manifest IN (SELECT rowid FROM manifest_table WHERE id = ?1)
+<a href="#l434" class="line" id="l434">    434</a>             builder.UpdateOrReplace({ tableName, s_OneToManyTable_MapTable_Suffix }).Set().Column(s_OneToManyTable_MapTable_ManifestName).Equals()
+<a href="#l435" class="line" id="l435">    435</a>                 .BeginParenthetical()
+<a href="#l436" class="line" id="l436">    436</a>                     .Select().Column(Aggregate::Max, SQLite::RowIDName).From(ManifestTable::TableName()).Where(IdTable::ValueName()).Equals(Unbound, 1)
+<a href="#l437" class="line" id="l437">    437</a>                 .EndParenthetical()
+<a href="#l438" class="line" id="l438">    438</a>                 .Where(s_OneToManyTable_MapTable_ManifestName).In()
+<a href="#l439" class="line" id="l439">    439</a>                 .BeginParenthetical()
+<a href="#l440" class="line" id="l440">    440</a>                     .Select(SQLite::RowIDName).From(ManifestTable::TableName()).Where(IdTable::ValueName()).Equals(Unbound, 1)
+<a href="#l441" class="line" id="l441">    441</a>                 .EndParenthetical();
+<a href="#l442" class="line" id="l442">    442</a> 
+<a href="#l443" class="line" id="l443">    443</a>             return builder.Prepare(connection);
+<a href="#l444" class="line" id="l444">    444</a>         }
+<a href="#l445" class="line" id="l445">    445</a>     }
+<a href="#l446" class="line" id="l446">    446</a> 
+<a href="#l447" class="line" id="l447">    447</a>     std::optional&lt;SQLite::rowid_t&gt; OneToManyTableGetMapDataFoldingManifestTargetId(const SQLite::Connection&amp; connection, SQLite::rowid_t manifestId)
+<a href="#l448" class="line" id="l448">    448</a>     {
+<a href="#l449" class="line" id="l449">    449</a>         using namespace SQLite::Builder;
+<a href="#l450" class="line" id="l450">    450</a>         StatementBuilder builder;
+<a href="#l451" class="line" id="l451">    451</a> 
+<a href="#l452" class="line" id="l452">    452</a>         // Select the maximum manifest rowid from the manifests whose id is the same as the row with the given manifest rowid, like:
+<a href="#l453" class="line" id="l453">    453</a>         // SELECT MAX(rowid) FROM manifest_table WHERE id = (SELECT id FROM manifest_table WHERE rowid = ?)
+<a href="#l454" class="line" id="l454">    454</a>         builder.Select().Column(Aggregate::Max, SQLite::RowIDName).From(ManifestTable::TableName()).Where(IdTable::ValueName()).Equals()
+<a href="#l455" class="line" id="l455">    455</a>             .BeginParenthetical()
+<a href="#l456" class="line" id="l456">    456</a>                 .Select(IdTable::ValueName()).From(ManifestTable::TableName()).Where(SQLite::RowIDName).Equals(manifestId)
+<a href="#l457" class="line" id="l457">    457</a>             .EndParenthetical();
+<a href="#l458" class="line" id="l458">    458</a> 
+<a href="#l459" class="line" id="l459">    459</a>         SQLite::Statement statement = builder.Prepare(connection);
+<a href="#l460" class="line" id="l460">    460</a> 
+<a href="#l461" class="line" id="l461">    461</a>         if (statement.Step() &amp;&amp; !statement.GetColumnIsNull(0))
+<a href="#l462" class="line" id="l462">    462</a>         {
+<a href="#l463" class="line" id="l463">    463</a>             return statement.GetColumn&lt;SQLite::rowid_t&gt;(0);
+<a href="#l464" class="line" id="l464">    464</a>         }
+<a href="#l465" class="line" id="l465">    465</a> 
+<a href="#l466" class="line" id="l466">    466</a>         return std::nullopt;
+<a href="#l467" class="line" id="l467">    467</a>     }
+<a href="#l468" class="line" id="l468">    468</a> }
+</pre>
+</div>
+</body>
+</html>

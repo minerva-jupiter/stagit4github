@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Remove CrossProcessReaderWriteLock (#3549) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/d1083328e48f7b053042609fbba9f619c4048a02.html">d1083328e48f7b053042609fbba9f619c4048a02</a>
+<b>parent</b> <a href="../commit/0c546572eb52b56f04f5368340be40128363989f.html">0c546572eb52b56f04f5368340be40128363989f</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Fri, 25 Aug 2023 11:36:22 -0700
+
+Remove CrossProcessReaderWriteLock (#3549)
+
+Remove `CrossProcessReaderWriteLock`, as it has caused more problems than it likely ever solved.
+
+The current issue is that the mutexes can potentially be released on a different thread than they were acquired in the COM server.  This led to initially removing them from being stored for the entire lifetime of the index file, after confirming that even in immutable mode, SQLite is opening the file and *not* sharing delete.
+
+After that, the massive complexity of the code is unnecessary, since we ever only hold the lock shared to open the index.  So rather than keep it, I swapped out all usage for the simple wrapper around a named mutex.  I also added a `FAIL_FAST_IF` the current thread was not the one that we had originally acquired the lock on.
+
+This might lead to slightly more waiting while other callers are opening files, but it might just as easily lead to less waiting due to the single mutex.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/Synchronization.cpp</a></td><td> | </td><td class="num">116</td><td><span class="i"></span><span class="d">-------------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a></td><td> | </td><td class="num">61</td><td><span class="i">+++++++++++++++++++</span><span class="d">------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Synchronization.cpp</a></td><td> | </td><td class="num">272</td><td><span class="i">++++++</span><span class="d">-------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></td><td> | </td><td class="num">26</td><td><span class="i">+++++++++++++++</span><span class="d">-----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerRepositoryCore/Microsoft/PredefinedWriteableSourceFactory.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp</a></td><td> | </td><td class="num">7</td><td><span class="i">+++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.h</a></td><td> | </td><td class="num">4</td><td><span class="i"></span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a></td><td> | </td><td class="num">50</td><td><span class="i">+++++++++++++++++++++++++</span><span class="d">-------------------------</span></td></tr>
+</table></pre><pre>9 files changed, 82 insertions(+), 458 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/Synchronization.cpp.html">src/AppInstallerCLITests/Synchronization.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Synchronization.cpp.html">src/AppInstallerCLITests/Synchronization.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -7,122 +7,6 @@
+</a> 
+ using namespace AppInstaller::Synchronization;
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-TEST_CASE(&quot;CPRWL_MultipleReaders&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-{
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-    std::string name = &quot;AppInstCPRWLTests&quot;;
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-    wil::unique_event signal;
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-    signal.create();
+</a><a href="#h0-0-9" id="h0-0-9" class="d">-
+</a><a href="#h0-0-10" id="h0-0-10" class="d">-    CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a><a href="#h0-0-11" id="h0-0-11" class="d">-
+</a><a href="#h0-0-12" id="h0-0-12" class="d">-    std::thread otherThread([&amp;name, &amp;signal]() {
+</a><a href="#h0-0-13" id="h0-0-13" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a><a href="#h0-0-14" id="h0-0-14" class="d">-            signal.SetEvent();
+</a><a href="#h0-0-15" id="h0-0-15" class="d">-        });
+</a><a href="#h0-0-16" id="h0-0-16" class="d">-    // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h0-0-17" id="h0-0-17" class="d">-    otherThread.detach();
+</a><a href="#h0-0-18" id="h0-0-18" class="d">-
+</a><a href="#h0-0-19" id="h0-0-19" class="d">-    REQUIRE(signal.wait(500));
+</a><a href="#h0-0-20" id="h0-0-20" class="d">-}
+</a><a href="#h0-0-21" id="h0-0-21" class="d">-
+</a><a href="#h0-0-22" id="h0-0-22" class="d">-TEST_CASE(&quot;CPRWL_WriterBlocksReader&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a><a href="#h0-0-23" id="h0-0-23" class="d">-{
+</a><a href="#h0-0-24" id="h0-0-24" class="d">-    std::string name = &quot;AppInstCPRWLTests&quot;;
+</a><a href="#h0-0-25" id="h0-0-25" class="d">-
+</a><a href="#h0-0-26" id="h0-0-26" class="d">-    wil::unique_event signal;
+</a><a href="#h0-0-27" id="h0-0-27" class="d">-    signal.create();
+</a><a href="#h0-0-28" id="h0-0-28" class="d">-
+</a><a href="#h0-0-29" id="h0-0-29" class="d">-    {
+</a><a href="#h0-0-30" id="h0-0-30" class="d">-        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a><a href="#h0-0-31" id="h0-0-31" class="d">-
+</a><a href="#h0-0-32" id="h0-0-32" class="d">-        std::thread otherThread([&amp;name, &amp;signal]() {
+</a><a href="#h0-0-33" id="h0-0-33" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a><a href="#h0-0-34" id="h0-0-34" class="d">-            signal.SetEvent();
+</a><a href="#h0-0-35" id="h0-0-35" class="d">-            });
+</a><a href="#h0-0-36" id="h0-0-36" class="d">-        // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h0-0-37" id="h0-0-37" class="d">-        otherThread.detach();
+</a><a href="#h0-0-38" id="h0-0-38" class="d">-
+</a><a href="#h0-0-39" id="h0-0-39" class="d">-        REQUIRE(!signal.wait(500));
+</a><a href="#h0-0-40" id="h0-0-40" class="d">-    }
+</a><a href="#h0-0-41" id="h0-0-41" class="d">-
+</a><a href="#h0-0-42" id="h0-0-42" class="d">-    // Upon release of the writer, the other thread should signal
+</a><a href="#h0-0-43" id="h0-0-43" class="d">-    REQUIRE(signal.wait(500));
+</a><a href="#h0-0-44" id="h0-0-44" class="d">-}
+</a><a href="#h0-0-45" id="h0-0-45" class="d">-
+</a><a href="#h0-0-46" id="h0-0-46" class="d">-TEST_CASE(&quot;CPRWL_ReaderBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a><a href="#h0-0-47" id="h0-0-47" class="d">-{
+</a><a href="#h0-0-48" id="h0-0-48" class="d">-    std::string name = &quot;AppInstCPRWLTests&quot;;
+</a><a href="#h0-0-49" id="h0-0-49" class="d">-
+</a><a href="#h0-0-50" id="h0-0-50" class="d">-    wil::unique_event signal;
+</a><a href="#h0-0-51" id="h0-0-51" class="d">-    signal.create();
+</a><a href="#h0-0-52" id="h0-0-52" class="d">-
+</a><a href="#h0-0-53" id="h0-0-53" class="d">-    {
+</a><a href="#h0-0-54" id="h0-0-54" class="d">-        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockShared(name);
+</a><a href="#h0-0-55" id="h0-0-55" class="d">-
+</a><a href="#h0-0-56" id="h0-0-56" class="d">-        std::thread otherThread([&amp;name, &amp;signal]() {
+</a><a href="#h0-0-57" id="h0-0-57" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a><a href="#h0-0-58" id="h0-0-58" class="d">-            signal.SetEvent();
+</a><a href="#h0-0-59" id="h0-0-59" class="d">-            });
+</a><a href="#h0-0-60" id="h0-0-60" class="d">-        // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h0-0-61" id="h0-0-61" class="d">-        otherThread.detach();
+</a><a href="#h0-0-62" id="h0-0-62" class="d">-
+</a><a href="#h0-0-63" id="h0-0-63" class="d">-        REQUIRE(!signal.wait(500));
+</a><a href="#h0-0-64" id="h0-0-64" class="d">-    }
+</a><a href="#h0-0-65" id="h0-0-65" class="d">-
+</a><a href="#h0-0-66" id="h0-0-66" class="d">-    // Upon release of the writer, the other thread should signal
+</a><a href="#h0-0-67" id="h0-0-67" class="d">-    REQUIRE(signal.wait(500));
+</a><a href="#h0-0-68" id="h0-0-68" class="d">-}
+</a><a href="#h0-0-69" id="h0-0-69" class="d">-
+</a><a href="#h0-0-70" id="h0-0-70" class="d">-TEST_CASE(&quot;CPRWL_WriterBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a><a href="#h0-0-71" id="h0-0-71" class="d">-{
+</a><a href="#h0-0-72" id="h0-0-72" class="d">-    std::string name = &quot;AppInstCPRWLTests&quot;;
+</a><a href="#h0-0-73" id="h0-0-73" class="d">-
+</a><a href="#h0-0-74" id="h0-0-74" class="d">-    wil::unique_event signal;
+</a><a href="#h0-0-75" id="h0-0-75" class="d">-    signal.create();
+</a><a href="#h0-0-76" id="h0-0-76" class="d">-
+</a><a href="#h0-0-77" id="h0-0-77" class="d">-    {
+</a><a href="#h0-0-78" id="h0-0-78" class="d">-        CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a><a href="#h0-0-79" id="h0-0-79" class="d">-
+</a><a href="#h0-0-80" id="h0-0-80" class="d">-        std::thread otherThread([&amp;name, &amp;signal]() {
+</a><a href="#h0-0-81" id="h0-0-81" class="d">-            CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a><a href="#h0-0-82" id="h0-0-82" class="d">-            signal.SetEvent();
+</a><a href="#h0-0-83" id="h0-0-83" class="d">-            });
+</a><a href="#h0-0-84" id="h0-0-84" class="d">-        // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h0-0-85" id="h0-0-85" class="d">-        otherThread.detach();
+</a><a href="#h0-0-86" id="h0-0-86" class="d">-
+</a><a href="#h0-0-87" id="h0-0-87" class="d">-        REQUIRE(!signal.wait(500));
+</a><a href="#h0-0-88" id="h0-0-88" class="d">-    }
+</a><a href="#h0-0-89" id="h0-0-89" class="d">-
+</a><a href="#h0-0-90" id="h0-0-90" class="d">-    // Upon release of the writer, the other thread should signal
+</a><a href="#h0-0-91" id="h0-0-91" class="d">-    REQUIRE(signal.wait(500));
+</a><a href="#h0-0-92" id="h0-0-92" class="d">-}
+</a><a href="#h0-0-93" id="h0-0-93" class="d">-
+</a><a href="#h0-0-94" id="h0-0-94" class="d">-TEST_CASE(&quot;CPRWL_CancelEndsWait&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a><a href="#h0-0-95" id="h0-0-95" class="d">-{
+</a><a href="#h0-0-96" id="h0-0-96" class="d">-    std::string name = &quot;AppInstCPRWLTests&quot;;
+</a><a href="#h0-0-97" id="h0-0-97" class="d">-
+</a><a href="#h0-0-98" id="h0-0-98" class="d">-    wil::unique_event signal;
+</a><a href="#h0-0-99" id="h0-0-99" class="d">-    signal.create();
+</a><a href="#h0-0-100" id="h0-0-100" class="d">-    AppInstaller::ProgressCallback progress;
+</a><a href="#h0-0-101" id="h0-0-101" class="d">-
+</a><a href="#h0-0-102" id="h0-0-102" class="d">-    CrossProcessReaderWriteLock mainThreadLock = CrossProcessReaderWriteLock::LockExclusive(name);
+</a><a href="#h0-0-103" id="h0-0-103" class="d">-
+</a><a href="#h0-0-104" id="h0-0-104" class="d">-    std::thread otherThread([&amp;name, &amp;signal, &amp;progress]() {
+</a><a href="#h0-0-105" id="h0-0-105" class="d">-        CrossProcessReaderWriteLock otherThreadLock = CrossProcessReaderWriteLock::LockExclusive(name, progress);
+</a><a href="#h0-0-106" id="h0-0-106" class="d">-        signal.SetEvent();
+</a><a href="#h0-0-107" id="h0-0-107" class="d">-        });
+</a><a href="#h0-0-108" id="h0-0-108" class="d">-    // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h0-0-109" id="h0-0-109" class="d">-    otherThread.detach();
+</a><a href="#h0-0-110" id="h0-0-110" class="d">-
+</a><a href="#h0-0-111" id="h0-0-111" class="d">-    REQUIRE(!signal.wait(500));
+</a><a href="#h0-0-112" id="h0-0-112" class="d">-
+</a><a href="#h0-0-113" id="h0-0-113" class="d">-    progress.Cancel();
+</a><a href="#h0-0-114" id="h0-0-114" class="d">-
+</a><a href="#h0-0-115" id="h0-0-115" class="d">-    // Upon release of the writer, the other thread should signal
+</a><a href="#h0-0-116" id="h0-0-116" class="d">-    REQUIRE(signal.wait(500));
+</a><a href="#h0-0-117" id="h0-0-117" class="d">-}
+</a><a href="#h0-0-118" id="h0-0-118" class="d">-
+</a> TEST_CASE(&quot;CPIL_BlocksOthers&quot;, &quot;[CrossProcessInstallLock]&quot;)
+ {
+     wil::unique_event signal;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h.html">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h.html">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -6,6 +6,7 @@
+</a> #include &lt;wil/resource.h&gt;
+ 
+ #include &lt;chrono&gt;
+<a href="#h1-0-3" id="h1-0-3" class="i">+#include &lt;functional&gt;
+</a> #include &lt;string_view&gt;
+ #include &lt;vector&gt;
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -14,52 +15,20 @@ using namespace std::chrono_literals;
+</a> 
+ namespace AppInstaller::Synchronization
+ {
+<a href="#h1-1-3" id="h1-1-3" class="d">-    // A fairly simple cross process (same session) reader-writer lock.
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-    // The primary purpose is for sources to control access to their backing stores.
+</a><a href="#h1-1-5" id="h1-1-5" class="d">-    // Due to this design goal, these limitations exist:
+</a><a href="#h1-1-6" id="h1-1-6" class="d">-    // - Starves new readers when a writer comes in.
+</a><a href="#h1-1-7" id="h1-1-7" class="d">-    // - Readers are limited to an arbitrarily chosen limit.
+</a><a href="#h1-1-8" id="h1-1-8" class="d">-    // - Not re-entrant (although repeated read locking will work, it will consume additional slots).
+</a><a href="#h1-1-9" id="h1-1-9" class="d">-    // - No upgrade from reader to writer.
+</a><a href="#h1-1-10" id="h1-1-10" class="d">-    //      In order to change from reader/write, one must release and reacquire the lock:
+</a><a href="#h1-1-11" id="h1-1-11" class="d">-    //          auto lock = CrossProcessReaderWriteLock::LockShared(same_name);
+</a><a href="#h1-1-12" id="h1-1-12" class="d">-    //          ... Determine that an exclusive is needed ...
+</a><a href="#h1-1-13" id="h1-1-13" class="d">-    //          lock.Release();
+</a><a href="#h1-1-14" id="h1-1-14" class="d">-    //          lock = CrossProcessReaderWriteLock::LockExclusive(same_name);
+</a><a href="#h1-1-15" id="h1-1-15" class="d">-    struct CrossProcessReaderWriteLock
+</a><a href="#h1-1-16" id="h1-1-16" class="i">+    // This is a standard named mutex.
+</a><a href="#h1-1-17" id="h1-1-17" class="i">+    // It must be acquired and released (or destroyed) on the same thread, just as all Windows mutexes must be.
+</a><a href="#h1-1-18" id="h1-1-18" class="i">+    struct CrossProcessLock
+</a>     {
+<a href="#h1-1-20" id="h1-1-20" class="d">-        // Create unheld lock.
+</a><a href="#h1-1-21" id="h1-1-21" class="d">-        CrossProcessReaderWriteLock() = default;
+</a><a href="#h1-1-22" id="h1-1-22" class="i">+        CrossProcessLock(std::string_view name);
+</a><a href="#h1-1-23" id="h1-1-23" class="i">+        CrossProcessLock(const std::wstring&amp; name);
+</a> 
+<a href="#h1-1-25" id="h1-1-25" class="d">-        ~CrossProcessReaderWriteLock();
+</a><a href="#h1-1-26" id="h1-1-26" class="i">+        ~CrossProcessLock();
+</a> 
+<a href="#h1-1-28" id="h1-1-28" class="d">-        CrossProcessReaderWriteLock(const CrossProcessReaderWriteLock&amp;) = delete;
+</a><a href="#h1-1-29" id="h1-1-29" class="d">-        CrossProcessReaderWriteLock&amp; operator=(const CrossProcessReaderWriteLock&amp;) = delete;
+</a><a href="#h1-1-30" id="h1-1-30" class="i">+        CrossProcessLock(const CrossProcessLock&amp;) = delete;
+</a><a href="#h1-1-31" id="h1-1-31" class="i">+        CrossProcessLock&amp; operator=(const CrossProcessLock&amp;) = delete;
+</a> 
+<a href="#h1-1-33" id="h1-1-33" class="d">-        CrossProcessReaderWriteLock(CrossProcessReaderWriteLock&amp;&amp;) = default;
+</a><a href="#h1-1-34" id="h1-1-34" class="d">-        CrossProcessReaderWriteLock&amp; operator=(CrossProcessReaderWriteLock&amp;&amp;) = default;
+</a><a href="#h1-1-35" id="h1-1-35" class="d">-
+</a><a href="#h1-1-36" id="h1-1-36" class="d">-        static CrossProcessReaderWriteLock LockShared(std::string_view name);
+</a><a href="#h1-1-37" id="h1-1-37" class="d">-        static CrossProcessReaderWriteLock LockShared(std::string_view name, IProgressCallback&amp; progress);
+</a><a href="#h1-1-38" id="h1-1-38" class="d">-
+</a><a href="#h1-1-39" id="h1-1-39" class="d">-        static CrossProcessReaderWriteLock LockExclusive(std::string_view name);
+</a><a href="#h1-1-40" id="h1-1-40" class="d">-        static CrossProcessReaderWriteLock LockExclusive(std::string_view name, IProgressCallback&amp; progress);
+</a><a href="#h1-1-41" id="h1-1-41" class="d">-        static CrossProcessReaderWriteLock LockExclusive(std::string_view name, std::chrono::milliseconds timeout);
+</a><a href="#h1-1-42" id="h1-1-42" class="d">-
+</a><a href="#h1-1-43" id="h1-1-43" class="d">-        operator bool() const;
+</a><a href="#h1-1-44" id="h1-1-44" class="d">-
+</a><a href="#h1-1-45" id="h1-1-45" class="d">-        void Release();
+</a><a href="#h1-1-46" id="h1-1-46" class="d">-
+</a><a href="#h1-1-47" id="h1-1-47" class="d">-    private:
+</a><a href="#h1-1-48" id="h1-1-48" class="d">-        static CrossProcessReaderWriteLock Lock(bool shared, std::string_view name, std::chrono::milliseconds timeout, IProgressCallback* progress);
+</a><a href="#h1-1-49" id="h1-1-49" class="d">-
+</a><a href="#h1-1-50" id="h1-1-50" class="d">-        std::vector&lt;wil::unique_mutex&gt; m_mutexesHeld;
+</a><a href="#h1-1-51" id="h1-1-51" class="d">-    };
+</a><a href="#h1-1-52" id="h1-1-52" class="d">-
+</a><a href="#h1-1-53" id="h1-1-53" class="d">-    // This lock is used to prevent multiple winget related processes from attempting to install (or uninstall) at the same time.
+</a><a href="#h1-1-54" id="h1-1-54" class="d">-    struct CrossProcessInstallLock
+</a><a href="#h1-1-55" id="h1-1-55" class="d">-    {
+</a><a href="#h1-1-56" id="h1-1-56" class="d">-        CrossProcessInstallLock();
+</a><a href="#h1-1-57" id="h1-1-57" class="i">+        CrossProcessLock(CrossProcessLock&amp;&amp;) = default;
+</a><a href="#h1-1-58" id="h1-1-58" class="i">+        CrossProcessLock&amp; operator=(CrossProcessLock&amp;&amp;) = default;
+</a> 
+         // Acquires the lock; cancellation is enabled via the progress object.
+         // Returns true when the lock is acquired and false if the wait is cancelled.
+<a href="#h1-2" id="h1-2" class="h">@@ -78,5 +47,13 @@ namespace AppInstaller::Synchronization
+</a>     private:
+         wil::unique_mutex m_mutex;
+         wil::mutex_release_scope_exit m_lock;
+<a href="#h1-2-3" id="h1-2-3" class="i">+        DWORD m_lockThreadId = 0;
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+    };
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+    // This lock is used to prevent multiple winget related processes from attempting to install (or uninstall) at the same time.
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+    // It must be acquired and released (or destroyed) on the same thread, just as all Windows mutexes must be.
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+    struct CrossProcessInstallLock : public CrossProcessLock
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+    {
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+        CrossProcessInstallLock() : CrossProcessLock(L&quot;WinGetCrossProcessInstallLock&quot;) {}
+</a>     };
+ }
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Synchronization.cpp.html">src/AppInstallerCommonCore/Synchronization.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Synchronization.cpp.html">src/AppInstallerCommonCore/Synchronization.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -7,268 +7,24 @@
+</a> 
+ namespace AppInstaller::Synchronization
+ {
+<a href="#h2-0-3" id="h2-0-3" class="d">-    using namespace std::string_view_literals;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-    constexpr std::wstring_view s_CrossProcessReaderWriteLock_MutexSuffix = L&quot;.mutex&quot;sv;
+</a><a href="#h2-0-6" id="h2-0-6" class="d">-
+</a><a href="#h2-0-7" id="h2-0-7" class="d">-    // A milliseconds version of INFINITE
+</a><a href="#h2-0-8" id="h2-0-8" class="d">-    constexpr std::chrono::milliseconds s_CrossProcessReaderWriteLock_Infinite = static_cast&lt;std::chrono::milliseconds&gt;(INFINITE);
+</a><a href="#h2-0-9" id="h2-0-9" class="d">-
+</a><a href="#h2-0-10" id="h2-0-10" class="d">-    // The amount of time that we wait in between checking for cancellation
+</a><a href="#h2-0-11" id="h2-0-11" class="d">-    constexpr std::chrono::milliseconds s_CrossProcessReaderWriteLock_WaitLoopTime = 250ms;
+</a><a href="#h2-0-12" id="h2-0-12" class="d">-
+</a><a href="#h2-0-13" id="h2-0-13" class="d">-    // Arbitrary limit that should not ever cause a problem (theoretically 1 per process)
+</a><a href="#h2-0-14" id="h2-0-14" class="d">-    constexpr size_t s_CrossProcessReaderWriteLock_MaxReaders = 8;
+</a><a href="#h2-0-15" id="h2-0-15" class="d">-
+</a>     // The amount of time that we wait in between checking for cancellation
+     constexpr std::chrono::milliseconds s_CrossProcessInstallLock_WaitLoopTime = 250ms;
+ 
+<a href="#h2-0-19" id="h2-0-19" class="d">-    namespace
+</a><a href="#h2-0-20" id="h2-0-20" class="d">-    {
+</a><a href="#h2-0-21" id="h2-0-21" class="d">-        wil::unique_mutex OpenControlMutex(const std::wstring&amp; name)
+</a><a href="#h2-0-22" id="h2-0-22" class="d">-        {
+</a><a href="#h2-0-23" id="h2-0-23" class="d">-            std::wstring mutexName = name;
+</a><a href="#h2-0-24" id="h2-0-24" class="d">-            mutexName += s_CrossProcessReaderWriteLock_MutexSuffix;
+</a><a href="#h2-0-25" id="h2-0-25" class="d">-
+</a><a href="#h2-0-26" id="h2-0-26" class="d">-            wil::unique_mutex result;
+</a><a href="#h2-0-27" id="h2-0-27" class="d">-            result.create(mutexName.c_str(), 0, SYNCHRONIZE);
+</a><a href="#h2-0-28" id="h2-0-28" class="d">-            return result;
+</a><a href="#h2-0-29" id="h2-0-29" class="d">-        }
+</a><a href="#h2-0-30" id="h2-0-30" class="d">-
+</a><a href="#h2-0-31" id="h2-0-31" class="d">-        wil::unique_mutex OpenAccessMutex(const std::wstring&amp; name, size_t index)
+</a><a href="#h2-0-32" id="h2-0-32" class="d">-        {
+</a><a href="#h2-0-33" id="h2-0-33" class="d">-            THROW_HR_IF(E_INVALIDARG, index &gt;= s_CrossProcessReaderWriteLock_MaxReaders);
+</a><a href="#h2-0-34" id="h2-0-34" class="d">-            std::wostringstream strstr;
+</a><a href="#h2-0-35" id="h2-0-35" class="d">-            strstr &lt;&lt; name &lt;&lt; L&#39;.&#39; &lt;&lt; index;
+</a><a href="#h2-0-36" id="h2-0-36" class="d">-
+</a><a href="#h2-0-37" id="h2-0-37" class="d">-            wil::unique_mutex result;
+</a><a href="#h2-0-38" id="h2-0-38" class="d">-            result.create(strstr.str().c_str(), 0, SYNCHRONIZE);
+</a><a href="#h2-0-39" id="h2-0-39" class="d">-            return result;
+</a><a href="#h2-0-40" id="h2-0-40" class="d">-        }
+</a><a href="#h2-0-41" id="h2-0-41" class="d">-    }
+</a><a href="#h2-0-42" id="h2-0-42" class="d">-
+</a><a href="#h2-0-43" id="h2-0-43" class="d">-    CrossProcessReaderWriteLock::~CrossProcessReaderWriteLock()
+</a><a href="#h2-0-44" id="h2-0-44" class="d">-    {
+</a><a href="#h2-0-45" id="h2-0-45" class="d">-        Release();
+</a><a href="#h2-0-46" id="h2-0-46" class="d">-    }
+</a><a href="#h2-0-47" id="h2-0-47" class="d">-
+</a><a href="#h2-0-48" id="h2-0-48" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockShared(std::string_view name)
+</a><a href="#h2-0-49" id="h2-0-49" class="d">-    {
+</a><a href="#h2-0-50" id="h2-0-50" class="d">-        return Lock(true, name, s_CrossProcessReaderWriteLock_Infinite, nullptr);
+</a><a href="#h2-0-51" id="h2-0-51" class="d">-    }
+</a><a href="#h2-0-52" id="h2-0-52" class="d">-
+</a><a href="#h2-0-53" id="h2-0-53" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockShared(std::string_view name, IProgressCallback&amp; progress)
+</a><a href="#h2-0-54" id="h2-0-54" class="i">+    CrossProcessLock::CrossProcessLock(std::string_view name) : CrossProcessLock(Utility::ConvertToUTF16(name))
+</a>     {
+<a href="#h2-0-56" id="h2-0-56" class="d">-        return Lock(true, name, s_CrossProcessReaderWriteLock_Infinite, &amp;progress);
+</a>     }
+ 
+<a href="#h2-0-59" id="h2-0-59" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockExclusive(std::string_view name)
+</a><a href="#h2-0-60" id="h2-0-60" class="i">+    CrossProcessLock::CrossProcessLock(const std::wstring&amp; name)
+</a>     {
+<a href="#h2-0-62" id="h2-0-62" class="d">-        return Lock(false, name, s_CrossProcessReaderWriteLock_Infinite, nullptr);
+</a><a href="#h2-0-63" id="h2-0-63" class="d">-    }
+</a><a href="#h2-0-64" id="h2-0-64" class="d">-
+</a><a href="#h2-0-65" id="h2-0-65" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockExclusive(std::string_view name, IProgressCallback&amp; progress)
+</a><a href="#h2-0-66" id="h2-0-66" class="d">-    {
+</a><a href="#h2-0-67" id="h2-0-67" class="d">-        return Lock(false, name, s_CrossProcessReaderWriteLock_Infinite, &amp;progress);
+</a><a href="#h2-0-68" id="h2-0-68" class="d">-    }
+</a><a href="#h2-0-69" id="h2-0-69" class="d">-
+</a><a href="#h2-0-70" id="h2-0-70" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::LockExclusive(std::string_view name, std::chrono::milliseconds timeout)
+</a><a href="#h2-0-71" id="h2-0-71" class="d">-    {
+</a><a href="#h2-0-72" id="h2-0-72" class="d">-        return Lock(false, name, timeout, nullptr);
+</a><a href="#h2-0-73" id="h2-0-73" class="d">-    }
+</a><a href="#h2-0-74" id="h2-0-74" class="d">-
+</a><a href="#h2-0-75" id="h2-0-75" class="d">-    CrossProcessReaderWriteLock::operator bool() const
+</a><a href="#h2-0-76" id="h2-0-76" class="d">-    {
+</a><a href="#h2-0-77" id="h2-0-77" class="d">-        return !m_mutexesHeld.empty();
+</a><a href="#h2-0-78" id="h2-0-78" class="d">-    }
+</a><a href="#h2-0-79" id="h2-0-79" class="d">-
+</a><a href="#h2-0-80" id="h2-0-80" class="d">-    void CrossProcessReaderWriteLock::Release()
+</a><a href="#h2-0-81" id="h2-0-81" class="d">-    {
+</a><a href="#h2-0-82" id="h2-0-82" class="d">-        for (auto&amp; mutex : m_mutexesHeld)
+</a><a href="#h2-0-83" id="h2-0-83" class="d">-        {
+</a><a href="#h2-0-84" id="h2-0-84" class="d">-            ReleaseMutex(mutex.get());
+</a><a href="#h2-0-85" id="h2-0-85" class="d">-        }
+</a><a href="#h2-0-86" id="h2-0-86" class="d">-        m_mutexesHeld.clear();
+</a><a href="#h2-0-87" id="h2-0-87" class="d">-    }
+</a><a href="#h2-0-88" id="h2-0-88" class="d">-
+</a><a href="#h2-0-89" id="h2-0-89" class="d">-    CrossProcessReaderWriteLock CrossProcessReaderWriteLock::Lock(
+</a><a href="#h2-0-90" id="h2-0-90" class="d">-        bool shared,
+</a><a href="#h2-0-91" id="h2-0-91" class="d">-        std::string_view name,
+</a><a href="#h2-0-92" id="h2-0-92" class="d">-        std::chrono::milliseconds timeout,
+</a><a href="#h2-0-93" id="h2-0-93" class="d">-        IProgressCallback* progress)
+</a><a href="#h2-0-94" id="h2-0-94" class="d">-    {
+</a><a href="#h2-0-95" id="h2-0-95" class="d">-        auto start = std::chrono::steady_clock::now();
+</a><a href="#h2-0-96" id="h2-0-96" class="d">-
+</a><a href="#h2-0-97" id="h2-0-97" class="d">-        // Verify inputs
+</a><a href="#h2-0-98" id="h2-0-98" class="d">-        THROW_HR_IF(E_INVALIDARG, name.find(&#39;\\&#39;) != std::string::npos);
+</a><a href="#h2-0-99" id="h2-0-99" class="d">-        THROW_HR_IF(E_INVALIDARG, timeout.count() &gt; INFINITE);
+</a><a href="#h2-0-100" id="h2-0-100" class="d">-
+</a><a href="#h2-0-101" id="h2-0-101" class="d">-        CrossProcessReaderWriteLock result;
+</a><a href="#h2-0-102" id="h2-0-102" class="d">-        std::wstring wideName = Utility::ConvertToUTF16(name);
+</a><a href="#h2-0-103" id="h2-0-103" class="d">-
+</a><a href="#h2-0-104" id="h2-0-104" class="d">-        // Acquire overall control mutex
+</a><a href="#h2-0-105" id="h2-0-105" class="d">-        DWORD status = 0;
+</a><a href="#h2-0-106" id="h2-0-106" class="d">-        wil::unique_mutex controlMutex = OpenControlMutex(wideName);
+</a><a href="#h2-0-107" id="h2-0-107" class="d">-        auto lock = controlMutex.acquire(&amp;status, static_cast&lt;DWORD&gt;(timeout.count()));
+</a><a href="#h2-0-108" id="h2-0-108" class="d">-        THROW_LAST_ERROR_IF(status == WAIT_FAILED);
+</a><a href="#h2-0-109" id="h2-0-109" class="d">-
+</a><a href="#h2-0-110" id="h2-0-110" class="d">-        if (status == WAIT_TIMEOUT || (progress &amp;&amp; progress-&gt;IsCancelledBy(CancelReason::Any)))
+</a><a href="#h2-0-111" id="h2-0-111" class="d">-        {
+</a><a href="#h2-0-112" id="h2-0-112" class="d">-            return result;
+</a><a href="#h2-0-113" id="h2-0-113" class="d">-        }
+</a><a href="#h2-0-114" id="h2-0-114" class="d">-
+</a><a href="#h2-0-115" id="h2-0-115" class="d">-        // Open all needed access mutexes
+</a><a href="#h2-0-116" id="h2-0-116" class="d">-        std::vector&lt;wil::unique_mutex&gt; allAccessMutexes;
+</a><a href="#h2-0-117" id="h2-0-117" class="d">-        HANDLE waitHandles[s_CrossProcessReaderWriteLock_MaxReaders]{};
+</a><a href="#h2-0-118" id="h2-0-118" class="d">-
+</a><a href="#h2-0-119" id="h2-0-119" class="d">-        if (shared)
+</a><a href="#h2-0-120" id="h2-0-120" class="d">-        {
+</a><a href="#h2-0-121" id="h2-0-121" class="d">-            // Acquire the first access mutex we can find that is open, or all of them if needed.
+</a><a href="#h2-0-122" id="h2-0-122" class="d">-            // Use the process id as an arbitrary value in an attempt to reduce collisions
+</a><a href="#h2-0-123" id="h2-0-123" class="d">-            // while still allowing for re-entrance to not be arbitrary.
+</a><a href="#h2-0-124" id="h2-0-124" class="d">-            size_t offset = GetProcessId(GetCurrentProcess()) % s_CrossProcessReaderWriteLock_MaxReaders;
+</a><a href="#h2-0-125" id="h2-0-125" class="d">-
+</a><a href="#h2-0-126" id="h2-0-126" class="d">-            for (size_t i = 0; i &lt; s_CrossProcessReaderWriteLock_MaxReaders; ++i)
+</a><a href="#h2-0-127" id="h2-0-127" class="d">-            {
+</a><a href="#h2-0-128" id="h2-0-128" class="d">-                size_t index = (i + offset) % s_CrossProcessReaderWriteLock_MaxReaders;
+</a><a href="#h2-0-129" id="h2-0-129" class="d">-
+</a><a href="#h2-0-130" id="h2-0-130" class="d">-                wil::unique_mutex current = OpenAccessMutex(wideName, index);
+</a><a href="#h2-0-131" id="h2-0-131" class="d">-                status = ::WaitForSingleObjectEx(current.get(), 0, FALSE);
+</a><a href="#h2-0-132" id="h2-0-132" class="d">-
+</a><a href="#h2-0-133" id="h2-0-133" class="d">-                if (status == WAIT_OBJECT_0 || status == WAIT_ABANDONED)
+</a><a href="#h2-0-134" id="h2-0-134" class="d">-                {
+</a><a href="#h2-0-135" id="h2-0-135" class="d">-                    // We found an empty one, continue on with it
+</a><a href="#h2-0-136" id="h2-0-136" class="d">-                    result.m_mutexesHeld.emplace_back(std::move(current));
+</a><a href="#h2-0-137" id="h2-0-137" class="d">-                    return result;
+</a><a href="#h2-0-138" id="h2-0-138" class="d">-                }
+</a><a href="#h2-0-139" id="h2-0-139" class="d">-                else if (status == WAIT_TIMEOUT)
+</a><a href="#h2-0-140" id="h2-0-140" class="d">-                {
+</a><a href="#h2-0-141" id="h2-0-141" class="d">-                    waitHandles[i] = current.get();
+</a><a href="#h2-0-142" id="h2-0-142" class="d">-                    allAccessMutexes.emplace_back(std::move(current));
+</a><a href="#h2-0-143" id="h2-0-143" class="d">-                }
+</a><a href="#h2-0-144" id="h2-0-144" class="d">-                else
+</a><a href="#h2-0-145" id="h2-0-145" class="d">-                {
+</a><a href="#h2-0-146" id="h2-0-146" class="d">-                    THROW_LAST_ERROR();
+</a><a href="#h2-0-147" id="h2-0-147" class="d">-                }
+</a><a href="#h2-0-148" id="h2-0-148" class="d">-            }
+</a><a href="#h2-0-149" id="h2-0-149" class="d">-        }
+</a><a href="#h2-0-150" id="h2-0-150" class="d">-        else
+</a><a href="#h2-0-151" id="h2-0-151" class="d">-        {
+</a><a href="#h2-0-152" id="h2-0-152" class="d">-            // Open all of the access mutexes.
+</a><a href="#h2-0-153" id="h2-0-153" class="d">-            for (size_t i = 0; i &lt; s_CrossProcessReaderWriteLock_MaxReaders; ++i)
+</a><a href="#h2-0-154" id="h2-0-154" class="d">-            {
+</a><a href="#h2-0-155" id="h2-0-155" class="d">-                wil::unique_mutex current = OpenAccessMutex(wideName, i);
+</a><a href="#h2-0-156" id="h2-0-156" class="d">-                waitHandles[i] = current.get();
+</a><a href="#h2-0-157" id="h2-0-157" class="d">-                allAccessMutexes.emplace_back(std::move(current));
+</a><a href="#h2-0-158" id="h2-0-158" class="d">-            }
+</a><a href="#h2-0-159" id="h2-0-159" class="d">-        }
+</a><a href="#h2-0-160" id="h2-0-160" class="d">-
+</a><a href="#h2-0-161" id="h2-0-161" class="d">-        // Wait for one/all of the mutexes (or cancellation)
+</a><a href="#h2-0-162" id="h2-0-162" class="d">-        bool waitAgain = true;
+</a><a href="#h2-0-163" id="h2-0-163" class="d">-        while (waitAgain &amp;&amp; (!progress || !progress-&gt;IsCancelledBy(CancelReason::Any)))
+</a><a href="#h2-0-164" id="h2-0-164" class="d">-        {
+</a><a href="#h2-0-165" id="h2-0-165" class="d">-            DWORD millisecondsToWait = 0;
+</a><a href="#h2-0-166" id="h2-0-166" class="d">-            if (progress)
+</a><a href="#h2-0-167" id="h2-0-167" class="d">-            {
+</a><a href="#h2-0-168" id="h2-0-168" class="d">-                if (timeout == s_CrossProcessReaderWriteLock_Infinite)
+</a><a href="#h2-0-169" id="h2-0-169" class="d">-                {
+</a><a href="#h2-0-170" id="h2-0-170" class="d">-                    millisecondsToWait = static_cast&lt;DWORD&gt;(s_CrossProcessReaderWriteLock_WaitLoopTime.count());
+</a><a href="#h2-0-171" id="h2-0-171" class="d">-                }
+</a><a href="#h2-0-172" id="h2-0-172" class="d">-                else
+</a><a href="#h2-0-173" id="h2-0-173" class="d">-                {
+</a><a href="#h2-0-174" id="h2-0-174" class="d">-                    auto currentDuration = std::chrono::steady_clock::now() - start;
+</a><a href="#h2-0-175" id="h2-0-175" class="d">-                    if (currentDuration &gt;= timeout)
+</a><a href="#h2-0-176" id="h2-0-176" class="d">-                    {
+</a><a href="#h2-0-177" id="h2-0-177" class="d">-                        // Allow an attempt to acquire with no wait
+</a><a href="#h2-0-178" id="h2-0-178" class="d">-                        millisecondsToWait = 0;
+</a><a href="#h2-0-179" id="h2-0-179" class="d">-                        waitAgain = false;
+</a><a href="#h2-0-180" id="h2-0-180" class="d">-                    }
+</a><a href="#h2-0-181" id="h2-0-181" class="d">-                    else
+</a><a href="#h2-0-182" id="h2-0-182" class="d">-                    {
+</a><a href="#h2-0-183" id="h2-0-183" class="d">-                        auto durationToWait = timeout - currentDuration;
+</a><a href="#h2-0-184" id="h2-0-184" class="d">-                        if (durationToWait &gt; s_CrossProcessReaderWriteLock_WaitLoopTime)
+</a><a href="#h2-0-185" id="h2-0-185" class="d">-                        {
+</a><a href="#h2-0-186" id="h2-0-186" class="d">-                            durationToWait = s_CrossProcessReaderWriteLock_WaitLoopTime;
+</a><a href="#h2-0-187" id="h2-0-187" class="d">-                        }
+</a><a href="#h2-0-188" id="h2-0-188" class="d">-                        else
+</a><a href="#h2-0-189" id="h2-0-189" class="d">-                        {
+</a><a href="#h2-0-190" id="h2-0-190" class="d">-                            waitAgain = false;
+</a><a href="#h2-0-191" id="h2-0-191" class="d">-                        }
+</a><a href="#h2-0-192" id="h2-0-192" class="d">-                        millisecondsToWait = static_cast&lt;DWORD&gt;(std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(durationToWait).count());
+</a><a href="#h2-0-193" id="h2-0-193" class="d">-                    }
+</a><a href="#h2-0-194" id="h2-0-194" class="d">-                }
+</a><a href="#h2-0-195" id="h2-0-195" class="d">-            }
+</a><a href="#h2-0-196" id="h2-0-196" class="d">-            else
+</a><a href="#h2-0-197" id="h2-0-197" class="d">-            {
+</a><a href="#h2-0-198" id="h2-0-198" class="d">-                // If there is no progress, we will do the full wait this time
+</a><a href="#h2-0-199" id="h2-0-199" class="d">-                waitAgain = false;
+</a><a href="#h2-0-200" id="h2-0-200" class="d">-
+</a><a href="#h2-0-201" id="h2-0-201" class="d">-                if (timeout == s_CrossProcessReaderWriteLock_Infinite)
+</a><a href="#h2-0-202" id="h2-0-202" class="d">-                {
+</a><a href="#h2-0-203" id="h2-0-203" class="d">-                    millisecondsToWait = INFINITE;
+</a><a href="#h2-0-204" id="h2-0-204" class="d">-                }
+</a><a href="#h2-0-205" id="h2-0-205" class="d">-                else
+</a><a href="#h2-0-206" id="h2-0-206" class="d">-                {
+</a><a href="#h2-0-207" id="h2-0-207" class="d">-                    auto currentDuration = std::chrono::steady_clock::now() - start;
+</a><a href="#h2-0-208" id="h2-0-208" class="d">-                    if (currentDuration &gt;= timeout)
+</a><a href="#h2-0-209" id="h2-0-209" class="d">-                    {
+</a><a href="#h2-0-210" id="h2-0-210" class="d">-                        // Allow an attempt to acquire with no wait
+</a><a href="#h2-0-211" id="h2-0-211" class="d">-                        millisecondsToWait = 0;
+</a><a href="#h2-0-212" id="h2-0-212" class="d">-                    }
+</a><a href="#h2-0-213" id="h2-0-213" class="d">-                    else
+</a><a href="#h2-0-214" id="h2-0-214" class="d">-                    {
+</a><a href="#h2-0-215" id="h2-0-215" class="d">-                        millisecondsToWait = static_cast&lt;DWORD&gt;(std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(timeout - currentDuration).count());
+</a><a href="#h2-0-216" id="h2-0-216" class="d">-                    }
+</a><a href="#h2-0-217" id="h2-0-217" class="d">-                }
+</a><a href="#h2-0-218" id="h2-0-218" class="d">-            }
+</a><a href="#h2-0-219" id="h2-0-219" class="d">-
+</a><a href="#h2-0-220" id="h2-0-220" class="d">-            status = WaitForMultipleObjectsEx(s_CrossProcessReaderWriteLock_MaxReaders, waitHandles, (shared ? FALSE : TRUE), millisecondsToWait, FALSE);
+</a><a href="#h2-0-221" id="h2-0-221" class="d">-            THROW_LAST_ERROR_IF(status == WAIT_FAILED);
+</a><a href="#h2-0-222" id="h2-0-222" class="d">-
+</a><a href="#h2-0-223" id="h2-0-223" class="d">-            if (status != WAIT_TIMEOUT)
+</a><a href="#h2-0-224" id="h2-0-224" class="d">-            {
+</a><a href="#h2-0-225" id="h2-0-225" class="d">-                break;
+</a><a href="#h2-0-226" id="h2-0-226" class="d">-            }
+</a><a href="#h2-0-227" id="h2-0-227" class="d">-        }
+</a><a href="#h2-0-228" id="h2-0-228" class="d">-
+</a><a href="#h2-0-229" id="h2-0-229" class="d">-        if (status == WAIT_TIMEOUT || (progress &amp;&amp; progress-&gt;IsCancelledBy(CancelReason::Any)))
+</a><a href="#h2-0-230" id="h2-0-230" class="d">-        {
+</a><a href="#h2-0-231" id="h2-0-231" class="d">-            return result;
+</a><a href="#h2-0-232" id="h2-0-232" class="d">-        }
+</a><a href="#h2-0-233" id="h2-0-233" class="d">-
+</a><a href="#h2-0-234" id="h2-0-234" class="d">-        if (shared)
+</a><a href="#h2-0-235" id="h2-0-235" class="d">-        {
+</a><a href="#h2-0-236" id="h2-0-236" class="d">-            size_t acquiredIndex = 0;
+</a><a href="#h2-0-237" id="h2-0-237" class="d">-            if (status &gt;= WAIT_OBJECT_0 &amp;&amp; status &lt; (WAIT_OBJECT_0 + s_CrossProcessReaderWriteLock_MaxReaders))
+</a><a href="#h2-0-238" id="h2-0-238" class="d">-            {
+</a><a href="#h2-0-239" id="h2-0-239" class="d">-                acquiredIndex = status - WAIT_OBJECT_0;
+</a><a href="#h2-0-240" id="h2-0-240" class="d">-            }
+</a><a href="#h2-0-241" id="h2-0-241" class="d">-            else if (status &gt;= WAIT_ABANDONED_0 &amp;&amp; status &lt; (WAIT_ABANDONED_0 + s_CrossProcessReaderWriteLock_MaxReaders))
+</a><a href="#h2-0-242" id="h2-0-242" class="d">-            {
+</a><a href="#h2-0-243" id="h2-0-243" class="d">-                acquiredIndex = status - WAIT_ABANDONED_0;
+</a><a href="#h2-0-244" id="h2-0-244" class="d">-            }
+</a><a href="#h2-0-245" id="h2-0-245" class="d">-            else
+</a><a href="#h2-0-246" id="h2-0-246" class="d">-            {
+</a><a href="#h2-0-247" id="h2-0-247" class="d">-                THROW_HR(E_UNEXPECTED);
+</a><a href="#h2-0-248" id="h2-0-248" class="d">-            }
+</a><a href="#h2-0-249" id="h2-0-249" class="d">-
+</a><a href="#h2-0-250" id="h2-0-250" class="d">-            // Take the one that was acquired
+</a><a href="#h2-0-251" id="h2-0-251" class="d">-            result.m_mutexesHeld.emplace_back(std::move(allAccessMutexes[acquiredIndex]));
+</a><a href="#h2-0-252" id="h2-0-252" class="d">-        }
+</a><a href="#h2-0-253" id="h2-0-253" class="d">-        else
+</a><a href="#h2-0-254" id="h2-0-254" class="d">-        {
+</a><a href="#h2-0-255" id="h2-0-255" class="d">-            result.m_mutexesHeld = std::move(allAccessMutexes);
+</a><a href="#h2-0-256" id="h2-0-256" class="d">-        }
+</a><a href="#h2-0-257" id="h2-0-257" class="d">-
+</a><a href="#h2-0-258" id="h2-0-258" class="d">-        return result;
+</a><a href="#h2-0-259" id="h2-0-259" class="i">+        m_mutex.create(name.c_str(), 0, SYNCHRONIZE);
+</a>     }
+ 
+<a href="#h2-0-262" id="h2-0-262" class="d">-    CrossProcessInstallLock::CrossProcessInstallLock()
+</a><a href="#h2-0-263" id="h2-0-263" class="i">+    CrossProcessLock::~CrossProcessLock()
+</a>     {
+<a href="#h2-0-265" id="h2-0-265" class="d">-        m_mutex.create(L&quot;WinGetCrossProcessInstallLock&quot;, 0, SYNCHRONIZE);
+</a><a href="#h2-0-266" id="h2-0-266" class="i">+        Release();
+</a>     }
+ 
+<a href="#h2-0-269" id="h2-0-269" class="d">-    bool CrossProcessInstallLock::Acquire(IProgressCallback&amp; progress)
+</a><a href="#h2-0-270" id="h2-0-270" class="i">+    bool CrossProcessLock::Acquire(IProgressCallback&amp; progress)
+</a>     {
+         while (!progress.IsCancelledBy(CancelReason::Any))
+         {
+<a href="#h2-1" id="h2-1" class="h">@@ -276,6 +32,7 @@ namespace AppInstaller::Synchronization
+</a> 
+             if (lock)
+             {
+<a href="#h2-1-3" id="h2-1-3" class="i">+                m_lockThreadId = GetCurrentThreadId();
+</a>                 m_lock = std::move(lock);
+                 return true;
+             }
+<a href="#h2-2" id="h2-2" class="h">@@ -284,17 +41,24 @@ namespace AppInstaller::Synchronization
+</a>         return false;
+     }
+ 
+<a href="#h2-2-3" id="h2-2-3" class="d">-    void CrossProcessInstallLock::Release()
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+    void CrossProcessLock::Release()
+</a>     {
+<a href="#h2-2-6" id="h2-2-6" class="d">-        m_lock.reset();
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+        if (m_lock)
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+        {
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+            // Ensure that we are in fact always releasing on the same thread that acquired the lock.
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+            // This is to force crashes rather than deadlocks in the event that we make a design error that leads to that.
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+            FAIL_FAST_IF(m_lockThreadId != GetCurrentThreadId());
+</a><a href="#h2-2-12" id="h2-2-12" class="i">+            m_lock.reset();
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+        }
+</a>     }
+ 
+<a href="#h2-2-16" id="h2-2-16" class="d">-    bool CrossProcessInstallLock::TryAcquireNoWait()
+</a><a href="#h2-2-17" id="h2-2-17" class="i">+    bool CrossProcessLock::TryAcquireNoWait()
+</a>     {
+         auto lock = m_mutex.acquire(nullptr, 0);
+ 
+         if (lock)
+         {
+<a href="#h2-2-23" id="h2-2-23" class="i">+            m_lockThreadId = GetCurrentThreadId();
+</a>             m_lock = std::move(lock);
+             return true;
+         }
+<a href="#h2-3" id="h2-3" class="h">@@ -302,7 +66,7 @@ namespace AppInstaller::Synchronization
+</a>         return false;
+     }
+ 
+<a href="#h2-3-3" id="h2-3-3" class="d">-    CrossProcessInstallLock::operator bool() const
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+    CrossProcessLock::operator bool() const
+</a>     {
+         return static_cast&lt;bool&gt;(m_lock);
+     }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -106,10 +106,10 @@ namespace AppInstaller::Repository::Microsoft
+</a>         }
+ 
+         // Creates a name for the cross process reader-writer lock given the details.
+<a href="#h3-0-3" id="h3-0-3" class="d">-        std::string CreateNameForCPRWL(const SourceDetails&amp; details)
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        std::string CreateNameForCPL(const SourceDetails&amp; details)
+</a>         {
+             // The only relevant data is the package family name
+<a href="#h3-0-7" id="h3-0-7" class="d">-            return &quot;PreIndexedSourceCPRWL_&quot;s + GetPackageFamilyNameFromDetails(details);
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+            return &quot;PreIndexedSourceCPL_&quot;s + GetPackageFamilyNameFromDetails(details);
+</a>         }
+ 
+         // The base class for a package that comes from a preindexed packaged source.
+<a href="#h3-1" id="h3-1" class="h">@@ -194,17 +194,21 @@ namespace AppInstaller::Repository::Microsoft
+</a>             virtual bool RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp;) = 0;
+ 
+         private:
+<a href="#h3-1-3" id="h3-1-3" class="d">-            Synchronization::CrossProcessReaderWriteLock LockExclusive(const SourceDetails&amp; details, IProgressCallback&amp; progress, bool isBackground = false)
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+            Synchronization::CrossProcessLock LockExclusive(const SourceDetails&amp; details, IProgressCallback&amp; progress, bool isBackground = false)
+</a>             {
+<a href="#h3-1-6" id="h3-1-6" class="i">+                Synchronization::CrossProcessLock result(CreateNameForCPL(details));
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+
+</a>                 if (isBackground)
+                 {
+                     // If this is a background update, don&#39;t wait on the lock.
+<a href="#h3-1-11" id="h3-1-11" class="d">-                    return Synchronization::CrossProcessReaderWriteLock::LockExclusive(CreateNameForCPRWL(details), 0ms);
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+                    result.TryAcquireNoWait();
+</a>                 }
+                 else
+                 {
+<a href="#h3-1-16" id="h3-1-16" class="d">-                    return Synchronization::CrossProcessReaderWriteLock::LockExclusive(CreateNameForCPRWL(details), progress);
+</a><a href="#h3-1-17" id="h3-1-17" class="i">+                    result.Acquire(progress);
+</a>                 }
+<a href="#h3-1-19" id="h3-1-19" class="i">+
+</a><a href="#h3-1-20" id="h3-1-20" class="i">+                return result;
+</a>             }
+ 
+             bool UpdateBase(const SourceDetails&amp; details, bool isBackground, IProgressCallback&amp; progress)
+<a href="#h3-2" id="h3-2" class="h">@@ -259,8 +263,8 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+             std::shared_ptr&lt;ISource&gt; Open(IProgressCallback&amp; progress) override
+             {
+<a href="#h3-2-3" id="h3-2-3" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockShared(CreateNameForCPRWL(m_details), progress);
+</a><a href="#h3-2-4" id="h3-2-4" class="d">-                if (!lock)
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+                Synchronization::CrossProcessLock lock(CreateNameForCPL(m_details));
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+                if (!lock.Acquire(progress))
+</a>                 {
+                     return {};
+                 }
+<a href="#h3-3" id="h3-3" class="h">@@ -286,7 +290,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 // We didn&#39;t use to store the source identifier, so we compute it here in case it&#39;s
+                 // missing from the details.
+                 m_details.Identifier = GetPackageFamilyNameFromDetails(m_details);
+<a href="#h3-3-3" id="h3-3-3" class="d">-                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), std::move(lock), false, true);
+</a><a href="#h3-3-4" id="h3-3-4" class="i">+                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), false, true);
+</a>             }
+ 
+         private:
+<a href="#h3-4" id="h3-4" class="h">@@ -421,8 +425,8 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+             std::shared_ptr&lt;ISource&gt; Open(IProgressCallback&amp; progress) override
+             {
+<a href="#h3-4-3" id="h3-4-3" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockShared(CreateNameForCPRWL(m_details), progress);
+</a><a href="#h3-4-4" id="h3-4-4" class="d">-                if (!lock)
+</a><a href="#h3-4-5" id="h3-4-5" class="i">+                Synchronization::CrossProcessLock lock(CreateNameForCPL(m_details));
+</a><a href="#h3-4-6" id="h3-4-6" class="i">+                if (!lock.Acquire(progress))
+</a>                 {
+                     return {};
+                 }
+<a href="#h3-5" id="h3-5" class="h">@@ -461,7 +465,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 // We didn&#39;t use to store the source identifier, so we compute it here in case it&#39;s
+                 // missing from the details.
+                 m_details.Identifier = GetPackageFamilyNameFromDetails(m_details);
+<a href="#h3-5-3" id="h3-5-3" class="d">-                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), std::move(lock), false, true);
+</a><a href="#h3-5-4" id="h3-5-4" class="i">+                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), false, true);
+</a>             }
+ 
+         private:
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedInstalledSourceFactory.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -158,7 +158,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     PopulateIndexFromMSIX(index, Manifest::ScopeEnum::Machine);
+                 }
+ 
+<a href="#h4-0-3" id="h4-0-3" class="d">-                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), Synchronization::CrossProcessReaderWriteLock{}, true);
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), true);
+</a>             }
+ 
+         private:
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedWriteableSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedWriteableSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PredefinedWriteableSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PredefinedWriteableSourceFactory.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -68,7 +68,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                         // Create an in memory index without paths or dependencies
+                         SQLiteIndex index = SQLiteIndex::CreateNew(SQLITE_MEMORY_DB_CONNECTION_TARGET, Schema::Version::Latest(), SQLiteIndex::CreateOptions::SupportPathless | SQLiteIndex::CreateOptions::DisableDependenciesSupport);
+ 
+<a href="#h5-0-3" id="h5-0-3" class="d">-                        g_sharedSource = std::make_shared&lt;SQLiteIndexWriteableSource&gt;(m_details, std::move(index), Synchronization::CrossProcessReaderWriteLock{}, true);
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+                        g_sharedSource = std::make_shared&lt;SQLiteIndexWriteableSource&gt;(m_details, std::move(index), true);
+</a>                     });
+ 
+                 return g_sharedSource;
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -396,10 +396,9 @@ namespace AppInstaller::Repository::Microsoft
+</a>     SQLiteIndexSource::SQLiteIndexSource(
+         const SourceDetails&amp; details,
+         SQLiteIndex&amp;&amp; index,
+<a href="#h6-0-3" id="h6-0-3" class="d">-        Synchronization::CrossProcessReaderWriteLock&amp;&amp; lock,
+</a>         bool isInstalledSource,
+         bool requireManifestHash) :
+<a href="#h6-0-6" id="h6-0-6" class="d">-        m_details(details), m_lock(std::move(lock)), m_isInstalled(isInstalledSource), m_index(std::move(index)), m_requireManifestHash(requireManifestHash)
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+        m_details(details), m_isInstalled(isInstalledSource), m_index(std::move(index)), m_requireManifestHash(requireManifestHash)
+</a>     {
+     }
+ 
+<a href="#h6-1" id="h6-1" class="h">@@ -458,8 +457,8 @@ namespace AppInstaller::Repository::Microsoft
+</a>         return const_cast&lt;SQLiteIndexSource*&gt;(this)-&gt;shared_from_this();
+     }
+ 
+<a href="#h6-1-3" id="h6-1-3" class="d">-    SQLiteIndexWriteableSource::SQLiteIndexWriteableSource(const SourceDetails&amp; details, SQLiteIndex&amp;&amp; index, Synchronization::CrossProcessReaderWriteLock&amp;&amp; lock, bool isInstalledSource) :
+</a><a href="#h6-1-4" id="h6-1-4" class="d">-        SQLiteIndexSource(details, std::move(index), std::move(lock), isInstalledSource)
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+    SQLiteIndexWriteableSource::SQLiteIndexWriteableSource(const SourceDetails&amp; details, SQLiteIndex&amp;&amp; index, bool isInstalledSource) :
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+        SQLiteIndexSource(details, std::move(index), isInstalledSource)
+</a>     {
+     }
+ 
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndexSource.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -3,7 +3,6 @@
+</a> #pragma once
+ #include &quot;Microsoft/SQLiteIndex.h&quot;
+ #include &quot;ISource.h&quot;
+<a href="#h7-0-3" id="h7-0-3" class="d">-#include &lt;AppInstallerSynchronization.h&gt;
+</a> 
+ #include &lt;memory&gt;
+ 
+<a href="#h7-1" id="h7-1" class="h">@@ -18,7 +17,6 @@ namespace AppInstaller::Repository::Microsoft
+</a>         SQLiteIndexSource(
+             const SourceDetails&amp; details,
+             SQLiteIndex&amp;&amp; index,
+<a href="#h7-1-3" id="h7-1-3" class="d">-            Synchronization::CrossProcessReaderWriteLock&amp;&amp; lock = {},
+</a>             bool isInstalledSource = false, 
+             bool requireManifestHash = false);
+ 
+<a href="#h7-2" id="h7-2" class="h">@@ -57,7 +55,6 @@ namespace AppInstaller::Repository::Microsoft
+</a>         std::shared_ptr&lt;SQLiteIndexSource&gt; NonConstSharedFromThis() const;
+ 
+         SourceDetails m_details;
+<a href="#h7-2-3" id="h7-2-3" class="d">-        Synchronization::CrossProcessReaderWriteLock m_lock;
+</a>         bool m_requireManifestHash;
+         bool m_isInstalled;
+ 
+<a href="#h7-3" id="h7-3" class="h">@@ -71,7 +68,6 @@ namespace AppInstaller::Repository::Microsoft
+</a>         SQLiteIndexWriteableSource(
+             const SourceDetails&amp; details,
+             SQLiteIndex&amp;&amp; index,
+<a href="#h7-3-3" id="h7-3-3" class="d">-            Synchronization::CrossProcessReaderWriteLock&amp;&amp; lock = {},
+</a>             bool isInstalledSource = false);
+ 
+         // Casts to the requested type.
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp.html">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp.html">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -18,9 +18,9 @@ namespace AppInstaller::Repository
+</a>     {
+         constexpr std::string_view c_PackageTrackingFileName = &quot;installed.db&quot;;
+ 
+<a href="#h8-0-3" id="h8-0-3" class="d">-        std::string CreateNameForCPRWL(const std::string&amp; pathName)
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+        std::string CreateNameForCPL(const std::string&amp; pathName)
+</a>         {
+<a href="#h8-0-6" id="h8-0-6" class="d">-            return &quot;PackageTrackingCPRWL_&quot;s + pathName;
+</a><a href="#h8-0-7" id="h8-0-7" class="i">+            return &quot;PackageTrackingCPL_&quot;s + pathName;
+</a>         }
+ 
+         std::filesystem::path GetPackageTrackingFilePath(const std::string&amp; pathName)
+<a href="#h8-1" id="h8-1" class="h">@@ -31,6 +31,22 @@ namespace AppInstaller::Repository
+</a>             return result;
+         }
+ 
+<a href="#h8-1-3" id="h8-1-3" class="i">+        // Call while holding the CrossProcessLock
+</a><a href="#h8-1-4" id="h8-1-4" class="i">+        SQLiteIndex CreateOrOpenTrackingIndex(const std::filesystem::path&amp; trackingDB)
+</a><a href="#h8-1-5" id="h8-1-5" class="i">+        {
+</a><a href="#h8-1-6" id="h8-1-6" class="i">+            if (!std::filesystem::exists(trackingDB))
+</a><a href="#h8-1-7" id="h8-1-7" class="i">+            {
+</a><a href="#h8-1-8" id="h8-1-8" class="i">+                std::filesystem::create_directories(trackingDB.parent_path());
+</a><a href="#h8-1-9" id="h8-1-9" class="i">+                return SQLiteIndex::CreateNew(trackingDB.u8string(), Schema::Version::Latest(), SQLiteIndex::CreateOptions::SupportPathless | SQLiteIndex::CreateOptions::DisableDependenciesSupport);
+</a><a href="#h8-1-10" id="h8-1-10" class="i">+            }
+</a><a href="#h8-1-11" id="h8-1-11" class="i">+            else
+</a><a href="#h8-1-12" id="h8-1-12" class="i">+            {
+</a><a href="#h8-1-13" id="h8-1-13" class="i">+                // TODO: Check schema version and upgrade as necessary when there is a relevant new schema.
+</a><a href="#h8-1-14" id="h8-1-14" class="i">+                //       Could write this all now but it will be better tested when there is a new schema.
+</a><a href="#h8-1-15" id="h8-1-15" class="i">+                return SQLiteIndex::Open(trackingDB.u8string(), SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h8-1-16" id="h8-1-16" class="i">+            }
+</a><a href="#h8-1-17" id="h8-1-17" class="i">+        }
+</a><a href="#h8-1-18" id="h8-1-18" class="i">+
+</a>         struct PackageTrackingCatalogSourceReference : public ISourceReference
+         {
+             PackageTrackingCatalogSourceReference(const SourceDetails&amp; details) : m_details(details) {}
+<a href="#h8-2" id="h8-2" class="h">@@ -45,32 +61,18 @@ namespace AppInstaller::Repository
+</a>                 return m_details.Identifier;
+             }
+ 
+<a href="#h8-2-3" id="h8-2-3" class="d">-            std::shared_ptr&lt;ISource&gt; Open(IProgressCallback&amp;) override
+</a><a href="#h8-2-4" id="h8-2-4" class="i">+            std::shared_ptr&lt;ISource&gt; Open(IProgressCallback&amp; callback) override
+</a>             {
+                 m_details.Arg = Utility::MakeSuitablePathPart(m_details.Data);
+                 std::filesystem::path trackingDB = GetPackageTrackingFilePath(m_details.Arg);
+ 
+<a href="#h8-2-9" id="h8-2-9" class="d">-                std::string lockName = CreateNameForCPRWL(m_details.Arg);
+</a><a href="#h8-2-10" id="h8-2-10" class="d">-
+</a><a href="#h8-2-11" id="h8-2-11" class="d">-                if (!std::filesystem::exists(trackingDB))
+</a><a href="#h8-2-12" id="h8-2-12" class="i">+                Synchronization::CrossProcessLock lock(CreateNameForCPL(m_details.Arg));
+</a><a href="#h8-2-13" id="h8-2-13" class="i">+                if (!lock.Acquire(callback))
+</a>                 {
+<a href="#h8-2-15" id="h8-2-15" class="d">-                    auto exclusiveLock = Synchronization::CrossProcessReaderWriteLock::LockExclusive(lockName);
+</a><a href="#h8-2-16" id="h8-2-16" class="d">-
+</a><a href="#h8-2-17" id="h8-2-17" class="d">-                    if (!std::filesystem::exists(trackingDB))
+</a><a href="#h8-2-18" id="h8-2-18" class="d">-                    {
+</a><a href="#h8-2-19" id="h8-2-19" class="d">-                        std::filesystem::create_directories(trackingDB.parent_path());
+</a><a href="#h8-2-20" id="h8-2-20" class="d">-                        SQLiteIndex::CreateNew(trackingDB.u8string(), Schema::Version::Latest(), SQLiteIndex::CreateOptions::SupportPathless | SQLiteIndex::CreateOptions::DisableDependenciesSupport);
+</a><a href="#h8-2-21" id="h8-2-21" class="d">-                    }
+</a><a href="#h8-2-22" id="h8-2-22" class="i">+                    return {};
+</a>                 }
+ 
+<a href="#h8-2-25" id="h8-2-25" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockShared(lockName);
+</a><a href="#h8-2-26" id="h8-2-26" class="d">-
+</a><a href="#h8-2-27" id="h8-2-27" class="d">-                SQLiteIndex index = SQLiteIndex::Open(trackingDB.u8string(), SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h8-2-28" id="h8-2-28" class="d">-
+</a><a href="#h8-2-29" id="h8-2-29" class="d">-                // TODO: Check schema version and upgrade as necessary when there is a relevant new schema.
+</a><a href="#h8-2-30" id="h8-2-30" class="d">-                //       Could write this all now but it will be better tested when there is a new schema.
+</a><a href="#h8-2-31" id="h8-2-31" class="d">-
+</a><a href="#h8-2-32" id="h8-2-32" class="d">-                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, std::move(index), std::move(lock));
+</a><a href="#h8-2-33" id="h8-2-33" class="i">+                return std::make_shared&lt;SQLiteIndexSource&gt;(m_details, CreateOrOpenTrackingIndex(trackingDB));
+</a>             }
+ 
+         private:
+<a href="#h8-3" id="h8-3" class="h">@@ -108,10 +110,8 @@ namespace AppInstaller::Repository
+</a> 
+                 std::string pathName = Utility::MakeSuitablePathPart(details.Data);
+ 
+<a href="#h8-3-3" id="h8-3-3" class="d">-                std::string lockName = CreateNameForCPRWL(pathName);
+</a><a href="#h8-3-4" id="h8-3-4" class="d">-                auto lock = Synchronization::CrossProcessReaderWriteLock::LockExclusive(lockName, progress);
+</a><a href="#h8-3-5" id="h8-3-5" class="d">-
+</a><a href="#h8-3-6" id="h8-3-6" class="d">-                if (!lock)
+</a><a href="#h8-3-7" id="h8-3-7" class="i">+                Synchronization::CrossProcessLock lock(CreateNameForCPL(pathName));
+</a><a href="#h8-3-8" id="h8-3-8" class="i">+                if (!lock.Acquire(progress))
+</a>                 {
+                     return false;
+                 }
+</pre>
+</div>
+</body>
+</html>
