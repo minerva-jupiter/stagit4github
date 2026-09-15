@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix issue with correlation chaining from the SQLite index (#2087) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/b6678600b294cfb1ac5b74524b914daf23845103.html">b6678600b294cfb1ac5b74524b914daf23845103</a>
+<b>parent</b> <a href="../commit/9022873180fe533c71746da7e7bbf46b3e9cc6ee.html">9022873180fe533c71746da7e7bbf46b3e9cc6ee</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 12 Apr 2022 15:27:04 -0700
+
+Fix issue with correlation chaining from the SQLite index (#2087)
+
+The composite source correlation was using the name + publisher values in a very optimistic way, which was leading to the potential for some values to get lost.  This change creates a search on the cartesian product of the values, which is more expensive but also more correct.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerRepositoryCore/CompositeSource.cpp</a></td><td> | </td><td class="num">16</td><td><span class="i">+++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h</a></td><td> | </td><td class="num">7</td><td><span class="i">++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a></td><td> | </td><td class="num">31</td><td><span class="i">++++++++++++++++++++</span><span class="d">-----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/Microsoft.Management.Deployment.winmd</a></td><td> | </td><td class="num">0</td><td><span class="i"></span><span class="d"></span></td></tr>
+</table></pre><pre>4 files changed, 35 insertions(+), 19 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerRepositoryCore/CompositeSource.cpp.html">src/AppInstallerRepositoryCore/CompositeSource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/CompositeSource.cpp.html">src/AppInstallerRepositoryCore/CompositeSource.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -607,15 +607,21 @@ namespace AppInstaller::Repository
+</a>                 IPackageVersion* installedVersion,
+                 PackageData&amp; data)
+             {
+<a href="#h0-0-3" id="h0-0-3" class="i">+                // Unfortunately the names and publishers are unique and not tied to each other strictly, so we need
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+                // to go broad on the matches. Future work can hopefully make name and publisher operate more as a unit,
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+                // but for now we have to search for the cartesian of these...
+</a>                 auto names = installedVersion-&gt;GetMultiProperty(PackageVersionMultiProperty::Name);
+                 auto publishers = installedVersion-&gt;GetMultiProperty(PackageVersionMultiProperty::Publisher);
+ 
+<a href="#h0-0-9" id="h0-0-9" class="d">-                for (size_t i = 0; i &lt; names.size() &amp;&amp; i &lt; publishers.size(); ++i)
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+                for (size_t i = 0; i &lt; names.size(); ++i)
+</a>                 {
+<a href="#h0-0-12" id="h0-0-12" class="d">-                    data.AddIfNotPresent(SystemReferenceString{
+</a><a href="#h0-0-13" id="h0-0-13" class="d">-                        PackageMatchField::NormalizedNameAndPublisher,
+</a><a href="#h0-0-14" id="h0-0-14" class="d">-                        std::move(names[i]),
+</a><a href="#h0-0-15" id="h0-0-15" class="d">-                        std::move(publishers[i]) });
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                    for (size_t j = 0; j &lt; publishers.size(); ++j)
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                    {
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+                        data.AddIfNotPresent(SystemReferenceString{
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+                            PackageMatchField::NormalizedNameAndPublisher,
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+                            names[i],
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+                            publishers[j] });
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+                    }
+</a>                 }
+             }
+         };
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -145,11 +145,12 @@ namespace AppInstaller::Repository
+</a>         // The product codes associated with the package version.
+         ProductCode,
+         // TODO: Fully implement these 3; the data is not yet in the index source (name and publisher are hacks and locale is not present)
+<a href="#h1-0-3" id="h1-0-3" class="d">-        // The package names for the version; these must match in number and order with both Publisher and Locale.
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        //       For future usage of these, be aware of the limitations.
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        // The package names for the version; ideally these would match in number and order with both Publisher and Locale.
+</a>         Name,
+<a href="#h1-0-7" id="h1-0-7" class="d">-        // The publisher values for the version; these must match in number and order with both Name and Locale.
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        // The publisher values for the version; ideally these would match in number and order with both Name and Locale.
+</a>         Publisher,
+<a href="#h1-0-10" id="h1-0-10" class="d">-        // The locale of the matching Name and Publisher values; these must match in number and order with both Name and Publisher.
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+        // The locale of the matching Name and Publisher values; ideally these would match in number and order with both Name and Publisher.
+</a>         // May be empty if there is only a single value for Name and Publisher.
+         Locale,
+     };
+<b>diff --git a/<a id="h2" href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a> b/<a href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -128,6 +128,7 @@ struct Main
+</a>     std::string sourceName;
+     std::filesystem::path outputPath;
+     bool useDevCLSIDs = false;
+<a href="#h2-0-3" id="h2-0-3" class="i">+    bool onlyCorrelate = false;
+</a> 
+     int ParseArgs(int argc, char** argv)
+     {
+<a href="#h2-1" id="h2-1" class="h">@@ -136,6 +137,7 @@ struct Main
+</a>         //  -src : [Required] The source name for the package to install
+         //  -out : [Required] The file to write results to
+         //  -dev : [Optional] Use the dev CLSIDs
+<a href="#h2-1-3" id="h2-1-3" class="i">+        //  -cor : [Optional] Only correlate the package
+</a> 
+         for (int i = 1; i &lt; argc; ++i)
+         {
+<a href="#h2-2" id="h2-2" class="h">@@ -155,6 +157,10 @@ struct Main
+</a>             {
+                 useDevCLSIDs = true;
+             }
+<a href="#h2-2-3" id="h2-2-3" class="i">+            else if (&quot;-cor&quot;sv == argv[i])
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+            {
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+                onlyCorrelate = true;
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+            }
+</a>         }
+ 
+         // Check inputs
+<a href="#h2-3" id="h2-3" class="h">@@ -324,20 +330,23 @@ struct Main
+</a>                 packagePublisher = ConvertToUTF8(installVersion.Publisher());
+             }
+ 
+<a href="#h2-3-3" id="h2-3-3" class="d">-            action = &quot;Create install options&quot;;
+</a><a href="#h2-3-4" id="h2-3-4" class="d">-            auto installOptions = CreateInstallOptions();
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+            if (!onlyCorrelate)
+</a><a href="#h2-3-6" id="h2-3-6" class="i">+            {
+</a><a href="#h2-3-7" id="h2-3-7" class="i">+                action = &quot;Create install options&quot;;
+</a><a href="#h2-3-8" id="h2-3-8" class="i">+                auto installOptions = CreateInstallOptions();
+</a> 
+<a href="#h2-3-10" id="h2-3-10" class="d">-            installOptions.PackageInstallScope(PackageInstallScope::Any);
+</a><a href="#h2-3-11" id="h2-3-11" class="d">-            installOptions.PackageInstallMode(PackageInstallMode::Silent);
+</a><a href="#h2-3-12" id="h2-3-12" class="i">+                installOptions.PackageInstallScope(PackageInstallScope::Any);
+</a><a href="#h2-3-13" id="h2-3-13" class="i">+                installOptions.PackageInstallMode(PackageInstallMode::Silent);
+</a> 
+<a href="#h2-3-15" id="h2-3-15" class="d">-            std::cout &lt;&lt; &quot;Beginning to install &quot; &lt;&lt; packageIdentifier &lt;&lt; &quot; (&quot; &lt;&lt; packageName &lt;&lt; &quot;) from &quot; &lt;&lt; sourceName &lt;&lt; &quot;...&quot; &lt;&lt; std::endl;
+</a><a href="#h2-3-16" id="h2-3-16" class="d">-            auto installResult = packageManager.InstallPackageAsync(package, installOptions).get();
+</a><a href="#h2-3-17" id="h2-3-17" class="i">+                std::cout &lt;&lt; &quot;Beginning to install &quot; &lt;&lt; packageIdentifier &lt;&lt; &quot; (&quot; &lt;&lt; packageName &lt;&lt; &quot;) from &quot; &lt;&lt; sourceName &lt;&lt; &quot;...&quot; &lt;&lt; std::endl;
+</a><a href="#h2-3-18" id="h2-3-18" class="i">+                auto installResult = packageManager.InstallPackageAsync(package, installOptions).get();
+</a> 
+<a href="#h2-3-20" id="h2-3-20" class="d">-            if (installResult.Status() != InstallResultStatus::Ok)
+</a><a href="#h2-3-21" id="h2-3-21" class="d">-            {
+</a><a href="#h2-3-22" id="h2-3-22" class="d">-                hr = installResult.ExtendedErrorCode();
+</a><a href="#h2-3-23" id="h2-3-23" class="d">-                error = &quot;Error installing package&quot;;
+</a><a href="#h2-3-24" id="h2-3-24" class="d">-                return;
+</a><a href="#h2-3-25" id="h2-3-25" class="i">+                if (installResult.Status() != InstallResultStatus::Ok)
+</a><a href="#h2-3-26" id="h2-3-26" class="i">+                {
+</a><a href="#h2-3-27" id="h2-3-27" class="i">+                    hr = installResult.ExtendedErrorCode();
+</a><a href="#h2-3-28" id="h2-3-28" class="i">+                    error = &quot;Error installing package&quot;;
+</a><a href="#h2-3-29" id="h2-3-29" class="i">+                    return;
+</a><a href="#h2-3-30" id="h2-3-30" class="i">+                }
+</a>             }
+         }
+         catch (const winrt::hresult_error&amp; hre)
+<b>diff --git a/<a id="h3" href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/Microsoft.Management.Deployment.winmd.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/Microsoft.Management.Deployment.winmd</a> b/<a href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/Microsoft.Management.Deployment.winmd.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/Microsoft.Management.Deployment.winmd</a></b>
+Binary files differ.
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Configuration cancellation support (#3244) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/1cc043b541fff91f58065b8e015aeedde356aa01.html">1cc043b541fff91f58065b8e015aeedde356aa01</a>
+<b>parent</b> <a href="../commit/5d6c80583549c447e6068c5f96d7f6794a91fed9.html">5d6c80583549c447e6068c5f96d7f6794a91fed9</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 18 May 2023 19:19:24 -0700
+
+Configuration cancellation support (#3244)
+
+Adds cancellation support to the configuration `Async` functions, as well as implementing most of the non-async functions without using an extra thread.  The goal is that all cancellations will result in the same `HRESULT` being returned, regardless of which code is actually detecting the cancellation and ending early.
+
+This change also updates the `winget` configuration workflows to pass along cancellation requests and better respond when things are cancelled.
+
+Finally, using the previously implemented progress message system, cancellation will generically inject a message to the user so that it is clear that a `CTRL+C` signal has been received.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ExecutionProgress.cpp</a></td><td> | </td><td class="num">27</td><td><span class="i">++++++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/ExecutionProgress.h</a></td><td> | </td><td class="num">7</td><td><span class="i">++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/ExecutionReporter.cpp</a></td><td> | </td><td class="num">5</td><td><span class="i">+++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp</a></td><td> | </td><td class="num">166</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj.filters</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h8">src/AppInstallerSharedLib/Public/winget/AsyncTokens.h</a></td><td> | </td><td class="num">160</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a></td><td> | </td><td class="num">215</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/Microsoft.Management.Configuration/ConfigurationProcessor.h</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp</a></td><td> | </td><td class="num">100</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h12">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.h</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h13">src/Microsoft.Management.Configuration/ConfigurationSetParser.cpp</a></td><td> | </td><td class="num">34</td><td><span class="i"></span><span class="d">----------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h14">src/Microsoft.Management.Configuration/ConfigurationSetParser.h</a></td><td> | </td><td class="num">3</td><td><span class="i"></span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h15">src/Microsoft.Management.Configuration/Telemetry/Telemetry.cpp</a></td><td> | </td><td class="num">17</td><td><span class="i">+++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h16">src/Microsoft.Management.Configuration/Telemetry/Telemetry.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>17 files changed, 604 insertions(+), 175 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ExecutionProgress.cpp.html">src/AppInstallerCLICore/ExecutionProgress.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionProgress.cpp.html">src/AppInstallerCLICore/ExecutionProgress.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -164,12 +164,12 @@ namespace AppInstaller::CLI::Execution
+</a>             }
+         }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-        void ProgressVisualizerBase::SetMessage(std::string_view message)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        void ProgressVisualizerBase::Message(std::string_view message)
+</a>         {
+<a href="#h0-0-6" id="h0-0-6" class="d">-            std::atomic_store(&amp;m_message, std::make_shared&lt;std::string&gt;(message));
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+            std::atomic_store(&amp;m_message, std::make_shared&lt;Utility::NormalizedString&gt;(message));
+</a>         }
+ 
+<a href="#h0-0-10" id="h0-0-10" class="d">-        std::shared_ptr&lt;std::string&gt; ProgressVisualizerBase::GetMessage()
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+        std::shared_ptr&lt;Utility::NormalizedString&gt; ProgressVisualizerBase::Message()
+</a>         {
+             return std::atomic_load(&amp;m_message);
+         }
+<a href="#h0-1" id="h0-1" class="h">@@ -211,6 +211,8 @@ namespace AppInstaller::CLI::Execution
+</a> 
+             // Indent two spaces for the spinner, but three here so that we can overwrite it in the loop.
+             std::string_view indent = &quot;   &quot;;
+<a href="#h0-1-3" id="h0-1-3" class="i">+            std::shared_ptr&lt;Utility::NormalizedString&gt; message = this-&gt;Message();
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+            size_t messageLength = message ? Utility::UTF8ColumnWidth(*message) : 0;
+</a> 
+             for (size_t i = 0; !m_canceled; ++i)
+             {
+<a href="#h0-2" id="h0-2" class="h">@@ -218,8 +220,23 @@ namespace AppInstaller::CLI::Execution
+</a>                 ApplyStyle(i % repetitionCount, repetitionCount, true);
+                 m_out &lt;&lt; &#39;\r&#39; &lt;&lt; indent &lt;&lt; spinnerChars[i % ARRAYSIZE(spinnerChars)];
+                 m_out.RestoreDefault();
+<a href="#h0-2-3" id="h0-2-3" class="d">-                std::shared_ptr&lt;std::string&gt; message = this-&gt;GetMessage();
+</a><a href="#h0-2-4" id="h0-2-4" class="d">-                m_out &lt;&lt; &#39; &#39; &lt;&lt; (message ? *message : std::string{}) &lt;&lt; std::flush;
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+                std::shared_ptr&lt;Utility::NormalizedString&gt; newMessage = this-&gt;Message();
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+                std::string eraser;
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+                if (newMessage)
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+                {
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+                    size_t newLength = Utility::UTF8ColumnWidth(*newMessage);
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+                    if (newLength &lt; messageLength)
+</a><a href="#h0-2-13" id="h0-2-13" class="i">+                    {
+</a><a href="#h0-2-14" id="h0-2-14" class="i">+                        eraser = std::string(messageLength - newLength, &#39; &#39;);
+</a><a href="#h0-2-15" id="h0-2-15" class="i">+                    }
+</a><a href="#h0-2-16" id="h0-2-16" class="i">+
+</a><a href="#h0-2-17" id="h0-2-17" class="i">+                    message = newMessage;
+</a><a href="#h0-2-18" id="h0-2-18" class="i">+                    messageLength = newLength;
+</a><a href="#h0-2-19" id="h0-2-19" class="i">+                }
+</a><a href="#h0-2-20" id="h0-2-20" class="i">+
+</a><a href="#h0-2-21" id="h0-2-21" class="i">+                m_out &lt;&lt; &#39; &#39; &lt;&lt; (message ? *message : std::string{}) &lt;&lt; eraser &lt;&lt; std::flush;
+</a>                 Sleep(250);
+             }
+ 
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/ExecutionProgress.h.html">src/AppInstallerCLICore/ExecutionProgress.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionProgress.h.html">src/AppInstallerCLICore/ExecutionProgress.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -3,6 +3,7 @@
+</a> #pragma once
+ #include &quot;VTSupport.h&quot;
+ #include &lt;AppInstallerProgress.h&gt;
+<a href="#h1-0-3" id="h1-0-3" class="i">+#include &lt;AppInstallerStrings.h&gt;
+</a> #include &lt;winget/UserSettings.h&gt;
+ #include &lt;ChannelStreams.h&gt;
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -28,8 +29,8 @@ namespace AppInstaller::CLI::Execution
+</a> 
+             void SetStyle(AppInstaller::Settings::VisualStyle style) { m_style = style; }
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-            void SetMessage(std::string_view message);
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-            std::shared_ptr&lt;std::string&gt; GetMessage();
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+            void Message(std::string_view message);
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+            std::shared_ptr&lt;Utility::NormalizedString&gt; Message();
+</a> 
+         protected:
+             BaseStream&amp; m_out;
+<a href="#h1-2" id="h1-2" class="h">@@ -44,7 +45,7 @@ namespace AppInstaller::CLI::Execution
+</a> 
+         private:
+             bool m_enableVT = false;
+<a href="#h1-2-3" id="h1-2-3" class="d">-            std::shared_ptr&lt;std::string&gt; m_message;
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+            std::shared_ptr&lt;Utility::NormalizedString&gt; m_message;
+</a>         };
+     }
+ 
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/ExecutionReporter.cpp.html">src/AppInstallerCLICore/ExecutionReporter.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionReporter.cpp.html">src/AppInstallerCLICore/ExecutionReporter.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -221,12 +221,12 @@ namespace AppInstaller::CLI::Execution
+</a>     {
+         if (m_spinner)
+         {
+<a href="#h2-0-3" id="h2-0-3" class="d">-            m_spinner-&gt;SetMessage(message);
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+            m_spinner-&gt;Message(message);
+</a>         }
+ 
+         if (m_progressBar)
+         {
+<a href="#h2-0-9" id="h2-0-9" class="d">-            m_progressBar-&gt;SetMessage(message);
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+            m_progressBar-&gt;Message(message);
+</a>         }
+     }
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -302,6 +302,7 @@ namespace AppInstaller::CLI::Execution
+</a>         ProgressCallback* callback = m_progressCallback.load();
+         if (callback)
+         {
+<a href="#h2-1-3" id="h2-1-3" class="i">+            callback-&gt;SetProgressMessage(Resource::String::CancellingOperation());
+</a>             callback-&gt;Cancel();
+         }
+     }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -40,6 +40,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(AvailableUpgrades);
+         WINGET_DEFINE_RESOURCE_STRINGID(BothManifestAndSearchQueryProvided);
+         WINGET_DEFINE_RESOURCE_STRINGID(Cancelled);
+<a href="#h3-0-3" id="h3-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(CancellingOperation);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ChannelArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(Command);
+         WINGET_DEFINE_RESOURCE_STRINGID(CommandArgumentDescription);
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp.html">src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp.html">src/AppInstallerCLICore/Workflows/ConfigurationFlow.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -418,10 +418,68 @@ namespace AppInstaller::CLI::Workflow
+</a>             return Resource::String::ConfigurationUnitSkipped(resultCode);
+         }
+ 
+<a href="#h4-0-3" id="h4-0-3" class="i">+        // Coordinates an active progress scope and cancellation of the operation.
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        template&lt;typename OperationT&gt;
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+        struct ProgressCancellationUnification
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+        {
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+            ProgressCancellationUnification(std::unique_ptr&lt;Reporter::AsyncProgressScope&gt;&amp;&amp; progressScope, const OperationT&amp; operation) :
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+                m_progressScope(std::move(progressScope)), m_operation(operation)
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+            {
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+                SetCancellationFunction();
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+            }
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+            void Reset()
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+            {
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+                m_cancelScope.reset();
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+                m_progressScope.reset();
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+            }
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+            Reporter::AsyncProgressScope&amp; Progress() const { return *m_progressScope; }
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+            void Progress(std::unique_ptr&lt;Reporter::AsyncProgressScope&gt;&amp;&amp; progressScope)
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+            {
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+                m_cancelScope.reset();
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+                m_progressScope = std::move(progressScope);
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+                SetCancellationFunction();
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+            }
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+            OperationT&amp; Operation() const { return m_operation; }
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+        private:
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+            void SetCancellationFunction()
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+            {
+</a><a href="#h4-0-33" id="h4-0-33" class="i">+                if (m_progressScope)
+</a><a href="#h4-0-34" id="h4-0-34" class="i">+                {
+</a><a href="#h4-0-35" id="h4-0-35" class="i">+                    m_cancelScope = m_progressScope-&gt;Callback().SetCancellationFunction([this]() { m_operation.Cancel(); });
+</a><a href="#h4-0-36" id="h4-0-36" class="i">+                }
+</a><a href="#h4-0-37" id="h4-0-37" class="i">+            }
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+            std::unique_ptr&lt;Reporter::AsyncProgressScope&gt; m_progressScope;
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+            OperationT m_operation;
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+            IProgressCallback::CancelFunctionRemoval m_cancelScope;
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+        };
+</a><a href="#h4-0-43" id="h4-0-43" class="i">+
+</a><a href="#h4-0-44" id="h4-0-44" class="i">+        template&lt;typename Operation&gt;
+</a><a href="#h4-0-45" id="h4-0-45" class="i">+        ProgressCancellationUnification&lt;Operation&gt; CreateProgressCancellationUnification(
+</a><a href="#h4-0-46" id="h4-0-46" class="i">+            std::unique_ptr&lt;Reporter::AsyncProgressScope&gt;&amp;&amp; progressScope,
+</a><a href="#h4-0-47" id="h4-0-47" class="i">+            const Operation&amp; operation)
+</a><a href="#h4-0-48" id="h4-0-48" class="i">+        {
+</a><a href="#h4-0-49" id="h4-0-49" class="i">+            return { std::move(progressScope), operation };
+</a><a href="#h4-0-50" id="h4-0-50" class="i">+        }
+</a><a href="#h4-0-51" id="h4-0-51" class="i">+
+</a>         // Helper to handle progress callbacks from ApplyConfigurationSetAsync
+         struct ApplyConfigurationSetProgressOutput
+         {
+<a href="#h4-0-55" id="h4-0-55" class="d">-            ApplyConfigurationSetProgressOutput(Context&amp; context) : m_context(context) {}
+</a><a href="#h4-0-56" id="h4-0-56" class="i">+            using ApplyOperation = IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt;;
+</a><a href="#h4-0-57" id="h4-0-57" class="i">+
+</a><a href="#h4-0-58" id="h4-0-58" class="i">+            ApplyConfigurationSetProgressOutput(Context&amp; context, const ApplyOperation&amp; operation) :
+</a><a href="#h4-0-59" id="h4-0-59" class="i">+                m_context(context), m_unification({}, operation)
+</a><a href="#h4-0-60" id="h4-0-60" class="i">+            {
+</a><a href="#h4-0-61" id="h4-0-61" class="i">+                operation.Progress([&amp;](const IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt;&amp; operation, const ConfigurationSetChangeData&amp; data)
+</a><a href="#h4-0-62" id="h4-0-62" class="i">+                    {
+</a><a href="#h4-0-63" id="h4-0-63" class="i">+                        Progress(operation, data);
+</a><a href="#h4-0-64" id="h4-0-64" class="i">+                    });
+</a><a href="#h4-0-65" id="h4-0-65" class="i">+            }
+</a> 
+             void Progress(const IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt;&amp; operation, const ConfigurationSetChangeData&amp; data)
+             {
+<a href="#h4-1" id="h4-1" class="h">@@ -440,13 +498,13 @@ namespace AppInstaller::CLI::Workflow
+</a>                     {
+                     case ConfigurationSetState::Pending:
+                         m_context.Reporter.Info() &lt;&lt; Resource::String::ConfigurationWaitingOnAnother &lt;&lt; std::endl;
+<a href="#h4-1-3" id="h4-1-3" class="d">-                        m_context.Reporter.BeginProgress();
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+                        BeginProgress();
+</a>                         break;
+                     case ConfigurationSetState::InProgress:
+<a href="#h4-1-7" id="h4-1-7" class="d">-                        m_context.Reporter.EndProgress(true);
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+                        EndProgress();
+</a>                         break;
+                     case ConfigurationSetState::Completed:
+<a href="#h4-1-11" id="h4-1-11" class="d">-                        m_context.Reporter.EndProgress(true);
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+                        EndProgress();
+</a>                         break;
+                     }
+                 }
+<a href="#h4-2" id="h4-2" class="h">@@ -486,11 +544,11 @@ namespace AppInstaller::CLI::Workflow
+</a>                     break;
+                 case ConfigurationUnitState::InProgress:
+                     OutputUnitInProgressIfNeeded(unit);
+<a href="#h4-2-3" id="h4-2-3" class="d">-                    m_context.Reporter.BeginProgress();
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+                    BeginProgress();
+</a>                     break;
+                 case ConfigurationUnitState::Completed:
+                     OutputUnitInProgressIfNeeded(unit);
+<a href="#h4-2-8" id="h4-2-8" class="d">-                    m_context.Reporter.EndProgress(true);
+</a><a href="#h4-2-9" id="h4-2-9" class="i">+                    EndProgress();
+</a>                     if (SUCCEEDED(resultInformation.ResultCode()))
+                     {
+                         m_context.Reporter.Info() &lt;&lt; &quot;  &quot;_liv &lt;&lt; Resource::String::ConfigurationSuccessfullyApplied &lt;&lt; std::endl;
+<a href="#h4-3" id="h4-3" class="h">@@ -570,7 +628,18 @@ namespace AppInstaller::CLI::Workflow
+</a>                 //      2. 1/N VT progress reporting for configuration units while also showing a spinner for the unit itself
+             }
+ 
+<a href="#h4-3-3" id="h4-3-3" class="i">+            void BeginProgress()
+</a><a href="#h4-3-4" id="h4-3-4" class="i">+            {
+</a><a href="#h4-3-5" id="h4-3-5" class="i">+                m_unification.Progress(m_context.Reporter.BeginAsyncProgress(true));
+</a><a href="#h4-3-6" id="h4-3-6" class="i">+            }
+</a><a href="#h4-3-7" id="h4-3-7" class="i">+
+</a><a href="#h4-3-8" id="h4-3-8" class="i">+            void EndProgress()
+</a><a href="#h4-3-9" id="h4-3-9" class="i">+            {
+</a><a href="#h4-3-10" id="h4-3-10" class="i">+                m_unification.Reset();
+</a><a href="#h4-3-11" id="h4-3-11" class="i">+            }
+</a><a href="#h4-3-12" id="h4-3-12" class="i">+
+</a>             Context&amp; m_context;
+<a href="#h4-3-14" id="h4-3-14" class="i">+            ProgressCancellationUnification&lt;ApplyOperation&gt; m_unification;
+</a>             std::set&lt;winrt::guid&gt; m_unitsSeen;
+             std::set&lt;winrt::guid&gt; m_unitsCompleted;
+             bool m_isFirstProgress = true;
+<a href="#h4-4" id="h4-4" class="h">@@ -618,9 +687,19 @@ namespace AppInstaller::CLI::Workflow
+</a>         std::filesystem::path absolutePath = GetConfigurationFilePath(context);
+ 
+         Streams::IInputStream inputStream = nullptr;
+<a href="#h4-4-3" id="h4-4-3" class="d">-        inputStream = Streams::FileRandomAccessStream::OpenAsync(absolutePath.wstring(), FileAccessMode::Read).get();
+</a><a href="#h4-4-4" id="h4-4-4" class="i">+        {
+</a><a href="#h4-4-5" id="h4-4-5" class="i">+            auto openAction = Streams::FileRandomAccessStream::OpenAsync(absolutePath.wstring(), FileAccessMode::Read);
+</a><a href="#h4-4-6" id="h4-4-6" class="i">+            auto cancellationScope = progressScope-&gt;Callback().SetCancellationFunction([&amp;]() { openAction.Cancel(); });
+</a><a href="#h4-4-7" id="h4-4-7" class="i">+            inputStream = openAction.get();
+</a><a href="#h4-4-8" id="h4-4-8" class="i">+        }
+</a><a href="#h4-4-9" id="h4-4-9" class="i">+
+</a><a href="#h4-4-10" id="h4-4-10" class="i">+        OpenConfigurationSetResult openResult = nullptr;
+</a><a href="#h4-4-11" id="h4-4-11" class="i">+        {
+</a><a href="#h4-4-12" id="h4-4-12" class="i">+            auto openAction = context.Get&lt;Data::ConfigurationContext&gt;().Processor().OpenConfigurationSetAsync(inputStream);
+</a><a href="#h4-4-13" id="h4-4-13" class="i">+            auto cancellationScope = progressScope-&gt;Callback().SetCancellationFunction([&amp;]() { openAction.Cancel(); });
+</a><a href="#h4-4-14" id="h4-4-14" class="i">+            openResult = openAction.get();
+</a><a href="#h4-4-15" id="h4-4-15" class="i">+        }
+</a> 
+<a href="#h4-4-17" id="h4-4-17" class="d">-        OpenConfigurationSetResult openResult = context.Get&lt;Data::ConfigurationContext&gt;().Processor().OpenConfigurationSet(inputStream);
+</a>         if (FAILED_LOG(static_cast&lt;HRESULT&gt;(openResult.ResultCode().value)))
+         {
+             AICLI_LOG(Config, Error, &lt;&lt; &quot;Failed to open configuration set at &quot; &lt;&lt; absolutePath.u8string() &lt;&lt; &quot; with error 0x&quot; &lt;&lt; Logging::SetHRFormat &lt;&lt; static_cast&lt;HRESULT&gt;(openResult.ResultCode().value));
+<a href="#h4-5" id="h4-5" class="h">@@ -681,6 +760,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         progressScope-&gt;Callback().SetProgressMessage(gettingDetailString);
+ 
+         auto getDetailsOperation = configContext.Processor().GetSetDetailsAsync(configContext.Set(), ConfigurationUnitDetailLevel::Catalog);
+<a href="#h4-5-3" id="h4-5-3" class="i">+        auto unification = CreateProgressCancellationUnification(std::move(progressScope), getDetailsOperation);
+</a> 
+         OutputStream out = context.Reporter.Info();
+         uint32_t unitsShown = 0;
+<a href="#h4-6" id="h4-6" class="h">@@ -689,7 +769,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             {
+                 auto threadContext = context.SetForCurrentThread();
+ 
+<a href="#h4-6-3" id="h4-6-3" class="d">-                progressScope.reset();
+</a><a href="#h4-6-4" id="h4-6-4" class="i">+                unification.Reset();
+</a> 
+                 auto unitResults = operation.GetResults().UnitResults();
+                 for (unitsShown; unitsShown &lt; unitResults.Size(); ++unitsShown)
+<a href="#h4-7" id="h4-7" class="h">@@ -701,38 +781,58 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+                 progressScope = context.Reporter.BeginAsyncProgress(true);
+                 progressScope-&gt;Callback().SetProgressMessage(gettingDetailString);
+<a href="#h4-7-3" id="h4-7-3" class="i">+                unification.Progress(std::move(progressScope));
+</a>             });
+ 
+<a href="#h4-7-6" id="h4-7-6" class="i">+        HRESULT hr = S_OK;
+</a><a href="#h4-7-7" id="h4-7-7" class="i">+        GetConfigurationSetDetailsResult result = nullptr;
+</a><a href="#h4-7-8" id="h4-7-8" class="i">+
+</a>         try
+         {
+<a href="#h4-7-11" id="h4-7-11" class="d">-            GetConfigurationSetDetailsResult result = getDetailsOperation.get();
+</a><a href="#h4-7-12" id="h4-7-12" class="i">+            result = getDetailsOperation.get();
+</a><a href="#h4-7-13" id="h4-7-13" class="i">+        }
+</a><a href="#h4-7-14" id="h4-7-14" class="i">+        catch (...)
+</a><a href="#h4-7-15" id="h4-7-15" class="i">+        {
+</a><a href="#h4-7-16" id="h4-7-16" class="i">+            hr = LOG_CAUGHT_EXCEPTION();
+</a><a href="#h4-7-17" id="h4-7-17" class="i">+        }
+</a> 
+<a href="#h4-7-19" id="h4-7-19" class="d">-            progressScope.reset();
+</a><a href="#h4-7-20" id="h4-7-20" class="i">+        unification.Reset();
+</a> 
+<a href="#h4-7-22" id="h4-7-22" class="d">-            // Handle any missing progress callbacks
+</a><a href="#h4-7-23" id="h4-7-23" class="d">-            auto unitResults = result.UnitResults();
+</a><a href="#h4-7-24" id="h4-7-24" class="d">-            for (unitsShown; unitsShown &lt; unitResults.Size(); ++unitsShown)
+</a><a href="#h4-7-25" id="h4-7-25" class="d">-            {
+</a><a href="#h4-7-26" id="h4-7-26" class="d">-                GetConfigurationUnitDetailsResult unitResult = unitResults.GetAt(unitsShown);
+</a><a href="#h4-7-27" id="h4-7-27" class="d">-                LogFailedGetConfigurationUnitDetails(unitResult.Unit(), unitResult.ResultInformation());
+</a><a href="#h4-7-28" id="h4-7-28" class="d">-                OutputConfigurationUnitInformation(out, unitResult.Unit());
+</a><a href="#h4-7-29" id="h4-7-29" class="d">-            }
+</a><a href="#h4-7-30" id="h4-7-30" class="i">+        if (context.IsTerminated())
+</a><a href="#h4-7-31" id="h4-7-31" class="i">+        {
+</a><a href="#h4-7-32" id="h4-7-32" class="i">+            // The context should only be terminated on us due to cancellation
+</a><a href="#h4-7-33" id="h4-7-33" class="i">+            context.Reporter.Error() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+</a><a href="#h4-7-34" id="h4-7-34" class="i">+            return;
+</a>         }
+<a href="#h4-7-36" id="h4-7-36" class="d">-        CATCH_LOG();
+</a> 
+<a href="#h4-7-38" id="h4-7-38" class="d">-        progressScope.reset();
+</a><a href="#h4-7-39" id="h4-7-39" class="d">-
+</a><a href="#h4-7-40" id="h4-7-40" class="d">-        // In the event of an exception from GetSetDetailsAsync, show the data we do have
+</a><a href="#h4-7-41" id="h4-7-41" class="d">-        if (!unitsShown)
+</a><a href="#h4-7-42" id="h4-7-42" class="i">+        if (FAILED(hr))
+</a>         {
+             // Failing to get details might not be fatal, warn about it but proceed
+             context.Reporter.Warn() &lt;&lt; Resource::String::ConfigurationFailedToGetDetails &lt;&lt; std::endl;
+<a href="#h4-7-46" id="h4-7-46" class="i">+        }
+</a> 
+<a href="#h4-7-48" id="h4-7-48" class="d">-            for (const ConfigurationUnit&amp; unit : configContext.Set().ConfigurationUnits())
+</a><a href="#h4-7-49" id="h4-7-49" class="i">+        // Handle any missing progress callbacks that are in the results
+</a><a href="#h4-7-50" id="h4-7-50" class="i">+        if (result)
+</a><a href="#h4-7-51" id="h4-7-51" class="i">+        {
+</a><a href="#h4-7-52" id="h4-7-52" class="i">+            auto unitResults = result.UnitResults();
+</a><a href="#h4-7-53" id="h4-7-53" class="i">+            if (unitResults)
+</a>             {
+<a href="#h4-7-55" id="h4-7-55" class="d">-                OutputConfigurationUnitInformation(out, unit);
+</a><a href="#h4-7-56" id="h4-7-56" class="i">+                for (unitsShown; unitsShown &lt; unitResults.Size(); ++unitsShown)
+</a><a href="#h4-7-57" id="h4-7-57" class="i">+                {
+</a><a href="#h4-7-58" id="h4-7-58" class="i">+                    GetConfigurationUnitDetailsResult unitResult = unitResults.GetAt(unitsShown);
+</a><a href="#h4-7-59" id="h4-7-59" class="i">+                    LogFailedGetConfigurationUnitDetails(unitResult.Unit(), unitResult.ResultInformation());
+</a><a href="#h4-7-60" id="h4-7-60" class="i">+                    OutputConfigurationUnitInformation(out, unitResult.Unit());
+</a><a href="#h4-7-61" id="h4-7-61" class="i">+                }
+</a>             }
+         }
+<a href="#h4-7-64" id="h4-7-64" class="i">+
+</a><a href="#h4-7-65" id="h4-7-65" class="i">+        // Handle any units that are NOT in the results (due to an exception part of the way through)
+</a><a href="#h4-7-66" id="h4-7-66" class="i">+        auto allUnits = configContext.Set().ConfigurationUnits();
+</a><a href="#h4-7-67" id="h4-7-67" class="i">+        for (unitsShown; unitsShown &lt; allUnits.Size(); ++unitsShown)
+</a><a href="#h4-7-68" id="h4-7-68" class="i">+        {
+</a><a href="#h4-7-69" id="h4-7-69" class="i">+            ConfigurationUnit unit = allUnits.GetAt(unitsShown);
+</a><a href="#h4-7-70" id="h4-7-70" class="i">+            OutputConfigurationUnitInformation(out, unit);
+</a><a href="#h4-7-71" id="h4-7-71" class="i">+        }
+</a>     }
+ 
+     void ShowConfigurationSetConflicts(Execution::Context&amp; context)
+<a href="#h4-8" id="h4-8" class="h">@@ -761,24 +861,12 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+     void ApplyConfigurationSet(Execution::Context&amp; context)
+     {
+<a href="#h4-8-3" id="h4-8-3" class="d">-        ApplyConfigurationSetProgressOutput progress{ context };
+</a>         ApplyConfigurationSetResult result = nullptr;
+<a href="#h4-8-5" id="h4-8-5" class="d">-
+</a>         ConfigurationContext&amp; configContext = context.Get&lt;Data::ConfigurationContext&gt;();
+ 
+         {
+<a href="#h4-8-9" id="h4-8-9" class="d">-            // Just in case, forcibly stop our manual progress
+</a><a href="#h4-8-10" id="h4-8-10" class="d">-            auto hideProgress = wil::scope_exit([&amp;]()
+</a><a href="#h4-8-11" id="h4-8-11" class="d">-                {
+</a><a href="#h4-8-12" id="h4-8-12" class="d">-                    context.Reporter.EndProgress(true);
+</a><a href="#h4-8-13" id="h4-8-13" class="d">-                });
+</a><a href="#h4-8-14" id="h4-8-14" class="d">-
+</a>             auto applyOperation = configContext.Processor().ApplySetAsync(configContext.Set(), ApplyConfigurationSetFlags::None);
+<a href="#h4-8-16" id="h4-8-16" class="d">-
+</a><a href="#h4-8-17" id="h4-8-17" class="d">-            applyOperation.Progress([&amp;](const IAsyncOperationWithProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt;&amp; operation, const ConfigurationSetChangeData&amp; data)
+</a><a href="#h4-8-18" id="h4-8-18" class="d">-                {
+</a><a href="#h4-8-19" id="h4-8-19" class="d">-                    progress.Progress(operation, data);
+</a><a href="#h4-8-20" id="h4-8-20" class="d">-                });
+</a><a href="#h4-8-21" id="h4-8-21" class="i">+            ApplyConfigurationSetProgressOutput progress{ context, applyOperation };
+</a> 
+             result = applyOperation.get();
+             progress.HandleUnreportedProgress(result);
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -1936,4 +1936,7 @@ Please specify one of them using the --source option to proceed.&lt;/value&gt;
+</a>     &lt;value&gt;See line {0}, column {1} in the file.&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;{0}&quot;,&quot;{1}&quot;} Indicates the file location of the error, {0} and {1} are placeholders for numbers of the line and column, respectively.&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+  &lt;data name=&quot;CancellingOperation&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    &lt;value&gt;Cancelling operation&lt;/value&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj.html">src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj</a> b/<a href="../file/src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj.html">src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -398,6 +398,7 @@
+</a>     &lt;ClInclude Include=&quot;Public\AppInstallerVersions.h&quot; /&gt;
+     &lt;ClInclude Include=&quot;Public\Telemetry\MicrosoftTelemetry.h&quot; /&gt;
+     &lt;ClInclude Include=&quot;Public\Telemetry\WinEventLogLevels.h&quot; /&gt;
+<a href="#h6-0-3" id="h6-0-3" class="i">+    &lt;ClInclude Include=&quot;Public\winget\AsyncTokens.h&quot; /&gt;
+</a>     &lt;ClInclude Include=&quot;Public\winget\JsonSchemaValidation.h&quot; /&gt;
+     &lt;ClInclude Include=&quot;Public\winget\LocIndependent.h&quot; /&gt;
+     &lt;ClInclude Include=&quot;Public\winget\Resources.h&quot; /&gt;
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj.filters.html">src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj.filters</a> b/<a href="../file/src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj.filters.html">src/AppInstallerSharedLib/AppInstallerSharedLib.vcxproj.filters</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -71,6 +71,9 @@
+</a>     &lt;ClInclude Include=&quot;Public\winget\Runtime.h&quot;&gt;
+       &lt;Filter&gt;Public\winget&lt;/Filter&gt;
+     &lt;/ClInclude&gt;
+<a href="#h7-0-3" id="h7-0-3" class="i">+    &lt;ClInclude Include=&quot;Public\winget\AsyncTokens.h&quot;&gt;
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+      &lt;Filter&gt;Public\winget&lt;/Filter&gt;
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+    &lt;/ClInclude&gt;
+</a>   &lt;/ItemGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;ClCompile Include=&quot;pch.cpp&quot;&gt;
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerSharedLib/Public/winget/AsyncTokens.h.html">src/AppInstallerSharedLib/Public/winget/AsyncTokens.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/AsyncTokens.h.html">src/AppInstallerSharedLib/Public/winget/AsyncTokens.h</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -0,0 +1,160 @@
+</a><a href="#h8-0-0" id="h8-0-0" class="i">+// Copyright (c) Microsoft Corporation.
+</a><a href="#h8-0-1" id="h8-0-1" class="i">+// Licensed under the MIT License.
+</a><a href="#h8-0-2" id="h8-0-2" class="i">+#pragma once
+</a><a href="#h8-0-3" id="h8-0-3" class="i">+#include &lt;AppInstallerLogging.h&gt;
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+#include &lt;winrt/Windows.Foundation.h&gt;
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+#include &lt;memory&gt;
+</a><a href="#h8-0-6" id="h8-0-6" class="i">+
+</a><a href="#h8-0-7" id="h8-0-7" class="i">+namespace AppInstaller::WinRT
+</a><a href="#h8-0-8" id="h8-0-8" class="i">+{
+</a><a href="#h8-0-9" id="h8-0-9" class="i">+    namespace details
+</a><a href="#h8-0-10" id="h8-0-10" class="i">+    {
+</a><a href="#h8-0-11" id="h8-0-11" class="i">+        // Type erasing interface for winrt cancellation token.
+</a><a href="#h8-0-12" id="h8-0-12" class="i">+        struct AsyncCancellationTypeErasure
+</a><a href="#h8-0-13" id="h8-0-13" class="i">+        {
+</a><a href="#h8-0-14" id="h8-0-14" class="i">+            virtual ~AsyncCancellationTypeErasure() = default;
+</a><a href="#h8-0-15" id="h8-0-15" class="i">+
+</a><a href="#h8-0-16" id="h8-0-16" class="i">+            virtual bool IsCancelled() const noexcept = 0;
+</a><a href="#h8-0-17" id="h8-0-17" class="i">+            virtual void Callback(winrt::delegate&lt;&gt;&amp;&amp; callback) const noexcept = 0;
+</a><a href="#h8-0-18" id="h8-0-18" class="i">+        };
+</a><a href="#h8-0-19" id="h8-0-19" class="i">+
+</a><a href="#h8-0-20" id="h8-0-20" class="i">+        // Type containing winrt cancellation token wrapper.
+</a><a href="#h8-0-21" id="h8-0-21" class="i">+        template &lt;typename Promise&gt;
+</a><a href="#h8-0-22" id="h8-0-22" class="i">+        struct AsyncCancellationT : public AsyncCancellationTypeErasure
+</a><a href="#h8-0-23" id="h8-0-23" class="i">+        {
+</a><a href="#h8-0-24" id="h8-0-24" class="i">+            using Token = winrt::impl::cancellation_token&lt;Promise&gt;;
+</a><a href="#h8-0-25" id="h8-0-25" class="i">+
+</a><a href="#h8-0-26" id="h8-0-26" class="i">+            AsyncCancellationT(Token&amp;&amp; token) : m_token(std::move(token)) {}
+</a><a href="#h8-0-27" id="h8-0-27" class="i">+
+</a><a href="#h8-0-28" id="h8-0-28" class="i">+            bool IsCancelled() const noexcept override
+</a><a href="#h8-0-29" id="h8-0-29" class="i">+            {
+</a><a href="#h8-0-30" id="h8-0-30" class="i">+                return m_token();
+</a><a href="#h8-0-31" id="h8-0-31" class="i">+            }
+</a><a href="#h8-0-32" id="h8-0-32" class="i">+
+</a><a href="#h8-0-33" id="h8-0-33" class="i">+            void Callback(winrt::delegate&lt;&gt;&amp;&amp; callback) const noexcept override
+</a><a href="#h8-0-34" id="h8-0-34" class="i">+            {
+</a><a href="#h8-0-35" id="h8-0-35" class="i">+                m_token.callback(std::move(callback));
+</a><a href="#h8-0-36" id="h8-0-36" class="i">+            }
+</a><a href="#h8-0-37" id="h8-0-37" class="i">+
+</a><a href="#h8-0-38" id="h8-0-38" class="i">+        private:
+</a><a href="#h8-0-39" id="h8-0-39" class="i">+            Token m_token;
+</a><a href="#h8-0-40" id="h8-0-40" class="i">+        };
+</a><a href="#h8-0-41" id="h8-0-41" class="i">+    }
+</a><a href="#h8-0-42" id="h8-0-42" class="i">+
+</a><a href="#h8-0-43" id="h8-0-43" class="i">+    // May hold a cancellation token and provide the ability to check its status.
+</a><a href="#h8-0-44" id="h8-0-44" class="i">+    // If empty, it will act as if it is never cancelled.
+</a><a href="#h8-0-45" id="h8-0-45" class="i">+    struct AsyncCancellation
+</a><a href="#h8-0-46" id="h8-0-46" class="i">+    {
+</a><a href="#h8-0-47" id="h8-0-47" class="i">+        // Create an empty cancellation object, which will never be cancelled.
+</a><a href="#h8-0-48" id="h8-0-48" class="i">+        AsyncCancellation() = default;
+</a><a href="#h8-0-49" id="h8-0-49" class="i">+
+</a><a href="#h8-0-50" id="h8-0-50" class="i">+        // Create a cancellation object from the winrt token.
+</a><a href="#h8-0-51" id="h8-0-51" class="i">+        template &lt;typename Promise&gt;
+</a><a href="#h8-0-52" id="h8-0-52" class="i">+        AsyncCancellation(winrt::impl::cancellation_token&lt;Promise&gt;&amp;&amp; token)
+</a><a href="#h8-0-53" id="h8-0-53" class="i">+        {
+</a><a href="#h8-0-54" id="h8-0-54" class="i">+            m_token = std::make_unique&lt;details::AsyncCancellationT&lt;Promise&gt;&gt;(std::move(token));
+</a><a href="#h8-0-55" id="h8-0-55" class="i">+        }
+</a><a href="#h8-0-56" id="h8-0-56" class="i">+
+</a><a href="#h8-0-57" id="h8-0-57" class="i">+        // Returns true if the operation has been cancelled, false if not.
+</a><a href="#h8-0-58" id="h8-0-58" class="i">+        bool IsCancelled() const noexcept
+</a><a href="#h8-0-59" id="h8-0-59" class="i">+        {
+</a><a href="#h8-0-60" id="h8-0-60" class="i">+            return m_token ? m_token-&gt;IsCancelled() : false;
+</a><a href="#h8-0-61" id="h8-0-61" class="i">+        }
+</a><a href="#h8-0-62" id="h8-0-62" class="i">+
+</a><a href="#h8-0-63" id="h8-0-63" class="i">+        // Throws the appropriate exception if the operation has been cancelled.
+</a><a href="#h8-0-64" id="h8-0-64" class="i">+        void ThrowIfCancelled() const
+</a><a href="#h8-0-65" id="h8-0-65" class="i">+        {
+</a><a href="#h8-0-66" id="h8-0-66" class="i">+            if (IsCancelled())
+</a><a href="#h8-0-67" id="h8-0-67" class="i">+            {
+</a><a href="#h8-0-68" id="h8-0-68" class="i">+                AICLI_LOG(Core, Warning, &lt;&lt; &quot;Operation cancelled&quot;);
+</a><a href="#h8-0-69" id="h8-0-69" class="i">+                throw winrt::hresult_canceled();
+</a><a href="#h8-0-70" id="h8-0-70" class="i">+            }
+</a><a href="#h8-0-71" id="h8-0-71" class="i">+        }
+</a><a href="#h8-0-72" id="h8-0-72" class="i">+
+</a><a href="#h8-0-73" id="h8-0-73" class="i">+        // Sets a callback that will be invoked on cancellation.
+</a><a href="#h8-0-74" id="h8-0-74" class="i">+        void Callback(winrt::delegate&lt;&gt;&amp;&amp; callback) const noexcept
+</a><a href="#h8-0-75" id="h8-0-75" class="i">+        {
+</a><a href="#h8-0-76" id="h8-0-76" class="i">+            if (m_token)
+</a><a href="#h8-0-77" id="h8-0-77" class="i">+            {
+</a><a href="#h8-0-78" id="h8-0-78" class="i">+                m_token-&gt;Callback(std::move(callback));
+</a><a href="#h8-0-79" id="h8-0-79" class="i">+            }
+</a><a href="#h8-0-80" id="h8-0-80" class="i">+        }
+</a><a href="#h8-0-81" id="h8-0-81" class="i">+
+</a><a href="#h8-0-82" id="h8-0-82" class="i">+    private:
+</a><a href="#h8-0-83" id="h8-0-83" class="i">+        std::unique_ptr&lt;details::AsyncCancellationTypeErasure&gt; m_token;
+</a><a href="#h8-0-84" id="h8-0-84" class="i">+    };
+</a><a href="#h8-0-85" id="h8-0-85" class="i">+
+</a><a href="#h8-0-86" id="h8-0-86" class="i">+    namespace details
+</a><a href="#h8-0-87" id="h8-0-87" class="i">+    {
+</a><a href="#h8-0-88" id="h8-0-88" class="i">+        // Type erasing interface for winrt progress token.
+</a><a href="#h8-0-89" id="h8-0-89" class="i">+        template &lt;typename ResultT, typename ProgressT&gt;
+</a><a href="#h8-0-90" id="h8-0-90" class="i">+        struct AsyncProgressTypeErasure
+</a><a href="#h8-0-91" id="h8-0-91" class="i">+        {
+</a><a href="#h8-0-92" id="h8-0-92" class="i">+            virtual ~AsyncProgressTypeErasure() = default;
+</a><a href="#h8-0-93" id="h8-0-93" class="i">+
+</a><a href="#h8-0-94" id="h8-0-94" class="i">+            virtual void Progress(ProgressT const&amp; progress) const = 0;
+</a><a href="#h8-0-95" id="h8-0-95" class="i">+
+</a><a href="#h8-0-96" id="h8-0-96" class="i">+            virtual void Result(ResultT const&amp; result) const = 0;
+</a><a href="#h8-0-97" id="h8-0-97" class="i">+        };
+</a><a href="#h8-0-98" id="h8-0-98" class="i">+
+</a><a href="#h8-0-99" id="h8-0-99" class="i">+        // Type containing winrt progress token wrapper.
+</a><a href="#h8-0-100" id="h8-0-100" class="i">+        template &lt;typename Promise, typename ResultT, typename ProgressT&gt;
+</a><a href="#h8-0-101" id="h8-0-101" class="i">+        struct AsyncProgressT : public AsyncProgressTypeErasure&lt;ResultT, ProgressT&gt;
+</a><a href="#h8-0-102" id="h8-0-102" class="i">+        {
+</a><a href="#h8-0-103" id="h8-0-103" class="i">+            using Token = winrt::impl::progress_token&lt;Promise, ProgressT&gt;;
+</a><a href="#h8-0-104" id="h8-0-104" class="i">+
+</a><a href="#h8-0-105" id="h8-0-105" class="i">+            AsyncProgressT(Token&amp;&amp; token) : m_token(std::move(token)) {}
+</a><a href="#h8-0-106" id="h8-0-106" class="i">+
+</a><a href="#h8-0-107" id="h8-0-107" class="i">+            void Progress(ProgressT const&amp; progress) const override
+</a><a href="#h8-0-108" id="h8-0-108" class="i">+            {
+</a><a href="#h8-0-109" id="h8-0-109" class="i">+                m_token(progress);
+</a><a href="#h8-0-110" id="h8-0-110" class="i">+            }
+</a><a href="#h8-0-111" id="h8-0-111" class="i">+
+</a><a href="#h8-0-112" id="h8-0-112" class="i">+            void Result(ResultT const&amp; result) const override
+</a><a href="#h8-0-113" id="h8-0-113" class="i">+            {
+</a><a href="#h8-0-114" id="h8-0-114" class="i">+                m_token.set_result(result);
+</a><a href="#h8-0-115" id="h8-0-115" class="i">+            }
+</a><a href="#h8-0-116" id="h8-0-116" class="i">+
+</a><a href="#h8-0-117" id="h8-0-117" class="i">+        private:
+</a><a href="#h8-0-118" id="h8-0-118" class="i">+            Token m_token;
+</a><a href="#h8-0-119" id="h8-0-119" class="i">+        };
+</a><a href="#h8-0-120" id="h8-0-120" class="i">+    }
+</a><a href="#h8-0-121" id="h8-0-121" class="i">+
+</a><a href="#h8-0-122" id="h8-0-122" class="i">+    // May hold a progress token and provide the ability to send progress updates.
+</a><a href="#h8-0-123" id="h8-0-123" class="i">+    // If empty, progress will be dropped on calls here.
+</a><a href="#h8-0-124" id="h8-0-124" class="i">+    template &lt;typename ResultT, typename ProgressT&gt;
+</a><a href="#h8-0-125" id="h8-0-125" class="i">+    struct AsyncProgress : public AsyncCancellation
+</a><a href="#h8-0-126" id="h8-0-126" class="i">+    {
+</a><a href="#h8-0-127" id="h8-0-127" class="i">+        // Create an empty progress object.
+</a><a href="#h8-0-128" id="h8-0-128" class="i">+        AsyncProgress() = default;
+</a><a href="#h8-0-129" id="h8-0-129" class="i">+
+</a><a href="#h8-0-130" id="h8-0-130" class="i">+        // Create a progress object from the winrt token.
+</a><a href="#h8-0-131" id="h8-0-131" class="i">+        template &lt;typename Promise&gt;
+</a><a href="#h8-0-132" id="h8-0-132" class="i">+        AsyncProgress(winrt::impl::progress_token&lt;Promise, ProgressT&gt;&amp;&amp; progress, winrt::impl::cancellation_token&lt;Promise&gt;&amp;&amp; cancellation) :
+</a><a href="#h8-0-133" id="h8-0-133" class="i">+            AsyncCancellation(std::move(cancellation))
+</a><a href="#h8-0-134" id="h8-0-134" class="i">+        {
+</a><a href="#h8-0-135" id="h8-0-135" class="i">+            m_token = std::make_unique&lt;details::AsyncProgressT&lt;Promise, ResultT, ProgressT&gt;&gt;(std::move(progress));
+</a><a href="#h8-0-136" id="h8-0-136" class="i">+        }
+</a><a href="#h8-0-137" id="h8-0-137" class="i">+
+</a><a href="#h8-0-138" id="h8-0-138" class="i">+        // Sends progress if this object is not empty.
+</a><a href="#h8-0-139" id="h8-0-139" class="i">+        void Progress(ProgressT const&amp; progress) const
+</a><a href="#h8-0-140" id="h8-0-140" class="i">+        {
+</a><a href="#h8-0-141" id="h8-0-141" class="i">+            if (m_token)
+</a><a href="#h8-0-142" id="h8-0-142" class="i">+            {
+</a><a href="#h8-0-143" id="h8-0-143" class="i">+                m_token-&gt;Progress(progress);
+</a><a href="#h8-0-144" id="h8-0-144" class="i">+            }
+</a><a href="#h8-0-145" id="h8-0-145" class="i">+        }
+</a><a href="#h8-0-146" id="h8-0-146" class="i">+
+</a><a href="#h8-0-147" id="h8-0-147" class="i">+        // Sets the result onto the progress object if it is not empty.
+</a><a href="#h8-0-148" id="h8-0-148" class="i">+        void Result(ResultT const&amp; result) const
+</a><a href="#h8-0-149" id="h8-0-149" class="i">+        {
+</a><a href="#h8-0-150" id="h8-0-150" class="i">+            if (m_token)
+</a><a href="#h8-0-151" id="h8-0-151" class="i">+            {
+</a><a href="#h8-0-152" id="h8-0-152" class="i">+                m_token-&gt;Result(result);
+</a><a href="#h8-0-153" id="h8-0-153" class="i">+            }
+</a><a href="#h8-0-154" id="h8-0-154" class="i">+        }
+</a><a href="#h8-0-155" id="h8-0-155" class="i">+
+</a><a href="#h8-0-156" id="h8-0-156" class="i">+    private:
+</a><a href="#h8-0-157" id="h8-0-157" class="i">+        std::unique_ptr&lt;details::AsyncProgressTypeErasure&lt;ResultT, ProgressT&gt;&gt; m_token;
+</a><a href="#h8-0-158" id="h8-0-158" class="i">+    };
+</a><a href="#h8-0-159" id="h8-0-159" class="i">+}
+</a><b>diff --git a/<a id="h9" href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -208,11 +208,13 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>     {
+         Windows::Storage::Streams::IInputStream localStream = stream;
+         co_await winrt::resume_background();
+<a href="#h9-0-3" id="h9-0-3" class="i">+        auto cancellation = co_await get_cancellation_token();
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+        cancellation.enable_propagation();
+</a> 
+         auto threadGlobals = m_threadGlobals.SetForCurrentThread();
+         auto result = make_self&lt;wil::details::module_count_wrapper&lt;OpenConfigurationSetResult&gt;&gt;();
+ 
+<a href="#h9-0-9" id="h9-0-9" class="d">-        if (!stream)
+</a><a href="#h9-0-10" id="h9-0-10" class="i">+        if (!localStream)
+</a>         {
+             result-&gt;Initialize(E_POINTER, {});
+             co_return *result;
+<a href="#h9-1" id="h9-1" class="h">@@ -220,7 +222,32 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         try
+         {
+<a href="#h9-1-3" id="h9-1-3" class="d">-            std::unique_ptr&lt;ConfigurationSetParser&gt; parser = ConfigurationSetParser::Create(localStream);
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+            // Read the entire file into memory as we expect them to be small and
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+            // our YAML parser doesn&#39;t support streaming at this time.
+</a><a href="#h9-1-6" id="h9-1-6" class="i">+            // This is done here to enable easy cancellation propagation to the stream reads.
+</a><a href="#h9-1-7" id="h9-1-7" class="i">+            uint32_t bufferSize = 1 &lt;&lt; 20;
+</a><a href="#h9-1-8" id="h9-1-8" class="i">+            Windows::Storage::Streams::Buffer buffer(bufferSize);
+</a><a href="#h9-1-9" id="h9-1-9" class="i">+            Windows::Storage::Streams::InputStreamOptions readOptions = 
+</a><a href="#h9-1-10" id="h9-1-10" class="i">+                Windows::Storage::Streams::InputStreamOptions::Partial | Windows::Storage::Streams::InputStreamOptions::ReadAhead;
+</a><a href="#h9-1-11" id="h9-1-11" class="i">+            std::string inputString;
+</a><a href="#h9-1-12" id="h9-1-12" class="i">+
+</a><a href="#h9-1-13" id="h9-1-13" class="i">+            for (;;)
+</a><a href="#h9-1-14" id="h9-1-14" class="i">+            {
+</a><a href="#h9-1-15" id="h9-1-15" class="i">+                Windows::Storage::Streams::IBuffer readBuffer = co_await localStream.ReadAsync(buffer, bufferSize, readOptions);
+</a><a href="#h9-1-16" id="h9-1-16" class="i">+
+</a><a href="#h9-1-17" id="h9-1-17" class="i">+                size_t readSize = static_cast&lt;size_t&gt;(readBuffer.Length());
+</a><a href="#h9-1-18" id="h9-1-18" class="i">+                if (readSize)
+</a><a href="#h9-1-19" id="h9-1-19" class="i">+                {
+</a><a href="#h9-1-20" id="h9-1-20" class="i">+                    static_assert(sizeof(char) == sizeof(*readBuffer.data()));
+</a><a href="#h9-1-21" id="h9-1-21" class="i">+                    inputString.append(reinterpret_cast&lt;char*&gt;(readBuffer.data()), readSize);
+</a><a href="#h9-1-22" id="h9-1-22" class="i">+                }
+</a><a href="#h9-1-23" id="h9-1-23" class="i">+                else
+</a><a href="#h9-1-24" id="h9-1-24" class="i">+                {
+</a><a href="#h9-1-25" id="h9-1-25" class="i">+                    break;
+</a><a href="#h9-1-26" id="h9-1-26" class="i">+                }
+</a><a href="#h9-1-27" id="h9-1-27" class="i">+            }
+</a><a href="#h9-1-28" id="h9-1-28" class="i">+
+</a><a href="#h9-1-29" id="h9-1-29" class="i">+            std::unique_ptr&lt;ConfigurationSetParser&gt; parser = ConfigurationSetParser::Create(inputString);
+</a>             if (FAILED(parser-&gt;Result()))
+             {
+                 result-&gt;Initialize(parser-&gt;Result(), parser-&gt;Field(), parser-&gt;Value(), parser-&gt;Line(), parser-&gt;Column());
+<a href="#h9-2" id="h9-2" class="h">@@ -269,7 +296,8 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+     Configuration::GetConfigurationSetDetailsResult ConfigurationProcessor::GetSetDetails(const ConfigurationSet&amp; configurationSet, ConfigurationUnitDetailLevel detailLevel)
+     {
+<a href="#h9-2-3" id="h9-2-3" class="d">-        return GetSetDetailsAsync(configurationSet, detailLevel).get();
+</a><a href="#h9-2-4" id="h9-2-4" class="i">+        THROW_HR_IF(E_NOT_VALID_STATE, !m_factory);
+</a><a href="#h9-2-5" id="h9-2-5" class="i">+        return GetSetDetailsImpl(configurationSet, detailLevel);
+</a>     }
+ 
+     Windows::Foundation::IAsyncOperationWithProgress&lt;Configuration::GetConfigurationSetDetailsResult, Configuration::GetConfigurationUnitDetailsResult&gt; ConfigurationProcessor::GetSetDetailsAsync(const ConfigurationSet&amp; configurationSet, ConfigurationUnitDetailLevel detailLevel)
+<a href="#h9-3" id="h9-3" class="h">@@ -279,16 +307,25 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         ConfigurationSet localSet = configurationSet;
+         co_await winrt::resume_background();
+ 
+<a href="#h9-3-3" id="h9-3-3" class="i">+        co_return GetSetDetailsImpl(localSet, detailLevel, { co_await winrt::get_progress_token(), co_await winrt::get_cancellation_token()});
+</a><a href="#h9-3-4" id="h9-3-4" class="i">+    }
+</a><a href="#h9-3-5" id="h9-3-5" class="i">+
+</a><a href="#h9-3-6" id="h9-3-6" class="i">+    Configuration::GetConfigurationSetDetailsResult ConfigurationProcessor::GetSetDetailsImpl(
+</a><a href="#h9-3-7" id="h9-3-7" class="i">+        const ConfigurationSet&amp; configurationSet,
+</a><a href="#h9-3-8" id="h9-3-8" class="i">+        ConfigurationUnitDetailLevel detailLevel,
+</a><a href="#h9-3-9" id="h9-3-9" class="i">+        AppInstaller::WinRT::AsyncProgress&lt;GetConfigurationSetDetailsResult, GetConfigurationUnitDetailsResult&gt; progress)
+</a><a href="#h9-3-10" id="h9-3-10" class="i">+    {
+</a>         auto threadGlobals = m_threadGlobals.SetForCurrentThread();
+ 
+<a href="#h9-3-13" id="h9-3-13" class="d">-        IConfigurationSetProcessor setProcessor = m_factory.CreateSetProcessor(localSet);
+</a><a href="#h9-3-14" id="h9-3-14" class="i">+        IConfigurationSetProcessor setProcessor = m_factory.CreateSetProcessor(configurationSet);
+</a> 
+<a href="#h9-3-16" id="h9-3-16" class="d">-        auto progress = co_await winrt::get_progress_token();
+</a>         auto result = make_self&lt;wil::details::module_count_wrapper&lt;implementation::GetConfigurationSetDetailsResult&gt;&gt;();
+<a href="#h9-3-18" id="h9-3-18" class="d">-        progress.set_result(*result);
+</a><a href="#h9-3-19" id="h9-3-19" class="i">+        progress.Result(*result);
+</a> 
+<a href="#h9-3-21" id="h9-3-21" class="d">-        for (const auto&amp; unit : localSet.ConfigurationUnits())
+</a><a href="#h9-3-22" id="h9-3-22" class="i">+        for (const auto&amp; unit : configurationSet.ConfigurationUnits())
+</a>         {
+<a href="#h9-3-24" id="h9-3-24" class="i">+            progress.ThrowIfCancelled();
+</a><a href="#h9-3-25" id="h9-3-25" class="i">+
+</a>             auto unitResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::GetConfigurationUnitDetailsResult&gt;&gt;();
+             auto unitResultInformation = make_self&lt;wil::details::module_count_wrapper&lt;implementation::ConfigurationUnitResultInformation&gt;&gt;();
+             unitResult-&gt;Unit(unit);
+<a href="#h9-4" id="h9-4" class="h">@@ -305,15 +342,16 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             }
+ 
+             result-&gt;UnitResultsVector().Append(*unitResult);
+<a href="#h9-4-3" id="h9-4-3" class="d">-            progress(*unitResult);
+</a><a href="#h9-4-4" id="h9-4-4" class="i">+            progress.Progress(*unitResult);
+</a>         }
+ 
+<a href="#h9-4-7" id="h9-4-7" class="d">-        co_return *result;
+</a><a href="#h9-4-8" id="h9-4-8" class="i">+        return *result;
+</a>     }
+ 
+     void ConfigurationProcessor::GetUnitDetails(const ConfigurationUnit&amp; unit, ConfigurationUnitDetailLevel detailLevel)
+     {
+<a href="#h9-4-13" id="h9-4-13" class="d">-        return GetUnitDetailsAsync(unit, detailLevel).get();
+</a><a href="#h9-4-14" id="h9-4-14" class="i">+        THROW_HR_IF(E_NOT_VALID_STATE, !m_factory);
+</a><a href="#h9-4-15" id="h9-4-15" class="i">+        return GetUnitDetailsImpl(unit, detailLevel);
+</a>     }
+ 
+     Windows::Foundation::IAsyncAction ConfigurationProcessor::GetUnitDetailsAsync(const ConfigurationUnit&amp; unit, ConfigurationUnitDetailLevel detailLevel)
+<a href="#h9-5" id="h9-5" class="h">@@ -323,16 +361,22 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         ConfigurationUnit localUnit = unit;
+         co_await winrt::resume_background();
+ 
+<a href="#h9-5-3" id="h9-5-3" class="i">+        co_return GetUnitDetailsImpl(localUnit, detailLevel);
+</a><a href="#h9-5-4" id="h9-5-4" class="i">+    }
+</a><a href="#h9-5-5" id="h9-5-5" class="i">+
+</a><a href="#h9-5-6" id="h9-5-6" class="i">+    void ConfigurationProcessor::GetUnitDetailsImpl(const ConfigurationUnit&amp; unit, ConfigurationUnitDetailLevel detailLevel)
+</a><a href="#h9-5-7" id="h9-5-7" class="i">+    {
+</a>         auto threadGlobals = m_threadGlobals.SetForCurrentThread();
+ 
+         IConfigurationSetProcessor setProcessor = m_factory.CreateSetProcessor(nullptr);
+<a href="#h9-5-11" id="h9-5-11" class="d">-        IConfigurationUnitProcessorDetails details = setProcessor.GetUnitProcessorDetails(localUnit, detailLevel);
+</a><a href="#h9-5-12" id="h9-5-12" class="d">-        get_self&lt;implementation::ConfigurationUnit&gt;(localUnit)-&gt;Details(std::move(details));
+</a><a href="#h9-5-13" id="h9-5-13" class="i">+        IConfigurationUnitProcessorDetails details = setProcessor.GetUnitProcessorDetails(unit, detailLevel);
+</a><a href="#h9-5-14" id="h9-5-14" class="i">+        get_self&lt;implementation::ConfigurationUnit&gt;(unit)-&gt;Details(std::move(details));
+</a>     }
+ 
+     Configuration::ApplyConfigurationSetResult ConfigurationProcessor::ApplySet(const ConfigurationSet&amp; configurationSet, ApplyConfigurationSetFlags flags)
+     {
+<a href="#h9-5-19" id="h9-5-19" class="d">-        return ApplySetAsync(configurationSet, flags).get();
+</a><a href="#h9-5-20" id="h9-5-20" class="i">+        THROW_HR_IF(E_NOT_VALID_STATE, !m_factory);
+</a><a href="#h9-5-21" id="h9-5-21" class="i">+        return ApplySetImpl(configurationSet, flags);
+</a>     }
+ 
+     Windows::Foundation::IAsyncOperationWithProgress&lt;Configuration::ApplyConfigurationSetResult, Configuration::ConfigurationSetChangeData&gt; ConfigurationProcessor::ApplySetAsync(const ConfigurationSet&amp; configurationSet, ApplyConfigurationSetFlags flags)
+<a href="#h9-6" id="h9-6" class="h">@@ -341,25 +385,30 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         ConfigurationSet localSet = configurationSet;
+         co_await winrt::resume_background();
+<a href="#h9-6-3" id="h9-6-3" class="d">-        auto progress = co_await winrt::get_progress_token();
+</a> 
+<a href="#h9-6-5" id="h9-6-5" class="i">+        co_return ApplySetImpl(localSet, flags, { co_await winrt::get_progress_token(), co_await winrt::get_cancellation_token() });
+</a><a href="#h9-6-6" id="h9-6-6" class="i">+    }
+</a><a href="#h9-6-7" id="h9-6-7" class="i">+
+</a><a href="#h9-6-8" id="h9-6-8" class="i">+    Configuration::ApplyConfigurationSetResult ConfigurationProcessor::ApplySetImpl(
+</a><a href="#h9-6-9" id="h9-6-9" class="i">+        const ConfigurationSet&amp; configurationSet,
+</a><a href="#h9-6-10" id="h9-6-10" class="i">+        ApplyConfigurationSetFlags flags,
+</a><a href="#h9-6-11" id="h9-6-11" class="i">+        AppInstaller::WinRT::AsyncProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt; progress)
+</a><a href="#h9-6-12" id="h9-6-12" class="i">+    {
+</a>         // TODO: Not needed until we have history implemented
+         UNREFERENCED_PARAMETER(flags);
+ 
+         auto threadGlobals = m_threadGlobals.SetForCurrentThread();
+ 
+<a href="#h9-6-18" id="h9-6-18" class="d">-        auto result = make_self&lt;wil::details::module_count_wrapper&lt;implementation::ApplyConfigurationSetResult&gt;&gt;();
+</a><a href="#h9-6-19" id="h9-6-19" class="d">-        ConfigurationSetApplyProcessor applyProcessor{ localSet, m_threadGlobals.GetTelemetryLogger(), m_factory.CreateSetProcessor(localSet), result, progress};
+</a><a href="#h9-6-20" id="h9-6-20" class="d">-        progress.set_result(*result);
+</a><a href="#h9-6-21" id="h9-6-21" class="d">-
+</a><a href="#h9-6-22" id="h9-6-22" class="i">+        ConfigurationSetApplyProcessor applyProcessor{ configurationSet, m_threadGlobals.GetTelemetryLogger(), m_factory.CreateSetProcessor(configurationSet), std::move(progress) };
+</a>         applyProcessor.Process();
+ 
+<a href="#h9-6-25" id="h9-6-25" class="d">-        co_return *result;
+</a><a href="#h9-6-26" id="h9-6-26" class="i">+        return applyProcessor.Result();
+</a>     }
+ 
+     Configuration::TestConfigurationSetResult ConfigurationProcessor::TestSet(const ConfigurationSet&amp; configurationSet)
+     {
+<a href="#h9-6-31" id="h9-6-31" class="d">-        return TestSetAsync(configurationSet).get();
+</a><a href="#h9-6-32" id="h9-6-32" class="i">+        THROW_HR_IF(E_NOT_VALID_STATE, !m_factory);
+</a><a href="#h9-6-33" id="h9-6-33" class="i">+        return TestSetImpl(configurationSet);
+</a>     }
+ 
+     Windows::Foundation::IAsyncOperationWithProgress&lt;Configuration::TestConfigurationSetResult, Configuration::TestConfigurationUnitResult&gt; ConfigurationProcessor::TestSetAsync(const ConfigurationSet&amp; configurationSet)
+<a href="#h9-7" id="h9-7" class="h">@@ -368,75 +417,102 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         ConfigurationSet localSet = configurationSet;
+         co_await winrt::resume_background();
+<a href="#h9-7-3" id="h9-7-3" class="d">-        auto progress = co_await winrt::get_progress_token();
+</a> 
+<a href="#h9-7-5" id="h9-7-5" class="i">+        co_return TestSetImpl(localSet, { co_await winrt::get_progress_token(), co_await winrt::get_cancellation_token() });
+</a><a href="#h9-7-6" id="h9-7-6" class="i">+    }
+</a><a href="#h9-7-7" id="h9-7-7" class="i">+
+</a><a href="#h9-7-8" id="h9-7-8" class="i">+    Configuration::TestConfigurationSetResult ConfigurationProcessor::TestSetImpl(
+</a><a href="#h9-7-9" id="h9-7-9" class="i">+        const ConfigurationSet&amp; configurationSet,
+</a><a href="#h9-7-10" id="h9-7-10" class="i">+        AppInstaller::WinRT::AsyncProgress&lt;TestConfigurationSetResult, TestConfigurationUnitResult&gt; progress)
+</a><a href="#h9-7-11" id="h9-7-11" class="i">+    {
+</a>         auto threadGlobals = m_threadGlobals.SetForCurrentThread();
+ 
+<a href="#h9-7-14" id="h9-7-14" class="d">-        IConfigurationSetProcessor setProcessor = m_factory.CreateSetProcessor(localSet);
+</a><a href="#h9-7-15" id="h9-7-15" class="i">+        IConfigurationSetProcessor setProcessor = m_factory.CreateSetProcessor(configurationSet);
+</a>         auto result = make_self&lt;wil::details::module_count_wrapper&lt;implementation::TestConfigurationSetResult&gt;&gt;();
+         result-&gt;TestResult(ConfigurationTestResult::NotRun);
+<a href="#h9-7-18" id="h9-7-18" class="d">-        progress.set_result(*result);
+</a><a href="#h9-7-19" id="h9-7-19" class="i">+        progress.Result(*result);
+</a> 
+<a href="#h9-7-21" id="h9-7-21" class="d">-        for (const auto&amp; unit : localSet.ConfigurationUnits())
+</a><a href="#h9-7-22" id="h9-7-22" class="i">+        try
+</a>         {
+<a href="#h9-7-24" id="h9-7-24" class="d">-            AICLI_LOG(Config, Info, &lt;&lt; &quot;Testing configuration unit: &quot; &lt;&lt; AppInstaller::Utility::ConvertToUTF8(unit.UnitName()));
+</a><a href="#h9-7-25" id="h9-7-25" class="d">-
+</a><a href="#h9-7-26" id="h9-7-26" class="d">-            auto testResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::TestConfigurationUnitResult&gt;&gt;();
+</a><a href="#h9-7-27" id="h9-7-27" class="d">-            auto unitResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::ConfigurationUnitResultInformation&gt;&gt;();
+</a><a href="#h9-7-28" id="h9-7-28" class="d">-            testResult-&gt;Initialize(unit, *unitResult);
+</a><a href="#h9-7-29" id="h9-7-29" class="d">-
+</a><a href="#h9-7-30" id="h9-7-30" class="d">-            if (ShouldTestDuringTest(unit.Intent()))
+</a><a href="#h9-7-31" id="h9-7-31" class="i">+            for (const auto&amp; unit : configurationSet.ConfigurationUnits())
+</a>             {
+<a href="#h9-7-33" id="h9-7-33" class="d">-                IConfigurationUnitProcessor unitProcessor;
+</a><a href="#h9-7-34" id="h9-7-34" class="i">+                AICLI_LOG(Config, Info, &lt;&lt; &quot;Testing configuration unit: &quot; &lt;&lt; AppInstaller::Utility::ConvertToUTF8(unit.UnitName()));
+</a> 
+<a href="#h9-7-36" id="h9-7-36" class="d">-                try
+</a><a href="#h9-7-37" id="h9-7-37" class="d">-                {
+</a><a href="#h9-7-38" id="h9-7-38" class="d">-                    // TODO: Directives overlay to prevent running elevated for test
+</a><a href="#h9-7-39" id="h9-7-39" class="d">-                    unitProcessor = setProcessor.CreateUnitProcessor(unit, {});
+</a><a href="#h9-7-40" id="h9-7-40" class="d">-                }
+</a><a href="#h9-7-41" id="h9-7-41" class="d">-                catch (...)
+</a><a href="#h9-7-42" id="h9-7-42" class="d">-                {
+</a><a href="#h9-7-43" id="h9-7-43" class="d">-                    ExtractUnitResultInformation(std::current_exception(), unitResult);
+</a><a href="#h9-7-44" id="h9-7-44" class="d">-                }
+</a><a href="#h9-7-45" id="h9-7-45" class="i">+                auto testResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::TestConfigurationUnitResult&gt;&gt;();
+</a><a href="#h9-7-46" id="h9-7-46" class="i">+                auto unitResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::ConfigurationUnitResultInformation&gt;&gt;();
+</a><a href="#h9-7-47" id="h9-7-47" class="i">+                testResult-&gt;Initialize(unit, *unitResult);
+</a> 
+<a href="#h9-7-49" id="h9-7-49" class="d">-                if (unitProcessor)
+</a><a href="#h9-7-50" id="h9-7-50" class="i">+                if (ShouldTestDuringTest(unit.Intent()))
+</a>                 {
+<a href="#h9-7-52" id="h9-7-52" class="i">+                    progress.ThrowIfCancelled();
+</a><a href="#h9-7-53" id="h9-7-53" class="i">+
+</a><a href="#h9-7-54" id="h9-7-54" class="i">+                    IConfigurationUnitProcessor unitProcessor;
+</a><a href="#h9-7-55" id="h9-7-55" class="i">+
+</a>                     try
+                     {
+<a href="#h9-7-58" id="h9-7-58" class="d">-                        TestSettingsResult settingsResult = unitProcessor.TestSettings();
+</a><a href="#h9-7-59" id="h9-7-59" class="d">-                        testResult-&gt;TestResult(settingsResult.TestResult());
+</a><a href="#h9-7-60" id="h9-7-60" class="d">-                        testResult-&gt;ResultInformation(settingsResult.ResultInformation());
+</a><a href="#h9-7-61" id="h9-7-61" class="i">+                        // TODO: Directives overlay to prevent running elevated for test
+</a><a href="#h9-7-62" id="h9-7-62" class="i">+                        unitProcessor = setProcessor.CreateUnitProcessor(unit, {});
+</a>                     }
+                     catch (...)
+                     {
+                         ExtractUnitResultInformation(std::current_exception(), unitResult);
+                     }
+ 
+<a href="#h9-7-69" id="h9-7-69" class="d">-                    m_threadGlobals.GetTelemetryLogger().LogConfigUnitRunIfAppropriate(localSet.InstanceIdentifier(), unit, ConfigurationUnitIntent::Assert, TelemetryTraceLogger::TestAction, testResult-&gt;ResultInformation());
+</a><a href="#h9-7-70" id="h9-7-70" class="i">+                    progress.ThrowIfCancelled();
+</a><a href="#h9-7-71" id="h9-7-71" class="i">+
+</a><a href="#h9-7-72" id="h9-7-72" class="i">+                    if (unitProcessor)
+</a><a href="#h9-7-73" id="h9-7-73" class="i">+                    {
+</a><a href="#h9-7-74" id="h9-7-74" class="i">+                        try
+</a><a href="#h9-7-75" id="h9-7-75" class="i">+                        {
+</a><a href="#h9-7-76" id="h9-7-76" class="i">+                            TestSettingsResult settingsResult = unitProcessor.TestSettings();
+</a><a href="#h9-7-77" id="h9-7-77" class="i">+                            testResult-&gt;TestResult(settingsResult.TestResult());
+</a><a href="#h9-7-78" id="h9-7-78" class="i">+                            testResult-&gt;ResultInformation(settingsResult.ResultInformation());
+</a><a href="#h9-7-79" id="h9-7-79" class="i">+                        }
+</a><a href="#h9-7-80" id="h9-7-80" class="i">+                        catch (...)
+</a><a href="#h9-7-81" id="h9-7-81" class="i">+                        {
+</a><a href="#h9-7-82" id="h9-7-82" class="i">+                            ExtractUnitResultInformation(std::current_exception(), unitResult);
+</a><a href="#h9-7-83" id="h9-7-83" class="i">+                        }
+</a><a href="#h9-7-84" id="h9-7-84" class="i">+
+</a><a href="#h9-7-85" id="h9-7-85" class="i">+                        m_threadGlobals.GetTelemetryLogger().LogConfigUnitRunIfAppropriate(
+</a><a href="#h9-7-86" id="h9-7-86" class="i">+                            configurationSet.InstanceIdentifier(),
+</a><a href="#h9-7-87" id="h9-7-87" class="i">+                            unit,
+</a><a href="#h9-7-88" id="h9-7-88" class="i">+                            ConfigurationUnitIntent::Assert,
+</a><a href="#h9-7-89" id="h9-7-89" class="i">+                            TelemetryTraceLogger::TestAction,
+</a><a href="#h9-7-90" id="h9-7-90" class="i">+                            testResult-&gt;ResultInformation());
+</a><a href="#h9-7-91" id="h9-7-91" class="i">+                    }
+</a><a href="#h9-7-92" id="h9-7-92" class="i">+                }
+</a><a href="#h9-7-93" id="h9-7-93" class="i">+                else
+</a><a href="#h9-7-94" id="h9-7-94" class="i">+                {
+</a><a href="#h9-7-95" id="h9-7-95" class="i">+                    testResult-&gt;TestResult(ConfigurationTestResult::NotRun);
+</a>                 }
+<a href="#h9-7-97" id="h9-7-97" class="d">-            }
+</a><a href="#h9-7-98" id="h9-7-98" class="d">-            else
+</a><a href="#h9-7-99" id="h9-7-99" class="d">-            {
+</a><a href="#h9-7-100" id="h9-7-100" class="d">-                testResult-&gt;TestResult(ConfigurationTestResult::NotRun);
+</a><a href="#h9-7-101" id="h9-7-101" class="d">-            }
+</a> 
+<a href="#h9-7-103" id="h9-7-103" class="d">-            if (FAILED(unitResult-&gt;ResultCode()))
+</a><a href="#h9-7-104" id="h9-7-104" class="d">-            {
+</a><a href="#h9-7-105" id="h9-7-105" class="d">-                testResult-&gt;TestResult(ConfigurationTestResult::Failed);
+</a><a href="#h9-7-106" id="h9-7-106" class="d">-            }
+</a><a href="#h9-7-107" id="h9-7-107" class="i">+                if (FAILED(unitResult-&gt;ResultCode()))
+</a><a href="#h9-7-108" id="h9-7-108" class="i">+                {
+</a><a href="#h9-7-109" id="h9-7-109" class="i">+                    testResult-&gt;TestResult(ConfigurationTestResult::Failed);
+</a><a href="#h9-7-110" id="h9-7-110" class="i">+                }
+</a> 
+<a href="#h9-7-112" id="h9-7-112" class="d">-            result-&gt;AppendUnitResult(*testResult);
+</a><a href="#h9-7-113" id="h9-7-113" class="i">+                result-&gt;AppendUnitResult(*testResult);
+</a> 
+<a href="#h9-7-115" id="h9-7-115" class="d">-            progress(*testResult);
+</a><a href="#h9-7-116" id="h9-7-116" class="d">-        }
+</a><a href="#h9-7-117" id="h9-7-117" class="i">+                progress.Progress(*testResult);
+</a><a href="#h9-7-118" id="h9-7-118" class="i">+            }
+</a> 
+<a href="#h9-7-120" id="h9-7-120" class="d">-        m_threadGlobals.GetTelemetryLogger().LogConfigProcessingSummaryForTest(*winrt::get_self&lt;implementation::ConfigurationSet&gt;(localSet), *result);
+</a><a href="#h9-7-121" id="h9-7-121" class="d">-        co_return *result;
+</a><a href="#h9-7-122" id="h9-7-122" class="i">+            m_threadGlobals.GetTelemetryLogger().LogConfigProcessingSummaryForTest(*winrt::get_self&lt;implementation::ConfigurationSet&gt;(configurationSet), *result);
+</a><a href="#h9-7-123" id="h9-7-123" class="i">+            return *result;
+</a><a href="#h9-7-124" id="h9-7-124" class="i">+        }
+</a><a href="#h9-7-125" id="h9-7-125" class="i">+        catch (...)
+</a><a href="#h9-7-126" id="h9-7-126" class="i">+        {
+</a><a href="#h9-7-127" id="h9-7-127" class="i">+            m_threadGlobals.GetTelemetryLogger().LogConfigProcessingSummaryForTestException(
+</a><a href="#h9-7-128" id="h9-7-128" class="i">+                *winrt::get_self&lt;implementation::ConfigurationSet&gt;(configurationSet),
+</a><a href="#h9-7-129" id="h9-7-129" class="i">+                LOG_CAUGHT_EXCEPTION(),
+</a><a href="#h9-7-130" id="h9-7-130" class="i">+                *result);
+</a><a href="#h9-7-131" id="h9-7-131" class="i">+            throw;
+</a><a href="#h9-7-132" id="h9-7-132" class="i">+        }
+</a>     }
+ 
+     Configuration::GetConfigurationUnitSettingsResult ConfigurationProcessor::GetUnitSettings(const ConfigurationUnit&amp; unit)
+     {
+<a href="#h9-7-137" id="h9-7-137" class="d">-        return GetUnitSettingsAsync(unit).get();
+</a><a href="#h9-7-138" id="h9-7-138" class="i">+        THROW_HR_IF(E_NOT_VALID_STATE, !m_factory);
+</a><a href="#h9-7-139" id="h9-7-139" class="i">+        return GetUnitSettingsImpl(unit);
+</a>     }
+ 
+     Windows::Foundation::IAsyncOperation&lt;Configuration::GetConfigurationUnitSettingsResult&gt; ConfigurationProcessor::GetUnitSettingsAsync(const ConfigurationUnit&amp; unit)
+<a href="#h9-8" id="h9-8" class="h">@@ -446,6 +522,13 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         ConfigurationUnit localUnit = unit;
+         co_await winrt::resume_background();
+ 
+<a href="#h9-8-3" id="h9-8-3" class="i">+        co_return GetUnitSettingsImpl(localUnit, { co_await winrt::get_cancellation_token() });
+</a><a href="#h9-8-4" id="h9-8-4" class="i">+    }
+</a><a href="#h9-8-5" id="h9-8-5" class="i">+
+</a><a href="#h9-8-6" id="h9-8-6" class="i">+    Configuration::GetConfigurationUnitSettingsResult ConfigurationProcessor::GetUnitSettingsImpl(
+</a><a href="#h9-8-7" id="h9-8-7" class="i">+        const ConfigurationUnit&amp; unit,
+</a><a href="#h9-8-8" id="h9-8-8" class="i">+        AppInstaller::WinRT::AsyncCancellation cancellation)
+</a><a href="#h9-8-9" id="h9-8-9" class="i">+    {
+</a>         auto threadGlobals = m_threadGlobals.SetForCurrentThread();
+ 
+         IConfigurationSetProcessor setProcessor = m_factory.CreateSetProcessor(nullptr);
+<a href="#h9-9" id="h9-9" class="h">@@ -453,18 +536,22 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         auto unitResult = make_self&lt;wil::details::module_count_wrapper&lt;implementation::ConfigurationUnitResultInformation&gt;&gt;();
+         result-&gt;ResultInformation(*unitResult);
+ 
+<a href="#h9-9-3" id="h9-9-3" class="i">+        cancellation.ThrowIfCancelled();
+</a><a href="#h9-9-4" id="h9-9-4" class="i">+
+</a>         IConfigurationUnitProcessor unitProcessor;
+ 
+         try
+         {
+             // TODO: Directives overlay to prevent running elevated for get
+<a href="#h9-9-10" id="h9-9-10" class="d">-            unitProcessor = setProcessor.CreateUnitProcessor(localUnit, {});
+</a><a href="#h9-9-11" id="h9-9-11" class="i">+            unitProcessor = setProcessor.CreateUnitProcessor(unit, {});
+</a>         }
+         catch (...)
+         {
+             ExtractUnitResultInformation(std::current_exception(), unitResult);
+         }
+ 
+<a href="#h9-9-18" id="h9-9-18" class="i">+        cancellation.ThrowIfCancelled();
+</a><a href="#h9-9-19" id="h9-9-19" class="i">+
+</a>         if (unitProcessor)
+         {
+             try
+<a href="#h9-10" id="h9-10" class="h">@@ -478,10 +565,10 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>                 ExtractUnitResultInformation(std::current_exception(), unitResult);
+             }
+ 
+<a href="#h9-10-3" id="h9-10-3" class="d">-            m_threadGlobals.GetTelemetryLogger().LogConfigUnitRunIfAppropriate(GUID_NULL, localUnit, ConfigurationUnitIntent::Inform, TelemetryTraceLogger::GetAction, result-&gt;ResultInformation());
+</a><a href="#h9-10-4" id="h9-10-4" class="i">+            m_threadGlobals.GetTelemetryLogger().LogConfigUnitRunIfAppropriate(GUID_NULL, unit, ConfigurationUnitIntent::Inform, TelemetryTraceLogger::GetAction, result-&gt;ResultInformation());
+</a>         }
+ 
+<a href="#h9-10-7" id="h9-10-7" class="d">-        co_return *result;
+</a><a href="#h9-10-8" id="h9-10-8" class="i">+        return *result;
+</a>     }
+ 
+     void ConfigurationProcessor::Diagnostics(DiagnosticLevel level, std::string_view message)
+<b>diff --git a/<a id="h10" href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.h.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationProcessor.h.html">src/Microsoft.Management.Configuration/ConfigurationProcessor.h</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -6,6 +6,7 @@
+</a> #include &lt;winrt/Windows.Foundation.Collections.h&gt;
+ #include &lt;winrt/Windows.Storage.Streams.h&gt;
+ #include &quot;ConfigThreadGlobals.h&quot;
+<a href="#h10-0-3" id="h10-0-3" class="i">+#include &lt;winget/AsyncTokens.h&gt;
+</a> 
+ #include &lt;string_view&gt;
+ #include &lt;functional&gt;
+<a href="#h10-1" id="h10-1" class="h">@@ -78,6 +79,24 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         void Diagnostics(DiagnosticLevel level, std::string_view message);
+ 
+     private:
+<a href="#h10-1-3" id="h10-1-3" class="i">+        GetConfigurationSetDetailsResult GetSetDetailsImpl(
+</a><a href="#h10-1-4" id="h10-1-4" class="i">+            const ConfigurationSet&amp; configurationSet,
+</a><a href="#h10-1-5" id="h10-1-5" class="i">+            ConfigurationUnitDetailLevel detailLevel,
+</a><a href="#h10-1-6" id="h10-1-6" class="i">+            AppInstaller::WinRT::AsyncProgress&lt;GetConfigurationSetDetailsResult, GetConfigurationUnitDetailsResult&gt; progress = {});
+</a><a href="#h10-1-7" id="h10-1-7" class="i">+
+</a><a href="#h10-1-8" id="h10-1-8" class="i">+        void GetUnitDetailsImpl(const ConfigurationUnit&amp; unit, ConfigurationUnitDetailLevel detailLevel);
+</a><a href="#h10-1-9" id="h10-1-9" class="i">+
+</a><a href="#h10-1-10" id="h10-1-10" class="i">+        ApplyConfigurationSetResult ApplySetImpl(
+</a><a href="#h10-1-11" id="h10-1-11" class="i">+            const ConfigurationSet&amp; configurationSet,
+</a><a href="#h10-1-12" id="h10-1-12" class="i">+            ApplyConfigurationSetFlags flags,
+</a><a href="#h10-1-13" id="h10-1-13" class="i">+            AppInstaller::WinRT::AsyncProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt; progress = {});
+</a><a href="#h10-1-14" id="h10-1-14" class="i">+
+</a><a href="#h10-1-15" id="h10-1-15" class="i">+        TestConfigurationSetResult TestSetImpl(
+</a><a href="#h10-1-16" id="h10-1-16" class="i">+            const ConfigurationSet&amp; configurationSet,
+</a><a href="#h10-1-17" id="h10-1-17" class="i">+            AppInstaller::WinRT::AsyncProgress&lt;TestConfigurationSetResult, TestConfigurationUnitResult&gt; progress = {});
+</a><a href="#h10-1-18" id="h10-1-18" class="i">+
+</a><a href="#h10-1-19" id="h10-1-19" class="i">+        GetConfigurationUnitSettingsResult GetUnitSettingsImpl(const ConfigurationUnit&amp; unit, AppInstaller::WinRT::AsyncCancellation cancellation = {});
+</a><a href="#h10-1-20" id="h10-1-20" class="i">+
+</a>         IConfigurationSetProcessorFactory m_factory = nullptr;
+         event&lt;Windows::Foundation::EventHandler&lt;DiagnosticInformation&gt;&gt; m_diagnostics;
+         event&lt;Windows::Foundation::TypedEventHandler&lt;ConfigurationSet, ConfigurationChangeData&gt;&gt; m_configurationChange;
+<b>diff --git a/<a id="h11" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.cpp</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -24,9 +24,12 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         const Configuration::ConfigurationSet&amp; configurationSet,
+         const TelemetryTraceLogger&amp; telemetry,
+         IConfigurationSetProcessor&amp;&amp; setProcessor,
+<a href="#h11-0-3" id="h11-0-3" class="d">-        result_type result,
+</a><a href="#h11-0-4" id="h11-0-4" class="d">-        const std::function&lt;void(ConfigurationSetChangeData)&gt;&amp; progress) :
+</a><a href="#h11-0-5" id="h11-0-5" class="d">-            m_configurationSet(configurationSet), m_setProcessor(std::move(setProcessor)), m_telemetry(telemetry), m_result(std::move(result)), m_progress(progress)
+</a><a href="#h11-0-6" id="h11-0-6" class="i">+        AppInstaller::WinRT::AsyncProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt;&amp;&amp; progress) :
+</a><a href="#h11-0-7" id="h11-0-7" class="i">+            m_configurationSet(configurationSet),
+</a><a href="#h11-0-8" id="h11-0-8" class="i">+            m_setProcessor(std::move(setProcessor)),
+</a><a href="#h11-0-9" id="h11-0-9" class="i">+            m_telemetry(telemetry),
+</a><a href="#h11-0-10" id="h11-0-10" class="i">+            m_result(make_self&lt;wil::details::module_count_wrapper&lt;implementation::ApplyConfigurationSetResult&gt;&gt;()),
+</a><a href="#h11-0-11" id="h11-0-11" class="i">+            m_progress(std::move(progress))
+</a>     {
+         // Create a copy of the set of configuration units
+         auto unitsView = configurationSet.ConfigurationUnits();
+<a href="#h11-1" id="h11-1" class="h">@@ -39,23 +42,47 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             m_unitInfo.emplace_back(unit);
+             m_result-&gt;UnitResultsVector().Append(*m_unitInfo.back().Result);
+         }
+<a href="#h11-1-3" id="h11-1-3" class="i">+
+</a><a href="#h11-1-4" id="h11-1-4" class="i">+        m_progress.Result(*m_result);
+</a>     }
+ 
+     void ConfigurationSetApplyProcessor::Process()
+     {
+<a href="#h11-1-9" id="h11-1-9" class="d">-        if (PreProcess())
+</a><a href="#h11-1-10" id="h11-1-10" class="i">+        try
+</a>         {
+<a href="#h11-1-12" id="h11-1-12" class="d">-            // TODO: Send pending when blocked by another configuration run
+</a><a href="#h11-1-13" id="h11-1-13" class="d">-            //SendProgress(ConfigurationSetState::Pending);
+</a><a href="#h11-1-14" id="h11-1-14" class="i">+            if (PreProcess())
+</a><a href="#h11-1-15" id="h11-1-15" class="i">+            {
+</a><a href="#h11-1-16" id="h11-1-16" class="i">+                // TODO: Send pending when blocked by another configuration run
+</a><a href="#h11-1-17" id="h11-1-17" class="i">+                //SendProgress(ConfigurationSetState::Pending);
+</a> 
+<a href="#h11-1-19" id="h11-1-19" class="d">-            SendProgress(ConfigurationSetState::InProgress);
+</a><a href="#h11-1-20" id="h11-1-20" class="i">+                SendProgress(ConfigurationSetState::InProgress);
+</a> 
+<a href="#h11-1-22" id="h11-1-22" class="d">-            ProcessInternal(HasProcessedSuccessfully, &amp;ConfigurationSetApplyProcessor::ProcessUnit, true);
+</a><a href="#h11-1-23" id="h11-1-23" class="d">-        }
+</a><a href="#h11-1-24" id="h11-1-24" class="i">+                ProcessInternal(HasProcessedSuccessfully, &amp;ConfigurationSetApplyProcessor::ProcessUnit, true);
+</a><a href="#h11-1-25" id="h11-1-25" class="i">+            }
+</a> 
+<a href="#h11-1-27" id="h11-1-27" class="d">-        SendProgress(ConfigurationSetState::Completed);
+</a><a href="#h11-1-28" id="h11-1-28" class="i">+            SendProgress(ConfigurationSetState::Completed);
+</a> 
+<a href="#h11-1-30" id="h11-1-30" class="d">-        m_telemetry.LogConfigProcessingSummaryForApply(*winrt::get_self&lt;implementation::ConfigurationSet&gt;(m_configurationSet), *m_result);
+</a><a href="#h11-1-31" id="h11-1-31" class="i">+            m_telemetry.LogConfigProcessingSummaryForApply(*winrt::get_self&lt;implementation::ConfigurationSet&gt;(m_configurationSet), *m_result);
+</a><a href="#h11-1-32" id="h11-1-32" class="i">+        }
+</a><a href="#h11-1-33" id="h11-1-33" class="i">+        catch (...)
+</a><a href="#h11-1-34" id="h11-1-34" class="i">+        {
+</a><a href="#h11-1-35" id="h11-1-35" class="i">+            const auto&amp; configurationSet = *winrt::get_self&lt;implementation::ConfigurationSet&gt;(m_configurationSet);
+</a><a href="#h11-1-36" id="h11-1-36" class="i">+            m_telemetry.LogConfigProcessingSummary(
+</a><a href="#h11-1-37" id="h11-1-37" class="i">+                configurationSet.InstanceIdentifier(),
+</a><a href="#h11-1-38" id="h11-1-38" class="i">+                configurationSet.IsFromHistory(),
+</a><a href="#h11-1-39" id="h11-1-39" class="i">+                ConfigurationUnitIntent::Apply,
+</a><a href="#h11-1-40" id="h11-1-40" class="i">+                LOG_CAUGHT_EXCEPTION(),
+</a><a href="#h11-1-41" id="h11-1-41" class="i">+                ConfigurationUnitResultSource::Internal,
+</a><a href="#h11-1-42" id="h11-1-42" class="i">+                GetProcessingSummaryFor(ConfigurationUnitIntent::Assert),
+</a><a href="#h11-1-43" id="h11-1-43" class="i">+                GetProcessingSummaryFor(ConfigurationUnitIntent::Inform),
+</a><a href="#h11-1-44" id="h11-1-44" class="i">+                GetProcessingSummaryFor(ConfigurationUnitIntent::Apply));
+</a><a href="#h11-1-45" id="h11-1-45" class="i">+            throw;
+</a><a href="#h11-1-46" id="h11-1-46" class="i">+        }
+</a><a href="#h11-1-47" id="h11-1-47" class="i">+    }
+</a><a href="#h11-1-48" id="h11-1-48" class="i">+
+</a><a href="#h11-1-49" id="h11-1-49" class="i">+    Configuration::ApplyConfigurationSetResult ConfigurationSetApplyProcessor::Result() const
+</a><a href="#h11-1-50" id="h11-1-50" class="i">+    {
+</a><a href="#h11-1-51" id="h11-1-51" class="i">+        return *m_result;
+</a>     }
+ 
+     ConfigurationSetApplyProcessor::UnitInfo::UnitInfo(const Configuration::ConfigurationUnit&amp; unit) :
+<a href="#h11-2" id="h11-2" class="h">@@ -325,6 +352,8 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+     bool ConfigurationSetApplyProcessor::ProcessUnit(UnitInfo&amp; unitInfo)
+     {
+<a href="#h11-2-3" id="h11-2-3" class="i">+        m_progress.ThrowIfCancelled();
+</a><a href="#h11-2-4" id="h11-2-4" class="i">+
+</a>         IConfigurationUnitProcessor unitProcessor;
+ 
+         // Once we get this far, consider the unit processed even if we fail to create the actual processor.
+<a href="#h11-3" id="h11-3" class="h">@@ -353,6 +382,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             return false;
+         }
+ 
+<a href="#h11-3-3" id="h11-3-3" class="i">+        // As the process of creating the unit processor could take a while, check for cancellation again
+</a><a href="#h11-3-4" id="h11-3-4" class="i">+        m_progress.ThrowIfCancelled();
+</a><a href="#h11-3-5" id="h11-3-5" class="i">+
+</a>         bool result = false;
+         std::string_view action;
+ 
+<a href="#h11-4" id="h11-4" class="h">@@ -412,6 +444,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>                 }
+                 else if (testSettingsResult.TestResult() == ConfigurationTestResult::Negative)
+                 {
+<a href="#h11-4-3" id="h11-4-3" class="i">+                    // Just in case testing took a while, check for cancellation before moving on to applying
+</a><a href="#h11-4-4" id="h11-4-4" class="i">+                    m_progress.ThrowIfCancelled();
+</a><a href="#h11-4-5" id="h11-4-5" class="i">+
+</a>                     action = TelemetryTraceLogger::ApplyAction;
+                     ApplySettingsResult applySettingsResult = unitProcessor.ApplySettings();
+                     if (SUCCEEDED(applySettingsResult.ResultInformation().ResultCode()))
+<a href="#h11-5" id="h11-5" class="h">@@ -451,28 +486,22 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+     void ConfigurationSetApplyProcessor::SendProgress(ConfigurationSetState state)
+     {
+<a href="#h11-5-3" id="h11-5-3" class="d">-        if (m_progress)
+</a><a href="#h11-5-4" id="h11-5-4" class="i">+        try
+</a>         {
+<a href="#h11-5-6" id="h11-5-6" class="d">-            try
+</a><a href="#h11-5-7" id="h11-5-7" class="d">-            {
+</a><a href="#h11-5-8" id="h11-5-8" class="d">-                m_progress(implementation::ConfigurationSetChangeData::Create(state));
+</a><a href="#h11-5-9" id="h11-5-9" class="d">-            }
+</a><a href="#h11-5-10" id="h11-5-10" class="d">-            CATCH_LOG();
+</a><a href="#h11-5-11" id="h11-5-11" class="i">+            m_progress.Progress(implementation::ConfigurationSetChangeData::Create(state));
+</a>         }
+<a href="#h11-5-13" id="h11-5-13" class="i">+        CATCH_LOG();
+</a>     }
+ 
+     void ConfigurationSetApplyProcessor::SendProgress(ConfigurationUnitState state, const UnitInfo&amp; unitInfo)
+     {
+         unitInfo.Result-&gt;State(state);
+ 
+<a href="#h11-5-20" id="h11-5-20" class="d">-        if (m_progress)
+</a><a href="#h11-5-21" id="h11-5-21" class="i">+        try
+</a>         {
+<a href="#h11-5-23" id="h11-5-23" class="d">-            try
+</a><a href="#h11-5-24" id="h11-5-24" class="d">-            {
+</a><a href="#h11-5-25" id="h11-5-25" class="d">-                m_progress(implementation::ConfigurationSetChangeData::Create(state, *unitInfo.ResultInformation, unitInfo.Unit));
+</a><a href="#h11-5-26" id="h11-5-26" class="d">-            }
+</a><a href="#h11-5-27" id="h11-5-27" class="d">-            CATCH_LOG();
+</a><a href="#h11-5-28" id="h11-5-28" class="i">+            m_progress.Progress(implementation::ConfigurationSetChangeData::Create(state, *unitInfo.ResultInformation, unitInfo.Unit));
+</a>         }
+<a href="#h11-5-30" id="h11-5-30" class="i">+        CATCH_LOG();
+</a>     }
+ 
+     void ConfigurationSetApplyProcessor::SendProgressIfNotComplete(ConfigurationUnitState state, const UnitInfo&amp; unitInfo)
+<a href="#h11-6" id="h11-6" class="h">@@ -482,4 +511,29 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             SendProgress(state, unitInfo);
+         }
+     }
+<a href="#h11-6-3" id="h11-6-3" class="i">+
+</a><a href="#h11-6-4" id="h11-6-4" class="i">+    TelemetryTraceLogger::ProcessingSummaryForIntent ConfigurationSetApplyProcessor::GetProcessingSummaryFor(ConfigurationUnitIntent intent) const
+</a><a href="#h11-6-5" id="h11-6-5" class="i">+    {
+</a><a href="#h11-6-6" id="h11-6-6" class="i">+        TelemetryTraceLogger::ProcessingSummaryForIntent result{ intent, 0, 0, 0 };
+</a><a href="#h11-6-7" id="h11-6-7" class="i">+
+</a><a href="#h11-6-8" id="h11-6-8" class="i">+        for (const auto&amp; unitInfo : m_unitInfo)
+</a><a href="#h11-6-9" id="h11-6-9" class="i">+        {
+</a><a href="#h11-6-10" id="h11-6-10" class="i">+            if (unitInfo.Unit.Intent() == intent)
+</a><a href="#h11-6-11" id="h11-6-11" class="i">+            {
+</a><a href="#h11-6-12" id="h11-6-12" class="i">+                ++result.Count;
+</a><a href="#h11-6-13" id="h11-6-13" class="i">+
+</a><a href="#h11-6-14" id="h11-6-14" class="i">+                if (unitInfo.Processed)
+</a><a href="#h11-6-15" id="h11-6-15" class="i">+                {
+</a><a href="#h11-6-16" id="h11-6-16" class="i">+                    ++result.Run;
+</a><a href="#h11-6-17" id="h11-6-17" class="i">+
+</a><a href="#h11-6-18" id="h11-6-18" class="i">+                    if (FAILED(unitInfo.ResultInformation-&gt;ResultCode()))
+</a><a href="#h11-6-19" id="h11-6-19" class="i">+                    {
+</a><a href="#h11-6-20" id="h11-6-20" class="i">+                        ++result.Failed;
+</a><a href="#h11-6-21" id="h11-6-21" class="i">+                    }
+</a><a href="#h11-6-22" id="h11-6-22" class="i">+                }
+</a><a href="#h11-6-23" id="h11-6-23" class="i">+            }
+</a><a href="#h11-6-24" id="h11-6-24" class="i">+        }
+</a><a href="#h11-6-25" id="h11-6-25" class="i">+
+</a><a href="#h11-6-26" id="h11-6-26" class="i">+        return result;
+</a><a href="#h11-6-27" id="h11-6-27" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h12" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.h.html">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.h.html">src/Microsoft.Management.Configuration/ConfigurationSetApplyProcessor.h</a></b>
+<a href="#h12-0" id="h12-0" class="h">@@ -7,6 +7,7 @@
+</a> #include &quot;ApplyConfigurationUnitResult.h&quot;
+ #include &quot;ConfigurationUnitResultInformation.h&quot;
+ #include &quot;Telemetry/Telemetry.h&quot;
+<a href="#h12-0-3" id="h12-0-3" class="i">+#include &lt;winget/AsyncTokens.h&gt;
+</a> 
+ #include &lt;map&gt;
+ #include &lt;string&gt;
+<a href="#h12-1" id="h12-1" class="h">@@ -17,6 +18,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>     // A helper to better organize the configuration set Apply.
+     struct ConfigurationSetApplyProcessor
+     {
+<a href="#h12-1-3" id="h12-1-3" class="i">+        using ApplyConfigurationSetResult = Configuration::ApplyConfigurationSetResult;
+</a>         using ConfigurationSet = Configuration::ConfigurationSet;
+         using ConfigurationUnit = Configuration::ConfigurationUnit;
+         using ConfigurationUnitResultInformation = Configuration::ConfigurationUnitResultInformation;
+<a href="#h12-2" id="h12-2" class="h">@@ -24,11 +26,14 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         using result_type = decltype(make_self&lt;wil::details::module_count_wrapper&lt;implementation::ApplyConfigurationSetResult&gt;&gt;());
+ 
+<a href="#h12-2-3" id="h12-2-3" class="d">-        ConfigurationSetApplyProcessor(const ConfigurationSet&amp; configurationSet, const TelemetryTraceLogger&amp; telemetry, IConfigurationSetProcessor&amp;&amp; setProcessor, result_type result, const std::function&lt;void(ConfigurationSetChangeData)&gt;&amp; progress);
+</a><a href="#h12-2-4" id="h12-2-4" class="i">+        ConfigurationSetApplyProcessor(const ConfigurationSet&amp; configurationSet, const TelemetryTraceLogger&amp; telemetry, IConfigurationSetProcessor&amp;&amp; setProcessor, AppInstaller::WinRT::AsyncProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt;&amp;&amp; progress);
+</a> 
+         // Processes the apply for the configuration set.
+         void Process();
+ 
+<a href="#h12-2-9" id="h12-2-9" class="i">+        // Gets the result object.
+</a><a href="#h12-2-10" id="h12-2-10" class="i">+        ApplyConfigurationSetResult Result() const;
+</a><a href="#h12-2-11" id="h12-2-11" class="i">+
+</a>     private:
+         // Contains all of the relevant data for a configuration unit.
+         struct UnitInfo
+<a href="#h12-3" id="h12-3" class="h">@@ -92,11 +97,14 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         void SendProgress(ConfigurationUnitState state, const UnitInfo&amp; unitInfo);
+         void SendProgressIfNotComplete(ConfigurationUnitState state, const UnitInfo&amp; unitInfo);
+ 
+<a href="#h12-3-3" id="h12-3-3" class="i">+        // For exception telemetry, get our internal status
+</a><a href="#h12-3-4" id="h12-3-4" class="i">+        TelemetryTraceLogger::ProcessingSummaryForIntent GetProcessingSummaryFor(ConfigurationUnitIntent intent) const;
+</a><a href="#h12-3-5" id="h12-3-5" class="i">+
+</a>         ConfigurationSet m_configurationSet;
+         IConfigurationSetProcessor m_setProcessor;
+         const TelemetryTraceLogger&amp; m_telemetry;
+         result_type m_result;
+<a href="#h12-3-10" id="h12-3-10" class="d">-        std::function&lt;void(ConfigurationSetChangeData)&gt; m_progress;
+</a><a href="#h12-3-11" id="h12-3-11" class="i">+        AppInstaller::WinRT::AsyncProgress&lt;ApplyConfigurationSetResult, ConfigurationSetChangeData&gt; m_progress;
+</a>         std::vector&lt;UnitInfo&gt; m_unitInfo;
+         std::map&lt;std::string, size_t&gt; m_idToUnitInfoIndex;
+         hresult m_resultCode;
+<b>diff --git a/<a id="h13" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetParser.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetParser.cpp</a></b>
+<a href="#h13-0" id="h13-0" class="h">@@ -16,40 +16,6 @@ using namespace AppInstaller::YAML;
+</a> 
+ namespace winrt::Microsoft::Management::Configuration::implementation
+ {
+<a href="#h13-0-3" id="h13-0-3" class="d">-    namespace
+</a><a href="#h13-0-4" id="h13-0-4" class="d">-    {
+</a><a href="#h13-0-5" id="h13-0-5" class="d">-        std::string StreamToString(const Windows::Storage::Streams::IInputStream&amp; stream)
+</a><a href="#h13-0-6" id="h13-0-6" class="d">-        {
+</a><a href="#h13-0-7" id="h13-0-7" class="d">-            uint32_t bufferSize = 1 &lt;&lt; 20;
+</a><a href="#h13-0-8" id="h13-0-8" class="d">-            Windows::Storage::Streams::Buffer buffer(bufferSize);
+</a><a href="#h13-0-9" id="h13-0-9" class="d">-            Windows::Storage::Streams::InputStreamOptions readOptions = Windows::Storage::Streams::InputStreamOptions::Partial | Windows::Storage::Streams::InputStreamOptions::ReadAhead;
+</a><a href="#h13-0-10" id="h13-0-10" class="d">-            std::string result;
+</a><a href="#h13-0-11" id="h13-0-11" class="d">-
+</a><a href="#h13-0-12" id="h13-0-12" class="d">-            for (;;)
+</a><a href="#h13-0-13" id="h13-0-13" class="d">-            {
+</a><a href="#h13-0-14" id="h13-0-14" class="d">-                Windows::Storage::Streams::IBuffer readBuffer = stream.ReadAsync(buffer, bufferSize, readOptions).get();
+</a><a href="#h13-0-15" id="h13-0-15" class="d">-
+</a><a href="#h13-0-16" id="h13-0-16" class="d">-                size_t readSize = static_cast&lt;size_t&gt;(readBuffer.Length());
+</a><a href="#h13-0-17" id="h13-0-17" class="d">-                if (readSize)
+</a><a href="#h13-0-18" id="h13-0-18" class="d">-                {
+</a><a href="#h13-0-19" id="h13-0-19" class="d">-                    static_assert(sizeof(char) == sizeof(*readBuffer.data()));
+</a><a href="#h13-0-20" id="h13-0-20" class="d">-                    result.append(reinterpret_cast&lt;char*&gt;(readBuffer.data()), readSize);
+</a><a href="#h13-0-21" id="h13-0-21" class="d">-                }
+</a><a href="#h13-0-22" id="h13-0-22" class="d">-                else
+</a><a href="#h13-0-23" id="h13-0-23" class="d">-                {
+</a><a href="#h13-0-24" id="h13-0-24" class="d">-                    break;
+</a><a href="#h13-0-25" id="h13-0-25" class="d">-                }
+</a><a href="#h13-0-26" id="h13-0-26" class="d">-            }
+</a><a href="#h13-0-27" id="h13-0-27" class="d">-
+</a><a href="#h13-0-28" id="h13-0-28" class="d">-            return result;
+</a><a href="#h13-0-29" id="h13-0-29" class="d">-        }
+</a><a href="#h13-0-30" id="h13-0-30" class="d">-    }
+</a><a href="#h13-0-31" id="h13-0-31" class="d">-
+</a><a href="#h13-0-32" id="h13-0-32" class="d">-    std::unique_ptr&lt;ConfigurationSetParser&gt; ConfigurationSetParser::Create(const Windows::Storage::Streams::IInputStream&amp; stream)
+</a><a href="#h13-0-33" id="h13-0-33" class="d">-    {
+</a><a href="#h13-0-34" id="h13-0-34" class="d">-        return Create(StreamToString(stream));
+</a><a href="#h13-0-35" id="h13-0-35" class="d">-    }
+</a><a href="#h13-0-36" id="h13-0-36" class="d">-
+</a>     std::unique_ptr&lt;ConfigurationSetParser&gt; ConfigurationSetParser::Create(std::string_view input)
+     {
+         AICLI_LOG_LARGE_STRING(Config, Verbose, &lt;&lt; &quot;Parsing configuration set:&quot;, input);
+<b>diff --git a/<a id="h14" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser.h.html">src/Microsoft.Management.Configuration/ConfigurationSetParser.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser.h.html">src/Microsoft.Management.Configuration/ConfigurationSetParser.h</a></b>
+<a href="#h14-0" id="h14-0" class="h">@@ -15,9 +15,6 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>     // Interface for parsing a configuration set stream.
+     struct ConfigurationSetParser
+     {
+<a href="#h14-0-3" id="h14-0-3" class="d">-        // Create a parser from the given stream.
+</a><a href="#h14-0-4" id="h14-0-4" class="d">-        static std::unique_ptr&lt;ConfigurationSetParser&gt; Create(const Windows::Storage::Streams::IInputStream&amp; stream);
+</a><a href="#h14-0-5" id="h14-0-5" class="d">-
+</a>         // Create a parser from the given bytes (the encoding is detected).
+         static std::unique_ptr&lt;ConfigurationSetParser&gt; Create(std::string_view input);
+ 
+<b>diff --git a/<a id="h15" href="../file/src/Microsoft.Management.Configuration/Telemetry/Telemetry.cpp.html">src/Microsoft.Management.Configuration/Telemetry/Telemetry.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/Telemetry/Telemetry.cpp.html">src/Microsoft.Management.Configuration/Telemetry/Telemetry.cpp</a></b>
+<a href="#h15-0" id="h15-0" class="h">@@ -342,6 +342,23 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>     }
+     CATCH_LOG();
+ 
+<a href="#h15-0-3" id="h15-0-3" class="i">+    void TelemetryTraceLogger::LogConfigProcessingSummaryForTestException(
+</a><a href="#h15-0-4" id="h15-0-4" class="i">+        const ConfigurationSet&amp; configurationSet,
+</a><a href="#h15-0-5" id="h15-0-5" class="i">+        hresult error,
+</a><a href="#h15-0-6" id="h15-0-6" class="i">+        const TestConfigurationSetResult&amp; result) const noexcept try
+</a><a href="#h15-0-7" id="h15-0-7" class="i">+    {
+</a><a href="#h15-0-8" id="h15-0-8" class="i">+        if (!IsTelemetryEnabled())
+</a><a href="#h15-0-9" id="h15-0-9" class="i">+        {
+</a><a href="#h15-0-10" id="h15-0-10" class="i">+            return;
+</a><a href="#h15-0-11" id="h15-0-11" class="i">+        }
+</a><a href="#h15-0-12" id="h15-0-12" class="i">+
+</a><a href="#h15-0-13" id="h15-0-13" class="i">+        ConfigRunSummaryData summaryData = ProcessRunResult(result.UnitResults());
+</a><a href="#h15-0-14" id="h15-0-14" class="i">+
+</a><a href="#h15-0-15" id="h15-0-15" class="i">+        LogConfigProcessingSummary(configurationSet.InstanceIdentifier(), configurationSet.IsFromHistory(), ConfigurationUnitIntent::Assert,
+</a><a href="#h15-0-16" id="h15-0-16" class="i">+            error, ConfigurationUnitResultSource::Internal, summaryData.AssertSummary, summaryData.InformSummary, summaryData.ApplySummary);
+</a><a href="#h15-0-17" id="h15-0-17" class="i">+    }
+</a><a href="#h15-0-18" id="h15-0-18" class="i">+    CATCH_LOG();
+</a><a href="#h15-0-19" id="h15-0-19" class="i">+
+</a>     void TelemetryTraceLogger::LogConfigProcessingSummaryForApply(
+         const ConfigurationSet&amp; configurationSet,
+         const ApplyConfigurationSetResult&amp; result) const noexcept try
+<b>diff --git a/<a id="h16" href="../file/src/Microsoft.Management.Configuration/Telemetry/Telemetry.h.html">src/Microsoft.Management.Configuration/Telemetry/Telemetry.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/Telemetry/Telemetry.h.html">src/Microsoft.Management.Configuration/Telemetry/Telemetry.h</a></b>
+<a href="#h16-0" id="h16-0" class="h">@@ -97,6 +97,12 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             const ConfigurationSet&amp; configurationSet,
+             const TestConfigurationSetResult&amp; result) const noexcept;
+ 
+<a href="#h16-0-3" id="h16-0-3" class="i">+        // Logs a processing summary event for a configuration set test run exception.
+</a><a href="#h16-0-4" id="h16-0-4" class="i">+        void LogConfigProcessingSummaryForTestException(
+</a><a href="#h16-0-5" id="h16-0-5" class="i">+            const ConfigurationSet&amp; configurationSet,
+</a><a href="#h16-0-6" id="h16-0-6" class="i">+            hresult error,
+</a><a href="#h16-0-7" id="h16-0-7" class="i">+            const TestConfigurationSetResult&amp; result) const noexcept;
+</a><a href="#h16-0-8" id="h16-0-8" class="i">+
+</a>         // Logs a processing summary event for a configuration set apply run.
+         void LogConfigProcessingSummaryForApply(
+             const ConfigurationSet&amp; configurationSet,
+</pre>
+</div>
+</body>
+</html>

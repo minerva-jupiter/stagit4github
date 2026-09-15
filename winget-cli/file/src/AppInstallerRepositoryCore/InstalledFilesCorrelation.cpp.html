@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>InstalledFilesCorrelation.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> InstalledFilesCorrelation.cpp (13083B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;winget/InstalledFilesCorrelation.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &lt;winget/FolderFileWatcher.h&gt;
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;winget/Filesystem.h&gt;
+<a href="#l7" class="line" id="l7">      7</a> 
+<a href="#l8" class="line" id="l8">      8</a> using namespace AppInstaller::Manifest;
+<a href="#l9" class="line" id="l9">      9</a> using namespace AppInstaller::Repository;
+<a href="#l10" class="line" id="l10">     10</a> using namespace AppInstaller::Utility;
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> namespace AppInstaller::Repository::Correlation
+<a href="#l13" class="line" id="l13">     13</a> {
+<a href="#l14" class="line" id="l14">     14</a>     namespace
+<a href="#l15" class="line" id="l15">     15</a>     {
+<a href="#l16" class="line" id="l16">     16</a>         constexpr std::string_view s_ShellLinkFileExtension = &quot;.lnk&quot;sv;
+<a href="#l17" class="line" id="l17">     17</a>         const std::vector&lt;std::pair&lt;std::filesystem::path, std::string&gt;&gt; s_CandidateInstallLocationRoots =
+<a href="#l18" class="line" id="l18">     18</a>         {
+<a href="#l19" class="line" id="l19">     19</a>             { Filesystem::GetKnownFolderPath(FOLDERID_LocalAppData), &quot;%LOCALAPPDATA%&quot; },
+<a href="#l20" class="line" id="l20">     20</a>             { Filesystem::GetKnownFolderPath(FOLDERID_ProgramFiles), &quot;%PROGRAMFILES%&quot; },
+<a href="#l21" class="line" id="l21">     21</a>             { Filesystem::GetKnownFolderPath(FOLDERID_ProgramFilesX86), &quot;%PROGRAMFILES(X86)%&quot; },
+<a href="#l22" class="line" id="l22">     22</a>         };
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a>         // Contains shell link info
+<a href="#l25" class="line" id="l25">     25</a>         struct ShellLinkFileInfo
+<a href="#l26" class="line" id="l26">     26</a>         {
+<a href="#l27" class="line" id="l27">     27</a>             std::filesystem::path Path;
+<a href="#l28" class="line" id="l28">     28</a>             std::string Args;
+<a href="#l29" class="line" id="l29">     29</a>             std::string DisplayName;
+<a href="#l30" class="line" id="l30">     30</a>         };
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a>         std::optional&lt;ShellLinkFileInfo&gt; ParseShellLinkFile(const std::filesystem::path&amp; linkFile)
+<a href="#l33" class="line" id="l33">     33</a>         {
+<a href="#l34" class="line" id="l34">     34</a>             try
+<a href="#l35" class="line" id="l35">     35</a>             {
+<a href="#l36" class="line" id="l36">     36</a>                 AICLI_LOG(Repo, Info, &lt;&lt; &quot;Parsing link file at &quot; &lt;&lt; linkFile);
+<a href="#l37" class="line" id="l37">     37</a> 
+<a href="#l38" class="line" id="l38">     38</a>                 ShellLinkFileInfo result;
+<a href="#l39" class="line" id="l39">     39</a> 
+<a href="#l40" class="line" id="l40">     40</a>                 Microsoft::WRL::ComPtr&lt;IShellLink&gt; shellLink;
+<a href="#l41" class="line" id="l41">     41</a>                 THROW_IF_FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&amp;shellLink)));
+<a href="#l42" class="line" id="l42">     42</a>                 Microsoft::WRL::ComPtr&lt;IPersistFile&gt; persistFile;
+<a href="#l43" class="line" id="l43">     43</a>                 THROW_IF_FAILED(shellLink.As(&amp;persistFile));
+<a href="#l44" class="line" id="l44">     44</a>                 THROW_IF_FAILED(persistFile-&gt;Load(linkFile.wstring().c_str(), STGM_READ));
+<a href="#l45" class="line" id="l45">     45</a>                 THROW_IF_FAILED(shellLink-&gt;Resolve(nullptr, SLR_NO_UI | SLR_NOUPDATE | SLR_NOSEARCH | SLR_NOTRACK | SLR_NOLINKINFO));
+<a href="#l46" class="line" id="l46">     46</a> 
+<a href="#l47" class="line" id="l47">     47</a>                 {
+<a href="#l48" class="line" id="l48">     48</a>                     // Parse Path from shell link
+<a href="#l49" class="line" id="l49">     49</a>                     std::wstring buffer;
+<a href="#l50" class="line" id="l50">     50</a>                     buffer.resize(MAX_PATH);
+<a href="#l51" class="line" id="l51">     51</a>                     HRESULT hr = S_OK;
+<a href="#l52" class="line" id="l52">     52</a>                     for (int retry = 0; retry &lt; 5; retry++)
+<a href="#l53" class="line" id="l53">     53</a>                     {
+<a href="#l54" class="line" id="l54">     54</a>                         hr = shellLink-&gt;GetPath(
+<a href="#l55" class="line" id="l55">     55</a>                             &amp;buffer[0],
+<a href="#l56" class="line" id="l56">     56</a>                             static_cast&lt;int&gt;(buffer.size()),
+<a href="#l57" class="line" id="l57">     57</a>                             nullptr,
+<a href="#l58" class="line" id="l58">     58</a>                             0
+<a href="#l59" class="line" id="l59">     59</a>                         );
+<a href="#l60" class="line" id="l60">     60</a> 
+<a href="#l61" class="line" id="l61">     61</a>                         if (SUCCEEDED(hr))
+<a href="#l62" class="line" id="l62">     62</a>                         {
+<a href="#l63" class="line" id="l63">     63</a>                             buffer.erase(std::find(buffer.begin(), buffer.end(), L&#39;\0&#39;), buffer.end());
+<a href="#l64" class="line" id="l64">     64</a>                             result.Path = buffer;
+<a href="#l65" class="line" id="l65">     65</a>                             break;
+<a href="#l66" class="line" id="l66">     66</a>                         }
+<a href="#l67" class="line" id="l67">     67</a>                         else if (hr == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER))
+<a href="#l68" class="line" id="l68">     68</a>                         {
+<a href="#l69" class="line" id="l69">     69</a>                             buffer.resize(buffer.size() * 2);
+<a href="#l70" class="line" id="l70">     70</a>                         }
+<a href="#l71" class="line" id="l71">     71</a>                         else
+<a href="#l72" class="line" id="l72">     72</a>                         {
+<a href="#l73" class="line" id="l73">     73</a>                             THROW_IF_FAILED(hr);
+<a href="#l74" class="line" id="l74">     74</a>                         }
+<a href="#l75" class="line" id="l75">     75</a>                     }
+<a href="#l76" class="line" id="l76">     76</a>                 }
+<a href="#l77" class="line" id="l77">     77</a> 
+<a href="#l78" class="line" id="l78">     78</a>                 {
+<a href="#l79" class="line" id="l79">     79</a>                     // Parse arguments from shell link
+<a href="#l80" class="line" id="l80">     80</a>                     std::wstring buffer;
+<a href="#l81" class="line" id="l81">     81</a>                     buffer.resize(MAX_PATH);
+<a href="#l82" class="line" id="l82">     82</a>                     HRESULT hr = S_OK;
+<a href="#l83" class="line" id="l83">     83</a>                     for (int retry = 0; retry &lt; 5; retry++)
+<a href="#l84" class="line" id="l84">     84</a>                     {
+<a href="#l85" class="line" id="l85">     85</a>                         hr = shellLink-&gt;GetArguments(
+<a href="#l86" class="line" id="l86">     86</a>                             &amp;buffer[0],
+<a href="#l87" class="line" id="l87">     87</a>                             static_cast&lt;int&gt;(buffer.size()));
+<a href="#l88" class="line" id="l88">     88</a> 
+<a href="#l89" class="line" id="l89">     89</a>                         if (SUCCEEDED(hr))
+<a href="#l90" class="line" id="l90">     90</a>                         {
+<a href="#l91" class="line" id="l91">     91</a>                             buffer.erase(std::find(buffer.begin(), buffer.end(), L&#39;\0&#39;), buffer.end());
+<a href="#l92" class="line" id="l92">     92</a>                             result.Args = Utility::ConvertToUTF8(buffer);
+<a href="#l93" class="line" id="l93">     93</a>                             break;
+<a href="#l94" class="line" id="l94">     94</a>                         }
+<a href="#l95" class="line" id="l95">     95</a>                         else if (hr == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER))
+<a href="#l96" class="line" id="l96">     96</a>                         {
+<a href="#l97" class="line" id="l97">     97</a>                             buffer.resize(buffer.size() * 2);
+<a href="#l98" class="line" id="l98">     98</a>                         }
+<a href="#l99" class="line" id="l99">     99</a>                         else
+<a href="#l100" class="line" id="l100">    100</a>                         {
+<a href="#l101" class="line" id="l101">    101</a>                             THROW_IF_FAILED(hr);
+<a href="#l102" class="line" id="l102">    102</a>                         }
+<a href="#l103" class="line" id="l103">    103</a>                     }
+<a href="#l104" class="line" id="l104">    104</a>                 }
+<a href="#l105" class="line" id="l105">    105</a> 
+<a href="#l106" class="line" id="l106">    106</a>                 // Use shell link file name (minus extension) as display name.
+<a href="#l107" class="line" id="l107">    107</a>                 result.DisplayName = linkFile.stem().u8string();
+<a href="#l108" class="line" id="l108">    108</a> 
+<a href="#l109" class="line" id="l109">    109</a>                 AICLI_LOG(Repo, Info, &lt;&lt; &quot;Link file parsed. Path: &quot; &lt;&lt; result.Path &lt;&lt; &quot; Args: &quot; &lt;&lt; result.Args &lt;&lt; &quot; DisplayName: &quot; &lt;&lt; result.DisplayName);
+<a href="#l110" class="line" id="l110">    110</a> 
+<a href="#l111" class="line" id="l111">    111</a>                 return result;
+<a href="#l112" class="line" id="l112">    112</a>             }
+<a href="#l113" class="line" id="l113">    113</a>             catch (...)
+<a href="#l114" class="line" id="l114">    114</a>             {
+<a href="#l115" class="line" id="l115">    115</a>                 AICLI_LOG(Repo, Error, &lt;&lt; &quot;Failed to parse link file at &quot; &lt;&lt; linkFile);
+<a href="#l116" class="line" id="l116">    116</a>                 return {};
+<a href="#l117" class="line" id="l117">    117</a>             }
+<a href="#l118" class="line" id="l118">    118</a>         }
+<a href="#l119" class="line" id="l119">    119</a> 
+<a href="#l120" class="line" id="l120">    120</a>         // Returns nullopt if path is not under base.
+<a href="#l121" class="line" id="l121">    121</a>         std::optional&lt;std::filesystem::path&gt; GetRelativePath(const std::filesystem::path&amp; path, const std::filesystem::path&amp; base)
+<a href="#l122" class="line" id="l122">    122</a>         {
+<a href="#l123" class="line" id="l123">    123</a>             auto canonicalPath = std::filesystem::weakly_canonical(path);
+<a href="#l124" class="line" id="l124">    124</a>             auto canonicalBase = std::filesystem::weakly_canonical(base);
+<a href="#l125" class="line" id="l125">    125</a> 
+<a href="#l126" class="line" id="l126">    126</a>             auto relativePath = std::filesystem::relative(canonicalPath, canonicalBase);
+<a href="#l127" class="line" id="l127">    127</a>             if (!relativePath.empty() &amp;&amp; *relativePath.begin() != &quot;.&quot; &amp;&amp; *relativePath.begin() != &quot;..&quot;)
+<a href="#l128" class="line" id="l128">    128</a>             {
+<a href="#l129" class="line" id="l129">    129</a>                 return relativePath;
+<a href="#l130" class="line" id="l130">    130</a>             }
+<a href="#l131" class="line" id="l131">    131</a>             else
+<a href="#l132" class="line" id="l132">    132</a>             {
+<a href="#l133" class="line" id="l133">    133</a>                 return {};
+<a href="#l134" class="line" id="l134">    134</a>             }
+<a href="#l135" class="line" id="l135">    135</a>         }
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>         std::optional&lt;std::filesystem::path&gt; CheckOneInstallLocation(const std::filesystem::path&amp; childFile, const std::filesystem::path&amp; baseFolder)
+<a href="#l138" class="line" id="l138">    138</a>         {
+<a href="#l139" class="line" id="l139">    139</a>             auto relativePath = GetRelativePath(childFile, baseFolder);
+<a href="#l140" class="line" id="l140">    140</a>             if (relativePath)
+<a href="#l141" class="line" id="l141">    141</a>             {
+<a href="#l142" class="line" id="l142">    142</a>                 // TODO: Here we assume the install location is the top directory of relative path.
+<a href="#l143" class="line" id="l143">    143</a>                 auto installLocation = baseFolder / *relativePath-&gt;begin();
+<a href="#l144" class="line" id="l144">    144</a>                 if (std::filesystem::exists(installLocation) &amp;&amp; std::filesystem::is_directory(installLocation))
+<a href="#l145" class="line" id="l145">    145</a>                 {
+<a href="#l146" class="line" id="l146">    146</a>                     return installLocation;
+<a href="#l147" class="line" id="l147">    147</a>                 }
+<a href="#l148" class="line" id="l148">    148</a>             }
+<a href="#l149" class="line" id="l149">    149</a> 
+<a href="#l150" class="line" id="l150">    150</a>             return {};
+<a href="#l151" class="line" id="l151">    151</a>         }
+<a href="#l152" class="line" id="l152">    152</a> 
+<a href="#l153" class="line" id="l153">    153</a>         // If install location is not provided in arp entry, try LocalAppData folder and Program Files folders.
+<a href="#l154" class="line" id="l154">    154</a>         std::optional&lt;std::filesystem::path&gt; CheckInstallLocation(const std::filesystem::path&amp; path)
+<a href="#l155" class="line" id="l155">    155</a>         {
+<a href="#l156" class="line" id="l156">    156</a>             for (auto const&amp; entry : s_CandidateInstallLocationRoots)
+<a href="#l157" class="line" id="l157">    157</a>             {
+<a href="#l158" class="line" id="l158">    158</a>                 auto installLocation = CheckOneInstallLocation(path, entry.first);
+<a href="#l159" class="line" id="l159">    159</a>                 if (installLocation)
+<a href="#l160" class="line" id="l160">    160</a>                 {
+<a href="#l161" class="line" id="l161">    161</a>                     return installLocation;
+<a href="#l162" class="line" id="l162">    162</a>                 }
+<a href="#l163" class="line" id="l163">    163</a>             }
+<a href="#l164" class="line" id="l164">    164</a> 
+<a href="#l165" class="line" id="l165">    165</a>             return {};
+<a href="#l166" class="line" id="l166">    166</a>         }
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a>         // TODO: basic heuristics to determine file type.
+<a href="#l169" class="line" id="l169">    169</a>         AppInstaller::Manifest::InstalledFileTypeEnum GetInstalledFileType(const ShellLinkFileInfo&amp; linkInfo)
+<a href="#l170" class="line" id="l170">    170</a>         {
+<a href="#l171" class="line" id="l171">    171</a>             Manifest::InstalledFileTypeEnum result = Manifest::InstalledFileTypeEnum::Other;
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a>             if (Utility::CaseInsensitiveContainsSubstring(linkInfo.Path.u8string(), &quot;uninstall&quot;) ||
+<a href="#l174" class="line" id="l174">    174</a>                 Utility::CaseInsensitiveContainsSubstring(linkInfo.Path.u8string(), &quot;unins000&quot;) ||
+<a href="#l175" class="line" id="l175">    175</a>                 Utility::CaseInsensitiveContainsSubstring(linkInfo.Args, &quot;uninstall&quot;) ||
+<a href="#l176" class="line" id="l176">    176</a>                 Utility::CaseInsensitiveContainsSubstring(linkInfo.DisplayName, &quot;uninstall&quot;))
+<a href="#l177" class="line" id="l177">    177</a>             {
+<a href="#l178" class="line" id="l178">    178</a>                 result = Manifest::InstalledFileTypeEnum::Uninstall;
+<a href="#l179" class="line" id="l179">    179</a>             }
+<a href="#l180" class="line" id="l180">    180</a>             else if (Utility::CaseInsensitiveEquals(linkInfo.Path.extension().u8string(), &quot;.exe&quot;))
+<a href="#l181" class="line" id="l181">    181</a>             {
+<a href="#l182" class="line" id="l182">    182</a>                 result = Manifest::InstalledFileTypeEnum::Launch;
+<a href="#l183" class="line" id="l183">    183</a>             }
+<a href="#l184" class="line" id="l184">    184</a> 
+<a href="#l185" class="line" id="l185">    185</a>             return result;
+<a href="#l186" class="line" id="l186">    186</a>         }
+<a href="#l187" class="line" id="l187">    187</a> 
+<a href="#l188" class="line" id="l188">    188</a>         std::string GetUnexpandedInstallLocation(const std::filesystem::path&amp; installLocation)
+<a href="#l189" class="line" id="l189">    189</a>         {
+<a href="#l190" class="line" id="l190">    190</a>             // Try to match the candidate install location roots first.
+<a href="#l191" class="line" id="l191">    191</a>             std::filesystem::path resultInstallLocation = installLocation;
+<a href="#l192" class="line" id="l192">    192</a>             for (auto const&amp; entry : s_CandidateInstallLocationRoots)
+<a href="#l193" class="line" id="l193">    193</a>             {
+<a href="#l194" class="line" id="l194">    194</a>                 if (Filesystem::ReplaceCommonPathPrefix(resultInstallLocation, entry.first, entry.second))
+<a href="#l195" class="line" id="l195">    195</a>                 {
+<a href="#l196" class="line" id="l196">    196</a>                     return resultInstallLocation.u8string();
+<a href="#l197" class="line" id="l197">    197</a>                 }
+<a href="#l198" class="line" id="l198">    198</a>             }
+<a href="#l199" class="line" id="l199">    199</a> 
+<a href="#l200" class="line" id="l200">    200</a>             // Then try PathUnExpandEnvStrings OS api
+<a href="#l201" class="line" id="l201">    201</a>             std::wstring installLocationWString = installLocation.wstring();
+<a href="#l202" class="line" id="l202">    202</a>             std::wstring buffer;
+<a href="#l203" class="line" id="l203">    203</a>             buffer.resize(installLocationWString.size() + 20);
+<a href="#l204" class="line" id="l204">    204</a>             if (PathUnExpandEnvStrings(
+<a href="#l205" class="line" id="l205">    205</a>                 installLocationWString.c_str(),
+<a href="#l206" class="line" id="l206">    206</a>                 &amp;buffer[0],
+<a href="#l207" class="line" id="l207">    207</a>                 static_cast&lt;int&gt;(buffer.size())))
+<a href="#l208" class="line" id="l208">    208</a>             {
+<a href="#l209" class="line" id="l209">    209</a>                 buffer.resize(buffer.find(L&#39;\0&#39;));
+<a href="#l210" class="line" id="l210">    210</a>                 return Utility::ConvertToUTF8(buffer);
+<a href="#l211" class="line" id="l211">    211</a>             }
+<a href="#l212" class="line" id="l212">    212</a> 
+<a href="#l213" class="line" id="l213">    213</a>             return resultInstallLocation.u8string();
+<a href="#l214" class="line" id="l214">    214</a>         }
+<a href="#l215" class="line" id="l215">    215</a>     }
+<a href="#l216" class="line" id="l216">    216</a> 
+<a href="#l217" class="line" id="l217">    217</a>     InstalledFilesCorrelation::InstalledFilesCorrelation()
+<a href="#l218" class="line" id="l218">    218</a>     {
+<a href="#l219" class="line" id="l219">    219</a>         m_fileWatchers.emplace_back(Filesystem::GetKnownFolderPath(FOLDERID_CommonStartMenu), std::string{ s_ShellLinkFileExtension });
+<a href="#l220" class="line" id="l220">    220</a>         m_fileWatchers.emplace_back(Filesystem::GetKnownFolderPath(FOLDERID_StartMenu), std::string{ s_ShellLinkFileExtension });
+<a href="#l221" class="line" id="l221">    221</a>     }
+<a href="#l222" class="line" id="l222">    222</a> 
+<a href="#l223" class="line" id="l223">    223</a>     void InstalledFilesCorrelation::StartFileWatcher()
+<a href="#l224" class="line" id="l224">    224</a>     {
+<a href="#l225" class="line" id="l225">    225</a>         m_files.clear();
+<a href="#l226" class="line" id="l226">    226</a> 
+<a href="#l227" class="line" id="l227">    227</a>         for (auto&amp; watcher : m_fileWatchers)
+<a href="#l228" class="line" id="l228">    228</a>         {
+<a href="#l229" class="line" id="l229">    229</a>             watcher.Start();
+<a href="#l230" class="line" id="l230">    230</a>         }
+<a href="#l231" class="line" id="l231">    231</a>     }
+<a href="#l232" class="line" id="l232">    232</a> 
+<a href="#l233" class="line" id="l233">    233</a>     void InstalledFilesCorrelation::StopFileWatcher()
+<a href="#l234" class="line" id="l234">    234</a>     {
+<a href="#l235" class="line" id="l235">    235</a>         for (auto&amp; watcher : m_fileWatchers)
+<a href="#l236" class="line" id="l236">    236</a>         {
+<a href="#l237" class="line" id="l237">    237</a>             watcher.Stop();
+<a href="#l238" class="line" id="l238">    238</a>         }
+<a href="#l239" class="line" id="l239">    239</a> 
+<a href="#l240" class="line" id="l240">    240</a>         for (auto&amp; watcher : m_fileWatchers)
+<a href="#l241" class="line" id="l241">    241</a>         {
+<a href="#l242" class="line" id="l242">    242</a>             FileWatcherFiles files;
+<a href="#l243" class="line" id="l243">    243</a>             files.Folder = watcher.FolderPath();
+<a href="#l244" class="line" id="l244">    244</a> 
+<a href="#l245" class="line" id="l245">    245</a>             for (auto const&amp; file : watcher.Files())
+<a href="#l246" class="line" id="l246">    246</a>             {
+<a href="#l247" class="line" id="l247">    247</a>                 files.Files.emplace_back(file);
+<a href="#l248" class="line" id="l248">    248</a>             }
+<a href="#l249" class="line" id="l249">    249</a> 
+<a href="#l250" class="line" id="l250">    250</a>             m_files.emplace_back(std::move(files));
+<a href="#l251" class="line" id="l251">    251</a>         }
+<a href="#l252" class="line" id="l252">    252</a>     }
+<a href="#l253" class="line" id="l253">    253</a> 
+<a href="#l254" class="line" id="l254">    254</a>     InstallationMetadata InstalledFilesCorrelation::CorrelateForNewlyInstalled(
+<a href="#l255" class="line" id="l255">    255</a>         const Manifest::Manifest&amp;,
+<a href="#l256" class="line" id="l256">    256</a>         const std::string&amp; arpInstallLocation)
+<a href="#l257" class="line" id="l257">    257</a>     {
+<a href="#l258" class="line" id="l258">    258</a>         InstallationMetadata result;
+<a href="#l259" class="line" id="l259">    259</a> 
+<a href="#l260" class="line" id="l260">    260</a>         std::filesystem::path installLocation;
+<a href="#l261" class="line" id="l261">    261</a>         // Use arp install location if provided
+<a href="#l262" class="line" id="l262">    262</a>         if (!arpInstallLocation.empty())
+<a href="#l263" class="line" id="l263">    263</a>         {
+<a href="#l264" class="line" id="l264">    264</a>             installLocation = Filesystem::GetExpandedPath(arpInstallLocation);
+<a href="#l265" class="line" id="l265">    265</a>         }
+<a href="#l266" class="line" id="l266">    266</a> 
+<a href="#l267" class="line" id="l267">    267</a>         for (auto const&amp; files : m_files)
+<a href="#l268" class="line" id="l268">    268</a>         {
+<a href="#l269" class="line" id="l269">    269</a>             for (auto const&amp; file : files.Files)
+<a href="#l270" class="line" id="l270">    270</a>             {
+<a href="#l271" class="line" id="l271">    271</a>                 // TODO: we only watch shell link files at the moment.
+<a href="#l272" class="line" id="l272">    272</a>                 auto linkInfo = ParseShellLinkFile(files.Folder / file);
+<a href="#l273" class="line" id="l273">    273</a>                 if (linkInfo)
+<a href="#l274" class="line" id="l274">    274</a>                 {
+<a href="#l275" class="line" id="l275">    275</a>                     auto installedFileType = GetInstalledFileType(linkInfo.value());
+<a href="#l276" class="line" id="l276">    276</a> 
+<a href="#l277" class="line" id="l277">    277</a>                     // Collect installed files metadata if exist
+<a href="#l278" class="line" id="l278">    278</a>                     if (std::filesystem::exists(linkInfo-&gt;Path) &amp;&amp; std::filesystem::is_regular_file(linkInfo-&gt;Path))
+<a href="#l279" class="line" id="l279">    279</a>                     {
+<a href="#l280" class="line" id="l280">    280</a>                         if (installLocation.empty())
+<a href="#l281" class="line" id="l281">    281</a>                         {
+<a href="#l282" class="line" id="l282">    282</a>                             // TODO: In most cases, installed files are under same folder, so use the first file to determine install location at the moment.
+<a href="#l283" class="line" id="l283">    283</a>                             auto location = CheckInstallLocation(linkInfo-&gt;Path);
+<a href="#l284" class="line" id="l284">    284</a>                             if (!location)
+<a href="#l285" class="line" id="l285">    285</a>                             {
+<a href="#l286" class="line" id="l286">    286</a>                                 continue;
+<a href="#l287" class="line" id="l287">    287</a>                             }
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>                             installLocation = location.value();
+<a href="#l290" class="line" id="l290">    290</a>                         }
+<a href="#l291" class="line" id="l291">    291</a> 
+<a href="#l292" class="line" id="l292">    292</a>                         auto relativePath = GetRelativePath(linkInfo-&gt;Path, installLocation);
+<a href="#l293" class="line" id="l293">    293</a>                         if (relativePath)
+<a href="#l294" class="line" id="l294">    294</a>                         {
+<a href="#l295" class="line" id="l295">    295</a>                             AppInstaller::Manifest::InstalledFile fileEntry;
+<a href="#l296" class="line" id="l296">    296</a>                             fileEntry.RelativeFilePath = relativePath-&gt;string();
+<a href="#l297" class="line" id="l297">    297</a>                             std::ifstream in{ linkInfo-&gt;Path, std::ifstream::binary };
+<a href="#l298" class="line" id="l298">    298</a>                             fileEntry.FileSha256 = Utility::SHA256::ComputeHash(in);
+<a href="#l299" class="line" id="l299">    299</a>                             fileEntry.InvocationParameter = linkInfo-&gt;Args;
+<a href="#l300" class="line" id="l300">    300</a>                             fileEntry.DisplayName = linkInfo-&gt;DisplayName;
+<a href="#l301" class="line" id="l301">    301</a>                             fileEntry.FileType = installedFileType;
+<a href="#l302" class="line" id="l302">    302</a>                             result.InstalledFiles.Files.emplace_back(std::move(fileEntry));
+<a href="#l303" class="line" id="l303">    303</a>                         }
+<a href="#l304" class="line" id="l304">    304</a>                     }
+<a href="#l305" class="line" id="l305">    305</a> 
+<a href="#l306" class="line" id="l306">    306</a>                     // Collect short cut paths
+<a href="#l307" class="line" id="l307">    307</a>                     InstalledStartupLinkFile linkFile;
+<a href="#l308" class="line" id="l308">    308</a>                     linkFile.RelativeFilePath = file.u8string();
+<a href="#l309" class="line" id="l309">    309</a>                     linkFile.FileType = installedFileType;
+<a href="#l310" class="line" id="l310">    310</a>                     result.StartupLinkFiles.emplace_back(linkFile);
+<a href="#l311" class="line" id="l311">    311</a>                 }
+<a href="#l312" class="line" id="l312">    312</a>             }
+<a href="#l313" class="line" id="l313">    313</a>         }
+<a href="#l314" class="line" id="l314">    314</a> 
+<a href="#l315" class="line" id="l315">    315</a>         if (!installLocation.empty())
+<a href="#l316" class="line" id="l316">    316</a>         {
+<a href="#l317" class="line" id="l317">    317</a>             result.InstalledFiles.DefaultInstallLocation = GetUnexpandedInstallLocation(installLocation);
+<a href="#l318" class="line" id="l318">    318</a>         }
+<a href="#l319" class="line" id="l319">    319</a> 
+<a href="#l320" class="line" id="l320">    320</a>         return result;
+<a href="#l321" class="line" id="l321">    321</a>     }
+<a href="#l322" class="line" id="l322">    322</a> }
+</pre>
+</div>
+</body>
+</html>

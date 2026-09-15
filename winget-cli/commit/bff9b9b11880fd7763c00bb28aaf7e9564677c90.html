@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Merge remote-tracking branch &#39;upstream/master&#39; - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/bff9b9b11880fd7763c00bb28aaf7e9564677c90.html">bff9b9b11880fd7763c00bb28aaf7e9564677c90</a>
+<b>parent</b> <a href="../commit/3377be41da5cca64ea4b962fdf5869e2459f5e99.html">3377be41da5cca64ea4b962fdf5869e2459f5e99</a>
+<b>Author:</b> KEINOS &lt;<a href="mailto:github+fork-qiita-news@keinos.com">github+fork-qiita-news@keinos.com</a>&gt;
+<b>Date:</b>   Fri,  4 Jul 2025 08:36:23 +0000
+
+Merge remote-tracking branch &#39;upstream/master&#39;
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/VcpkgPortOverlay/CreatePortOverlay.ps1</a></td><td> | </td><td class="num">133</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/VcpkgPortOverlay/README.md</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h2">src/VcpkgPortOverlay/cpprestsdk/fix-asio-error.patch</a></td><td> | </td><td class="num">367</td><td><span class="i"></span><span class="d">-------------------------------------------------------------------------------</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h3">src/VcpkgPortOverlay/cpprestsdk/fix-clang-dllimport.patch</a></td><td> | </td><td class="num">52</td><td><span class="i"></span><span class="d">----------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/VcpkgPortOverlay/cpprestsdk/portfile.cmake</a></td><td> | </td><td class="num">16</td><td><span class="i">+++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h5">src/VcpkgPortOverlay/cpprestsdk/silence-stdext-checked-array-iterators-warning.patch</a></td><td> | </td><td class="num">12</td><td><span class="i"></span><span class="d">------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/VcpkgPortOverlay/cpprestsdk/vcpkg.json</a></td><td> | </td><td class="num">36</td><td><span class="i">++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/vcpkg.json</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+</table></pre><pre>8 files changed, 155 insertions(+), 471 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/VcpkgPortOverlay/CreatePortOverlay.ps1.html">src/VcpkgPortOverlay/CreatePortOverlay.ps1</a> b/<a href="../file/src/VcpkgPortOverlay/CreatePortOverlay.ps1.html">src/VcpkgPortOverlay/CreatePortOverlay.ps1</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -4,54 +4,111 @@ $OverlayRoot = $PSScriptRoot
+</a> 
+ $ErrorActionPreference = &quot;Stop&quot;
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-# Hacky way of getting a single directory from the vcpkg repo:
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-# - Download the vcpkg repo as a zip to a memory stream
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-# - Parse the zip archive
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-# - Extract the files we want
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-function Get-VcpkgRepoAsZipArchive
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+# Gets the versions of a port available from the official registry.
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+# This is read from the versions JSON in the main branch.
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+# A version looks like this:
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+#    {
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+#      &quot;git-tree&quot;: &quot;9f5e160191038cbbd2470e534c43f051c80e7d44&quot;,
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+#      &quot;version&quot;: &quot;2.10.19&quot;,
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+#      &quot;port-version&quot;: 3
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+#    }
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+function Get-PortVersions
+</a> {
+<a href="#h0-0-19" id="h0-0-19" class="d">-    $vcpkgZipUri = &quot;https://github.com/microsoft/vcpkg/archive/refs/heads/master.zip&quot;
+</a><a href="#h0-0-20" id="h0-0-20" class="d">-    $response = Invoke-WebRequest -Uri $vcpkgZipUri
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+    param(
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+        [string]$Port
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+    )
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+    $initial = $Port[0]
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+    $jsonUri = &quot;https://raw.githubusercontent.com/microsoft/vcpkg/heads/master/versions/$initial-/$Port.json&quot;
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+    $versions = (Invoke-WebRequest -Uri $jsonUri).Content | ConvertFrom-Json -Depth 5
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+    return $versions.versions
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+}
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+# Gets the git-tree associated with a specific version of a port.
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+# The git-tree is a git object hash that represents the port directory
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+# from the appropriate version of the registry.
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+function Get-PortVersionGitTree
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+{
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+    param(
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+        [string]$Port,
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+        [string]$Version,
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+        [string]$PortVersion
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+    )
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+    $versions = Get-PortVersions $Port
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+    $versionData = $versions | Where-Object { ($_.version -eq $Version) -and ($_.&quot;port-version&quot; -eq $portVersion) }
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+    return $versionData.&quot;git-tree&quot;
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+}
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+# Fetches and parses a git-tree as a ZIP file
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+function Get-GitTreeAsArchive
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+{
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+    param(
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+        [string]$GitTree
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+    )
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+    $archiveUri = &quot;https://github.com/microsoft/vcpkg/archive/$gitTree.zip&quot;
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+    $response = Invoke-WebRequest -Uri $archiveUri
+</a>     $zipStream = [System.IO.MemoryStream]::new($response.Content)
+     $zipArchive = [System.IO.Compression.ZipArchive]::new($zipStream)
+     return $zipArchive
+ }
+ 
+<a href="#h0-0-66" id="h0-0-66" class="d">-$VcpkgAsArchive = Get-VcpkgRepoAsZipArchive
+</a><a href="#h0-0-67" id="h0-0-67" class="d">-
+</a><a href="#h0-0-68" id="h0-0-68" class="d">-# Copies an port from the official registry to this overlay
+</a><a href="#h0-0-69" id="h0-0-69" class="d">-function New-PortOverlay
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+# Expands an in-memory archive and writes it to disk
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+function Expand-ArchiveFromMemory
+</a> {
+     param(
+         [Parameter(Mandatory)]
+<a href="#h0-0-75" id="h0-0-75" class="d">-        [string]$Port
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+        [System.IO.Compression.ZipArchive]$Archive,
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+        [string]$Destination
+</a>     )
+ 
+<a href="#h0-0-81" id="h0-0-81" class="d">-    $portDir = Join-Path $OverlayRoot $Port
+</a><a href="#h0-0-82" id="h0-0-82" class="d">-
+</a><a href="#h0-0-83" id="h0-0-83" class="d">-    # Delete existing port if needed
+</a><a href="#h0-0-84" id="h0-0-84" class="d">-    if (Test-Path $portDir)
+</a><a href="#h0-0-85" id="h0-0-85" class="i">+    # Delete existing directory
+</a><a href="#h0-0-86" id="h0-0-86" class="i">+    if (Test-Path $Destination)
+</a>     {
+<a href="#h0-0-88" id="h0-0-88" class="d">-        Remove-Item -Force -Recurse $portDir
+</a><a href="#h0-0-89" id="h0-0-89" class="i">+        Remove-Item -Force -Recurse $Destination
+</a>     }
+ 
+     # Remove length=0 to ignore the directory itself
+<a href="#h0-0-93" id="h0-0-93" class="d">-    $portZipEntries = $VcpkgAsArchive.Entries |
+</a><a href="#h0-0-94" id="h0-0-94" class="d">-        Where-Object { ($_.Length -ne 0) -and $_.FullName.StartsWith(&quot;vcpkg-master/ports/$Port/&quot;) }
+</a><a href="#h0-0-95" id="h0-0-95" class="d">-
+</a><a href="#h0-0-96" id="h0-0-96" class="d">-    if (-not $portZipEntries)
+</a><a href="#h0-0-97" id="h0-0-97" class="i">+    $entries = $archive.Entries | Where-Object { $_.Length -ne 0 }
+</a><a href="#h0-0-98" id="h0-0-98" class="i">+    if (-not $entries)
+</a>     {
+<a href="#h0-0-100" id="h0-0-100" class="d">-        throw &quot;Port $port not found&quot;
+</a><a href="#h0-0-101" id="h0-0-101" class="i">+        throw &quot;Archive is empty&quot;
+</a>     }
+ 
+<a href="#h0-0-104" id="h0-0-104" class="d">-    New-Item -Type Directory $portDir | Out-Null
+</a><a href="#h0-0-105" id="h0-0-105" class="d">-    foreach ($zipEntry in $portZipEntries)
+</a><a href="#h0-0-106" id="h0-0-106" class="i">+    New-Item -Type Directory $Destination | Out-Null
+</a><a href="#h0-0-107" id="h0-0-107" class="i">+    foreach ($entry in $entries)
+</a>     {
+<a href="#h0-0-109" id="h0-0-109" class="d">-        $targetPath = Join-Path $portDir $zipEntry.Name
+</a><a href="#h0-0-110" id="h0-0-110" class="d">-        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($zipEntry, $targetPath)
+</a><a href="#h0-0-111" id="h0-0-111" class="i">+        $targetPath = Join-Path $Destination $entry.Name
+</a><a href="#h0-0-112" id="h0-0-112" class="i">+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $targetPath)
+</a>     }
+ }
+ 
+<a href="#h0-0-116" id="h0-0-116" class="i">+# Creates a copy of a port version from the official registry in this overlay
+</a><a href="#h0-0-117" id="h0-0-117" class="i">+function New-PortOverlay
+</a><a href="#h0-0-118" id="h0-0-118" class="i">+{
+</a><a href="#h0-0-119" id="h0-0-119" class="i">+    param(
+</a><a href="#h0-0-120" id="h0-0-120" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-121" id="h0-0-121" class="i">+        [string]$Port,
+</a><a href="#h0-0-122" id="h0-0-122" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-123" id="h0-0-123" class="i">+        [string]$Version,
+</a><a href="#h0-0-124" id="h0-0-124" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-0-125" id="h0-0-125" class="i">+        [string]$PortVersion
+</a><a href="#h0-0-126" id="h0-0-126" class="i">+    )
+</a><a href="#h0-0-127" id="h0-0-127" class="i">+
+</a><a href="#h0-0-128" id="h0-0-128" class="i">+    $gitTree = Get-PortVersionGitTree $Port $Version $PortVersion
+</a><a href="#h0-0-129" id="h0-0-129" class="i">+    $archive = Get-GitTreeAsArchive $gitTree
+</a><a href="#h0-0-130" id="h0-0-130" class="i">+    $portDir = Join-Path $OverlayRoot $Port
+</a><a href="#h0-0-131" id="h0-0-131" class="i">+    Expand-ArchiveFromMemory $archive $portDir
+</a><a href="#h0-0-132" id="h0-0-132" class="i">+}
+</a><a href="#h0-0-133" id="h0-0-133" class="i">+
+</a> # Gets a git patch from a GitHub commit
+ function Get-GitHubPatch
+ {
+<a href="#h0-1" id="h0-1" class="h">@@ -223,13 +280,28 @@ function Update-PortSource
+</a> 
+     $portDir = Join-Path $OverlayRoot $Port
+ 
+<a href="#h0-1-3" id="h0-1-3" class="d">-    Set-ParameterInPortFile $Port -ParameterName &#39;REF&#39; -CurrentValuePattern &#39;[0-9a-f]{40}&#39; -NewValue $Commit
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+    # For the REF, we also delete any comments after it that may say the wrong version
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+    Set-ParameterInPortFile $Port -ParameterName &#39;REF&#39; -CurrentValuePattern &#39;[0-9a-f]{40}( #.*)?$&#39; -NewValue &quot;$Commit # Unreleased&quot;
+</a>     Set-ParameterInPortFile $Port -ParameterName &#39;SHA512&#39; -CurrentValuePattern &#39;[0-9a-f]{128}&#39; -NewValue $SourceHash
+ }
+ 
+<a href="#h0-1-9" id="h0-1-9" class="i">+# Updates the port version by one.
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+function Update-PortVersion
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+{
+</a><a href="#h0-1-12" id="h0-1-12" class="i">+    param(
+</a><a href="#h0-1-13" id="h0-1-13" class="i">+        [Parameter(Mandatory)]
+</a><a href="#h0-1-14" id="h0-1-14" class="i">+        [string]$Port
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+    )
+</a><a href="#h0-1-16" id="h0-1-16" class="i">+
+</a><a href="#h0-1-17" id="h0-1-17" class="i">+    $portJsonPath = Join-Path $OverlayRoot $Port &quot;vcpkg.json&quot;
+</a><a href="#h0-1-18" id="h0-1-18" class="i">+    $portDefinition = Get-Content $portJsonPath | ConvertFrom-Json
+</a><a href="#h0-1-19" id="h0-1-19" class="i">+    $portDefinition.&quot;port-version&quot; += 1
+</a><a href="#h0-1-20" id="h0-1-20" class="i">+    $portDefinition | ConvertTo-Json -Depth 5 | Out-File $portJsonPath
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+}
+</a> 
+<a href="#h0-1-23" id="h0-1-23" class="d">-New-PortOverlay cpprestsdk
+</a><a href="#h0-1-24" id="h0-1-24" class="i">+New-PortOverlay cpprestsdk -Version 2.10.18 -PortVersion 4
+</a> Add-PatchToPort cpprestsdk -PatchRepo &#39;microsoft/winget-cli&#39; -PatchCommit &#39;888b4ed8f4f7d25cb05a47210e083fe29348163b&#39; -PatchName &#39;add-server-certificate-validation.patch&#39; -PatchRoot &#39;src/cpprestsdk/cpprestsdk&#39;
+ 
+<a href="#h0-1-27" id="h0-1-27" class="d">-New-PortOverlay libyaml
+</a><a href="#h0-1-28" id="h0-1-28" class="d">-Update-PortSource libyaml -Commit &#39;840b65c40675e2d06bf40405ad3f12dec7f35923&#39; -SourceHash &#39;de85560312d53a007a2ddf1fe403676bbd34620480b1ba446b8c16bb366524ba7a6ed08f6316dd783bf980d9e26603a9efc82f134eb0235917b3be1d3eb4b302&#39;</a><a href="#h0-1-29" id="h0-1-29" class="d">-
+\ No newline at end of file
+</a><a href="#h0-1-30" id="h0-1-30" class="i">+New-PortOverlay libyaml -Version 0.2.5 -PortVersion 5
+</a><a href="#h0-1-31" id="h0-1-31" class="i">+Update-PortSource libyaml -Commit &#39;840b65c40675e2d06bf40405ad3f12dec7f35923&#39; -SourceHash &#39;de85560312d53a007a2ddf1fe403676bbd34620480b1ba446b8c16bb366524ba7a6ed08f6316dd783bf980d9e26603a9efc82f134eb0235917b3be1d3eb4b302&#39;
+</a><a href="#h0-1-32" id="h0-1-32" class="i">+Update-PortVersion libyaml
+</a><b>diff --git a/<a id="h1" href="../file/src/VcpkgPortOverlay/README.md.html">src/VcpkgPortOverlay/README.md</a> b/<a href="../file/src/VcpkgPortOverlay/README.md.html">src/VcpkgPortOverlay/README.md</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -8,6 +8,7 @@ The whole directory can be re-created with `.\CreatePortOverlay.ps1`
+</a> ## cpprestsdk
+ 
+ We add support for certificate pinning.
+<a href="#h1-0-3" id="h1-0-3" class="i">+Note that we use v2.10.18, which is not the latest.
+</a> 
+ Changes:
+ * Add patch file: `add-server-certificate-validation.patch`
+<a href="#h1-1" id="h1-1" class="h">@@ -18,4 +19,5 @@ Changes:
+</a> We use an unreleased version that fixes a vulnerability.
+ 
+ Changes:
+<a href="#h1-1-3" id="h1-1-3" class="d">-* New source commit: https://github.com/yaml/libyaml/commit/840b65c40675e2d06bf40405ad3f12dec7f35923</a><a href="#h1-1-4" id="h1-1-4" class="d">-
+\ No newline at end of file
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+* New source commit: https://github.com/yaml/libyaml/commit/840b65c40675e2d06bf40405ad3f12dec7f35923
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+* Increase the port version so that Component Governance doesn&#39;t see it as the vulnerable version anymore</a><a href="#h1-1-7" id="h1-1-7" class="i">+
+\ No newline at end of file
+</a><b>diff --git a/<a id="h2" href="../file/src/VcpkgPortOverlay/cpprestsdk/fix-asio-error.patch.html">src/VcpkgPortOverlay/cpprestsdk/fix-asio-error.patch</a> b/<a href="../file/src/VcpkgPortOverlay/cpprestsdk/fix-asio-error.patch.html">src/VcpkgPortOverlay/cpprestsdk/fix-asio-error.patch</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -1,367 +0,0 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="d">-diff --git a/Release/include/pplx/threadpool.h b/Release/include/pplx/threadpool.h
+</a><a href="#h2-0-1" id="h2-0-1" class="d">-index b297ff6..56ea475 100644
+</a><a href="#h2-0-2" id="h2-0-2" class="d">---- a/Release/include/pplx/threadpool.h
+</a><a href="#h2-0-3" id="h2-0-3" class="d">-+++ b/Release/include/pplx/threadpool.h
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-@@ -69,15 +69,15 @@ public:
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-     CASABLANCA_DEPRECATED(&quot;Use `.service().post(task)` directly.&quot;)
+</a><a href="#h2-0-6" id="h2-0-6" class="d">-     void schedule(T task)
+</a><a href="#h2-0-7" id="h2-0-7" class="d">-     {
+</a><a href="#h2-0-8" id="h2-0-8" class="d">--        service().post(task);
+</a><a href="#h2-0-9" id="h2-0-9" class="d">-+        boost::asio::post(service(), task);
+</a><a href="#h2-0-10" id="h2-0-10" class="d">-     }
+</a><a href="#h2-0-11" id="h2-0-11" class="d">- 
+</a><a href="#h2-0-12" id="h2-0-12" class="d">--    boost::asio::io_service&amp; service() { return m_service; }
+</a><a href="#h2-0-13" id="h2-0-13" class="d">-+    boost::asio::io_context&amp; service() { return m_service; }
+</a><a href="#h2-0-14" id="h2-0-14" class="d">- 
+</a><a href="#h2-0-15" id="h2-0-15" class="d">- protected:
+</a><a href="#h2-0-16" id="h2-0-16" class="d">-     threadpool(size_t num_threads) : m_service(static_cast&lt;int&gt;(num_threads)) {}
+</a><a href="#h2-0-17" id="h2-0-17" class="d">- 
+</a><a href="#h2-0-18" id="h2-0-18" class="d">--    boost::asio::io_service m_service;
+</a><a href="#h2-0-19" id="h2-0-19" class="d">-+    boost::asio::io_context m_service;
+</a><a href="#h2-0-20" id="h2-0-20" class="d">- };
+</a><a href="#h2-0-21" id="h2-0-21" class="d">- 
+</a><a href="#h2-0-22" id="h2-0-22" class="d">- } // namespace crossplat
+</a><a href="#h2-0-23" id="h2-0-23" class="d">-diff --git a/Release/src/http/client/http_client_asio.cpp b/Release/src/http/client/http_client_asio.cpp
+</a><a href="#h2-0-24" id="h2-0-24" class="d">-index 07bb488..f9c7c51 100644
+</a><a href="#h2-0-25" id="h2-0-25" class="d">---- a/Release/src/http/client/http_client_asio.cpp
+</a><a href="#h2-0-26" id="h2-0-26" class="d">-+++ b/Release/src/http/client/http_client_asio.cpp
+</a><a href="#h2-0-27" id="h2-0-27" class="d">-@@ -146,9 +146,9 @@ class asio_connection
+</a><a href="#h2-0-28" id="h2-0-28" class="d">-     friend class asio_client;
+</a><a href="#h2-0-29" id="h2-0-29" class="d">- 
+</a><a href="#h2-0-30" id="h2-0-30" class="d">- public:
+</a><a href="#h2-0-31" id="h2-0-31" class="d">--    asio_connection(boost::asio::io_service&amp; io_service)
+</a><a href="#h2-0-32" id="h2-0-32" class="d">-+    asio_connection(boost::asio::io_context&amp; io_context)
+</a><a href="#h2-0-33" id="h2-0-33" class="d">-         : m_socket_lock()
+</a><a href="#h2-0-34" id="h2-0-34" class="d">--        , m_socket(io_service)
+</a><a href="#h2-0-35" id="h2-0-35" class="d">-+        , m_socket(io_context)
+</a><a href="#h2-0-36" id="h2-0-36" class="d">-         , m_ssl_stream()
+</a><a href="#h2-0-37" id="h2-0-37" class="d">-         , m_cn_hostname()
+</a><a href="#h2-0-38" id="h2-0-38" class="d">-         , m_is_reused(false)
+</a><a href="#h2-0-39" id="h2-0-39" class="d">-@@ -429,7 +429,7 @@ private:
+</a><a href="#h2-0-40" id="h2-0-40" class="d">-         auto&amp; self = *pool;
+</a><a href="#h2-0-41" id="h2-0-41" class="d">-         std::weak_ptr&lt;asio_connection_pool&gt; weak_pool = pool;
+</a><a href="#h2-0-42" id="h2-0-42" class="d">- 
+</a><a href="#h2-0-43" id="h2-0-43" class="d">--        self.m_pool_epoch_timer.expires_from_now(boost::posix_time::seconds(30));
+</a><a href="#h2-0-44" id="h2-0-44" class="d">-+        self.m_pool_epoch_timer.expires_after(std::chrono::seconds(30));
+</a><a href="#h2-0-45" id="h2-0-45" class="d">-         self.m_pool_epoch_timer.async_wait([weak_pool](const boost::system::error_code&amp; ec) {
+</a><a href="#h2-0-46" id="h2-0-46" class="d">-             if (ec)
+</a><a href="#h2-0-47" id="h2-0-47" class="d">-             {
+</a><a href="#h2-0-48" id="h2-0-48" class="d">-@@ -467,7 +467,7 @@ private:
+</a><a href="#h2-0-49" id="h2-0-49" class="d">-     std::mutex m_lock;
+</a><a href="#h2-0-50" id="h2-0-50" class="d">-     std::map&lt;std::string, connection_pool_stack&lt;asio_connection&gt;&gt; m_connections;
+</a><a href="#h2-0-51" id="h2-0-51" class="d">-     bool m_is_timer_running;
+</a><a href="#h2-0-52" id="h2-0-52" class="d">--    boost::asio::deadline_timer m_pool_epoch_timer;
+</a><a href="#h2-0-53" id="h2-0-53" class="d">-+    boost::asio::system_timer m_pool_epoch_timer;
+</a><a href="#h2-0-54" id="h2-0-54" class="d">- };
+</a><a href="#h2-0-55" id="h2-0-55" class="d">- 
+</a><a href="#h2-0-56" id="h2-0-56" class="d">- class asio_client final : public _http_client_communicator
+</a><a href="#h2-0-57" id="h2-0-57" class="d">-@@ -581,18 +581,16 @@ public:
+</a><a href="#h2-0-58" id="h2-0-58" class="d">- 
+</a><a href="#h2-0-59" id="h2-0-59" class="d">-             m_context-&gt;m_timer.start();
+</a><a href="#h2-0-60" id="h2-0-60" class="d">- 
+</a><a href="#h2-0-61" id="h2-0-61" class="d">--            tcp::resolver::query query(utility::conversions::to_utf8string(proxy_host), to_string(proxy_port));
+</a><a href="#h2-0-62" id="h2-0-62" class="d">--
+</a><a href="#h2-0-63" id="h2-0-63" class="d">-             auto client = std::static_pointer_cast&lt;asio_client&gt;(m_context-&gt;m_http_client);
+</a><a href="#h2-0-64" id="h2-0-64" class="d">--            m_context-&gt;m_resolver.async_resolve(query,
+</a><a href="#h2-0-65" id="h2-0-65" class="d">--                                                boost::bind(&amp;ssl_proxy_tunnel::handle_resolve,
+</a><a href="#h2-0-66" id="h2-0-66" class="d">--                                                            shared_from_this(),
+</a><a href="#h2-0-67" id="h2-0-67" class="d">--                                                            boost::asio::placeholders::error,
+</a><a href="#h2-0-68" id="h2-0-68" class="d">--                                                            boost::asio::placeholders::iterator));
+</a><a href="#h2-0-69" id="h2-0-69" class="d">-+            m_context-&gt;m_resolver.async_resolve(utility::conversions::to_utf8string(proxy_host), to_string(proxy_port),
+</a><a href="#h2-0-70" id="h2-0-70" class="d">-+                [self = shared_from_this()](const boost::system::error_code&amp; error, tcp::resolver::results_type results){
+</a><a href="#h2-0-71" id="h2-0-71" class="d">-+                    self-&gt;handle_resolve(error, results.begin());
+</a><a href="#h2-0-72" id="h2-0-72" class="d">-+                }
+</a><a href="#h2-0-73" id="h2-0-73" class="d">-+            );
+</a><a href="#h2-0-74" id="h2-0-74" class="d">-         }
+</a><a href="#h2-0-75" id="h2-0-75" class="d">- 
+</a><a href="#h2-0-76" id="h2-0-76" class="d">-     private:
+</a><a href="#h2-0-77" id="h2-0-77" class="d">--        void handle_resolve(const boost::system::error_code&amp; ec, tcp::resolver::iterator endpoints)
+</a><a href="#h2-0-78" id="h2-0-78" class="d">-+        void handle_resolve(const boost::system::error_code&amp; ec, tcp::resolver::results_type::iterator endpoints)
+</a><a href="#h2-0-79" id="h2-0-79" class="d">-         {
+</a><a href="#h2-0-80" id="h2-0-80" class="d">-             if (ec)
+</a><a href="#h2-0-81" id="h2-0-81" class="d">-             {
+</a><a href="#h2-0-82" id="h2-0-82" class="d">-@@ -610,7 +608,7 @@ public:
+</a><a href="#h2-0-83" id="h2-0-83" class="d">-             }
+</a><a href="#h2-0-84" id="h2-0-84" class="d">-         }
+</a><a href="#h2-0-85" id="h2-0-85" class="d">- 
+</a><a href="#h2-0-86" id="h2-0-86" class="d">--        void handle_tcp_connect(const boost::system::error_code&amp; ec, tcp::resolver::iterator endpoints)
+</a><a href="#h2-0-87" id="h2-0-87" class="d">-+        void handle_tcp_connect(const boost::system::error_code&amp; ec, tcp::resolver::results_type::iterator endpoints)
+</a><a href="#h2-0-88" id="h2-0-88" class="d">-         {
+</a><a href="#h2-0-89" id="h2-0-89" class="d">-             if (!ec)
+</a><a href="#h2-0-90" id="h2-0-90" class="d">-             {
+</a><a href="#h2-0-91" id="h2-0-91" class="d">-@@ -621,7 +619,7 @@ public:
+</a><a href="#h2-0-92" id="h2-0-92" class="d">-                                                                  shared_from_this(),
+</a><a href="#h2-0-93" id="h2-0-93" class="d">-                                                                  boost::asio::placeholders::error));
+</a><a href="#h2-0-94" id="h2-0-94" class="d">-             }
+</a><a href="#h2-0-95" id="h2-0-95" class="d">--            else if (endpoints == tcp::resolver::iterator())
+</a><a href="#h2-0-96" id="h2-0-96" class="d">-+            else if (endpoints == tcp::resolver::results_type::iterator())
+</a><a href="#h2-0-97" id="h2-0-97" class="d">-             {
+</a><a href="#h2-0-98" id="h2-0-98" class="d">-                 m_context-&gt;report_error(
+</a><a href="#h2-0-99" id="h2-0-99" class="d">-                     &quot;Failed to connect to any resolved proxy endpoint&quot;, ec, httpclient_errorcode_context::connect);
+</a><a href="#h2-0-100" id="h2-0-100" class="d">-@@ -885,12 +883,11 @@ public:
+</a><a href="#h2-0-101" id="h2-0-101" class="d">-                 auto tcp_host = proxy_type == http_proxy_type::http ? proxy_host : host;
+</a><a href="#h2-0-102" id="h2-0-102" class="d">-                 auto tcp_port = proxy_type == http_proxy_type::http ? proxy_port : port;
+</a><a href="#h2-0-103" id="h2-0-103" class="d">- 
+</a><a href="#h2-0-104" id="h2-0-104" class="d">--                tcp::resolver::query query(tcp_host, to_string(tcp_port));
+</a><a href="#h2-0-105" id="h2-0-105" class="d">--                ctx-&gt;m_resolver.async_resolve(query,
+</a><a href="#h2-0-106" id="h2-0-106" class="d">--                                              boost::bind(&amp;asio_context::handle_resolve,
+</a><a href="#h2-0-107" id="h2-0-107" class="d">--                                                          ctx,
+</a><a href="#h2-0-108" id="h2-0-108" class="d">--                                                          boost::asio::placeholders::error,
+</a><a href="#h2-0-109" id="h2-0-109" class="d">--                                                          boost::asio::placeholders::iterator));
+</a><a href="#h2-0-110" id="h2-0-110" class="d">-+                ctx-&gt;m_resolver.async_resolve(tcp_host, to_string(tcp_port),
+</a><a href="#h2-0-111" id="h2-0-111" class="d">-+                    [ctx](const boost::system::error_code&amp; error, tcp::resolver::results_type results){
+</a><a href="#h2-0-112" id="h2-0-112" class="d">-+                        ctx-&gt;handle_resolve(error, results.begin());
+</a><a href="#h2-0-113" id="h2-0-113" class="d">-+                    }
+</a><a href="#h2-0-114" id="h2-0-114" class="d">-+                );
+</a><a href="#h2-0-115" id="h2-0-115" class="d">-             }
+</a><a href="#h2-0-116" id="h2-0-116" class="d">- 
+</a><a href="#h2-0-117" id="h2-0-117" class="d">-             // Register for notification on cancellation to abort this request.
+</a><a href="#h2-0-118" id="h2-0-118" class="d">-@@ -1006,7 +1003,7 @@ private:
+</a><a href="#h2-0-119" id="h2-0-119" class="d">-         request_context::report_error(errorcodeValue, message);
+</a><a href="#h2-0-120" id="h2-0-120" class="d">-     }
+</a><a href="#h2-0-121" id="h2-0-121" class="d">- 
+</a><a href="#h2-0-122" id="h2-0-122" class="d">--    void handle_connect(const boost::system::error_code&amp; ec, tcp::resolver::iterator endpoints)
+</a><a href="#h2-0-123" id="h2-0-123" class="d">-+    void handle_connect(const boost::system::error_code&amp; ec, tcp::resolver::results_type::iterator endpoints)
+</a><a href="#h2-0-124" id="h2-0-124" class="d">-     {
+</a><a href="#h2-0-125" id="h2-0-125" class="d">-         m_timer.reset();
+</a><a href="#h2-0-126" id="h2-0-126" class="d">-         if (!ec)
+</a><a href="#h2-0-127" id="h2-0-127" class="d">-@@ -1019,7 +1016,7 @@ private:
+</a><a href="#h2-0-128" id="h2-0-128" class="d">-         {
+</a><a href="#h2-0-129" id="h2-0-129" class="d">-             report_error(&quot;Request canceled by user.&quot;, ec, httpclient_errorcode_context::connect);
+</a><a href="#h2-0-130" id="h2-0-130" class="d">-         }
+</a><a href="#h2-0-131" id="h2-0-131" class="d">--        else if (endpoints == tcp::resolver::iterator())
+</a><a href="#h2-0-132" id="h2-0-132" class="d">-+        else if (endpoints == tcp::resolver::results_type::iterator())
+</a><a href="#h2-0-133" id="h2-0-133" class="d">-         {
+</a><a href="#h2-0-134" id="h2-0-134" class="d">-             report_error(&quot;Failed to connect to any resolved endpoint&quot;, ec, httpclient_errorcode_context::connect);
+</a><a href="#h2-0-135" id="h2-0-135" class="d">-         }
+</a><a href="#h2-0-136" id="h2-0-136" class="d">-@@ -1045,13 +1042,13 @@ private:
+</a><a href="#h2-0-137" id="h2-0-137" class="d">-         }
+</a><a href="#h2-0-138" id="h2-0-138" class="d">-     }
+</a><a href="#h2-0-139" id="h2-0-139" class="d">- 
+</a><a href="#h2-0-140" id="h2-0-140" class="d">--    void handle_resolve(const boost::system::error_code&amp; ec, tcp::resolver::iterator endpoints)
+</a><a href="#h2-0-141" id="h2-0-141" class="d">-+    void handle_resolve(const boost::system::error_code&amp; ec, tcp::resolver::results_type::iterator endpoints)
+</a><a href="#h2-0-142" id="h2-0-142" class="d">-     {
+</a><a href="#h2-0-143" id="h2-0-143" class="d">-         if (ec)
+</a><a href="#h2-0-144" id="h2-0-144" class="d">-         {
+</a><a href="#h2-0-145" id="h2-0-145" class="d">-             report_error(&quot;Error resolving address&quot;, ec, httpclient_errorcode_context::connect);
+</a><a href="#h2-0-146" id="h2-0-146" class="d">-         }
+</a><a href="#h2-0-147" id="h2-0-147" class="d">--        else if (endpoints == tcp::resolver::iterator())
+</a><a href="#h2-0-148" id="h2-0-148" class="d">-+        else if (endpoints == tcp::resolver::results_type::iterator())
+</a><a href="#h2-0-149" id="h2-0-149" class="d">-         {
+</a><a href="#h2-0-150" id="h2-0-150" class="d">-             report_error(&quot;Failed to resolve address&quot;, ec, httpclient_errorcode_context::connect);
+</a><a href="#h2-0-151" id="h2-0-151" class="d">-         }
+</a><a href="#h2-0-152" id="h2-0-152" class="d">-@@ -1134,7 +1131,7 @@ private:
+</a><a href="#h2-0-153" id="h2-0-153" class="d">-         }
+</a><a href="#h2-0-154" id="h2-0-154" class="d">- #endif // CPPREST_PLATFORM_ASIO_CERT_VERIFICATION_AVAILABLE
+</a><a href="#h2-0-155" id="h2-0-155" class="d">- 
+</a><a href="#h2-0-156" id="h2-0-156" class="d">--        boost::asio::ssl::rfc2818_verification rfc2818(m_connection-&gt;cn_hostname());
+</a><a href="#h2-0-157" id="h2-0-157" class="d">-+        boost::asio::ssl::host_name_verification rfc2818(m_connection-&gt;cn_hostname());
+</a><a href="#h2-0-158" id="h2-0-158" class="d">-         return rfc2818(preverified, verifyCtx);
+</a><a href="#h2-0-159" id="h2-0-159" class="d">-     }
+</a><a href="#h2-0-160" id="h2-0-160" class="d">- 
+</a><a href="#h2-0-161" id="h2-0-161" class="d">-@@ -1182,8 +1179,8 @@ private:
+</a><a href="#h2-0-162" id="h2-0-162" class="d">- 
+</a><a href="#h2-0-163" id="h2-0-163" class="d">-         const auto&amp; chunkSize = m_http_client-&gt;client_config().chunksize();
+</a><a href="#h2-0-164" id="h2-0-164" class="d">-         auto readbuf = _get_readbuffer();
+</a><a href="#h2-0-165" id="h2-0-165" class="d">--        uint8_t* buf = boost::asio::buffer_cast&lt;uint8_t*&gt;(
+</a><a href="#h2-0-166" id="h2-0-166" class="d">--            m_body_buf.prepare(chunkSize + http::details::chunked_encoding::additional_encoding_space));
+</a><a href="#h2-0-167" id="h2-0-167" class="d">-+        uint8_t* buf = static_cast&lt;uint8_t*&gt;(
+</a><a href="#h2-0-168" id="h2-0-168" class="d">-+            m_body_buf.prepare(chunkSize + http::details::chunked_encoding::additional_encoding_space).data());
+</a><a href="#h2-0-169" id="h2-0-169" class="d">-         const auto this_request = shared_from_this();
+</a><a href="#h2-0-170" id="h2-0-170" class="d">-         readbuf.getn(buf + http::details::chunked_encoding::data_offset, chunkSize)
+</a><a href="#h2-0-171" id="h2-0-171" class="d">-             .then([this_request, buf, chunkSize AND_CAPTURE_MEMBER_FUNCTION_POINTERS](pplx::task&lt;size_t&gt; op) {
+</a><a href="#h2-0-172" id="h2-0-172" class="d">-@@ -1247,7 +1244,7 @@ private:
+</a><a href="#h2-0-173" id="h2-0-173" class="d">-         const auto readSize = static_cast&lt;size_t&gt;((std::min)(
+</a><a href="#h2-0-174" id="h2-0-174" class="d">-             static_cast&lt;uint64_t&gt;(m_http_client-&gt;client_config().chunksize()), m_content_length - m_uploaded));
+</a><a href="#h2-0-175" id="h2-0-175" class="d">-         auto readbuf = _get_readbuffer();
+</a><a href="#h2-0-176" id="h2-0-176" class="d">--        readbuf.getn(boost::asio::buffer_cast&lt;uint8_t*&gt;(m_body_buf.prepare(readSize)), readSize)
+</a><a href="#h2-0-177" id="h2-0-177" class="d">-+        readbuf.getn(static_cast&lt;uint8_t*&gt;(m_body_buf.prepare(readSize).data()), readSize)
+</a><a href="#h2-0-178" id="h2-0-178" class="d">-             .then([this_request AND_CAPTURE_MEMBER_FUNCTION_POINTERS](pplx::task&lt;size_t&gt; op) {
+</a><a href="#h2-0-179" id="h2-0-179" class="d">-                 try
+</a><a href="#h2-0-180" id="h2-0-180" class="d">-                 {
+</a><a href="#h2-0-181" id="h2-0-181" class="d">-@@ -1639,7 +1636,7 @@ private:
+</a><a href="#h2-0-182" id="h2-0-182" class="d">-                     std::vector&lt;uint8_t&gt; decompressed;
+</a><a href="#h2-0-183" id="h2-0-183" class="d">- 
+</a><a href="#h2-0-184" id="h2-0-184" class="d">-                     bool boo =
+</a><a href="#h2-0-185" id="h2-0-185" class="d">--                        decompress(boost::asio::buffer_cast&lt;const uint8_t*&gt;(m_body_buf.data()), to_read, decompressed);
+</a><a href="#h2-0-186" id="h2-0-186" class="d">-+                        decompress(static_cast&lt;const uint8_t*&gt;(m_body_buf.data().data()), to_read, decompressed);
+</a><a href="#h2-0-187" id="h2-0-187" class="d">-                     if (!boo)
+</a><a href="#h2-0-188" id="h2-0-188" class="d">-                     {
+</a><a href="#h2-0-189" id="h2-0-189" class="d">-                         report_exception(std::runtime_error(&quot;Failed to decompress the response body&quot;));
+</a><a href="#h2-0-190" id="h2-0-190" class="d">-@@ -1687,7 +1684,7 @@ private:
+</a><a href="#h2-0-191" id="h2-0-191" class="d">-                 }
+</a><a href="#h2-0-192" id="h2-0-192" class="d">-                 else
+</a><a href="#h2-0-193" id="h2-0-193" class="d">-                 {
+</a><a href="#h2-0-194" id="h2-0-194" class="d">--                    writeBuffer.putn_nocopy(boost::asio::buffer_cast&lt;const uint8_t*&gt;(m_body_buf.data()), to_read)
+</a><a href="#h2-0-195" id="h2-0-195" class="d">-+                    writeBuffer.putn_nocopy(static_cast&lt;const uint8_t*&gt;(m_body_buf.data().data()), to_read)
+</a><a href="#h2-0-196" id="h2-0-196" class="d">-                         .then([this_request, to_read AND_CAPTURE_MEMBER_FUNCTION_POINTERS](pplx::task&lt;size_t&gt; op) {
+</a><a href="#h2-0-197" id="h2-0-197" class="d">-                             try
+</a><a href="#h2-0-198" id="h2-0-198" class="d">-                             {
+</a><a href="#h2-0-199" id="h2-0-199" class="d">-@@ -1759,7 +1756,7 @@ private:
+</a><a href="#h2-0-200" id="h2-0-200" class="d">-                 std::vector&lt;uint8_t&gt; decompressed;
+</a><a href="#h2-0-201" id="h2-0-201" class="d">- 
+</a><a href="#h2-0-202" id="h2-0-202" class="d">-                 bool boo =
+</a><a href="#h2-0-203" id="h2-0-203" class="d">--                    decompress(boost::asio::buffer_cast&lt;const uint8_t*&gt;(m_body_buf.data()), read_size, decompressed);
+</a><a href="#h2-0-204" id="h2-0-204" class="d">-+                    decompress(static_cast&lt;const uint8_t*&gt;(m_body_buf.data().data()), read_size, decompressed);
+</a><a href="#h2-0-205" id="h2-0-205" class="d">-                 if (!boo)
+</a><a href="#h2-0-206" id="h2-0-206" class="d">-                 {
+</a><a href="#h2-0-207" id="h2-0-207" class="d">-                     this_request-&gt;report_exception(std::runtime_error(&quot;Failed to decompress the response body&quot;));
+</a><a href="#h2-0-208" id="h2-0-208" class="d">-@@ -1821,7 +1818,7 @@ private:
+</a><a href="#h2-0-209" id="h2-0-209" class="d">-             }
+</a><a href="#h2-0-210" id="h2-0-210" class="d">-             else
+</a><a href="#h2-0-211" id="h2-0-211" class="d">-             {
+</a><a href="#h2-0-212" id="h2-0-212" class="d">--                writeBuffer.putn_nocopy(boost::asio::buffer_cast&lt;const uint8_t*&gt;(m_body_buf.data()), read_size)
+</a><a href="#h2-0-213" id="h2-0-213" class="d">-+                writeBuffer.putn_nocopy(static_cast&lt;const uint8_t*&gt;(m_body_buf.data().data()), read_size)
+</a><a href="#h2-0-214" id="h2-0-214" class="d">-                     .then([this_request AND_CAPTURE_MEMBER_FUNCTION_POINTERS](pplx::task&lt;size_t&gt; op) {
+</a><a href="#h2-0-215" id="h2-0-215" class="d">-                         size_t writtenSize = 0;
+</a><a href="#h2-0-216" id="h2-0-216" class="d">-                         try
+</a><a href="#h2-0-217" id="h2-0-217" class="d">-@@ -1870,7 +1867,7 @@ private:
+</a><a href="#h2-0-218" id="h2-0-218" class="d">-             assert(!m_ctx.expired());
+</a><a href="#h2-0-219" id="h2-0-219" class="d">-             m_state = started;
+</a><a href="#h2-0-220" id="h2-0-220" class="d">- 
+</a><a href="#h2-0-221" id="h2-0-221" class="d">--            m_timer.expires_from_now(m_duration);
+</a><a href="#h2-0-222" id="h2-0-222" class="d">-+            m_timer.expires_after(m_duration);
+</a><a href="#h2-0-223" id="h2-0-223" class="d">-             auto ctx = m_ctx;
+</a><a href="#h2-0-224" id="h2-0-224" class="d">-             m_timer.async_wait([ctx AND_CAPTURE_MEMBER_FUNCTION_POINTERS](const boost::system::error_code&amp; ec) {
+</a><a href="#h2-0-225" id="h2-0-225" class="d">-                 handle_timeout(ec, ctx);
+</a><a href="#h2-0-226" id="h2-0-226" class="d">-@@ -1881,7 +1878,7 @@ private:
+</a><a href="#h2-0-227" id="h2-0-227" class="d">-         {
+</a><a href="#h2-0-228" id="h2-0-228" class="d">-             assert(m_state == started || m_state == timedout);
+</a><a href="#h2-0-229" id="h2-0-229" class="d">-             assert(!m_ctx.expired());
+</a><a href="#h2-0-230" id="h2-0-230" class="d">--            if (m_timer.expires_from_now(m_duration) &gt; 0)
+</a><a href="#h2-0-231" id="h2-0-231" class="d">-+            if (m_timer.expires_after(m_duration) &gt; 0)
+</a><a href="#h2-0-232" id="h2-0-232" class="d">-             {
+</a><a href="#h2-0-233" id="h2-0-233" class="d">-                 // The existing handler was canceled so schedule a new one.
+</a><a href="#h2-0-234" id="h2-0-234" class="d">-                 assert(m_state == started);
+</a><a href="#h2-0-235" id="h2-0-235" class="d">-diff --git a/Release/src/http/client/x509_cert_utilities.cpp b/Release/src/http/client/x509_cert_utilities.cpp
+</a><a href="#h2-0-236" id="h2-0-236" class="d">-index 67fc5ac..7239f97 100644
+</a><a href="#h2-0-237" id="h2-0-237" class="d">---- a/Release/src/http/client/x509_cert_utilities.cpp
+</a><a href="#h2-0-238" id="h2-0-238" class="d">-+++ b/Release/src/http/client/x509_cert_utilities.cpp
+</a><a href="#h2-0-239" id="h2-0-239" class="d">-@@ -95,7 +95,7 @@ bool verify_cert_chain_platform_specific(boost::asio::ssl::verify_context&amp; verif
+</a><a href="#h2-0-240" id="h2-0-240" class="d">- #if defined(_WIN32)
+</a><a href="#h2-0-241" id="h2-0-241" class="d">-     if (verify_result)
+</a><a href="#h2-0-242" id="h2-0-242" class="d">-     {
+</a><a href="#h2-0-243" id="h2-0-243" class="d">--        boost::asio::ssl::rfc2818_verification rfc2818(hostName);
+</a><a href="#h2-0-244" id="h2-0-244" class="d">-+        boost::asio::ssl::host_name_verification rfc2818(hostName);
+</a><a href="#h2-0-245" id="h2-0-245" class="d">-         verify_result = rfc2818(verify_result, verifyCtx);
+</a><a href="#h2-0-246" id="h2-0-246" class="d">-     }
+</a><a href="#h2-0-247" id="h2-0-247" class="d">- #endif
+</a><a href="#h2-0-248" id="h2-0-248" class="d">-diff --git a/Release/src/http/listener/http_server_asio.cpp b/Release/src/http/listener/http_server_asio.cpp
+</a><a href="#h2-0-249" id="h2-0-249" class="d">-index e83b9ff..14aadfb 100644
+</a><a href="#h2-0-250" id="h2-0-250" class="d">---- a/Release/src/http/listener/http_server_asio.cpp
+</a><a href="#h2-0-251" id="h2-0-251" class="d">-+++ b/Release/src/http/listener/http_server_asio.cpp
+</a><a href="#h2-0-252" id="h2-0-252" class="d">-@@ -520,17 +520,14 @@ void hostport_listener::start()
+</a><a href="#h2-0-253" id="h2-0-253" class="d">-     auto&amp; service = crossplat::threadpool::shared_instance().service();
+</a><a href="#h2-0-254" id="h2-0-254" class="d">-     tcp::resolver resolver(service);
+</a><a href="#h2-0-255" id="h2-0-255" class="d">-     // #446: boost resolver does not recognize &quot;+&quot; as a host wildchar
+</a><a href="#h2-0-256" id="h2-0-256" class="d">--    tcp::resolver::query query =
+</a><a href="#h2-0-257" id="h2-0-257" class="d">--        (&quot;+&quot; == m_host) ? tcp::resolver::query(m_port, boost::asio::ip::resolver_query_base::flags())
+</a><a href="#h2-0-258" id="h2-0-258" class="d">--                        : tcp::resolver::query(m_host, m_port, boost::asio::ip::resolver_query_base::flags());
+</a><a href="#h2-0-259" id="h2-0-259" class="d">--
+</a><a href="#h2-0-260" id="h2-0-260" class="d">--    tcp::endpoint endpoint = *resolver.resolve(query);
+</a><a href="#h2-0-261" id="h2-0-261" class="d">--
+</a><a href="#h2-0-262" id="h2-0-262" class="d">-+    auto host = (&quot;+&quot; == m_host) ? &quot;&quot; : m_host;
+</a><a href="#h2-0-263" id="h2-0-263" class="d">-+    auto results = resolver.resolve(host, m_port, boost::asio::ip::resolver_query_base::flags());
+</a><a href="#h2-0-264" id="h2-0-264" class="d">-+    tcp::endpoint endpoint = *results.begin();
+</a><a href="#h2-0-265" id="h2-0-265" class="d">-     m_acceptor.reset(new tcp::acceptor(service));
+</a><a href="#h2-0-266" id="h2-0-266" class="d">-     m_acceptor-&gt;open(endpoint.protocol());
+</a><a href="#h2-0-267" id="h2-0-267" class="d">-     m_acceptor-&gt;set_option(socket_base::reuse_address(true));
+</a><a href="#h2-0-268" id="h2-0-268" class="d">-     m_acceptor-&gt;bind(endpoint);
+</a><a href="#h2-0-269" id="h2-0-269" class="d">--    m_acceptor-&gt;listen(0 != m_backlog ? m_backlog : socket_base::max_connections);
+</a><a href="#h2-0-270" id="h2-0-270" class="d">-+    m_acceptor-&gt;listen(0 != m_backlog ? m_backlog : socket_base::max_listen_connections);
+</a><a href="#h2-0-271" id="h2-0-271" class="d">- 
+</a><a href="#h2-0-272" id="h2-0-272" class="d">-     auto socket = new ip::tcp::socket(service);
+</a><a href="#h2-0-273" id="h2-0-273" class="d">-     std::unique_ptr&lt;ip::tcp::socket&gt; usocket(socket);
+</a><a href="#h2-0-274" id="h2-0-274" class="d">-@@ -881,7 +878,7 @@ will_deref_t asio_server_connection::handle_chunked_body(const boost::system::er
+</a><a href="#h2-0-275" id="h2-0-275" class="d">-     else
+</a><a href="#h2-0-276" id="h2-0-276" class="d">-     {
+</a><a href="#h2-0-277" id="h2-0-277" class="d">-         auto writebuf = requestImpl-&gt;outstream().streambuf();
+</a><a href="#h2-0-278" id="h2-0-278" class="d">--        writebuf.putn_nocopy(buffer_cast&lt;const uint8_t*&gt;(m_request_buf.data()), toWrite)
+</a><a href="#h2-0-279" id="h2-0-279" class="d">-+        writebuf.putn_nocopy(static_cast&lt;const uint8_t*&gt;(m_request_buf.data().data()), toWrite)
+</a><a href="#h2-0-280" id="h2-0-280" class="d">-             .then([=](pplx::task&lt;size_t&gt; writeChunkTask) -&gt; will_deref_t {
+</a><a href="#h2-0-281" id="h2-0-281" class="d">-                 try
+</a><a href="#h2-0-282" id="h2-0-282" class="d">-                 {
+</a><a href="#h2-0-283" id="h2-0-283" class="d">-@@ -913,7 +910,7 @@ will_deref_t asio_server_connection::handle_body(const boost::system::error_code
+</a><a href="#h2-0-284" id="h2-0-284" class="d">-     {
+</a><a href="#h2-0-285" id="h2-0-285" class="d">-         auto writebuf = requestImpl-&gt;outstream().streambuf();
+</a><a href="#h2-0-286" id="h2-0-286" class="d">-         writebuf
+</a><a href="#h2-0-287" id="h2-0-287" class="d">--            .putn_nocopy(boost::asio::buffer_cast&lt;const uint8_t*&gt;(m_request_buf.data()),
+</a><a href="#h2-0-288" id="h2-0-288" class="d">-+            .putn_nocopy(static_cast&lt;const uint8_t*&gt;(m_request_buf.data().data()),
+</a><a href="#h2-0-289" id="h2-0-289" class="d">-                          (std::min)(m_request_buf.size(), m_read_size - m_read))
+</a><a href="#h2-0-290" id="h2-0-290" class="d">-             .then([this](pplx::task&lt;size_t&gt; writtenSizeTask) -&gt; will_deref_t {
+</a><a href="#h2-0-291" id="h2-0-291" class="d">-                 size_t writtenSize = 0;
+</a><a href="#h2-0-292" id="h2-0-292" class="d">-@@ -1134,7 +1131,7 @@ will_deref_and_erase_t asio_server_connection::handle_write_chunked_response(con
+</a><a href="#h2-0-293" id="h2-0-293" class="d">-     }
+</a><a href="#h2-0-294" id="h2-0-294" class="d">-     auto membuf = m_response_buf.prepare(ChunkSize + chunked_encoding::additional_encoding_space);
+</a><a href="#h2-0-295" id="h2-0-295" class="d">- 
+</a><a href="#h2-0-296" id="h2-0-296" class="d">--    readbuf.getn(buffer_cast&lt;uint8_t*&gt;(membuf) + chunked_encoding::data_offset, ChunkSize)
+</a><a href="#h2-0-297" id="h2-0-297" class="d">-+    readbuf.getn(static_cast&lt;uint8_t*&gt;(membuf.data()) + chunked_encoding::data_offset, ChunkSize)
+</a><a href="#h2-0-298" id="h2-0-298" class="d">-         .then([=](pplx::task&lt;size_t&gt; actualSizeTask) -&gt; will_deref_and_erase_t {
+</a><a href="#h2-0-299" id="h2-0-299" class="d">-             size_t actualSize = 0;
+</a><a href="#h2-0-300" id="h2-0-300" class="d">-             try
+</a><a href="#h2-0-301" id="h2-0-301" class="d">-@@ -1146,7 +1143,7 @@ will_deref_and_erase_t asio_server_connection::handle_write_chunked_response(con
+</a><a href="#h2-0-302" id="h2-0-302" class="d">-                 return cancel_sending_response_with_error(response, std::current_exception());
+</a><a href="#h2-0-303" id="h2-0-303" class="d">-             }
+</a><a href="#h2-0-304" id="h2-0-304" class="d">-             size_t offset = chunked_encoding::add_chunked_delimiters(
+</a><a href="#h2-0-305" id="h2-0-305" class="d">--                buffer_cast&lt;uint8_t*&gt;(membuf), ChunkSize + chunked_encoding::additional_encoding_space, actualSize);
+</a><a href="#h2-0-306" id="h2-0-306" class="d">-+                static_cast&lt;uint8_t*&gt;(membuf.data()), ChunkSize + chunked_encoding::additional_encoding_space, actualSize);
+</a><a href="#h2-0-307" id="h2-0-307" class="d">-             m_response_buf.commit(actualSize + chunked_encoding::additional_encoding_space);
+</a><a href="#h2-0-308" id="h2-0-308" class="d">-             m_response_buf.consume(offset);
+</a><a href="#h2-0-309" id="h2-0-309" class="d">-             if (actualSize == 0)
+</a><a href="#h2-0-310" id="h2-0-310" class="d">-@@ -1167,7 +1164,7 @@ will_deref_and_erase_t asio_server_connection::handle_write_large_response(const
+</a><a href="#h2-0-311" id="h2-0-311" class="d">-         return cancel_sending_response_with_error(
+</a><a href="#h2-0-312" id="h2-0-312" class="d">-             response, std::make_exception_ptr(http_exception(&quot;Response stream close early!&quot;)));
+</a><a href="#h2-0-313" id="h2-0-313" class="d">-     size_t readBytes = (std::min)(ChunkSize, m_write_size - m_write);
+</a><a href="#h2-0-314" id="h2-0-314" class="d">--    readbuf.getn(buffer_cast&lt;uint8_t*&gt;(m_response_buf.prepare(readBytes)), readBytes)
+</a><a href="#h2-0-315" id="h2-0-315" class="d">-+    readbuf.getn(static_cast&lt;uint8_t*&gt;(m_response_buf.prepare(readBytes).data()), readBytes)
+</a><a href="#h2-0-316" id="h2-0-316" class="d">-         .then([=](pplx::task&lt;size_t&gt; actualSizeTask) -&gt; will_deref_and_erase_t {
+</a><a href="#h2-0-317" id="h2-0-317" class="d">-             size_t actualSize = 0;
+</a><a href="#h2-0-318" id="h2-0-318" class="d">-             try
+</a><a href="#h2-0-319" id="h2-0-319" class="d">-diff --git a/Release/src/pplx/pplxlinux.cpp b/Release/src/pplx/pplxlinux.cpp
+</a><a href="#h2-0-320" id="h2-0-320" class="d">-index 630a9e4..65625b6 100644
+</a><a href="#h2-0-321" id="h2-0-321" class="d">---- a/Release/src/pplx/pplxlinux.cpp
+</a><a href="#h2-0-322" id="h2-0-322" class="d">-+++ b/Release/src/pplx/pplxlinux.cpp
+</a><a href="#h2-0-323" id="h2-0-323" class="d">-@@ -35,7 +35,7 @@ _PPLXIMP void YieldExecution() { std::this_thread::yield(); }
+</a><a href="#h2-0-324" id="h2-0-324" class="d">- 
+</a><a href="#h2-0-325" id="h2-0-325" class="d">- _PPLXIMP void linux_scheduler::schedule(TaskProc_t proc, void* param)
+</a><a href="#h2-0-326" id="h2-0-326" class="d">- {
+</a><a href="#h2-0-327" id="h2-0-327" class="d">--    crossplat::threadpool::shared_instance().service().post(boost::bind(proc, param));
+</a><a href="#h2-0-328" id="h2-0-328" class="d">-+    boost::asio::post(crossplat::threadpool::shared_instance().service(), boost::bind(proc, param));
+</a><a href="#h2-0-329" id="h2-0-329" class="d">- }
+</a><a href="#h2-0-330" id="h2-0-330" class="d">- 
+</a><a href="#h2-0-331" id="h2-0-331" class="d">- } // namespace details
+</a><a href="#h2-0-332" id="h2-0-332" class="d">-diff --git a/Release/src/pplx/threadpool.cpp b/Release/src/pplx/threadpool.cpp
+</a><a href="#h2-0-333" id="h2-0-333" class="d">-index ba38a1a..e12e48d 100644
+</a><a href="#h2-0-334" id="h2-0-334" class="d">---- a/Release/src/pplx/threadpool.cpp
+</a><a href="#h2-0-335" id="h2-0-335" class="d">-+++ b/Release/src/pplx/threadpool.cpp
+</a><a href="#h2-0-336" id="h2-0-336" class="d">-@@ -37,7 +37,7 @@ static void abort_if_no_jvm()
+</a><a href="#h2-0-337" id="h2-0-337" class="d">- 
+</a><a href="#h2-0-338" id="h2-0-338" class="d">- struct threadpool_impl final : crossplat::threadpool
+</a><a href="#h2-0-339" id="h2-0-339" class="d">- {
+</a><a href="#h2-0-340" id="h2-0-340" class="d">--    threadpool_impl(size_t n) : crossplat::threadpool(n), m_work(m_service)
+</a><a href="#h2-0-341" id="h2-0-341" class="d">-+    threadpool_impl(size_t n) : crossplat::threadpool(n), m_work(m_service.get_executor())
+</a><a href="#h2-0-342" id="h2-0-342" class="d">-     {
+</a><a href="#h2-0-343" id="h2-0-343" class="d">-         for (size_t i = 0; i &lt; n; i++)
+</a><a href="#h2-0-344" id="h2-0-344" class="d">-             add_thread();
+</a><a href="#h2-0-345" id="h2-0-345" class="d">-@@ -84,7 +84,7 @@ private:
+</a><a href="#h2-0-346" id="h2-0-346" class="d">-     }
+</a><a href="#h2-0-347" id="h2-0-347" class="d">- 
+</a><a href="#h2-0-348" id="h2-0-348" class="d">-     std::vector&lt;std::unique_ptr&lt;boost::asio::detail::thread&gt;&gt; m_threads;
+</a><a href="#h2-0-349" id="h2-0-349" class="d">--    boost::asio::io_service::work m_work;
+</a><a href="#h2-0-350" id="h2-0-350" class="d">-+    boost::asio::executor_work_guard&lt;boost::asio::io_context::executor_type&gt; m_work;
+</a><a href="#h2-0-351" id="h2-0-351" class="d">- };
+</a><a href="#h2-0-352" id="h2-0-352" class="d">- 
+</a><a href="#h2-0-353" id="h2-0-353" class="d">- #if defined(_WIN32)
+</a><a href="#h2-0-354" id="h2-0-354" class="d">-diff --git a/Release/src/websockets/client/ws_client_wspp.cpp b/Release/src/websockets/client/ws_client_wspp.cpp
+</a><a href="#h2-0-355" id="h2-0-355" class="d">-index d7c31c4..8dfa815 100644
+</a><a href="#h2-0-356" id="h2-0-356" class="d">---- a/Release/src/websockets/client/ws_client_wspp.cpp
+</a><a href="#h2-0-357" id="h2-0-357" class="d">-+++ b/Release/src/websockets/client/ws_client_wspp.cpp
+</a><a href="#h2-0-358" id="h2-0-358" class="d">-@@ -225,7 +225,7 @@ public:
+</a><a href="#h2-0-359" id="h2-0-359" class="d">-                             verifyCtx, utility::conversions::to_utf8string(m_uri.host()));
+</a><a href="#h2-0-360" id="h2-0-360" class="d">-                     }
+</a><a href="#h2-0-361" id="h2-0-361" class="d">- #endif
+</a><a href="#h2-0-362" id="h2-0-362" class="d">--                    boost::asio::ssl::rfc2818_verification rfc2818(utility::conversions::to_utf8string(m_uri.host()));
+</a><a href="#h2-0-363" id="h2-0-363" class="d">-+                    boost::asio::ssl::host_name_verification rfc2818(utility::conversions::to_utf8string(m_uri.host()));
+</a><a href="#h2-0-364" id="h2-0-364" class="d">-                     return rfc2818(preverified, verifyCtx);
+</a><a href="#h2-0-365" id="h2-0-365" class="d">-                 });
+</a><a href="#h2-0-366" id="h2-0-366" class="d">- 
+</a><b>diff --git a/<a id="h3" href="../file/src/VcpkgPortOverlay/cpprestsdk/fix-clang-dllimport.patch.html">src/VcpkgPortOverlay/cpprestsdk/fix-clang-dllimport.patch</a> b/<a href="../file/src/VcpkgPortOverlay/cpprestsdk/fix-clang-dllimport.patch.html">src/VcpkgPortOverlay/cpprestsdk/fix-clang-dllimport.patch</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -1,52 +0,0 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="d">-diff --git a/Release/include/cpprest/details/cpprest_compat.h b/Release/include/cpprest/details/cpprest_compat.h
+</a><a href="#h3-0-1" id="h3-0-1" class="d">-index bf107479..00581371 100644
+</a><a href="#h3-0-2" id="h3-0-2" class="d">---- a/Release/include/cpprest/details/cpprest_compat.h
+</a><a href="#h3-0-3" id="h3-0-3" class="d">-+++ b/Release/include/cpprest/details/cpprest_compat.h
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-@@ -29,7 +29,6 @@
+</a><a href="#h3-0-5" id="h3-0-5" class="d">- #else // ^^^ _WIN32 ^^^ // vvv !_WIN32 vvv
+</a><a href="#h3-0-6" id="h3-0-6" class="d">- 
+</a><a href="#h3-0-7" id="h3-0-7" class="d">- #define __declspec(x) __attribute__((x))
+</a><a href="#h3-0-8" id="h3-0-8" class="d">--#define dllimport
+</a><a href="#h3-0-9" id="h3-0-9" class="d">- #define novtable /* no novtable equivalent */
+</a><a href="#h3-0-10" id="h3-0-10" class="d">- #define __assume(x)                                                                                                    \
+</a><a href="#h3-0-11" id="h3-0-11" class="d">-     do                                                                                                                 \
+</a><a href="#h3-0-12" id="h3-0-12" class="d">-@@ -74,9 +73,17 @@
+</a><a href="#h3-0-13" id="h3-0-13" class="d">- #define _ASYNCRTIMP_TYPEINFO
+</a><a href="#h3-0-14" id="h3-0-14" class="d">- #else // ^^^ _NO_ASYNCRTIMP ^^^ // vvv !_NO_ASYNCRTIMP vvv
+</a><a href="#h3-0-15" id="h3-0-15" class="d">- #ifdef _ASYNCRT_EXPORT
+</a><a href="#h3-0-16" id="h3-0-16" class="d">-+#ifdef _WIN32
+</a><a href="#h3-0-17" id="h3-0-17" class="d">- #define _ASYNCRTIMP __declspec(dllexport)
+</a><a href="#h3-0-18" id="h3-0-18" class="d">-+#else
+</a><a href="#h3-0-19" id="h3-0-19" class="d">-+#define _ASYNCRTIMP __attribute__((visibility(&quot;default&quot;)))
+</a><a href="#h3-0-20" id="h3-0-20" class="d">-+#endif
+</a><a href="#h3-0-21" id="h3-0-21" class="d">- #else // ^^^ _ASYNCRT_EXPORT ^^^ // vvv !_ASYNCRT_EXPORT vvv
+</a><a href="#h3-0-22" id="h3-0-22" class="d">-+#ifdef _WIN32
+</a><a href="#h3-0-23" id="h3-0-23" class="d">- #define _ASYNCRTIMP __declspec(dllimport)
+</a><a href="#h3-0-24" id="h3-0-24" class="d">-+#else
+</a><a href="#h3-0-25" id="h3-0-25" class="d">-+#define _ASYNCRTIMP
+</a><a href="#h3-0-26" id="h3-0-26" class="d">-+#endif
+</a><a href="#h3-0-27" id="h3-0-27" class="d">- #endif // _ASYNCRT_EXPORT
+</a><a href="#h3-0-28" id="h3-0-28" class="d">- 
+</a><a href="#h3-0-29" id="h3-0-29" class="d">- #if defined(_WIN32)
+</a><a href="#h3-0-30" id="h3-0-30" class="d">-diff --git a/Release/include/pplx/pplx.h b/Release/include/pplx/pplx.h
+</a><a href="#h3-0-31" id="h3-0-31" class="d">-index d9ba9c61..8d36252c 100644
+</a><a href="#h3-0-32" id="h3-0-32" class="d">---- a/Release/include/pplx/pplx.h
+</a><a href="#h3-0-33" id="h3-0-33" class="d">-+++ b/Release/include/pplx/pplx.h
+</a><a href="#h3-0-34" id="h3-0-34" class="d">-@@ -30,9 +30,17 @@
+</a><a href="#h3-0-35" id="h3-0-35" class="d">- #define _PPLXIMP
+</a><a href="#h3-0-36" id="h3-0-36" class="d">- #else
+</a><a href="#h3-0-37" id="h3-0-37" class="d">- #ifdef _PPLX_EXPORT
+</a><a href="#h3-0-38" id="h3-0-38" class="d">-+#ifdef _WIN32
+</a><a href="#h3-0-39" id="h3-0-39" class="d">- #define _PPLXIMP __declspec(dllexport)
+</a><a href="#h3-0-40" id="h3-0-40" class="d">- #else
+</a><a href="#h3-0-41" id="h3-0-41" class="d">-+#define _PPLXIMP __attribute__((visibility(&quot;default&quot;)))
+</a><a href="#h3-0-42" id="h3-0-42" class="d">-+#endif
+</a><a href="#h3-0-43" id="h3-0-43" class="d">-+#else
+</a><a href="#h3-0-44" id="h3-0-44" class="d">-+#ifdef _WIN32
+</a><a href="#h3-0-45" id="h3-0-45" class="d">- #define _PPLXIMP __declspec(dllimport)
+</a><a href="#h3-0-46" id="h3-0-46" class="d">-+#else
+</a><a href="#h3-0-47" id="h3-0-47" class="d">-+#define _PPLXIMP
+</a><a href="#h3-0-48" id="h3-0-48" class="d">-+#endif
+</a><a href="#h3-0-49" id="h3-0-49" class="d">- #endif
+</a><a href="#h3-0-50" id="h3-0-50" class="d">- #endif
+</a><a href="#h3-0-51" id="h3-0-51" class="d">- 
+</a><b>diff --git a/<a id="h4" href="../file/src/VcpkgPortOverlay/cpprestsdk/portfile.cmake.html">src/VcpkgPortOverlay/cpprestsdk/portfile.cmake</a> b/<a href="../file/src/VcpkgPortOverlay/cpprestsdk/portfile.cmake.html">src/VcpkgPortOverlay/cpprestsdk/portfile.cmake</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -1,19 +1,24 @@
+</a> vcpkg_from_github(
+     OUT_SOURCE_PATH SOURCE_PATH
+     REPO Microsoft/cpprestsdk
+<a href="#h4-0-3" id="h4-0-3" class="d">-    REF 411a109150b270f23c8c97fa4ec9a0a4a98cdecf
+</a><a href="#h4-0-4" id="h4-0-4" class="d">-    SHA512 4f604763f05d53e50dec5deaba283fa4f82d5e7a94c7c8142bf422f4c0bc24bcef00666ddbdd820f64c14e552997d6657b6aca79a29e69db43799961b44b2a1a
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+    REF 122d09549201da5383321d870bed45ecb9e168c5
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+    SHA512 c9ded33d3c67880e2471e479a38b40a14a9ff45d241e928b6339eca697b06ad621846260eca47b6b1b8a2bc9ab7bf4fea8d3e8e795cd430d8839beb530e16dd7
+</a>     HEAD_REF master
+     PATCHES 
+         fix-find-openssl.patch
+         fix_narrowing.patch
+         fix-uwp.patch
+<a href="#h4-0-12" id="h4-0-12" class="d">-        fix-clang-dllimport.patch # workaround for https://github.com/microsoft/cpprestsdk/issues/1710
+</a><a href="#h4-0-13" id="h4-0-13" class="d">-        silence-stdext-checked-array-iterators-warning.patch
+</a><a href="#h4-0-14" id="h4-0-14" class="d">-        fix-asio-error.patch
+</a>         add-server-certificate-validation.patch
+ )
+ 
+<a href="#h4-0-18" id="h4-0-18" class="i">+set(OPTIONS)
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+if(NOT VCPKG_TARGET_IS_UWP)
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+    SET(WEBSOCKETPP_PATH &quot;${CURRENT_INSTALLED_DIR}/share/websocketpp&quot;)
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+    list(APPEND OPTIONS
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+        -DWEBSOCKETPP_CONFIG=${WEBSOCKETPP_PATH}
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+        -DWEBSOCKETPP_CONFIG_VERSION=${WEBSOCKETPP_PATH})
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+endif()
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+
+</a> vcpkg_check_features(
+     OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+     INVERTED_FEATURES
+<a href="#h4-1" id="h4-1" class="h">@@ -30,6 +35,7 @@ vcpkg_cmake_configure(
+</a>     SOURCE_PATH &quot;${SOURCE_PATH}/Release&quot;
+     ${configure_opts}
+     OPTIONS
+<a href="#h4-1-3" id="h4-1-3" class="i">+        ${OPTIONS}
+</a>         ${FEATURE_OPTIONS}
+         -DBUILD_TESTS=OFF
+         -DBUILD_SAMPLES=OFF
+<b>diff --git a/<a id="h5" href="../file/src/VcpkgPortOverlay/cpprestsdk/silence-stdext-checked-array-iterators-warning.patch.html">src/VcpkgPortOverlay/cpprestsdk/silence-stdext-checked-array-iterators-warning.patch</a> b/<a href="../file/src/VcpkgPortOverlay/cpprestsdk/silence-stdext-checked-array-iterators-warning.patch.html">src/VcpkgPortOverlay/cpprestsdk/silence-stdext-checked-array-iterators-warning.patch</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -1,12 +0,0 @@
+</a><a href="#h5-0-0" id="h5-0-0" class="d">-diff --git a/Release/CMakeLists.txt b/Release/CMakeLists.txt
+</a><a href="#h5-0-1" id="h5-0-1" class="d">-index 3d6df65..9ff6d66 100644
+</a><a href="#h5-0-2" id="h5-0-2" class="d">---- a/Release/CMakeLists.txt
+</a><a href="#h5-0-3" id="h5-0-3" class="d">-+++ b/Release/CMakeLists.txt
+</a><a href="#h5-0-4" id="h5-0-4" class="d">-@@ -178,6 +178,7 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES &quot;MSVC&quot;)
+</a><a href="#h5-0-5" id="h5-0-5" class="d">-   set(WARNINGS)
+</a><a href="#h5-0-6" id="h5-0-6" class="d">-   set(CMAKE_STATIC_LINKER_FLAGS &quot;${CMAKE_STATIC_LINKER_FLAGS} /ignore:4264&quot;)
+</a><a href="#h5-0-7" id="h5-0-7" class="d">-   add_compile_options(/bigobj)
+</a><a href="#h5-0-8" id="h5-0-8" class="d">-+  add_compile_options(/D_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
+</a><a href="#h5-0-9" id="h5-0-9" class="d">-   set(CMAKE_CXX_FLAGS_DEBUG &quot;${CMAKE_CXX_FLAGS_DEBUG} /MP&quot;)
+</a><a href="#h5-0-10" id="h5-0-10" class="d">-   set(CMAKE_CXX_FLAGS_MINSIZEREL &quot;${CMAKE_CXX_FLAGS_MINSIZEREL} /MP&quot;)
+</a><a href="#h5-0-11" id="h5-0-11" class="d">-   set(CMAKE_CXX_FLAGS_RELEASE &quot;${CMAKE_CXX_FLAGS_RELEASE} /MP&quot;)
+</a><b>diff --git a/<a id="h6" href="../file/src/VcpkgPortOverlay/cpprestsdk/vcpkg.json.html">src/VcpkgPortOverlay/cpprestsdk/vcpkg.json</a> b/<a href="../file/src/VcpkgPortOverlay/cpprestsdk/vcpkg.json.html">src/VcpkgPortOverlay/cpprestsdk/vcpkg.json</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -1,7 +1,7 @@
+</a> {
+   &quot;name&quot;: &quot;cpprestsdk&quot;,
+<a href="#h6-0-2" id="h6-0-2" class="d">-  &quot;version&quot;: &quot;2.10.19&quot;,
+</a><a href="#h6-0-3" id="h6-0-3" class="d">-  &quot;port-version&quot;: 3,
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+  &quot;version&quot;: &quot;2.10.18&quot;,
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+  &quot;port-version&quot;: 4,
+</a>   &quot;description&quot;: [
+     &quot;C++11 JSON, REST, and OAuth library&quot;,
+     &quot;The C++ REST SDK is a Microsoft project for cloud-based client-server communication in native code using a modern asynchronous C++ API design. This project aims to help C++ developers connect to and interact with services.&quot;
+<a href="#h6-1" id="h6-1" class="h">@@ -80,6 +80,38 @@
+</a>       &quot;dependencies&quot;: [
+         &quot;zlib&quot;
+       ]
+<a href="#h6-1-3" id="h6-1-3" class="i">+    },
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+    &quot;websockets&quot;: {
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+      &quot;description&quot;: &quot;Websockets support&quot;,
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+      &quot;dependencies&quot;: [
+</a><a href="#h6-1-7" id="h6-1-7" class="i">+        {
+</a><a href="#h6-1-8" id="h6-1-8" class="i">+          &quot;name&quot;: &quot;boost-date-time&quot;,
+</a><a href="#h6-1-9" id="h6-1-9" class="i">+          &quot;platform&quot;: &quot;!uwp&quot;
+</a><a href="#h6-1-10" id="h6-1-10" class="i">+        },
+</a><a href="#h6-1-11" id="h6-1-11" class="i">+        {
+</a><a href="#h6-1-12" id="h6-1-12" class="i">+          &quot;name&quot;: &quot;boost-regex&quot;,
+</a><a href="#h6-1-13" id="h6-1-13" class="i">+          &quot;platform&quot;: &quot;!uwp&quot;
+</a><a href="#h6-1-14" id="h6-1-14" class="i">+        },
+</a><a href="#h6-1-15" id="h6-1-15" class="i">+        {
+</a><a href="#h6-1-16" id="h6-1-16" class="i">+          &quot;name&quot;: &quot;boost-system&quot;,
+</a><a href="#h6-1-17" id="h6-1-17" class="i">+          &quot;platform&quot;: &quot;!uwp&quot;
+</a><a href="#h6-1-18" id="h6-1-18" class="i">+        },
+</a><a href="#h6-1-19" id="h6-1-19" class="i">+        {
+</a><a href="#h6-1-20" id="h6-1-20" class="i">+          &quot;name&quot;: &quot;cpprestsdk&quot;,
+</a><a href="#h6-1-21" id="h6-1-21" class="i">+          &quot;default-features&quot;: false,
+</a><a href="#h6-1-22" id="h6-1-22" class="i">+          &quot;features&quot;: [
+</a><a href="#h6-1-23" id="h6-1-23" class="i">+            &quot;compression&quot;
+</a><a href="#h6-1-24" id="h6-1-24" class="i">+          ]
+</a><a href="#h6-1-25" id="h6-1-25" class="i">+        },
+</a><a href="#h6-1-26" id="h6-1-26" class="i">+        {
+</a><a href="#h6-1-27" id="h6-1-27" class="i">+          &quot;name&quot;: &quot;openssl&quot;,
+</a><a href="#h6-1-28" id="h6-1-28" class="i">+          &quot;platform&quot;: &quot;!uwp&quot;
+</a><a href="#h6-1-29" id="h6-1-29" class="i">+        },
+</a><a href="#h6-1-30" id="h6-1-30" class="i">+        {
+</a><a href="#h6-1-31" id="h6-1-31" class="i">+          &quot;name&quot;: &quot;websocketpp&quot;,
+</a><a href="#h6-1-32" id="h6-1-32" class="i">+          &quot;platform&quot;: &quot;!uwp&quot;
+</a><a href="#h6-1-33" id="h6-1-33" class="i">+        }
+</a><a href="#h6-1-34" id="h6-1-34" class="i">+      ]
+</a>     }
+   }
+ }
+<b>diff --git a/<a id="h7" href="../file/src/vcpkg.json.html">src/vcpkg.json</a> b/<a href="../file/src/vcpkg.json.html">src/vcpkg.json</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -36,6 +36,10 @@
+</a>       &quot;version&quot;: &quot;1.0&quot;
+     },
+     {
+<a href="#h7-0-3" id="h7-0-3" class="i">+      &quot;name&quot;: &quot;cpprestsdk&quot;,
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+      &quot;version&quot;: &quot;2.10.18&quot;
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+    },
+</a><a href="#h7-0-6" id="h7-0-6" class="i">+    {
+</a>       &quot;name&quot;: &quot;curl&quot;,
+       &quot;version&quot;: &quot;8.12.1&quot;
+     },
+</pre>
+</div>
+</body>
+</html>

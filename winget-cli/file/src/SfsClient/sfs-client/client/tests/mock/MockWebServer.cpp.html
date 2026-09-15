@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>MockWebServer.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../../../../"><img src="../../../../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../../../../log.html">Log</a> | <a href="../../../../../../../files.html">Files</a> | <a href="../../../../../../../refs.html">Refs</a> | <a href="../../../../../../../file/README.md.html">README</a> | <a href="../../../../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> MockWebServer.cpp (25565B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> 
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;MockWebServer.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;../util/TestHelper.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;ErrorHandling.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;ServerCommon.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;Util.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> #include &quot;connection/HttpHeader.h&quot;
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> #ifdef _WIN32
+<a href="#l13" class="line" id="l13">     13</a> #define WIN32_LEAN_AND_MEAN
+<a href="#l14" class="line" id="l14">     14</a> #include &lt;windows.h&gt;
+<a href="#l15" class="line" id="l15">     15</a> #endif
+<a href="#l16" class="line" id="l16">     16</a> 
+<a href="#l17" class="line" id="l17">     17</a> #include &lt;nlohmann/json.hpp&gt;
+<a href="#l18" class="line" id="l18">     18</a> 
+<a href="#l19" class="line" id="l19">     19</a> #include &lt;chrono&gt;
+<a href="#l20" class="line" id="l20">     20</a> #include &lt;mutex&gt;
+<a href="#l21" class="line" id="l21">     21</a> #include &lt;optional&gt;
+<a href="#l22" class="line" id="l22">     22</a> #include &lt;thread&gt;
+<a href="#l23" class="line" id="l23">     23</a> #include &lt;unordered_map&gt;
+<a href="#l24" class="line" id="l24">     24</a> 
+<a href="#l25" class="line" id="l25">     25</a> using namespace SFS;
+<a href="#l26" class="line" id="l26">     26</a> using namespace SFS::details;
+<a href="#l27" class="line" id="l27">     27</a> using namespace SFS::details::util;
+<a href="#l28" class="line" id="l28">     28</a> using namespace SFS::test;
+<a href="#l29" class="line" id="l29">     29</a> using namespace SFS::test::details;
+<a href="#l30" class="line" id="l30">     30</a> using json = nlohmann::json;
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a> namespace
+<a href="#l33" class="line" id="l33">     33</a> {
+<a href="#l34" class="line" id="l34">     34</a> 
+<a href="#l35" class="line" id="l35">     35</a> struct App
+<a href="#l36" class="line" id="l36">     36</a> {
+<a href="#l37" class="line" id="l37">     37</a>     std::string version;
+<a href="#l38" class="line" id="l38">     38</a>     std::vector&lt;MockPrerequisite&gt; prerequisites;
+<a href="#l39" class="line" id="l39">     39</a> };
+<a href="#l40" class="line" id="l40">     40</a> 
+<a href="#l41" class="line" id="l41">     41</a> struct AppCmp
+<a href="#l42" class="line" id="l42">     42</a> {
+<a href="#l43" class="line" id="l43">     43</a>     bool operator()(App a, App b) const
+<a href="#l44" class="line" id="l44">     44</a>     {
+<a href="#l45" class="line" id="l45">     45</a>         return a.version &lt; b.version;
+<a href="#l46" class="line" id="l46">     46</a>     }
+<a href="#l47" class="line" id="l47">     47</a> };
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a> json GenerateContentIdJsonObject(const std::string&amp; name, const std::string&amp; latestVersion, const std::string&amp; ns)
+<a href="#l50" class="line" id="l50">     50</a> {
+<a href="#l51" class="line" id="l51">     51</a>     // {
+<a href="#l52" class="line" id="l52">     52</a>     //   &quot;ContentId&quot;: {
+<a href="#l53" class="line" id="l53">     53</a>     //     &quot;Namespace&quot;: &lt;ns&gt;,
+<a href="#l54" class="line" id="l54">     54</a>     //     &quot;Name&quot;: &lt;name&gt;,
+<a href="#l55" class="line" id="l55">     55</a>     //     &quot;Version&quot;: &lt;version&gt;
+<a href="#l56" class="line" id="l56">     56</a>     //   }
+<a href="#l57" class="line" id="l57">     57</a>     // }
+<a href="#l58" class="line" id="l58">     58</a> 
+<a href="#l59" class="line" id="l59">     59</a>     return {{&quot;ContentId&quot;, {{&quot;Namespace&quot;, ns}, {&quot;Name&quot;, name}, {&quot;Version&quot;, latestVersion}}}};
+<a href="#l60" class="line" id="l60">     60</a> }
+<a href="#l61" class="line" id="l61">     61</a> 
+<a href="#l62" class="line" id="l62">     62</a> json GenerateGetAppVersionJsonObject(const std::string&amp; name, const App&amp; app, const std::string&amp; ns)
+<a href="#l63" class="line" id="l63">     63</a> {
+<a href="#l64" class="line" id="l64">     64</a>     // {
+<a href="#l65" class="line" id="l65">     65</a>     //   &quot;ContentId&quot;: {
+<a href="#l66" class="line" id="l66">     66</a>     //     &quot;Namespace&quot;: &lt;ns&gt;,
+<a href="#l67" class="line" id="l67">     67</a>     //     &quot;Name&quot;: &lt;name&gt;,
+<a href="#l68" class="line" id="l68">     68</a>     //     &quot;Version&quot;: &lt;version&gt;
+<a href="#l69" class="line" id="l69">     69</a>     //   },
+<a href="#l70" class="line" id="l70">     70</a>     //   &quot;UpdateId&quot;: &quot;&lt;id&gt;&quot;,
+<a href="#l71" class="line" id="l71">     71</a>     //   &quot;Prerequisites&quot;: [
+<a href="#l72" class="line" id="l72">     72</a>     //     {
+<a href="#l73" class="line" id="l73">     73</a>     //       &quot;Namespace&quot;: &quot;&lt;ns&gt;&quot;,
+<a href="#l74" class="line" id="l74">     74</a>     //       &quot;Name&quot;: &quot;&lt;name&gt;&quot;,
+<a href="#l75" class="line" id="l75">     75</a>     //       &quot;Version&quot;: &quot;&lt;version&gt;&quot;
+<a href="#l76" class="line" id="l76">     76</a>     //     }
+<a href="#l77" class="line" id="l77">     77</a>     //   ]
+<a href="#l78" class="line" id="l78">     78</a>     // }
+<a href="#l79" class="line" id="l79">     79</a> 
+<a href="#l80" class="line" id="l80">     80</a>     json prereqs = json::array();
+<a href="#l81" class="line" id="l81">     81</a>     for (const auto&amp; prereq : app.prerequisites)
+<a href="#l82" class="line" id="l82">     82</a>     {
+<a href="#l83" class="line" id="l83">     83</a>         prereqs.push_back({{&quot;Namespace&quot;, ns}, {&quot;Name&quot;, prereq.name}, {&quot;Version&quot;, prereq.version}});
+<a href="#l84" class="line" id="l84">     84</a>     }
+<a href="#l85" class="line" id="l85">     85</a>     return {{&quot;ContentId&quot;, {{&quot;Namespace&quot;, ns}, {&quot;Name&quot;, name}, {&quot;Version&quot;, app.version}}},
+<a href="#l86" class="line" id="l86">     86</a>             {&quot;UpdateId&quot;, &quot;123&quot;},
+<a href="#l87" class="line" id="l87">     87</a>             {&quot;Prerequisites&quot;, prereqs}};
+<a href="#l88" class="line" id="l88">     88</a> }
+<a href="#l89" class="line" id="l89">     89</a> 
+<a href="#l90" class="line" id="l90">     90</a> json GeneratePostDownloadInfo(const std::string&amp; name)
+<a href="#l91" class="line" id="l91">     91</a> {
+<a href="#l92" class="line" id="l92">     92</a>     // [
+<a href="#l93" class="line" id="l93">     93</a>     //   {
+<a href="#l94" class="line" id="l94">     94</a>     //     &quot;Url&quot;: &lt;url&gt;,
+<a href="#l95" class="line" id="l95">     95</a>     //     &quot;FileId&quot;: &lt;fileid&gt;,
+<a href="#l96" class="line" id="l96">     96</a>     //     &quot;SizeInBytes&quot;: &lt;size&gt;,
+<a href="#l97" class="line" id="l97">     97</a>     //     &quot;Hashes&quot;: {
+<a href="#l98" class="line" id="l98">     98</a>     //       &quot;Sha1&quot;: &lt;sha1&gt;,
+<a href="#l99" class="line" id="l99">     99</a>     //       &quot;Sha256&quot;: &lt;sha2&gt;
+<a href="#l100" class="line" id="l100">    100</a>     //     },
+<a href="#l101" class="line" id="l101">    101</a>     //     &quot;DeliveryOptimization&quot;: {
+<a href="#l102" class="line" id="l102">    102</a>     //       &quot;CatalogId&quot;: &lt;catalogid&gt;,
+<a href="#l103" class="line" id="l103">    103</a>     //       &quot;Properties&quot;: {
+<a href="#l104" class="line" id="l104">    104</a>     //         &quot;IntegrityCheckInfo&quot;: {
+<a href="#l105" class="line" id="l105">    105</a>     //           &quot;PiecesHashFileUrl&quot;: &lt;url&gt;,
+<a href="#l106" class="line" id="l106">    106</a>     //           &quot;HashOfHashes&quot;: &lt;hash&gt;
+<a href="#l107" class="line" id="l107">    107</a>     //         }
+<a href="#l108" class="line" id="l108">    108</a>     //       }
+<a href="#l109" class="line" id="l109">    109</a>     //     }
+<a href="#l110" class="line" id="l110">    110</a>     //   },
+<a href="#l111" class="line" id="l111">    111</a>     //   ...
+<a href="#l112" class="line" id="l112">    112</a>     // ]
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>     // Generating DeliveryOptimizationData to simulate the server response, but it&#39;s not being parsed by the Client
+<a href="#l115" class="line" id="l115">    115</a> 
+<a href="#l116" class="line" id="l116">    116</a>     json response;
+<a href="#l117" class="line" id="l117">    117</a>     response = json::array();
+<a href="#l118" class="line" id="l118">    118</a>     response.push_back({{&quot;Url&quot;, &quot;http://localhost/1.json&quot;},
+<a href="#l119" class="line" id="l119">    119</a>                         {&quot;FileId&quot;, name + &quot;.json&quot;},
+<a href="#l120" class="line" id="l120">    120</a>                         {&quot;SizeInBytes&quot;, 100},
+<a href="#l121" class="line" id="l121">    121</a>                         {&quot;Hashes&quot;, {{&quot;Sha1&quot;, &quot;123&quot;}, {&quot;Sha256&quot;, &quot;456&quot;}}}});
+<a href="#l122" class="line" id="l122">    122</a>     response[0][&quot;DeliveryOptimization&quot;] = {{&quot;CatalogId&quot;, &quot;789&quot;}};
+<a href="#l123" class="line" id="l123">    123</a>     response[0][&quot;DeliveryOptimization&quot;][&quot;Properties&quot;] = {
+<a href="#l124" class="line" id="l124">    124</a>         {&quot;IntegrityCheckInfo&quot;, {{&quot;PiecesHashFileUrl&quot;, &quot;http://localhost/1.json&quot;}, {&quot;HashOfHashes&quot;, &quot;abc&quot;}}}};
+<a href="#l125" class="line" id="l125">    125</a> 
+<a href="#l126" class="line" id="l126">    126</a>     response.push_back({{&quot;Url&quot;, &quot;http://localhost/2.bin&quot;},
+<a href="#l127" class="line" id="l127">    127</a>                         {&quot;FileId&quot;, name + &quot;.bin&quot;},
+<a href="#l128" class="line" id="l128">    128</a>                         {&quot;SizeInBytes&quot;, 200},
+<a href="#l129" class="line" id="l129">    129</a>                         {&quot;Hashes&quot;, {{&quot;Sha1&quot;, &quot;421&quot;}, {&quot;Sha256&quot;, &quot;132&quot;}}}});
+<a href="#l130" class="line" id="l130">    130</a>     response[1][&quot;DeliveryOptimization&quot;] = {{&quot;CatalogId&quot;, &quot;14&quot;}};
+<a href="#l131" class="line" id="l131">    131</a>     response[1][&quot;DeliveryOptimization&quot;][&quot;Properties&quot;] = {
+<a href="#l132" class="line" id="l132">    132</a>         {&quot;IntegrityCheckInfo&quot;, {{&quot;PiecesHashFileUrl&quot;, &quot;http://localhost/2.bin&quot;}, {&quot;HashOfHashes&quot;, &quot;abcd&quot;}}}};
+<a href="#l133" class="line" id="l133">    133</a>     return response;
+<a href="#l134" class="line" id="l134">    134</a> }
+<a href="#l135" class="line" id="l135">    135</a> 
+<a href="#l136" class="line" id="l136">    136</a> json GeneratePostAppDownloadInfo(const std::string&amp; name)
+<a href="#l137" class="line" id="l137">    137</a> {
+<a href="#l138" class="line" id="l138">    138</a>     // [
+<a href="#l139" class="line" id="l139">    139</a>     //   {
+<a href="#l140" class="line" id="l140">    140</a>     //     &quot;Url&quot;: &lt;url&gt;,
+<a href="#l141" class="line" id="l141">    141</a>     //     &quot;FileId&quot;: &lt;fileid&gt;,
+<a href="#l142" class="line" id="l142">    142</a>     //     &quot;SizeInBytes&quot;: &lt;size&gt;,
+<a href="#l143" class="line" id="l143">    143</a>     //     &quot;Hashes&quot;: {
+<a href="#l144" class="line" id="l144">    144</a>     //       &quot;Sha1&quot;: &lt;sha1&gt;,
+<a href="#l145" class="line" id="l145">    145</a>     //       &quot;Sha256&quot;: &lt;sha2&gt;
+<a href="#l146" class="line" id="l146">    146</a>     //     },
+<a href="#l147" class="line" id="l147">    147</a>     //     &quot;DeliveryOptimization&quot;: {
+<a href="#l148" class="line" id="l148">    148</a>     //       &quot;CatalogId&quot;: &lt;catalogid&gt;,
+<a href="#l149" class="line" id="l149">    149</a>     //       &quot;Properties&quot;: {
+<a href="#l150" class="line" id="l150">    150</a>     //         &quot;IntegrityCheckInfo&quot;: {
+<a href="#l151" class="line" id="l151">    151</a>     //           &quot;PiecesHashFileUrl&quot;: &lt;url&gt;,
+<a href="#l152" class="line" id="l152">    152</a>     //           &quot;HashOfHashes&quot;: &lt;hash&gt;
+<a href="#l153" class="line" id="l153">    153</a>     //         }
+<a href="#l154" class="line" id="l154">    154</a>     //       }
+<a href="#l155" class="line" id="l155">    155</a>     //     },
+<a href="#l156" class="line" id="l156">    156</a>     //     &quot;ApplicabilityDetails&quot;: {
+<a href="#l157" class="line" id="l157">    157</a>     //       &quot;Architectures&quot;: [
+<a href="#l158" class="line" id="l158">    158</a>     //         &quot;&lt;arch&gt;&quot;
+<a href="#l159" class="line" id="l159">    159</a>     //       ],
+<a href="#l160" class="line" id="l160">    160</a>     //       &quot;PlatformApplicabilityForPackage&quot;: [
+<a href="#l161" class="line" id="l161">    161</a>     //         &quot;&lt;app&gt;&quot;
+<a href="#l162" class="line" id="l162">    162</a>     //       ]
+<a href="#l163" class="line" id="l163">    163</a>     //     },
+<a href="#l164" class="line" id="l164">    164</a>     //     &quot;FileMoniker&quot;: &quot;&lt;moniker&gt;&quot;
+<a href="#l165" class="line" id="l165">    165</a>     //   }
+<a href="#l166" class="line" id="l166">    166</a>     // ]
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a>     // Generating DeliveryOptimizationData to simulate the server response, but it&#39;s not being parsed by the Client
+<a href="#l169" class="line" id="l169">    169</a> 
+<a href="#l170" class="line" id="l170">    170</a>     json response;
+<a href="#l171" class="line" id="l171">    171</a>     response = json::array();
+<a href="#l172" class="line" id="l172">    172</a>     response.push_back({{&quot;Url&quot;, &quot;http://localhost/1.json&quot;},
+<a href="#l173" class="line" id="l173">    173</a>                         {&quot;FileId&quot;, name + &quot;.json&quot;},
+<a href="#l174" class="line" id="l174">    174</a>                         {&quot;SizeInBytes&quot;, 100},
+<a href="#l175" class="line" id="l175">    175</a>                         {&quot;Hashes&quot;, {{&quot;Sha1&quot;, &quot;123&quot;}, {&quot;Sha256&quot;, &quot;456&quot;}}}});
+<a href="#l176" class="line" id="l176">    176</a>     response[0][&quot;DeliveryOptimization&quot;] = {{&quot;CatalogId&quot;, &quot;789&quot;}};
+<a href="#l177" class="line" id="l177">    177</a>     response[0][&quot;DeliveryOptimization&quot;][&quot;Properties&quot;] = {
+<a href="#l178" class="line" id="l178">    178</a>         {&quot;IntegrityCheckInfo&quot;, {{&quot;PiecesHashFileUrl&quot;, &quot;http://localhost/1.json&quot;}, {&quot;HashOfHashes&quot;, &quot;abc&quot;}}}};
+<a href="#l179" class="line" id="l179">    179</a>     response[0][&quot;ApplicabilityDetails&quot;] = {{&quot;Architectures&quot;, {&quot;x86&quot;}},
+<a href="#l180" class="line" id="l180">    180</a>                                            {&quot;PlatformApplicabilityForPackage&quot;, {&quot;Windows&quot;}}};
+<a href="#l181" class="line" id="l181">    181</a>     response[0][&quot;FileMoniker&quot;] = &quot;1.json&quot;;
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a>     response.push_back({{&quot;Url&quot;, &quot;http://localhost/2.bin&quot;},
+<a href="#l184" class="line" id="l184">    184</a>                         {&quot;FileId&quot;, name + &quot;.bin&quot;},
+<a href="#l185" class="line" id="l185">    185</a>                         {&quot;SizeInBytes&quot;, 200},
+<a href="#l186" class="line" id="l186">    186</a>                         {&quot;Hashes&quot;, {{&quot;Sha1&quot;, &quot;421&quot;}, {&quot;Sha256&quot;, &quot;132&quot;}}}});
+<a href="#l187" class="line" id="l187">    187</a>     response[1][&quot;DeliveryOptimization&quot;] = {{&quot;CatalogId&quot;, &quot;14&quot;}};
+<a href="#l188" class="line" id="l188">    188</a>     response[1][&quot;DeliveryOptimization&quot;][&quot;Properties&quot;] = {
+<a href="#l189" class="line" id="l189">    189</a>         {&quot;IntegrityCheckInfo&quot;, {{&quot;PiecesHashFileUrl&quot;, &quot;http://localhost/2.bin&quot;}, {&quot;HashOfHashes&quot;, &quot;abcd&quot;}}}};
+<a href="#l190" class="line" id="l190">    190</a>     response[1][&quot;ApplicabilityDetails&quot;] = {{&quot;Architectures&quot;, {&quot;amd64&quot;}},
+<a href="#l191" class="line" id="l191">    191</a>                                            {&quot;PlatformApplicabilityForPackage&quot;, {&quot;Linux&quot;}}};
+<a href="#l192" class="line" id="l192">    192</a>     response[1][&quot;FileMoniker&quot;] = &quot;2.bin&quot;;
+<a href="#l193" class="line" id="l193">    193</a> 
+<a href="#l194" class="line" id="l194">    194</a>     return response;
+<a href="#l195" class="line" id="l195">    195</a> }
+<a href="#l196" class="line" id="l196">    196</a> 
+<a href="#l197" class="line" id="l197">    197</a> void CheckApiVersion(const httplib::Request&amp; req, std::string_view apiVersion)
+<a href="#l198" class="line" id="l198">    198</a> {
+<a href="#l199" class="line" id="l199">    199</a>     if (util::AreNotEqualI(req.path_params.at(&quot;apiVersion&quot;), apiVersion))
+<a href="#l200" class="line" id="l200">    200</a>     {
+<a href="#l201" class="line" id="l201">    201</a>         throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l202" class="line" id="l202">    202</a>     }
+<a href="#l203" class="line" id="l203">    203</a> }
+<a href="#l204" class="line" id="l204">    204</a> } // namespace
+<a href="#l205" class="line" id="l205">    205</a> 
+<a href="#l206" class="line" id="l206">    206</a> namespace SFS::test::details
+<a href="#l207" class="line" id="l207">    207</a> {
+<a href="#l208" class="line" id="l208">    208</a> class MockWebServerImpl : public BaseServerImpl
+<a href="#l209" class="line" id="l209">    209</a> {
+<a href="#l210" class="line" id="l210">    210</a>   public:
+<a href="#l211" class="line" id="l211">    211</a>     MockWebServerImpl() = default;
+<a href="#l212" class="line" id="l212">    212</a>     ~MockWebServerImpl() = default;
+<a href="#l213" class="line" id="l213">    213</a> 
+<a href="#l214" class="line" id="l214">    214</a>     MockWebServerImpl(const MockWebServerImpl&amp;) = delete;
+<a href="#l215" class="line" id="l215">    215</a>     MockWebServerImpl&amp; operator=(const MockWebServerImpl&amp;) = delete;
+<a href="#l216" class="line" id="l216">    216</a> 
+<a href="#l217" class="line" id="l217">    217</a>     void RegisterProduct(std::string&amp;&amp; name, std::string&amp;&amp; version);
+<a href="#l218" class="line" id="l218">    218</a>     void RegisterAppProduct(std::string&amp;&amp; name, std::string&amp;&amp; version, std::vector&lt;MockPrerequisite&gt;&amp;&amp; prerequisites);
+<a href="#l219" class="line" id="l219">    219</a>     void RegisterExpectedRequestHeader(std::string&amp;&amp; header, std::string&amp;&amp; value);
+<a href="#l220" class="line" id="l220">    220</a>     void SetForcedHttpErrors(std::queue&lt;HttpCode&gt; forcedErrors);
+<a href="#l221" class="line" id="l221">    221</a>     void SetResponseHeaders(std::unordered_map&lt;HttpCode, HeaderMap&gt; headersByCode);
+<a href="#l222" class="line" id="l222">    222</a> 
+<a href="#l223" class="line" id="l223">    223</a>   private:
+<a href="#l224" class="line" id="l224">    224</a>     void ConfigureRequestHandlers() override;
+<a href="#l225" class="line" id="l225">    225</a>     std::string GetLogIdentifier() override;
+<a href="#l226" class="line" id="l226">    226</a> 
+<a href="#l227" class="line" id="l227">    227</a>     void ConfigurePostLatestVersion();
+<a href="#l228" class="line" id="l228">    228</a>     void ConfigurePostLatestVersionBatch();
+<a href="#l229" class="line" id="l229">    229</a>     void ConfigureGetSpecificVersion();
+<a href="#l230" class="line" id="l230">    230</a>     void ConfigurePostDownloadInfo();
+<a href="#l231" class="line" id="l231">    231</a> 
+<a href="#l232" class="line" id="l232">    232</a>     void RunHttpCallback(const httplib::Request&amp; req,
+<a href="#l233" class="line" id="l233">    233</a>                          httplib::Response&amp; res,
+<a href="#l234" class="line" id="l234">    234</a>                          const std::string&amp; methodName,
+<a href="#l235" class="line" id="l235">    235</a>                          const std::string&amp; apiVersion,
+<a href="#l236" class="line" id="l236">    236</a>                          const std::function&lt;void(const httplib::Request, httplib::Response&amp;)&gt;&amp; callback);
+<a href="#l237" class="line" id="l237">    237</a>     void CheckRequestHeaders(const httplib::Request&amp; req);
+<a href="#l238" class="line" id="l238">    238</a> 
+<a href="#l239" class="line" id="l239">    239</a>     using VersionList = std::set&lt;std::string&gt;;
+<a href="#l240" class="line" id="l240">    240</a>     std::unordered_map&lt;std::string, VersionList&gt; m_products;
+<a href="#l241" class="line" id="l241">    241</a> 
+<a href="#l242" class="line" id="l242">    242</a>     using AppList = std::set&lt;App, AppCmp&gt;;
+<a href="#l243" class="line" id="l243">    243</a>     std::unordered_map&lt;std::string, AppList&gt; m_appProducts;
+<a href="#l244" class="line" id="l244">    244</a> 
+<a href="#l245" class="line" id="l245">    245</a>     std::unordered_map&lt;std::string, std::string&gt; m_expectedRequestHeaders;
+<a href="#l246" class="line" id="l246">    246</a>     std::queue&lt;HttpCode&gt; m_forcedHttpErrors;
+<a href="#l247" class="line" id="l247">    247</a>     std::unordered_map&lt;HttpCode, HeaderMap&gt; m_headersByCode;
+<a href="#l248" class="line" id="l248">    248</a> };
+<a href="#l249" class="line" id="l249">    249</a> } // namespace SFS::test::details
+<a href="#l250" class="line" id="l250">    250</a> 
+<a href="#l251" class="line" id="l251">    251</a> MockWebServer::MockWebServer()
+<a href="#l252" class="line" id="l252">    252</a> {
+<a href="#l253" class="line" id="l253">    253</a>     m_impl = std::make_unique&lt;MockWebServerImpl&gt;();
+<a href="#l254" class="line" id="l254">    254</a>     m_impl-&gt;Start();
+<a href="#l255" class="line" id="l255">    255</a> }
+<a href="#l256" class="line" id="l256">    256</a> 
+<a href="#l257" class="line" id="l257">    257</a> MockWebServer::~MockWebServer()
+<a href="#l258" class="line" id="l258">    258</a> {
+<a href="#l259" class="line" id="l259">    259</a>     const auto ret = Stop();
+<a href="#l260" class="line" id="l260">    260</a>     if (!ret)
+<a href="#l261" class="line" id="l261">    261</a>     {
+<a href="#l262" class="line" id="l262">    262</a>         TEST_UNSCOPED_INFO(&quot;Failed to stop: &quot; + std::string(ToString(ret.GetCode())));
+<a href="#l263" class="line" id="l263">    263</a>     }
+<a href="#l264" class="line" id="l264">    264</a> }
+<a href="#l265" class="line" id="l265">    265</a> 
+<a href="#l266" class="line" id="l266">    266</a> Result MockWebServer::Stop()
+<a href="#l267" class="line" id="l267">    267</a> {
+<a href="#l268" class="line" id="l268">    268</a>     return m_impl-&gt;Stop();
+<a href="#l269" class="line" id="l269">    269</a> }
+<a href="#l270" class="line" id="l270">    270</a> 
+<a href="#l271" class="line" id="l271">    271</a> std::string MockWebServer::GetBaseUrl() const
+<a href="#l272" class="line" id="l272">    272</a> {
+<a href="#l273" class="line" id="l273">    273</a>     return m_impl-&gt;GetUrl();
+<a href="#l274" class="line" id="l274">    274</a> }
+<a href="#l275" class="line" id="l275">    275</a> 
+<a href="#l276" class="line" id="l276">    276</a> void MockWebServer::RegisterProduct(std::string name, std::string version)
+<a href="#l277" class="line" id="l277">    277</a> {
+<a href="#l278" class="line" id="l278">    278</a>     m_impl-&gt;RegisterProduct(std::move(name), std::move(version));
+<a href="#l279" class="line" id="l279">    279</a> }
+<a href="#l280" class="line" id="l280">    280</a> 
+<a href="#l281" class="line" id="l281">    281</a> void MockWebServer::RegisterAppProduct(std::string name,
+<a href="#l282" class="line" id="l282">    282</a>                                        std::string version,
+<a href="#l283" class="line" id="l283">    283</a>                                        std::vector&lt;MockPrerequisite&gt; prerequisites)
+<a href="#l284" class="line" id="l284">    284</a> {
+<a href="#l285" class="line" id="l285">    285</a>     m_impl-&gt;RegisterAppProduct(std::move(name), std::move(version), std::move(prerequisites));
+<a href="#l286" class="line" id="l286">    286</a> }
+<a href="#l287" class="line" id="l287">    287</a> 
+<a href="#l288" class="line" id="l288">    288</a> void MockWebServer::RegisterExpectedRequestHeader(HttpHeader header, std::string value)
+<a href="#l289" class="line" id="l289">    289</a> {
+<a href="#l290" class="line" id="l290">    290</a>     std::string headerName = ToString(header);
+<a href="#l291" class="line" id="l291">    291</a>     m_impl-&gt;RegisterExpectedRequestHeader(std::move(headerName), std::move(value));
+<a href="#l292" class="line" id="l292">    292</a> }
+<a href="#l293" class="line" id="l293">    293</a> 
+<a href="#l294" class="line" id="l294">    294</a> void MockWebServer::SetForcedHttpErrors(std::queue&lt;HttpCode&gt; forcedErrors)
+<a href="#l295" class="line" id="l295">    295</a> {
+<a href="#l296" class="line" id="l296">    296</a>     m_impl-&gt;SetForcedHttpErrors(std::move(forcedErrors));
+<a href="#l297" class="line" id="l297">    297</a> }
+<a href="#l298" class="line" id="l298">    298</a> 
+<a href="#l299" class="line" id="l299">    299</a> void MockWebServer::SetResponseHeaders(std::unordered_map&lt;HttpCode, HeaderMap&gt; headersByCode)
+<a href="#l300" class="line" id="l300">    300</a> {
+<a href="#l301" class="line" id="l301">    301</a>     m_impl-&gt;SetResponseHeaders(std::move(headersByCode));
+<a href="#l302" class="line" id="l302">    302</a> }
+<a href="#l303" class="line" id="l303">    303</a> 
+<a href="#l304" class="line" id="l304">    304</a> void MockWebServerImpl::ConfigureRequestHandlers()
+<a href="#l305" class="line" id="l305">    305</a> {
+<a href="#l306" class="line" id="l306">    306</a>     ConfigurePostLatestVersion();
+<a href="#l307" class="line" id="l307">    307</a>     ConfigurePostLatestVersionBatch();
+<a href="#l308" class="line" id="l308">    308</a>     ConfigureGetSpecificVersion();
+<a href="#l309" class="line" id="l309">    309</a>     ConfigurePostDownloadInfo();
+<a href="#l310" class="line" id="l310">    310</a> }
+<a href="#l311" class="line" id="l311">    311</a> 
+<a href="#l312" class="line" id="l312">    312</a> std::string MockWebServerImpl::GetLogIdentifier()
+<a href="#l313" class="line" id="l313">    313</a> {
+<a href="#l314" class="line" id="l314">    314</a>     return &quot;MockWebServer&quot;;
+<a href="#l315" class="line" id="l315">    315</a> }
+<a href="#l316" class="line" id="l316">    316</a> 
+<a href="#l317" class="line" id="l317">    317</a> void MockWebServerImpl::ConfigurePostLatestVersion()
+<a href="#l318" class="line" id="l318">    318</a> {
+<a href="#l319" class="line" id="l319">    319</a>     // Path: /api/&lt;apiVersion:v2&gt;/contents/&lt;instanceId&gt;/namespaces/&lt;ns&gt;/names/&lt;name&gt;/versions/latest?action=select
+<a href="#l320" class="line" id="l320">    320</a>     const std::string pattern = &quot;/api/:apiVersion/contents/:instanceId/namespaces/:ns/names/:name/versions/latest&quot;;
+<a href="#l321" class="line" id="l321">    321</a>     m_server.Post(pattern, [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l322" class="line" id="l322">    322</a>         RunHttpCallback(req, res, &quot;PostLatestVersion&quot;, &quot;v2&quot;, [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l323" class="line" id="l323">    323</a>             // TODO: Ignoring instanceId for now
+<a href="#l324" class="line" id="l324">    324</a> 
+<a href="#l325" class="line" id="l325">    325</a>             if (!req.has_param(&quot;action&quot;) || util::AreNotEqualI(req.get_param_value(&quot;action&quot;), &quot;select&quot;))
+<a href="#l326" class="line" id="l326">    326</a>             {
+<a href="#l327" class="line" id="l327">    327</a>                 // TODO: SFS might throw a different error when the query string is unexpected
+<a href="#l328" class="line" id="l328">    328</a>                 throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l329" class="line" id="l329">    329</a>             }
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>             // Checking body has expected format, but won&#39;t use it for the response
+<a href="#l332" class="line" id="l332">    332</a>             {
+<a href="#l333" class="line" id="l333">    333</a>                 if (req.body.empty())
+<a href="#l334" class="line" id="l334">    334</a>                 {
+<a href="#l335" class="line" id="l335">    335</a>                     throw StatusCodeException(httplib::StatusCode::BadRequest_400);
+<a href="#l336" class="line" id="l336">    336</a>                 }
+<a href="#l337" class="line" id="l337">    337</a> 
+<a href="#l338" class="line" id="l338">    338</a>                 json body;
+<a href="#l339" class="line" id="l339">    339</a>                 try
+<a href="#l340" class="line" id="l340">    340</a>                 {
+<a href="#l341" class="line" id="l341">    341</a>                     body = json::parse(req.body);
+<a href="#l342" class="line" id="l342">    342</a>                 }
+<a href="#l343" class="line" id="l343">    343</a>                 catch (const json::parse_error&amp; ex)
+<a href="#l344" class="line" id="l344">    344</a>                 {
+<a href="#l345" class="line" id="l345">    345</a>                     BUFFER_LOG(&quot;JSON parse error: &quot; + std::string(ex.what()));
+<a href="#l346" class="line" id="l346">    346</a>                     throw StatusCodeException(httplib::StatusCode::BadRequest_400);
+<a href="#l347" class="line" id="l347">    347</a>                 }
+<a href="#l348" class="line" id="l348">    348</a> 
+<a href="#l349" class="line" id="l349">    349</a>                 // The GetLatestVersion API expects an object as a body, with a &quot;TargetingAttributes&quot; object element.
+<a href="#l350" class="line" id="l350">    350</a>                 if (!body.is_object() || !body.contains(&quot;TargetingAttributes&quot;) ||
+<a href="#l351" class="line" id="l351">    351</a>                     !body[&quot;TargetingAttributes&quot;].is_object())
+<a href="#l352" class="line" id="l352">    352</a>                 {
+<a href="#l353" class="line" id="l353">    353</a>                     throw StatusCodeException(httplib::StatusCode::BadRequest_400);
+<a href="#l354" class="line" id="l354">    354</a>                 }
+<a href="#l355" class="line" id="l355">    355</a>             }
+<a href="#l356" class="line" id="l356">    356</a> 
+<a href="#l357" class="line" id="l357">    357</a>             const std::string ns = req.path_params.at(&quot;ns&quot;);
+<a href="#l358" class="line" id="l358">    358</a> 
+<a href="#l359" class="line" id="l359">    359</a>             json response;
+<a href="#l360" class="line" id="l360">    360</a>             const std::string&amp; name = req.path_params.at(&quot;name&quot;);
+<a href="#l361" class="line" id="l361">    361</a>             if (auto it = m_products.find(name); it != m_products.end())
+<a href="#l362" class="line" id="l362">    362</a>             {
+<a href="#l363" class="line" id="l363">    363</a>                 const auto&amp; versions = it-&gt;second;
+<a href="#l364" class="line" id="l364">    364</a>                 if (versions.empty())
+<a href="#l365" class="line" id="l365">    365</a>                 {
+<a href="#l366" class="line" id="l366">    366</a>                     throw StatusCodeException(httplib::StatusCode::InternalServerError_500);
+<a href="#l367" class="line" id="l367">    367</a>                 }
+<a href="#l368" class="line" id="l368">    368</a> 
+<a href="#l369" class="line" id="l369">    369</a>                 const auto&amp; latestVersion = *versions.rbegin();
+<a href="#l370" class="line" id="l370">    370</a>                 response = GenerateContentIdJsonObject(name, latestVersion, ns);
+<a href="#l371" class="line" id="l371">    371</a>             }
+<a href="#l372" class="line" id="l372">    372</a>             else if (auto appIt = m_appProducts.find(name); appIt != m_appProducts.end())
+<a href="#l373" class="line" id="l373">    373</a>             {
+<a href="#l374" class="line" id="l374">    374</a>                 const auto&amp; appList = appIt-&gt;second;
+<a href="#l375" class="line" id="l375">    375</a>                 if (appList.empty())
+<a href="#l376" class="line" id="l376">    376</a>                 {
+<a href="#l377" class="line" id="l377">    377</a>                     throw StatusCodeException(httplib::StatusCode::InternalServerError_500);
+<a href="#l378" class="line" id="l378">    378</a>                 }
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>                 const auto&amp; latestApp = *appList.rbegin();
+<a href="#l381" class="line" id="l381">    381</a>                 response = GenerateGetAppVersionJsonObject(name, latestApp, ns);
+<a href="#l382" class="line" id="l382">    382</a>             }
+<a href="#l383" class="line" id="l383">    383</a>             else
+<a href="#l384" class="line" id="l384">    384</a>             {
+<a href="#l385" class="line" id="l385">    385</a>                 throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l386" class="line" id="l386">    386</a>             }
+<a href="#l387" class="line" id="l387">    387</a> 
+<a href="#l388" class="line" id="l388">    388</a>             res.set_content(response.dump(), &quot;application/json&quot;);
+<a href="#l389" class="line" id="l389">    389</a>         });
+<a href="#l390" class="line" id="l390">    390</a>     });
+<a href="#l391" class="line" id="l391">    391</a> }
+<a href="#l392" class="line" id="l392">    392</a> 
+<a href="#l393" class="line" id="l393">    393</a> void MockWebServerImpl::ConfigurePostLatestVersionBatch()
+<a href="#l394" class="line" id="l394">    394</a> {
+<a href="#l395" class="line" id="l395">    395</a>     // Path: /api/&lt;apiVersion:v2&gt;/contents/&lt;instanceId&gt;/namespaces/&lt;ns&gt;/names?action=BatchUpdates
+<a href="#l396" class="line" id="l396">    396</a>     const std::string pattern = &quot;/api/:apiVersion/contents/:instanceId/namespaces/:ns/names&quot;;
+<a href="#l397" class="line" id="l397">    397</a>     m_server.Post(pattern, [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l398" class="line" id="l398">    398</a>         RunHttpCallback(
+<a href="#l399" class="line" id="l399">    399</a>             req,
+<a href="#l400" class="line" id="l400">    400</a>             res,
+<a href="#l401" class="line" id="l401">    401</a>             &quot;PostLatestVersionBatch&quot;,
+<a href="#l402" class="line" id="l402">    402</a>             &quot;v2&quot;,
+<a href="#l403" class="line" id="l403">    403</a>             [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l404" class="line" id="l404">    404</a>                 // TODO: Ignoring instanceId for now
+<a href="#l405" class="line" id="l405">    405</a> 
+<a href="#l406" class="line" id="l406">    406</a>                 if (!req.has_param(&quot;action&quot;) || util::AreNotEqualI(req.get_param_value(&quot;action&quot;), &quot;BatchUpdates&quot;))
+<a href="#l407" class="line" id="l407">    407</a>                 {
+<a href="#l408" class="line" id="l408">    408</a>                     // TODO: SFS might throw a different error when the query string is unexpected
+<a href="#l409" class="line" id="l409">    409</a>                     throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l410" class="line" id="l410">    410</a>                 }
+<a href="#l411" class="line" id="l411">    411</a> 
+<a href="#l412" class="line" id="l412">    412</a>                 if (req.body.empty())
+<a href="#l413" class="line" id="l413">    413</a>                 {
+<a href="#l414" class="line" id="l414">    414</a>                     throw StatusCodeException(httplib::StatusCode::BadRequest_400);
+<a href="#l415" class="line" id="l415">    415</a>                 }
+<a href="#l416" class="line" id="l416">    416</a> 
+<a href="#l417" class="line" id="l417">    417</a>                 json body;
+<a href="#l418" class="line" id="l418">    418</a>                 try
+<a href="#l419" class="line" id="l419">    419</a>                 {
+<a href="#l420" class="line" id="l420">    420</a>                     body = json::parse(req.body);
+<a href="#l421" class="line" id="l421">    421</a>                 }
+<a href="#l422" class="line" id="l422">    422</a>                 catch (const json::parse_error&amp; ex)
+<a href="#l423" class="line" id="l423">    423</a>                 {
+<a href="#l424" class="line" id="l424">    424</a>                     BUFFER_LOG(&quot;JSON parse error: &quot; + std::string(ex.what()));
+<a href="#l425" class="line" id="l425">    425</a>                     throw StatusCodeException(httplib::StatusCode::BadRequest_400);
+<a href="#l426" class="line" id="l426">    426</a>                 }
+<a href="#l427" class="line" id="l427">    427</a> 
+<a href="#l428" class="line" id="l428">    428</a>                 // The BatchUpdates API returns an array of objects, each with a &quot;Product&quot; key.
+<a href="#l429" class="line" id="l429">    429</a>                 // If repeated, the same product is only returned once.
+<a href="#l430" class="line" id="l430">    430</a>                 // TODO: We are ignoring the TargetingAttributes for now.
+<a href="#l431" class="line" id="l431">    431</a>                 if (!body.is_array())
+<a href="#l432" class="line" id="l432">    432</a>                 {
+<a href="#l433" class="line" id="l433">    433</a>                     throw StatusCodeException(httplib::StatusCode::BadRequest_400);
+<a href="#l434" class="line" id="l434">    434</a>                 }
+<a href="#l435" class="line" id="l435">    435</a> 
+<a href="#l436" class="line" id="l436">    436</a>                 // Iterate over the array and collect the unique products
+<a href="#l437" class="line" id="l437">    437</a>                 std::unordered_map&lt;std::string, json&gt; requestedProducts;
+<a href="#l438" class="line" id="l438">    438</a>                 for (const auto&amp; productRequest : body)
+<a href="#l439" class="line" id="l439">    439</a>                 {
+<a href="#l440" class="line" id="l440">    440</a>                     if (!productRequest.is_object() || !productRequest.contains(&quot;Product&quot;) ||
+<a href="#l441" class="line" id="l441">    441</a>                         !productRequest[&quot;Product&quot;].is_string() || !productRequest.contains(&quot;TargetingAttributes&quot;))
+<a href="#l442" class="line" id="l442">    442</a>                     {
+<a href="#l443" class="line" id="l443">    443</a>                         throw StatusCodeException(httplib::StatusCode::BadRequest_400);
+<a href="#l444" class="line" id="l444">    444</a>                     }
+<a href="#l445" class="line" id="l445">    445</a>                     if (requestedProducts.count(productRequest[&quot;Product&quot;]))
+<a href="#l446" class="line" id="l446">    446</a>                     {
+<a href="#l447" class="line" id="l447">    447</a>                         continue;
+<a href="#l448" class="line" id="l448">    448</a>                     }
+<a href="#l449" class="line" id="l449">    449</a>                     requestedProducts.emplace(productRequest[&quot;Product&quot;], productRequest[&quot;TargetingAttributes&quot;]);
+<a href="#l450" class="line" id="l450">    450</a>                 }
+<a href="#l451" class="line" id="l451">    451</a> 
+<a href="#l452" class="line" id="l452">    452</a>                 // If at least one product exists, we will return a 200 OK with that. Non-existing products are ignored.
+<a href="#l453" class="line" id="l453">    453</a>                 // Otherwise, a 404 is sent.
+<a href="#l454" class="line" id="l454">    454</a>                 json response = json::array();
+<a href="#l455" class="line" id="l455">    455</a>                 for (const auto&amp; [name, _] : requestedProducts)
+<a href="#l456" class="line" id="l456">    456</a>                 {
+<a href="#l457" class="line" id="l457">    457</a>                     auto it = m_products.find(name);
+<a href="#l458" class="line" id="l458">    458</a>                     if (it == m_products.end())
+<a href="#l459" class="line" id="l459">    459</a>                     {
+<a href="#l460" class="line" id="l460">    460</a>                         continue;
+<a href="#l461" class="line" id="l461">    461</a>                     }
+<a href="#l462" class="line" id="l462">    462</a> 
+<a href="#l463" class="line" id="l463">    463</a>                     const VersionList&amp; versions = it-&gt;second;
+<a href="#l464" class="line" id="l464">    464</a>                     if (versions.empty())
+<a href="#l465" class="line" id="l465">    465</a>                     {
+<a href="#l466" class="line" id="l466">    466</a>                         throw StatusCodeException(httplib::StatusCode::InternalServerError_500);
+<a href="#l467" class="line" id="l467">    467</a>                     }
+<a href="#l468" class="line" id="l468">    468</a> 
+<a href="#l469" class="line" id="l469">    469</a>                     const std::string ns = req.path_params.at(&quot;ns&quot;);
+<a href="#l470" class="line" id="l470">    470</a>                     const auto&amp; latestVersion = *versions.rbegin();
+<a href="#l471" class="line" id="l471">    471</a> 
+<a href="#l472" class="line" id="l472">    472</a>                     response.push_back(GenerateContentIdJsonObject(name, latestVersion, ns));
+<a href="#l473" class="line" id="l473">    473</a>                 }
+<a href="#l474" class="line" id="l474">    474</a> 
+<a href="#l475" class="line" id="l475">    475</a>                 if (response.empty())
+<a href="#l476" class="line" id="l476">    476</a>                 {
+<a href="#l477" class="line" id="l477">    477</a>                     throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l478" class="line" id="l478">    478</a>                 }
+<a href="#l479" class="line" id="l479">    479</a> 
+<a href="#l480" class="line" id="l480">    480</a>                 res.set_content(response.dump(), &quot;application/json&quot;);
+<a href="#l481" class="line" id="l481">    481</a>             });
+<a href="#l482" class="line" id="l482">    482</a>     });
+<a href="#l483" class="line" id="l483">    483</a> }
+<a href="#l484" class="line" id="l484">    484</a> 
+<a href="#l485" class="line" id="l485">    485</a> void MockWebServerImpl::ConfigureGetSpecificVersion()
+<a href="#l486" class="line" id="l486">    486</a> {
+<a href="#l487" class="line" id="l487">    487</a>     // Path: /api/&lt;apiVersion:v2&gt;/contents/&lt;instanceId&gt;/namespaces/&lt;ns&gt;/names/&lt;name&gt;/versions/&lt;version&gt;
+<a href="#l488" class="line" id="l488">    488</a>     const std::string pattern = &quot;/api/:apiVersion/contents/:instanceId/namespaces/:ns/names/:name/versions/:version&quot;;
+<a href="#l489" class="line" id="l489">    489</a>     m_server.Get(pattern, [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l490" class="line" id="l490">    490</a>         RunHttpCallback(req, res, &quot;GetSpecificVersion&quot;, &quot;v2&quot;, [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l491" class="line" id="l491">    491</a>             // TODO: Ignoring instanceId for now
+<a href="#l492" class="line" id="l492">    492</a> 
+<a href="#l493" class="line" id="l493">    493</a>             const std::string&amp; name = req.path_params.at(&quot;name&quot;);
+<a href="#l494" class="line" id="l494">    494</a>             auto it = m_products.find(name);
+<a href="#l495" class="line" id="l495">    495</a>             if (it == m_products.end())
+<a href="#l496" class="line" id="l496">    496</a>             {
+<a href="#l497" class="line" id="l497">    497</a>                 throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l498" class="line" id="l498">    498</a>             }
+<a href="#l499" class="line" id="l499">    499</a> 
+<a href="#l500" class="line" id="l500">    500</a>             const VersionList&amp; versions = it-&gt;second;
+<a href="#l501" class="line" id="l501">    501</a>             if (versions.empty())
+<a href="#l502" class="line" id="l502">    502</a>             {
+<a href="#l503" class="line" id="l503">    503</a>                 throw StatusCodeException(httplib::StatusCode::InternalServerError_500);
+<a href="#l504" class="line" id="l504">    504</a>             }
+<a href="#l505" class="line" id="l505">    505</a> 
+<a href="#l506" class="line" id="l506">    506</a>             // TODO: Are apps suppported?
+<a href="#l507" class="line" id="l507">    507</a> 
+<a href="#l508" class="line" id="l508">    508</a>             const std::string&amp; version = req.path_params.at(&quot;version&quot;);
+<a href="#l509" class="line" id="l509">    509</a>             if (version.empty() || !versions.count(version))
+<a href="#l510" class="line" id="l510">    510</a>             {
+<a href="#l511" class="line" id="l511">    511</a>                 throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l512" class="line" id="l512">    512</a>             }
+<a href="#l513" class="line" id="l513">    513</a> 
+<a href="#l514" class="line" id="l514">    514</a>             const std::string ns = req.path_params.at(&quot;ns&quot;);
+<a href="#l515" class="line" id="l515">    515</a> 
+<a href="#l516" class="line" id="l516">    516</a>             res.set_content(GenerateContentIdJsonObject(name, version, ns).dump(), &quot;application/json&quot;);
+<a href="#l517" class="line" id="l517">    517</a>         });
+<a href="#l518" class="line" id="l518">    518</a>     });
+<a href="#l519" class="line" id="l519">    519</a> }
+<a href="#l520" class="line" id="l520">    520</a> 
+<a href="#l521" class="line" id="l521">    521</a> void MockWebServerImpl::ConfigurePostDownloadInfo()
+<a href="#l522" class="line" id="l522">    522</a> {
+<a href="#l523" class="line" id="l523">    523</a>     // Path:
+<a href="#l524" class="line" id="l524">    524</a>     // /api/&lt;apiVersion:v2&gt;/contents/&lt;instanceId&gt;/namespaces/&lt;ns&gt;/names/&lt;name&gt;/versions/&lt;version&gt;/files?action=GenerateDownloadInfo
+<a href="#l525" class="line" id="l525">    525</a>     const std::string pattern =
+<a href="#l526" class="line" id="l526">    526</a>         &quot;/api/:apiVersion/contents/:instanceId/namespaces/:ns/names/:name/versions/:version/files&quot;;
+<a href="#l527" class="line" id="l527">    527</a>     m_server.Post(pattern, [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l528" class="line" id="l528">    528</a>         RunHttpCallback(req, res, &quot;PostDownloadInfo&quot;, &quot;v2&quot;, [&amp;](const httplib::Request&amp; req, httplib::Response&amp; res) {
+<a href="#l529" class="line" id="l529">    529</a>             // TODO: Ignoring instanceId and ns for now
+<a href="#l530" class="line" id="l530">    530</a> 
+<a href="#l531" class="line" id="l531">    531</a>             if (!req.has_param(&quot;action&quot;) || util::AreNotEqualI(req.get_param_value(&quot;action&quot;), &quot;GenerateDownloadInfo&quot;))
+<a href="#l532" class="line" id="l532">    532</a>             {
+<a href="#l533" class="line" id="l533">    533</a>                 // TODO: SFS might throw a different error when the query string is unexpected
+<a href="#l534" class="line" id="l534">    534</a>                 throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l535" class="line" id="l535">    535</a>             }
+<a href="#l536" class="line" id="l536">    536</a> 
+<a href="#l537" class="line" id="l537">    537</a>             const std::string&amp; version = req.path_params.at(&quot;version&quot;);
+<a href="#l538" class="line" id="l538">    538</a>             if (version.empty())
+<a href="#l539" class="line" id="l539">    539</a>             {
+<a href="#l540" class="line" id="l540">    540</a>                 throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l541" class="line" id="l541">    541</a>             }
+<a href="#l542" class="line" id="l542">    542</a> 
+<a href="#l543" class="line" id="l543">    543</a>             json response;
+<a href="#l544" class="line" id="l544">    544</a>             const std::string&amp; name = req.path_params.at(&quot;name&quot;);
+<a href="#l545" class="line" id="l545">    545</a>             if (auto it = m_products.find(name); it != m_products.end())
+<a href="#l546" class="line" id="l546">    546</a>             {
+<a href="#l547" class="line" id="l547">    547</a>                 const auto&amp; versions = it-&gt;second;
+<a href="#l548" class="line" id="l548">    548</a>                 if (versions.empty())
+<a href="#l549" class="line" id="l549">    549</a>                 {
+<a href="#l550" class="line" id="l550">    550</a>                     throw StatusCodeException(httplib::StatusCode::InternalServerError_500);
+<a href="#l551" class="line" id="l551">    551</a>                 }
+<a href="#l552" class="line" id="l552">    552</a> 
+<a href="#l553" class="line" id="l553">    553</a>                 if (!versions.count(version))
+<a href="#l554" class="line" id="l554">    554</a>                 {
+<a href="#l555" class="line" id="l555">    555</a>                     throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l556" class="line" id="l556">    556</a>                 }
+<a href="#l557" class="line" id="l557">    557</a> 
+<a href="#l558" class="line" id="l558">    558</a>                 // Response is a dummy, doesn&#39;t use the version above
+<a href="#l559" class="line" id="l559">    559</a>                 response = GeneratePostDownloadInfo(name);
+<a href="#l560" class="line" id="l560">    560</a>             }
+<a href="#l561" class="line" id="l561">    561</a>             else if (auto appIt = m_appProducts.find(name); appIt != m_appProducts.end())
+<a href="#l562" class="line" id="l562">    562</a>             {
+<a href="#l563" class="line" id="l563">    563</a>                 const auto&amp; appList = appIt-&gt;second;
+<a href="#l564" class="line" id="l564">    564</a>                 if (appList.empty())
+<a href="#l565" class="line" id="l565">    565</a>                 {
+<a href="#l566" class="line" id="l566">    566</a>                     throw StatusCodeException(httplib::StatusCode::InternalServerError_500);
+<a href="#l567" class="line" id="l567">    567</a>                 }
+<a href="#l568" class="line" id="l568">    568</a> 
+<a href="#l569" class="line" id="l569">    569</a>                 auto app = std::find_if(appList.begin(), appList.end(), [&amp;](const App&amp; app) {
+<a href="#l570" class="line" id="l570">    570</a>                     return app.version == version;
+<a href="#l571" class="line" id="l571">    571</a>                 });
+<a href="#l572" class="line" id="l572">    572</a>                 if (app == appList.end())
+<a href="#l573" class="line" id="l573">    573</a>                 {
+<a href="#l574" class="line" id="l574">    574</a>                     throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l575" class="line" id="l575">    575</a>                 }
+<a href="#l576" class="line" id="l576">    576</a> 
+<a href="#l577" class="line" id="l577">    577</a>                 // Response is a dummy, doesn&#39;t use the version above
+<a href="#l578" class="line" id="l578">    578</a>                 response = GeneratePostAppDownloadInfo(name);
+<a href="#l579" class="line" id="l579">    579</a>             }
+<a href="#l580" class="line" id="l580">    580</a>             else
+<a href="#l581" class="line" id="l581">    581</a>             {
+<a href="#l582" class="line" id="l582">    582</a>                 throw StatusCodeException(httplib::StatusCode::NotFound_404);
+<a href="#l583" class="line" id="l583">    583</a>             }
+<a href="#l584" class="line" id="l584">    584</a> 
+<a href="#l585" class="line" id="l585">    585</a>             res.set_content(response.dump(), &quot;application/json&quot;);
+<a href="#l586" class="line" id="l586">    586</a>         });
+<a href="#l587" class="line" id="l587">    587</a>     });
+<a href="#l588" class="line" id="l588">    588</a> }
+<a href="#l589" class="line" id="l589">    589</a> 
+<a href="#l590" class="line" id="l590">    590</a> void MockWebServerImpl::RunHttpCallback(const httplib::Request&amp; req,
+<a href="#l591" class="line" id="l591">    591</a>                                         httplib::Response&amp; res,
+<a href="#l592" class="line" id="l592">    592</a>                                         const std::string&amp; methodName,
+<a href="#l593" class="line" id="l593">    593</a>                                         const std::string&amp; apiVersion,
+<a href="#l594" class="line" id="l594">    594</a>                                         const std::function&lt;void(const httplib::Request, httplib::Response&amp;)&gt;&amp; callback)
+<a href="#l595" class="line" id="l595">    595</a> {
+<a href="#l596" class="line" id="l596">    596</a>     if (m_forcedHttpErrors.size() &gt; 0)
+<a href="#l597" class="line" id="l597">    597</a>     {
+<a href="#l598" class="line" id="l598">    598</a>         res.status = m_forcedHttpErrors.front();
+<a href="#l599" class="line" id="l599">    599</a>         m_forcedHttpErrors.pop();
+<a href="#l600" class="line" id="l600">    600</a> 
+<a href="#l601" class="line" id="l601">    601</a>         BUFFER_LOG(&quot;Forcing HTTP error: &quot; + std::to_string(res.status));
+<a href="#l602" class="line" id="l602">    602</a>     }
+<a href="#l603" class="line" id="l603">    603</a>     else
+<a href="#l604" class="line" id="l604">    604</a>     {
+<a href="#l605" class="line" id="l605">    605</a>         try
+<a href="#l606" class="line" id="l606">    606</a>         {
+<a href="#l607" class="line" id="l607">    607</a>             BUFFER_LOG(&quot;Matched &quot; + methodName);
+<a href="#l608" class="line" id="l608">    608</a>             CheckApiVersion(req, apiVersion);
+<a href="#l609" class="line" id="l609">    609</a>             CheckRequestHeaders(req);
+<a href="#l610" class="line" id="l610">    610</a>             callback(req, res);
+<a href="#l611" class="line" id="l611">    611</a>             res.status = httplib::StatusCode::OK_200;
+<a href="#l612" class="line" id="l612">    612</a>         }
+<a href="#l613" class="line" id="l613">    613</a>         catch (const StatusCodeException&amp; ex)
+<a href="#l614" class="line" id="l614">    614</a>         {
+<a href="#l615" class="line" id="l615">    615</a>             res.status = ex.GetStatusCode();
+<a href="#l616" class="line" id="l616">    616</a>         }
+<a href="#l617" class="line" id="l617">    617</a>         catch (const std::exception&amp;)
+<a href="#l618" class="line" id="l618">    618</a>         {
+<a href="#l619" class="line" id="l619">    619</a>             res.status = httplib::StatusCode::InternalServerError_500;
+<a href="#l620" class="line" id="l620">    620</a>         }
+<a href="#l621" class="line" id="l621">    621</a>         catch (...)
+<a href="#l622" class="line" id="l622">    622</a>         {
+<a href="#l623" class="line" id="l623">    623</a>             res.status = httplib::StatusCode::InternalServerError_500;
+<a href="#l624" class="line" id="l624">    624</a>         }
+<a href="#l625" class="line" id="l625">    625</a>     }
+<a href="#l626" class="line" id="l626">    626</a> 
+<a href="#l627" class="line" id="l627">    627</a>     if (m_headersByCode.count(res.status) &gt; 0)
+<a href="#l628" class="line" id="l628">    628</a>     {
+<a href="#l629" class="line" id="l629">    629</a>         BUFFER_LOG(&quot;HTTP code &quot; + std::to_string(res.status) + &quot; has response headers to be sent&quot;);
+<a href="#l630" class="line" id="l630">    630</a>         for (const auto&amp; header : m_headersByCode[res.status])
+<a href="#l631" class="line" id="l631">    631</a>         {
+<a href="#l632" class="line" id="l632">    632</a>             BUFFER_LOG(&quot;Adding header [&quot; + header.first + &quot;] with value [&quot; + header.second + &quot;]&quot;);
+<a href="#l633" class="line" id="l633">    633</a>             res.set_header(header.first, header.second);
+<a href="#l634" class="line" id="l634">    634</a>         }
+<a href="#l635" class="line" id="l635">    635</a>     }
+<a href="#l636" class="line" id="l636">    636</a> }
+<a href="#l637" class="line" id="l637">    637</a> 
+<a href="#l638" class="line" id="l638">    638</a> void MockWebServerImpl::CheckRequestHeaders(const httplib::Request&amp; req)
+<a href="#l639" class="line" id="l639">    639</a> {
+<a href="#l640" class="line" id="l640">    640</a>     for (const auto&amp; header : m_expectedRequestHeaders)
+<a href="#l641" class="line" id="l641">    641</a>     {
+<a href="#l642" class="line" id="l642">    642</a>         std::optional&lt;std::string&gt; errorMessage;
+<a href="#l643" class="line" id="l643">    643</a>         if (!req.has_header(header.first))
+<a href="#l644" class="line" id="l644">    644</a>         {
+<a href="#l645" class="line" id="l645">    645</a>             errorMessage = &quot;Expected header [&quot; + header.first + &quot;] not found&quot;;
+<a href="#l646" class="line" id="l646">    646</a>         }
+<a href="#l647" class="line" id="l647">    647</a>         else if (util::AreNotEqualI(req.get_header_value(header.first), header.second))
+<a href="#l648" class="line" id="l648">    648</a>         {
+<a href="#l649" class="line" id="l649">    649</a>             errorMessage = &quot;Header [&quot; + header.first + &quot;] with value [&quot; + req.get_header_value(header.first) +
+<a href="#l650" class="line" id="l650">    650</a>                            &quot;] does not match the expected value [&quot; + header.second + &quot;]&quot;;
+<a href="#l651" class="line" id="l651">    651</a>         }
+<a href="#l652" class="line" id="l652">    652</a> 
+<a href="#l653" class="line" id="l653">    653</a>         if (errorMessage)
+<a href="#l654" class="line" id="l654">    654</a>         {
+<a href="#l655" class="line" id="l655">    655</a>             BUFFER_LOG(*errorMessage);
+<a href="#l656" class="line" id="l656">    656</a>             throw std::runtime_error(errorMessage-&gt;c_str());
+<a href="#l657" class="line" id="l657">    657</a>         }
+<a href="#l658" class="line" id="l658">    658</a>     }
+<a href="#l659" class="line" id="l659">    659</a> }
+<a href="#l660" class="line" id="l660">    660</a> 
+<a href="#l661" class="line" id="l661">    661</a> void MockWebServerImpl::RegisterProduct(std::string&amp;&amp; name, std::string&amp;&amp; version)
+<a href="#l662" class="line" id="l662">    662</a> {
+<a href="#l663" class="line" id="l663">    663</a>     m_products[std::move(name)].emplace(std::move(version));
+<a href="#l664" class="line" id="l664">    664</a> }
+<a href="#l665" class="line" id="l665">    665</a> 
+<a href="#l666" class="line" id="l666">    666</a> void MockWebServerImpl::RegisterAppProduct(std::string&amp;&amp; name,
+<a href="#l667" class="line" id="l667">    667</a>                                            std::string&amp;&amp; version,
+<a href="#l668" class="line" id="l668">    668</a>                                            std::vector&lt;MockPrerequisite&gt;&amp;&amp; prerequisites)
+<a href="#l669" class="line" id="l669">    669</a> {
+<a href="#l670" class="line" id="l670">    670</a>     for (const auto&amp; prereq : prerequisites)
+<a href="#l671" class="line" id="l671">    671</a>     {
+<a href="#l672" class="line" id="l672">    672</a>         m_appProducts[prereq.name].emplace(App{prereq.version, {}});
+<a href="#l673" class="line" id="l673">    673</a>     }
+<a href="#l674" class="line" id="l674">    674</a>     m_appProducts[std::move(name)].emplace(App{std::move(version), std::move(prerequisites)});
+<a href="#l675" class="line" id="l675">    675</a> }
+<a href="#l676" class="line" id="l676">    676</a> 
+<a href="#l677" class="line" id="l677">    677</a> void MockWebServerImpl::RegisterExpectedRequestHeader(std::string&amp;&amp; header, std::string&amp;&amp; value)
+<a href="#l678" class="line" id="l678">    678</a> {
+<a href="#l679" class="line" id="l679">    679</a>     if (auto it = m_expectedRequestHeaders.find(header); it != m_expectedRequestHeaders.end())
+<a href="#l680" class="line" id="l680">    680</a>     {
+<a href="#l681" class="line" id="l681">    681</a>         it-&gt;second = std::move(value);
+<a href="#l682" class="line" id="l682">    682</a>         return;
+<a href="#l683" class="line" id="l683">    683</a>     }
+<a href="#l684" class="line" id="l684">    684</a>     else
+<a href="#l685" class="line" id="l685">    685</a>     {
+<a href="#l686" class="line" id="l686">    686</a>         m_expectedRequestHeaders.emplace(std::move(header), std::move(value));
+<a href="#l687" class="line" id="l687">    687</a>     }
+<a href="#l688" class="line" id="l688">    688</a> }
+<a href="#l689" class="line" id="l689">    689</a> 
+<a href="#l690" class="line" id="l690">    690</a> void MockWebServerImpl::SetForcedHttpErrors(std::queue&lt;int&gt; forcedErrors)
+<a href="#l691" class="line" id="l691">    691</a> {
+<a href="#l692" class="line" id="l692">    692</a>     m_forcedHttpErrors = std::move(forcedErrors);
+<a href="#l693" class="line" id="l693">    693</a> }
+<a href="#l694" class="line" id="l694">    694</a> 
+<a href="#l695" class="line" id="l695">    695</a> void MockWebServerImpl::SetResponseHeaders(std::unordered_map&lt;HttpCode, HeaderMap&gt; headersByCode)
+<a href="#l696" class="line" id="l696">    696</a> {
+<a href="#l697" class="line" id="l697">    697</a>     m_headersByCode = std::move(headersByCode);
+<a href="#l698" class="line" id="l698">    698</a> }
+</pre>
+</div>
+</body>
+</html>

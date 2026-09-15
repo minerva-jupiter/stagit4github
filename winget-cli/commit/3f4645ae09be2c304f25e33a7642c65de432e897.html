@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Improve error handling in correlation test script (#2206) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/3f4645ae09be2c304f25e33a7642c65de432e897.html">3f4645ae09be2c304f25e33a7642c65de432e897</a>
+<b>parent</b> <a href="../commit/8d703ff6c2b8a3df8fd6dbf299c81bf794d3df62.html">8d703ff6c2b8a3df8fd6dbf299c81bf794d3df62</a>
+<b>Author:</b> Chacón &lt;<a href="mailto:lechacon@users.noreply.github.com">lechacon@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue, 31 May 2022 14:30:44 -0700
+
+Improve error handling in correlation test script (#2206)
+
+This contains two changes to improve the error handling in the correlation test script:
+1. In case we are using the dev package, when installing the VCLibs dependency, fall back to downloading it if it is not present in the SDK folder. This allows running the script from a machine that doesn&#39;t have dev dependencies by simply copying the dev package folder there.
+2. Add a timeout for the install operation on the correlation program to ensure the results JSON is generated with the appropriate message, instead of being empty due to the driver script killing the sandbox. This ensures timeouts are reported in the failed.json when processing the results.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a></td><td> | </td><td class="num">11</td><td><span class="i">++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">tools/CorrelationTestbed/Process-CorrelationResults.ps1</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1</a></td><td> | </td><td class="num">125</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------------------</span></td></tr>
+</table></pre><pre>3 files changed, 85 insertions(+), 53 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a> b/<a href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -16,6 +16,7 @@
+</a> 
+ using namespace std::string_view_literals;
+ using namespace winrt::Microsoft::Management::Deployment;
+<a href="#h0-0-3" id="h0-0-3" class="i">+using namespace winrt::Windows::Foundation;
+</a> 
+ template &lt;typename T&gt;
+ struct JSONPair
+<a href="#h0-1" id="h0-1" class="h">@@ -339,8 +340,16 @@ struct Main
+</a>                 installOptions.PackageInstallMode(PackageInstallMode::Silent);
+ 
+                 std::cout &lt;&lt; &quot;Beginning to install &quot; &lt;&lt; packageIdentifier &lt;&lt; &quot; (&quot; &lt;&lt; packageName &lt;&lt; &quot;) from &quot; &lt;&lt; sourceName &lt;&lt; &quot;...&quot; &lt;&lt; std::endl;
+<a href="#h0-1-3" id="h0-1-3" class="d">-                auto installResult = packageManager.InstallPackageAsync(package, installOptions).get();
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+                auto installOperation = packageManager.InstallPackageAsync(package, installOptions);
+</a> 
+<a href="#h0-1-6" id="h0-1-6" class="i">+                if (installOperation.wait_for(std::chrono::minutes(10)) != AsyncStatus::Completed)
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+                {
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+                    hr = E_FAIL;
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+                    error = &quot;Install operation timed out&quot;;
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+                    return;
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+                }
+</a><a href="#h0-1-12" id="h0-1-12" class="i">+
+</a><a href="#h0-1-13" id="h0-1-13" class="i">+                auto installResult = installOperation.GetResults();
+</a>                 if (installResult.Status() != InstallResultStatus::Ok)
+                 {
+                     hr = installResult.ExtendedErrorCode();
+<b>diff --git a/<a id="h1" href="../file/tools/CorrelationTestbed/Process-CorrelationResults.ps1.html">tools/CorrelationTestbed/Process-CorrelationResults.ps1</a> b/<a href="../file/tools/CorrelationTestbed/Process-CorrelationResults.ps1.html">tools/CorrelationTestbed/Process-CorrelationResults.ps1</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -23,7 +23,7 @@ foreach ($result in (Get-ChildItem $ResultsPath -Directory))
+</a>     {
+         continue
+     }
+<a href="#h1-0-3" id="h1-0-3" class="d">-    
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+
+</a>     $resultObj = (Get-Content -Path $resultJSON -Encoding utf8 | ConvertFrom-Json)
+ 
+     if ($resultObj.HRESULT -eq 0)
+<b>diff --git a/<a id="h2" href="../file/tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1.html">tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1</a> b/<a href="../file/tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1.html">tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -45,7 +45,7 @@ if ($UseDev)
+</a>   {
+     $DevPackagePath = Join-Path $PSScriptRoot &quot;..\..\src\AppInstallerCLIPackage\bin\x64\Release\AppX&quot;
+   }
+<a href="#h2-0-3" id="h2-0-3" class="d">-  
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+
+</a>   $DevPackagePath = [System.IO.Path]::GetFullPath($DevPackagePath)
+ 
+   if ($DevPackagePath.ToLower().Contains(&quot;debug&quot;))
+<a href="#h2-1" id="h2-1" class="h">@@ -55,7 +55,7 @@ The Debug dev package does not work for unknown reasons.
+</a> Use the Release build or figure out how to make debug work and fix the scripts.
+ &quot;@
+   }
+<a href="#h2-1-3" id="h2-1-3" class="d">-  
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+
+</a>   if (-not (Test-Path (Join-Path $DevPackagePath &quot;AppxManifest.xml&quot;)))
+   {
+     Write-Error -Category InvalidArgument -Message @&quot;
+<a href="#h2-2" id="h2-2" class="h">@@ -67,7 +67,8 @@ Either build the local dev package, or provide the location using -DevPackagePat
+</a> 
+ # Check if Windows Sandbox is enabled
+ 
+<a href="#h2-2-3" id="h2-2-3" class="d">-if (-Not (Get-Command &#39;WindowsSandbox&#39; -ErrorAction SilentlyContinue)) {
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+if (-Not (Get-Command &#39;WindowsSandbox&#39; -ErrorAction SilentlyContinue))
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+{
+</a>   Write-Error -Category NotInstalled -Message @&#39;
+ Windows Sandbox does not seem to be available. Check the following URL for prerequisites and further details:
+ https://docs.microsoft.com/windows/security/threat-protection/windows-sandbox/windows-sandbox-overview
+<a href="#h2-3" id="h2-3" class="h">@@ -81,7 +82,8 @@ $ Enable-WindowsOptionalFeature -Online -FeatureName &#39;Containers-DisposableClien
+</a> 
+ function Close-WindowsSandbox {
+     $sandbox = Get-Process &#39;WindowsSandboxClient&#39; -ErrorAction SilentlyContinue
+<a href="#h2-3-3" id="h2-3-3" class="d">-    if ($sandbox) {
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+    if ($sandbox)
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+    {
+</a>       Write-Host &#39;--&gt; Closing Windows Sandbox&#39;
+ 
+       $sandboxServer = Get-Process &#39;WindowsSandbox&#39; -ErrorAction SilentlyContinue
+<a href="#h2-4" id="h2-4" class="h">@@ -163,75 +165,89 @@ $vcLibsUwp = @{
+</a>   fileName = &#39;Microsoft.VCLibs.x64.14.00.Desktop.appx&#39;
+   url      = &#39;https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx&#39;
+   hash     = &#39;A39CEC0E70BE9E3E48801B871C034872F1D7E5E8EEBE986198C019CF2C271040&#39;
+<a href="#h2-4-3" id="h2-4-3" class="i">+  folderInLocal = Join-Path ${env:ProgramFiles(x86)} &quot;Microsoft SDKs\Windows Kits\10\ExtensionSDKs\Microsoft.VCLibs.Desktop\14.0\Appx\Retail\x64&quot;
+</a> }
+ $uiLibsUwp = @{
+<a href="#h2-4-6" id="h2-4-6" class="d">-    fileName = &#39;Microsoft.UI.Xaml.2.7.zip&#39;
+</a><a href="#h2-4-7" id="h2-4-7" class="d">-    url = &#39;https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.7.0&#39;
+</a><a href="#h2-4-8" id="h2-4-8" class="d">-    hash = &quot;422FD24B231E87A842C4DAEABC6A335112E0D35B86FAC91F5CE7CF327E36A591&quot;
+</a><a href="#h2-4-9" id="h2-4-9" class="i">+  fileName = &#39;Microsoft.UI.Xaml.2.7.zip&#39;
+</a><a href="#h2-4-10" id="h2-4-10" class="i">+  url = &#39;https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.7.0&#39;
+</a><a href="#h2-4-11" id="h2-4-11" class="i">+  hash = &quot;422FD24B231E87A842C4DAEABC6A335112E0D35B86FAC91F5CE7CF327E36A591&quot;
+</a> }
+ 
+ if ($UseDev)
+ {
+<a href="#h2-4-16" id="h2-4-16" class="d">-  $devVCLibsFileName = &quot;Microsoft.VCLibs.x64.14.00.Desktop.appx&quot;
+</a><a href="#h2-4-17" id="h2-4-17" class="d">-  $devVCLibsPath = Join-Path ${env:ProgramFiles(x86)} &quot;Microsoft SDKs\Windows Kits\10\ExtensionSDKs\Microsoft.VCLibs.Desktop\14.0\Appx\Retail\x64&quot;
+</a><a href="#h2-4-18" id="h2-4-18" class="d">-  $devVCLibsPath = Join-Path $devVCLibsPath $devVCLibsFileName
+</a><a href="#h2-4-19" id="h2-4-19" class="d">-
+</a><a href="#h2-4-20" id="h2-4-20" class="d">-  Copy-Item -Path $devVCLibsPath -Destination $tempFolder -Force
+</a><a href="#h2-4-21" id="h2-4-21" class="d">-
+</a><a href="#h2-4-22" id="h2-4-22" class="d">-  $devVCLibsPathInSandbox = Join-Path -Path $desktopInSandbox -ChildPath (Join-Path -Path $tempFolderName -ChildPath $devVCLibsFileName)
+</a><a href="#h2-4-23" id="h2-4-23" class="i">+  $dependencies = @($vcLibsUwp)
+</a> }
+ else
+ {
+<a href="#h2-4-27" id="h2-4-27" class="d">-
+</a>   $dependencies = @($desktopAppInstaller, $vcLibsUwp, $uiLibsUwp)
+<a href="#h2-4-29" id="h2-4-29" class="i">+}
+</a> 
+<a href="#h2-4-31" id="h2-4-31" class="d">-  # Clean temp directory
+</a><a href="#h2-4-32" id="h2-4-32" class="i">+# Clean temp directory
+</a> 
+<a href="#h2-4-34" id="h2-4-34" class="d">-  Get-ChildItem $tempFolder -Recurse -Exclude $dependencies.fileName | Remove-Item -Force -Recurse
+</a><a href="#h2-4-35" id="h2-4-35" class="i">+Get-ChildItem $tempFolder -Recurse -Exclude $dependencies.fileName | Remove-Item -Force -Recurse
+</a> 
+<a href="#h2-4-37" id="h2-4-37" class="d">-  if (-Not [String]::IsNullOrWhiteSpace($Manifest)) {
+</a><a href="#h2-4-38" id="h2-4-38" class="d">-    Copy-Item -Path $Manifest -Recurse -Destination $tempFolder
+</a><a href="#h2-4-39" id="h2-4-39" class="d">-  }
+</a><a href="#h2-4-40" id="h2-4-40" class="i">+# Download dependencies
+</a> 
+<a href="#h2-4-42" id="h2-4-42" class="d">-  # Download dependencies
+</a><a href="#h2-4-43" id="h2-4-43" class="i">+Write-Host &#39;--&gt; Checking dependencies&#39;
+</a> 
+<a href="#h2-4-45" id="h2-4-45" class="d">-  Write-Host &#39;--&gt; Checking dependencies&#39;
+</a><a href="#h2-4-46" id="h2-4-46" class="i">+foreach ($dependency in $dependencies)
+</a><a href="#h2-4-47" id="h2-4-47" class="i">+{
+</a><a href="#h2-4-48" id="h2-4-48" class="i">+  $dependency.pathInSandbox = Join-Path -Path $desktopInSandbox -ChildPath (Join-Path -Path $tempFolderName -ChildPath $dependency.fileName)
+</a> 
+<a href="#h2-4-50" id="h2-4-50" class="d">-  foreach ($dependency in $dependencies) {
+</a><a href="#h2-4-51" id="h2-4-51" class="d">-    $dependency.file = Join-Path -Path $tempFolder -ChildPath $dependency.fileName
+</a><a href="#h2-4-52" id="h2-4-52" class="d">-    $dependency.pathInSandbox = Join-Path -Path $desktopInSandbox -ChildPath (Join-Path -Path $tempFolderName -ChildPath $dependency.fileName)
+</a><a href="#h2-4-53" id="h2-4-53" class="i">+  # First see if the file exists locally to copy instead of downloading
+</a><a href="#h2-4-54" id="h2-4-54" class="i">+  if ($dependency.folderInLocal -ne $null)
+</a><a href="#h2-4-55" id="h2-4-55" class="i">+  {
+</a><a href="#h2-4-56" id="h2-4-56" class="i">+    $dependencyFilePath = Join-Path -Path $dependency.folderInLocal -ChildPath $dependency.fileName
+</a><a href="#h2-4-57" id="h2-4-57" class="i">+    if (Test-Path -Path $dependencyFilePath -PathType Leaf)
+</a><a href="#h2-4-58" id="h2-4-58" class="i">+    {
+</a><a href="#h2-4-59" id="h2-4-59" class="i">+      $dependencyFilePath
+</a><a href="#h2-4-60" id="h2-4-60" class="i">+      $tempFolder
+</a><a href="#h2-4-61" id="h2-4-61" class="i">+      Copy-Item -Path $dependencyFilePath -Destination $tempFolder -Force
+</a><a href="#h2-4-62" id="h2-4-62" class="i">+      continue
+</a><a href="#h2-4-63" id="h2-4-63" class="i">+    }
+</a><a href="#h2-4-64" id="h2-4-64" class="i">+  }
+</a><a href="#h2-4-65" id="h2-4-65" class="i">+
+</a><a href="#h2-4-66" id="h2-4-66" class="i">+  # File does not exist locally, we need to download
+</a><a href="#h2-4-67" id="h2-4-67" class="i">+
+</a><a href="#h2-4-68" id="h2-4-68" class="i">+  $dependency.file = Join-Path -Path $tempFolder -ChildPath $dependency.fileName
+</a> 
+<a href="#h2-4-70" id="h2-4-70" class="d">-    # Only download if the file does not exist, or its hash does not match.
+</a><a href="#h2-4-71" id="h2-4-71" class="d">-    if (-Not ((Test-Path -Path $dependency.file -PathType Leaf) -And $dependency.hash -eq $(Get-FileHash $dependency.file).Hash)) {
+</a><a href="#h2-4-72" id="h2-4-72" class="d">-      Write-Host @&quot;
+</a><a href="#h2-4-73" id="h2-4-73" class="d">-    - Downloading:
+</a><a href="#h2-4-74" id="h2-4-74" class="d">-      $($dependency.url)
+</a><a href="#h2-4-75" id="h2-4-75" class="i">+  # Only download if the file does not exist, or its hash does not match.
+</a><a href="#h2-4-76" id="h2-4-76" class="i">+  if (-Not ((Test-Path -Path $dependency.file -PathType Leaf) -And $dependency.hash -eq $(Get-FileHash $dependency.file).Hash))
+</a><a href="#h2-4-77" id="h2-4-77" class="i">+  {
+</a><a href="#h2-4-78" id="h2-4-78" class="i">+    Write-Host @&quot;
+</a><a href="#h2-4-79" id="h2-4-79" class="i">+  - Downloading:
+</a><a href="#h2-4-80" id="h2-4-80" class="i">+    $($dependency.url)
+</a> &quot;@
+ 
+<a href="#h2-4-83" id="h2-4-83" class="d">-      try {
+</a><a href="#h2-4-84" id="h2-4-84" class="d">-        $WebClient.DownloadFile($dependency.url, $dependency.file)
+</a><a href="#h2-4-85" id="h2-4-85" class="d">-      }
+</a><a href="#h2-4-86" id="h2-4-86" class="d">-      catch {
+</a><a href="#h2-4-87" id="h2-4-87" class="d">-        #Pass the exception as an inner exception
+</a><a href="#h2-4-88" id="h2-4-88" class="d">-        throw [System.Net.WebException]::new(&quot;Error downloading $($dependency.url).&quot;,$_.Exception)
+</a><a href="#h2-4-89" id="h2-4-89" class="d">-      }
+</a><a href="#h2-4-90" id="h2-4-90" class="d">-      if (-not ($dependency.hash -eq $(Get-FileHash $dependency.file).Hash)) {
+</a><a href="#h2-4-91" id="h2-4-91" class="d">-        throw [System.Activities.VersionMismatchException]::new(&#39;Dependency hash does not match the downloaded file&#39;)
+</a><a href="#h2-4-92" id="h2-4-92" class="d">-      }
+</a><a href="#h2-4-93" id="h2-4-93" class="i">+    try
+</a><a href="#h2-4-94" id="h2-4-94" class="i">+    {
+</a><a href="#h2-4-95" id="h2-4-95" class="i">+      $WebClient.DownloadFile($dependency.url, $dependency.file)
+</a><a href="#h2-4-96" id="h2-4-96" class="i">+    }
+</a><a href="#h2-4-97" id="h2-4-97" class="i">+    catch
+</a><a href="#h2-4-98" id="h2-4-98" class="i">+    {
+</a><a href="#h2-4-99" id="h2-4-99" class="i">+      #Pass the exception as an inner exception
+</a><a href="#h2-4-100" id="h2-4-100" class="i">+      throw [System.Net.WebException]::new(&quot;Error downloading $($dependency.url).&quot;,$_.Exception)
+</a><a href="#h2-4-101" id="h2-4-101" class="i">+    }
+</a><a href="#h2-4-102" id="h2-4-102" class="i">+    if (-not ($dependency.hash -eq $(Get-FileHash $dependency.file).Hash))
+</a><a href="#h2-4-103" id="h2-4-103" class="i">+    {
+</a><a href="#h2-4-104" id="h2-4-104" class="i">+      throw [System.Activities.VersionMismatchException]::new(&#39;Dependency hash does not match the downloaded file&#39;)
+</a>     }
+   }
+<a href="#h2-4-107" id="h2-4-107" class="i">+}
+</a> 
+<a href="#h2-4-109" id="h2-4-109" class="i">+if (-not $UseDev)
+</a><a href="#h2-4-110" id="h2-4-110" class="i">+{
+</a>   # Extract Microsoft.UI.Xaml from zip (if freshly downloaded).
+   # This is a workaround until https://github.com/microsoft/winget-cli/issues/1861 is resolved.
+ 
+<a href="#h2-4-114" id="h2-4-114" class="d">-  if (-Not (Test-Path (Join-Path -Path $tempFolder -ChildPath \Microsoft.UI.Xaml.2.7\tools\AppX\x64\Release\Microsoft.UI.Xaml.2.7.appx))){
+</a><a href="#h2-4-115" id="h2-4-115" class="i">+  if (-Not (Test-Path (Join-Path -Path $tampFolder -ChildPath \Microsoft.UI.Xaml.2.7\tools\AppX\x64\Release\Microsoft.UI.Xaml.2.7.appx)))
+</a><a href="#h2-4-116" id="h2-4-116" class="i">+  {
+</a>     Expand-Archive -Path $uiLibsUwp.file -DestinationPath ($tempFolder + &quot;\Microsoft.UI.Xaml.2.7&quot;) -Force
+<a href="#h2-4-118" id="h2-4-118" class="d">-  }  
+</a><a href="#h2-4-119" id="h2-4-119" class="i">+  }
+</a>   $uiLibsUwp.file = (Join-Path -Path $tempFolder -ChildPath \Microsoft.UI.Xaml.2.7\tools\AppX\x64\Release\Microsoft.UI.Xaml.2.7.appx)
+   $uiLibsUwp.pathInSandbox = Join-Path -Path $desktopInSandbox -ChildPath (Join-Path -Path $tempFolderName -ChildPath \Microsoft.UI.Xaml.2.7\tools\AppX\x64\Release\Microsoft.UI.Xaml.2.7.appx)
+   Write-Host
+<a href="#h2-4-123" id="h2-4-123" class="d">-
+</a><a href="#h2-4-124" id="h2-4-124" class="d">-} # !$UseDev
+</a><a href="#h2-4-125" id="h2-4-125" class="i">+}
+</a> 
+ # Copy main script
+ 
+<a href="#h2-5" id="h2-5" class="h">@@ -249,17 +265,23 @@ foreach ($packageIdentifier in $PackageIdentifiers)
+</a> 
+     if ($UseDev)
+     {
+<a href="#h2-5-3" id="h2-5-3" class="d">-      $bootstrapPs1Content = @&quot;
+</a><a href="#h2-5-4" id="h2-5-4" class="d">-.\$mainPs1FileName -DesktopAppInstallerDependencyPath @(&#39;$devVCLibsPathInSandbox&#39;) -PackageIdentifier &#39;$packageIdentifier&#39; -SourceName &#39;$Source&#39; -OutputPath &#39;$outPathInSandbox&#39; -UseDev
+</a><a href="#h2-5-5" id="h2-5-5" class="d">-&quot;@
+</a><a href="#h2-5-6" id="h2-5-6" class="i">+      $dependenciesPathsInSandbox = &quot;@(&#39;$($vcLibsUwp.pathInSandbox)&#39;)&quot;
+</a>     }
+     else
+     {
+<a href="#h2-5-10" id="h2-5-10" class="d">-      $bootstrapPs1Content = @&quot;
+</a><a href="#h2-5-11" id="h2-5-11" class="d">-.\$mainPs1FileName -DesktopAppInstallerPath &#39;$($desktopAppInstaller.pathInSandbox)&#39; -DesktopAppInstallerDependencyPath @(&#39;$($vcLibsUwp.pathInSandbox)&#39;, &#39;$($uiLibsUwp.pathInSandbox)&#39;) -PackageIdentifier &#39;$packageIdentifier&#39; -SourceName &#39;$Source&#39; -OutputPath &#39;$outPathInSandbox&#39;
+</a><a href="#h2-5-12" id="h2-5-12" class="d">-&quot;@
+</a><a href="#h2-5-13" id="h2-5-13" class="i">+      $dependenciesPathsInSandbox = &quot;@(&#39;$($vcLibsUwp.pathInSandbox)&#39;, &#39;$($uiLibsUwp.pathInSandbox)&#39;)&quot;
+</a>     }
+ 
+<a href="#h2-5-16" id="h2-5-16" class="i">+    $bootstrapPs1Content = &quot;.\$mainPs1FileName -DesktopAppInstallerDependencyPath @($dependenciesPathsInSandbox) -PackageIdentifier &#39;$packageIdentifier&#39; -SourceName &#39;$Source&#39; -OutputPath &#39;$outPathInSandbox&#39;&quot;
+</a><a href="#h2-5-17" id="h2-5-17" class="i">+
+</a><a href="#h2-5-18" id="h2-5-18" class="i">+    if ($UseDev)
+</a><a href="#h2-5-19" id="h2-5-19" class="i">+    {
+</a><a href="#h2-5-20" id="h2-5-20" class="i">+      $bootstrapPs1Content += &quot; -UseDev&quot;
+</a><a href="#h2-5-21" id="h2-5-21" class="i">+    }
+</a><a href="#h2-5-22" id="h2-5-22" class="i">+    else
+</a><a href="#h2-5-23" id="h2-5-23" class="i">+    {
+</a><a href="#h2-5-24" id="h2-5-24" class="i">+      $bootstrapPs1Content += &quot; -DesktopAppInstallerPath &#39;$($desktopAppInstaller.pathInSandbox)&#39;&quot;
+</a><a href="#h2-5-25" id="h2-5-25" class="i">+    }
+</a> 
+     $bootstrapPs1FileName = &#39;Bootstrap.ps1&#39;
+     $bootstrapPs1Content | Out-File (Join-Path $tempFolder $bootstrapPs1FileName) -Force
+<a href="#h2-6" id="h2-6" class="h">@@ -337,7 +359,8 @@ foreach ($packageIdentifier in $PackageIdentifiers)
+</a> 
+     $outputFileBlockerPath = Join-Path $outPath &quot;done.txt&quot;
+ 
+<a href="#h2-6-3" id="h2-6-3" class="d">-    $waitTimeout = [System.TimeSpan]::new(0, 10, 0)
+</a><a href="#h2-6-4" id="h2-6-4" class="i">+    # The correlation program should time out on its own after 10m.
+</a><a href="#h2-6-5" id="h2-6-5" class="i">+    $waitTimeout = [System.TimeSpan]::new(0, 15, 0)
+</a>     $startWaitTime = Get-Date
+ 
+     while (-not (Test-Path $outputFileBlockerPath))
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Add support for `RequireExplicitUpgrade` manifest element (#1795) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/d0ff81ed62ca582a5def366f561668909fc4838d.html">d0ff81ed62ca582a5def366f561668909fc4838d</a>
+<b>parent</b> <a href="../commit/a5e202c7ceff44515489b077aefc122f0ac1cec0.html">a5e202c7ceff44515489b077aefc122f0ac1cec0</a>
+<b>Author:</b> Flor Chacón &lt;<a href="mailto:lechacon@users.noreply.github.com">lechacon@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Wed,  3 Aug 2022 15:46:18 -0600
+
+Add support for `RequireExplicitUpgrade` manifest element (#1795)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Commands/UpgradeCommand.cpp</a></td><td> | </td><td class="num">31</td><td><span class="i">++++++++++++++++++</span><span class="d">-------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/ExecutionArgs.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a></td><td> | </td><td class="num">109</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a></td><td> | </td><td class="num">89</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">15</td><td><span class="i">+++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCLITests/WorkFlow.cpp</a></td><td> | </td><td class="num">131</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">+++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerRepositoryCore/RepositorySearch.cpp</a></td><td> | </td><td class="num">24</td><td><span class="i">++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>10 files changed, 343 insertions(+), 87 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Commands/UpgradeCommand.cpp.html">src/AppInstallerCLICore/Commands/UpgradeCommand.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Commands/UpgradeCommand.cpp.html">src/AppInstallerCLICore/Commands/UpgradeCommand.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -43,7 +43,8 @@ namespace AppInstaller::CLI
+</a>         // either for upgrading or for listing available upgrades.
+         bool HasArgumentsForMultiplePackages(Execution::Args&amp; execArgs)
+         {
+<a href="#h0-0-3" id="h0-0-3" class="d">-            return execArgs.Contains(Args::Type::All);  
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            return execArgs.Contains(Args::Type::All) ||
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+                execArgs.Contains(Args::Type::IncludeUnknown);
+</a>         }
+ 
+         // Determines whether there are any arguments only used as options during an upgrade,
+<a href="#h0-1" id="h0-1" class="h">@@ -102,7 +103,7 @@ namespace AppInstaller::CLI
+</a>             Argument::ForType(Args::Type::AcceptSourceAgreements),
+             Argument::ForType(Execution::Args::Type::CustomHeader),
+             Argument{ &quot;all&quot;, Argument::NoAlias, Args::Type::All, Resource::String::UpdateAllArgumentDescription, ArgumentType::Flag },
+<a href="#h0-1-3" id="h0-1-3" class="d">-            Argument{ &quot;include-unknown&quot;, Argument::NoAlias, Args::Type::IncludeUnknown, Resource::String::IncludeUnknownArgumentDescription, ArgumentType::Flag }
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+            Argument{ &quot;include-unknown&quot;, Argument::NoAlias, Args::Type::IncludeUnknown, Resource::String::IncludeUnknownArgumentDescription, ArgumentType::Flag },
+</a>         };
+     }
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -158,25 +159,29 @@ namespace AppInstaller::CLI
+</a> 
+     void UpgradeCommand::ValidateArgumentsInternal(Execution::Args&amp; execArgs) const
+     {
+<a href="#h0-2-3" id="h0-2-3" class="d">-        if (execArgs.Contains(Execution::Args::Type::Manifest) &amp;&amp;
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+        if (execArgs.Contains(Execution::Args::Type::Manifest) &amp;&amp; 
+</a>             (HasSearchQueryArguments(execArgs) ||
+<a href="#h0-2-6" id="h0-2-6" class="d">-                HasArgumentsForMultiplePackages(execArgs) ||
+</a><a href="#h0-2-7" id="h0-2-7" class="d">-                HasArgumentsForSource(execArgs)))
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+             HasArgumentsForMultiplePackages(execArgs) ||
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+             HasArgumentsForSource(execArgs)))
+</a>         {
+             throw CommandException(Resource::String::BothManifestAndSearchQueryProvided);
+         }
+ 
+<a href="#h0-2-14" id="h0-2-14" class="d">-
+</a><a href="#h0-2-15" id="h0-2-15" class="d">-        else if (!ShouldListUpgrade(execArgs) 
+</a><a href="#h0-2-16" id="h0-2-16" class="d">-                &amp;&amp; !HasSearchQueryArguments(execArgs) 
+</a><a href="#h0-2-17" id="h0-2-17" class="d">-                &amp;&amp; (execArgs.Contains(Args::Type::Log) ||
+</a><a href="#h0-2-18" id="h0-2-18" class="d">-                    execArgs.Contains(Args::Type::Override) ||
+</a><a href="#h0-2-19" id="h0-2-19" class="d">-                    execArgs.Contains(Args::Type::InstallLocation) ||
+</a><a href="#h0-2-20" id="h0-2-20" class="d">-                    execArgs.Contains(Args::Type::HashOverride) ||
+</a><a href="#h0-2-21" id="h0-2-21" class="d">-                    execArgs.Contains(Args::Type::AcceptPackageAgreements)))
+</a><a href="#h0-2-22" id="h0-2-22" class="i">+        if (!ShouldListUpgrade(execArgs)
+</a><a href="#h0-2-23" id="h0-2-23" class="i">+            &amp;&amp; !HasSearchQueryArguments(execArgs) 
+</a><a href="#h0-2-24" id="h0-2-24" class="i">+            &amp;&amp; (execArgs.Contains(Args::Type::Log) ||
+</a><a href="#h0-2-25" id="h0-2-25" class="i">+                execArgs.Contains(Args::Type::Override) ||
+</a><a href="#h0-2-26" id="h0-2-26" class="i">+                execArgs.Contains(Args::Type::InstallLocation) ||
+</a><a href="#h0-2-27" id="h0-2-27" class="i">+                execArgs.Contains(Args::Type::HashOverride) ||
+</a><a href="#h0-2-28" id="h0-2-28" class="i">+                execArgs.Contains(Args::Type::AcceptPackageAgreements)))
+</a>         {
+             throw CommandException(Resource::String::InvalidArgumentWithoutQueryError);
+         }
+<a href="#h0-2-32" id="h0-2-32" class="i">+
+</a><a href="#h0-2-33" id="h0-2-33" class="i">+        if (HasArgumentsForSinglePackage(execArgs) &amp;&amp; HasArgumentsForMultiplePackages(execArgs))
+</a><a href="#h0-2-34" id="h0-2-34" class="i">+        {
+</a><a href="#h0-2-35" id="h0-2-35" class="i">+            throw CommandException(Resource::String::IncompatibleArgumentsProvided);
+</a><a href="#h0-2-36" id="h0-2-36" class="i">+        }
+</a>     }
+ 
+     void UpgradeCommand::ExecuteInternal(Execution::Context&amp; context) const
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/ExecutionArgs.h.html">src/AppInstallerCLICore/ExecutionArgs.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionArgs.h.html">src/AppInstallerCLICore/ExecutionArgs.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -79,8 +79,11 @@ namespace AppInstaller::CLI::Execution
+</a>             AdminSettingEnable,
+             AdminSettingDisable,
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+            // Upgrade Command
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+            All, // Update all installed packages to latest
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+            IncludeUnknown, // Allow upgrades of packages with unknown versions
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+
+</a>             // Other
+<a href="#h1-0-8" id="h1-0-8" class="d">-            All, // Used in Update command to update all installed packages to latest
+</a>             ListVersions, // Used in Show command to list all available versions of an app
+             NoVT, // Disable VirtualTerminal outputs
+             RetroStyle, // Makes progress display as retro
+<a href="#h1-1" id="h1-1" class="h">@@ -91,7 +94,6 @@ namespace AppInstaller::CLI::Execution
+</a>             DependencySource, // Index source to be queried against for finding dependencies
+             CustomHeader, // Optional Rest source header
+             AcceptSourceAgreements, // Accept all source agreements
+<a href="#h1-1-3" id="h1-1-3" class="d">-            IncludeUnknown, // Used in Upgrade command to allow upgrades of packages with unknown versions
+</a>             Wait, // Prompts the user to press any key before exiting
+ 
+             // Used for demonstration purposes
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -109,6 +109,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(ImportSearchFailed);
+         WINGET_DEFINE_RESOURCE_STRINGID(ImportSourceNotInstalled);
+         WINGET_DEFINE_RESOURCE_STRINGID(IncludeUnknownArgumentDescription);
+<a href="#h2-0-3" id="h2-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(IncompatibleArgumentsProvided);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallAndUpgradeCommandsReportDependencies);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallArchitectureArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallationAbandoned);
+<a href="#h2-1" id="h2-1" class="h">@@ -373,12 +374,13 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(UnsupportedArgument);
+         WINGET_DEFINE_RESOURCE_STRINGID(UpdateAllArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(UpdateNotApplicable);
+<a href="#h2-1-3" id="h2-1-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(UpgradeAvailableForPinned);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(UpgradeCommandLongDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(UpgradeCommandShortDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(UpgradeDifferentInstallTechnology);
+         WINGET_DEFINE_RESOURCE_STRINGID(UpgradeDifferentInstallTechnologyInNewerVersions);
+<a href="#h2-1-8" id="h2-1-8" class="d">-        WINGET_DEFINE_RESOURCE_STRINGID(UpgradeUnknownCount);
+</a><a href="#h2-1-9" id="h2-1-9" class="d">-        WINGET_DEFINE_RESOURCE_STRINGID(UpgradeUnknownCountSingle);
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(UpgradeRequireExplicitCount);
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(UpgradeUnknownVersionCount);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(UpgradeUnknownVersionExplanation);
+         WINGET_DEFINE_RESOURCE_STRINGID(Usage);
+         WINGET_DEFINE_RESOURCE_STRINGID(ValidateCommandLongDescription);
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Workflows/UpdateFlow.cpp.html">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/UpdateFlow.cpp.html">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -44,32 +44,41 @@ namespace AppInstaller::CLI::Workflow
+</a>         bool updateFound = false;
+         bool installedTypeInapplicable = false;
+ 
+<a href="#h3-0-3" id="h3-0-3" class="d">-        if (!installedVersion.IsUnknown() || context.Args.Contains(Execution::Args::Type::IncludeUnknown)) 
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        if (installedVersion.IsUnknown() &amp;&amp; !context.Args.Contains(Execution::Args::Type::IncludeUnknown))
+</a>         {
+<a href="#h3-0-6" id="h3-0-6" class="d">-            // The version keys should have already been sorted by version
+</a><a href="#h3-0-7" id="h3-0-7" class="d">-            const auto&amp; versionKeys = package-&gt;GetAvailableVersionKeys();
+</a><a href="#h3-0-8" id="h3-0-8" class="d">-            for (const auto&amp; key : versionKeys)
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+            // the package has an unknown version and the user did not request to upgrade it anyway.
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+            if (m_reportUpdateNotFound)
+</a>             {
+<a href="#h3-0-12" id="h3-0-12" class="d">-                // Check Update Version
+</a><a href="#h3-0-13" id="h3-0-13" class="d">-                if (IsUpdateVersionApplicable(installedVersion, Utility::Version(key.Version)))
+</a><a href="#h3-0-14" id="h3-0-14" class="d">-                {
+</a><a href="#h3-0-15" id="h3-0-15" class="d">-                    auto packageVersion = package-&gt;GetAvailableVersion(key);
+</a><a href="#h3-0-16" id="h3-0-16" class="d">-                    auto manifest = packageVersion-&gt;GetManifest();
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+                context.Reporter.Info() &lt;&lt; Resource::String::UpgradeUnknownVersionExplanation &lt;&lt; std::endl;
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+            }
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE);
+</a><a href="#h3-0-21" id="h3-0-21" class="i">+        }
+</a><a href="#h3-0-22" id="h3-0-22" class="i">+
+</a><a href="#h3-0-23" id="h3-0-23" class="i">+        // The version keys should have already been sorted by version
+</a><a href="#h3-0-24" id="h3-0-24" class="i">+        const auto&amp; versionKeys = package-&gt;GetAvailableVersionKeys();
+</a><a href="#h3-0-25" id="h3-0-25" class="i">+        for (const auto&amp; key : versionKeys)
+</a><a href="#h3-0-26" id="h3-0-26" class="i">+        {
+</a><a href="#h3-0-27" id="h3-0-27" class="i">+            // Check Update Version
+</a><a href="#h3-0-28" id="h3-0-28" class="i">+            if (IsUpdateVersionApplicable(installedVersion, Utility::Version(key.Version)))
+</a><a href="#h3-0-29" id="h3-0-29" class="i">+            {
+</a><a href="#h3-0-30" id="h3-0-30" class="i">+                auto packageVersion = package-&gt;GetAvailableVersion(key);
+</a><a href="#h3-0-31" id="h3-0-31" class="i">+                auto manifest = packageVersion-&gt;GetManifest();
+</a> 
+<a href="#h3-0-33" id="h3-0-33" class="d">-                    // Check applicable Installer
+</a><a href="#h3-0-34" id="h3-0-34" class="d">-                    auto [installer, inapplicabilities] = manifestComparator.GetPreferredInstaller(manifest);
+</a><a href="#h3-0-35" id="h3-0-35" class="d">-                    if (!installer.has_value())
+</a><a href="#h3-0-36" id="h3-0-36" class="i">+                // Check applicable Installer
+</a><a href="#h3-0-37" id="h3-0-37" class="i">+                auto [installer, inapplicabilities] = manifestComparator.GetPreferredInstaller(manifest);
+</a><a href="#h3-0-38" id="h3-0-38" class="i">+                if (!installer.has_value())
+</a><a href="#h3-0-39" id="h3-0-39" class="i">+                {
+</a><a href="#h3-0-40" id="h3-0-40" class="i">+                    // If there is at least one installer whose only reason is InstalledType.
+</a><a href="#h3-0-41" id="h3-0-41" class="i">+                    auto onlyInstalledType = std::find(inapplicabilities.begin(), inapplicabilities.end(), InapplicabilityFlags::InstalledType);
+</a><a href="#h3-0-42" id="h3-0-42" class="i">+                    if (onlyInstalledType != inapplicabilities.end())
+</a>                     {
+<a href="#h3-0-44" id="h3-0-44" class="d">-                        // If there is at least one installer whose only reason is InstalledType.
+</a><a href="#h3-0-45" id="h3-0-45" class="d">-                        auto onlyInstalledType = std::find(inapplicabilities.begin(), inapplicabilities.end(), InapplicabilityFlags::InstalledType);
+</a><a href="#h3-0-46" id="h3-0-46" class="d">-                        if (onlyInstalledType != inapplicabilities.end())
+</a><a href="#h3-0-47" id="h3-0-47" class="d">-                        {
+</a><a href="#h3-0-48" id="h3-0-48" class="d">-                            installedTypeInapplicable = true;
+</a><a href="#h3-0-49" id="h3-0-49" class="d">-                        }
+</a><a href="#h3-0-50" id="h3-0-50" class="d">-
+</a><a href="#h3-0-51" id="h3-0-51" class="d">-                        continue;
+</a><a href="#h3-0-52" id="h3-0-52" class="i">+                        installedTypeInapplicable = true;
+</a>                     }
+ 
+<a href="#h3-0-55" id="h3-0-55" class="i">+                    continue;
+</a><a href="#h3-0-56" id="h3-0-56" class="i">+                }
+</a><a href="#h3-0-57" id="h3-0-57" class="i">+
+</a>                 Logging::Telemetry().LogSelectedInstaller(
+                     static_cast&lt;int&gt;(installer-&gt;Arch),
+                     installer-&gt;Url,
+<a href="#h3-1" id="h3-1" class="h">@@ -88,25 +97,16 @@ namespace AppInstaller::CLI::Workflow
+</a>                 context.Add&lt;Execution::Data::PackageVersion&gt;(std::move(packageVersion));
+                 context.Add&lt;Execution::Data::Installer&gt;(std::move(installer));
+ 
+<a href="#h3-1-3" id="h3-1-3" class="d">-                    updateFound = true;
+</a><a href="#h3-1-4" id="h3-1-4" class="d">-                    break;
+</a><a href="#h3-1-5" id="h3-1-5" class="d">-                }
+</a><a href="#h3-1-6" id="h3-1-6" class="d">-                else
+</a><a href="#h3-1-7" id="h3-1-7" class="d">-                {
+</a><a href="#h3-1-8" id="h3-1-8" class="d">-                    // Any following versions are not applicable
+</a><a href="#h3-1-9" id="h3-1-9" class="d">-                    break;
+</a><a href="#h3-1-10" id="h3-1-10" class="d">-                }
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+                updateFound = true;
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+                break;
+</a>             }
+<a href="#h3-1-14" id="h3-1-14" class="d">-        }
+</a><a href="#h3-1-15" id="h3-1-15" class="d">-        else
+</a><a href="#h3-1-16" id="h3-1-16" class="d">-        {
+</a><a href="#h3-1-17" id="h3-1-17" class="d">-            // the package has an unknown version and the user did not request to upgrade it anyway.
+</a><a href="#h3-1-18" id="h3-1-18" class="d">-            if (m_reportUpdateNotFound) 
+</a><a href="#h3-1-19" id="h3-1-19" class="i">+            else
+</a>             {
+<a href="#h3-1-21" id="h3-1-21" class="d">-                context.Reporter.Info() &lt;&lt; Resource::String::UpgradeUnknownVersionExplanation &lt;&lt; std::endl;
+</a><a href="#h3-1-22" id="h3-1-22" class="i">+                // Any following versions are not applicable
+</a><a href="#h3-1-23" id="h3-1-23" class="i">+                break;
+</a>             }
+<a href="#h3-1-25" id="h3-1-25" class="d">-            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE);
+</a>         }
+<a href="#h3-1-27" id="h3-1-27" class="i">+
+</a>         if (!updateFound)
+         {
+             if (m_reportUpdateNotFound)
+<a href="#h3-2" id="h3-2" class="h">@@ -143,7 +143,8 @@ namespace AppInstaller::CLI::Workflow
+</a>         const auto&amp; matches = context.Get&lt;Execution::Data::SearchResult&gt;().Matches;
+         std::vector&lt;std::unique_ptr&lt;Execution::Context&gt;&gt; packagesToInstall;
+         bool updateAllFoundUpdate = false;
+<a href="#h3-2-3" id="h3-2-3" class="d">-        int unknownPackagesCount = 0;
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+        int packagesWithUnknownVersionSkipped = 0;
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+        int packagesThatRequireExplicitSkipped = 0;
+</a> 
+         for (const auto&amp; match : matches)
+         {
+<a href="#h3-3" id="h3-3" class="h">@@ -154,7 +155,8 @@ namespace AppInstaller::CLI::Workflow
+</a>             auto installedVersion = match.Package-&gt;GetInstalledVersion();
+ 
+             updateContext.Add&lt;Execution::Data::Package&gt;(match.Package);
+<a href="#h3-3-3" id="h3-3-3" class="d">-            
+</a><a href="#h3-3-4" id="h3-3-4" class="i">+
+</a><a href="#h3-3-5" id="h3-3-5" class="i">+            // Filter out packages with unknown installed versions
+</a>             if (context.Args.Contains(Execution::Args::Type::IncludeUnknown))
+             {
+                 updateContext.Args.AddArg(Execution::Args::Type::IncludeUnknown);
+<a href="#h3-4" id="h3-4" class="h">@@ -162,7 +164,8 @@ namespace AppInstaller::CLI::Workflow
+</a>             else if (Utility::Version(installedVersion-&gt;GetProperty(PackageVersionProperty::Version)).IsUnknown())
+             {
+                 // we don&#39;t know what the package&#39;s version is and the user didn&#39;t ask to upgrade it anyway.
+<a href="#h3-4-3" id="h3-4-3" class="d">-                unknownPackagesCount++;
+</a><a href="#h3-4-4" id="h3-4-4" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Skipping &quot; &lt;&lt; match.Package-&gt;GetProperty(PackageProperty::Id) &lt;&lt; &quot; as it has unknown installed version&quot;);
+</a><a href="#h3-4-5" id="h3-4-5" class="i">+                ++packagesWithUnknownVersionSkipped;
+</a>                 continue;
+             }
+ 
+<a href="#h3-5" id="h3-5" class="h">@@ -176,6 +179,24 @@ namespace AppInstaller::CLI::Workflow
+</a>                 continue;
+             }
+ 
+<a href="#h3-5-3" id="h3-5-3" class="i">+            // Filter out packages that require explicit upgrades.
+</a><a href="#h3-5-4" id="h3-5-4" class="i">+            // We require explicit upgrades only if the installed version is pinned,
+</a><a href="#h3-5-5" id="h3-5-5" class="i">+            // either because it was manually pinned or because the manifest indicated
+</a><a href="#h3-5-6" id="h3-5-6" class="i">+            // RequireExplicitUpgrade.
+</a><a href="#h3-5-7" id="h3-5-7" class="i">+            // Note that this does not consider whether the update to be installed has
+</a><a href="#h3-5-8" id="h3-5-8" class="i">+            // RequireExplicitUpgrade. While this has the downside of not working with
+</a><a href="#h3-5-9" id="h3-5-9" class="i">+            // packages installed from another source, it ensures consistency with the
+</a><a href="#h3-5-10" id="h3-5-10" class="i">+            // list of available updates (there we don&#39;t have the selected installer)
+</a><a href="#h3-5-11" id="h3-5-11" class="i">+            // and at most we will update each package like this once.
+</a><a href="#h3-5-12" id="h3-5-12" class="i">+            auto installedMetadata = updateContext.Get&lt;Execution::Data::InstalledPackageVersion&gt;()-&gt;GetMetadata();
+</a><a href="#h3-5-13" id="h3-5-13" class="i">+            auto pinnedState = ConvertToPackagePinnedStateEnum(installedMetadata[PackageVersionMetadata::PinnedState]);
+</a><a href="#h3-5-14" id="h3-5-14" class="i">+            if (pinnedState != PackagePinnedState::NotPinned)
+</a><a href="#h3-5-15" id="h3-5-15" class="i">+            {
+</a><a href="#h3-5-16" id="h3-5-16" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Skipping &quot; &lt;&lt; match.Package-&gt;GetProperty(PackageProperty::Id) &lt;&lt; &quot; as it requires explicit upgrade&quot;);
+</a><a href="#h3-5-17" id="h3-5-17" class="i">+                ++packagesThatRequireExplicitSkipped;
+</a><a href="#h3-5-18" id="h3-5-18" class="i">+                continue;
+</a><a href="#h3-5-19" id="h3-5-19" class="i">+            }
+</a><a href="#h3-5-20" id="h3-5-20" class="i">+
+</a>             updateAllFoundUpdate = true;
+ 
+             AddToPackagesToInstallIfNotPresent(packagesToInstall, std::move(updateContextPtr));
+<a href="#h3-6" id="h3-6" class="h">@@ -191,5 +212,17 @@ namespace AppInstaller::CLI::Workflow
+</a>                     APPINSTALLER_CLI_ERROR_UPDATE_ALL_HAS_FAILURE,
+                     { APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE });
+         }
+<a href="#h3-6-3" id="h3-6-3" class="i">+
+</a><a href="#h3-6-4" id="h3-6-4" class="i">+        if (packagesWithUnknownVersionSkipped &gt; 0)
+</a><a href="#h3-6-5" id="h3-6-5" class="i">+        {
+</a><a href="#h3-6-6" id="h3-6-6" class="i">+            AICLI_LOG(CLI, Info, &lt;&lt; packagesWithUnknownVersionSkipped &lt;&lt; &quot; package(s) skipped due to unknown installed version&quot;);
+</a><a href="#h3-6-7" id="h3-6-7" class="i">+            context.Reporter.Info() &lt;&lt; packagesWithUnknownVersionSkipped &lt;&lt; &quot; &quot; &lt;&lt; Resource::String::UpgradeUnknownVersionCount &lt;&lt; std::endl;
+</a><a href="#h3-6-8" id="h3-6-8" class="i">+        }
+</a><a href="#h3-6-9" id="h3-6-9" class="i">+
+</a><a href="#h3-6-10" id="h3-6-10" class="i">+        if (packagesThatRequireExplicitSkipped &gt; 0)
+</a><a href="#h3-6-11" id="h3-6-11" class="i">+        {
+</a><a href="#h3-6-12" id="h3-6-12" class="i">+            AICLI_LOG(CLI, Info, &lt;&lt; packagesThatRequireExplicitSkipped &lt;&lt; &quot; package(s) skipped due to requiring explicit upgrade&quot;);
+</a><a href="#h3-6-13" id="h3-6-13" class="i">+            context.Reporter.Info() &lt;&lt; packagesThatRequireExplicitSkipped &lt;&lt; &quot; &quot; &lt;&lt; Resource::String::UpgradeRequireExplicitCount &lt;&lt; std::endl;
+</a><a href="#h3-6-14" id="h3-6-14" class="i">+        }
+</a>     }
+ }
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.cpp.html">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/WorkflowBase.cpp.html">src/AppInstallerCLICore/Workflows/WorkflowBase.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -218,6 +218,44 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+             return accepted;
+         }
+<a href="#h4-0-3" id="h4-0-3" class="i">+
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        // Data shown on a line of a table displaying installed packages
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+        struct InstalledPackagesTableLine
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+        {
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+            InstalledPackagesTableLine(Utility::LocIndString name, Utility::LocIndString id, Utility::LocIndString installedVersion, Utility::LocIndString availableVersion, Utility::LocIndString source)
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+                : Name(name), Id(id), InstalledVersion(installedVersion), AvailableVersion(availableVersion), Source(source) {}
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+            Utility::LocIndString Name;
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+            Utility::LocIndString Id;
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+            Utility::LocIndString InstalledVersion;
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+            Utility::LocIndString AvailableVersion;
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+            Utility::LocIndString Source;
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+        };
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+        void OutputInstalledPackagesTable(Execution::Context&amp; context, const std::vector&lt;InstalledPackagesTableLine&gt;&amp; lines)
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+        {
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+            Execution::TableOutput&lt;5&gt; table(context.Reporter,
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+                {
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+                    Resource::String::SearchName,
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+                    Resource::String::SearchId,
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+                    Resource::String::SearchVersion,
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+                    Resource::String::AvailableHeader,
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+                    Resource::String::SearchSource
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+                });
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+            for (const auto&amp; line : lines)
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+            {
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+                table.OutputLine({
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+                    line.Name,
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+                    line.Id,
+</a><a href="#h4-0-33" id="h4-0-33" class="i">+                    line.InstalledVersion,
+</a><a href="#h4-0-34" id="h4-0-34" class="i">+                    line.AvailableVersion,
+</a><a href="#h4-0-35" id="h4-0-35" class="i">+                    line.Source
+</a><a href="#h4-0-36" id="h4-0-36" class="i">+                    });
+</a><a href="#h4-0-37" id="h4-0-37" class="i">+            }
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+            table.Complete();
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+        }
+</a>     }
+ 
+     bool WorkflowTask::operator==(const WorkflowTask&amp; other) const
+<a href="#h4-1" id="h4-1" class="h">@@ -701,17 +739,11 @@ namespace AppInstaller::CLI::Workflow
+</a>     {
+         auto&amp; searchResult = context.Get&lt;Execution::Data::SearchResult&gt;();
+ 
+<a href="#h4-1-3" id="h4-1-3" class="d">-        Execution::TableOutput&lt;5&gt; table(context.Reporter,
+</a><a href="#h4-1-4" id="h4-1-4" class="d">-            {
+</a><a href="#h4-1-5" id="h4-1-5" class="d">-                Resource::String::SearchName,
+</a><a href="#h4-1-6" id="h4-1-6" class="d">-                Resource::String::SearchId,
+</a><a href="#h4-1-7" id="h4-1-7" class="d">-                Resource::String::SearchVersion,
+</a><a href="#h4-1-8" id="h4-1-8" class="d">-                Resource::String::AvailableHeader,
+</a><a href="#h4-1-9" id="h4-1-9" class="d">-                Resource::String::SearchSource
+</a><a href="#h4-1-10" id="h4-1-10" class="d">-            });
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+        std::vector&lt;InstalledPackagesTableLine&gt; lines;
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+        std::vector&lt;InstalledPackagesTableLine&gt; linesForExplicitUpgrade;
+</a> 
+         int availableUpgradesCount = 0;
+<a href="#h4-1-15" id="h4-1-15" class="d">-        int unknownPackagesCount = 0;
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+        int packagesWithUnknownVersionSkipped = 0;
+</a>         auto &amp;source = context.Get&lt;Execution::Data::Source&gt;();
+         bool shouldShowSource = source.IsComposite() &amp;&amp; source.GetAvailableSources().size() &gt; 1;
+ 
+<a href="#h4-2" id="h4-2" class="h">@@ -727,7 +759,7 @@ namespace AppInstaller::CLI::Workflow
+</a>                 if (m_onlyShowUpgrades &amp;&amp; !context.Args.Contains(Execution::Args::Type::IncludeUnknown) &amp;&amp; Utility::Version(installedVersion-&gt;GetProperty(PackageVersionProperty::Version)).IsUnknown() &amp;&amp; updateAvailable)
+                 {
+                     // We are only showing upgrades, and the user did not request to include packages with unknown versions.
+<a href="#h4-2-3" id="h4-2-3" class="d">-                    unknownPackagesCount++;
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+                    ++packagesWithUnknownVersionSkipped;
+</a>                     continue;
+                 }
+ 
+<a href="#h4-3" id="h4-3" class="h">@@ -751,22 +783,31 @@ namespace AppInstaller::CLI::Workflow
+</a>                     // Output using the local PackageName instead of the name in the manifest, to prevent confusion for packages that add multiple
+                     // Add/Remove Programs entries.
+                     // TODO: De-duplicate this list, and only show (by default) one entry per matched package.
+<a href="#h4-3-3" id="h4-3-3" class="d">-                    table.OutputLine({
+</a><a href="#h4-3-4" id="h4-3-4" class="i">+                    InstalledPackagesTableLine line(
+</a>                          installedVersion-&gt;GetProperty(PackageVersionProperty::Name),
+                          match.Package-&gt;GetProperty(PackageProperty::Id),
+                          installedVersion-&gt;GetProperty(PackageVersionProperty::Version),
+                          availableVersion,
+<a href="#h4-3-9" id="h4-3-9" class="d">-                         shouldShowSource ? sourceName : &quot;&quot;s
+</a><a href="#h4-3-10" id="h4-3-10" class="d">-                    });
+</a><a href="#h4-3-11" id="h4-3-11" class="d">-                   
+</a><a href="#h4-3-12" id="h4-3-12" class="d">-                   
+</a><a href="#h4-3-13" id="h4-3-13" class="i">+                         shouldShowSource ? sourceName : Utility::LocIndString()
+</a><a href="#h4-3-14" id="h4-3-14" class="i">+                    );
+</a><a href="#h4-3-15" id="h4-3-15" class="i">+
+</a><a href="#h4-3-16" id="h4-3-16" class="i">+                    auto pinnedState = ConvertToPackagePinnedStateEnum(installedVersion-&gt;GetMetadata()[PackageVersionMetadata::PinnedState]);
+</a><a href="#h4-3-17" id="h4-3-17" class="i">+                    bool requiresExplicitUpgrade = m_onlyShowUpgrades &amp;&amp; pinnedState != PackagePinnedState::NotPinned;
+</a><a href="#h4-3-18" id="h4-3-18" class="i">+                    if (requiresExplicitUpgrade)
+</a><a href="#h4-3-19" id="h4-3-19" class="i">+                    {
+</a><a href="#h4-3-20" id="h4-3-20" class="i">+                        linesForExplicitUpgrade.push_back(std::move(line));
+</a><a href="#h4-3-21" id="h4-3-21" class="i">+                    }
+</a><a href="#h4-3-22" id="h4-3-22" class="i">+                    else
+</a><a href="#h4-3-23" id="h4-3-23" class="i">+                    {
+</a><a href="#h4-3-24" id="h4-3-24" class="i">+                        lines.push_back(std::move(line));
+</a><a href="#h4-3-25" id="h4-3-25" class="i">+                    }
+</a>                 }
+             }
+         }
+ 
+<a href="#h4-3-30" id="h4-3-30" class="d">-        table.Complete();
+</a><a href="#h4-3-31" id="h4-3-31" class="i">+        OutputInstalledPackagesTable(context, lines);
+</a> 
+<a href="#h4-3-33" id="h4-3-33" class="d">-        if (table.IsEmpty())
+</a><a href="#h4-3-34" id="h4-3-34" class="i">+        if (lines.empty())
+</a>         {
+             context.Reporter.Info() &lt;&lt; Resource::String::NoInstalledPackageFound &lt;&lt; std::endl;
+         }
+<a href="#h4-4" id="h4-4" class="h">@@ -782,11 +823,21 @@ namespace AppInstaller::CLI::Workflow
+</a>                 context.Reporter.Info() &lt;&lt; availableUpgradesCount &lt;&lt; &#39; &#39; &lt;&lt; Resource::String::AvailableUpgrades &lt;&lt; std::endl;
+             }
+         }
+<a href="#h4-4-3" id="h4-4-3" class="d">-        if (m_onlyShowUpgrades &amp;&amp; unknownPackagesCount &gt; 0 &amp;&amp; !context.Args.Contains(Execution::Args::Type::IncludeUnknown))
+</a><a href="#h4-4-4" id="h4-4-4" class="i">+
+</a><a href="#h4-4-5" id="h4-4-5" class="i">+        if (!linesForExplicitUpgrade.empty())
+</a>         {
+<a href="#h4-4-7" id="h4-4-7" class="d">-            context.Reporter.Info() &lt;&lt; unknownPackagesCount &lt;&lt; &quot; &quot; &lt;&lt; (unknownPackagesCount == 1 ? Resource::String::UpgradeUnknownCountSingle : Resource::String::UpgradeUnknownCount) &lt;&lt; std::endl;
+</a><a href="#h4-4-8" id="h4-4-8" class="i">+            context.Reporter.Info() &lt;&lt; std::endl &lt;&lt; Resource::String::UpgradeAvailableForPinned &lt;&lt; std::endl;
+</a><a href="#h4-4-9" id="h4-4-9" class="i">+            OutputInstalledPackagesTable(context, linesForExplicitUpgrade);
+</a>         }
+ 
+<a href="#h4-4-12" id="h4-4-12" class="i">+        if (m_onlyShowUpgrades)
+</a><a href="#h4-4-13" id="h4-4-13" class="i">+        {
+</a><a href="#h4-4-14" id="h4-4-14" class="i">+            if (packagesWithUnknownVersionSkipped &gt; 0)
+</a><a href="#h4-4-15" id="h4-4-15" class="i">+            {
+</a><a href="#h4-4-16" id="h4-4-16" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; packagesWithUnknownVersionSkipped &lt;&lt; &quot; package(s) skipped due to unknown installed version&quot;);
+</a><a href="#h4-4-17" id="h4-4-17" class="i">+                context.Reporter.Info() &lt;&lt; packagesWithUnknownVersionSkipped &lt;&lt; &quot; &quot; &lt;&lt; Resource::String::UpgradeUnknownVersionCount &lt;&lt; std::endl;
+</a><a href="#h4-4-18" id="h4-4-18" class="i">+            }
+</a><a href="#h4-4-19" id="h4-4-19" class="i">+        }
+</a>     }
+ 
+     void EnsureMatchesFromSearchResult::operator()(Execution::Context&amp; context) const
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -1275,6 +1275,14 @@ Please specify one of them using the `--source` option to proceed.&lt;/value&gt;
+</a>     &lt;value&gt;package has a version number that cannot be determined. Using &quot;--include-unknown&quot; may show more results.&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;--include-unknown&quot;} This string is preceded by a (integer) number of packages that do not have notated versions.&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+  &lt;data name=&quot;UpgradeUnknownVersionCount&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+    &lt;value&gt;package(s) have version numbers that cannot be determined. Use &quot;--include-unknown&quot; to see all results.&lt;/value&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+    &lt;comment&gt;{Locked=&quot;--include-unknown&quot;} This string is preceded by a (integer) number of packages that do not have notated versions. &lt;/comment&gt;
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+  &lt;/data&gt;
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+  &lt;data name=&quot;UpgradeRequireExplicitCount&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+    &lt;value&gt;package(s) is pinned and needs to be explicitly upgraded.&lt;/value&gt;
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+    &lt;comment&gt;This string is preceded by a (integer) number of packages that require explicit upgrades.&lt;/comment&gt;
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+  &lt;/data&gt;
+</a>   &lt;data name=&quot;InvalidArgumentWithoutQueryError&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;The arguments provided can only be used with a query.&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h5-1" id="h5-1" class="h">@@ -1382,4 +1390,11 @@ Please specify one of them using the `--source` option to proceed.&lt;/value&gt;
+</a>   &lt;data name=&quot;MultipleNonPortableNestedInstallersSpecified&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Only one non-portable nested installer can be specified for an archive installer&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h5-1-3" id="h5-1-3" class="i">+  &lt;data name=&quot;IncompatibleArgumentsProvided&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+    &lt;value&gt;Incompatible command line arguments provided&lt;/value&gt;
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+  &lt;/data&gt;
+</a><a href="#h5-1-6" id="h5-1-6" class="i">+  &lt;data name=&quot;UpgradeAvailableForPinned&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-1-7" id="h5-1-7" class="i">+    &lt;value&gt;The following packages have an upgrade available, but require explicit targeting for upgrade:&lt;/value&gt;
+</a><a href="#h5-1-8" id="h5-1-8" class="i">+    &lt;comment&gt;&quot;require explicit targeting for upgrade&quot; means that the package will not be upgraded with all others unless an extra flag is added, or the package is mentioned explicitly&lt;/comment&gt;
+</a><a href="#h5-1-9" id="h5-1-9" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCLITests/WorkFlow.cpp.html">src/AppInstallerCLITests/WorkFlow.cpp</a> b/<a href="../file/src/AppInstallerCLITests/WorkFlow.cpp.html">src/AppInstallerCLITests/WorkFlow.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -105,9 +105,16 @@ namespace
+</a>         }
+     };
+ 
+<a href="#h6-0-3" id="h6-0-3" class="i">+    enum TestSourceSearchOptions
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+    {
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+        None = 0,
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+        UpgradeUsesAgreements,
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+        UpgradeRequiresExplicit,
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+    };
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+
+</a>     struct WorkflowTestCompositeSource : public TestSource
+     {
+<a href="#h6-0-12" id="h6-0-12" class="d">-        WorkflowTestCompositeSource(bool upgradeUsesLicenses) : m_upgradeUsesLicenses(upgradeUsesLicenses) {}
+</a><a href="#h6-0-13" id="h6-0-13" class="i">+        WorkflowTestCompositeSource(TestSourceSearchOptions searchOptions = TestSourceSearchOptions::None) : m_searchOptions(searchOptions) {}
+</a> 
+         SearchResult Search(const SearchRequest&amp; request) const override
+         {
+<a href="#h6-1" id="h6-1" class="h">@@ -133,7 +140,17 @@ namespace
+</a>             {
+                 auto manifest = YamlParser::CreateFromPath(TestDataFile(&quot;InstallFlowTest_Exe.yaml&quot;));
+                 auto manifest2 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Exe.yaml&quot;));
+<a href="#h6-1-3" id="h6-1-3" class="d">-                auto manifest3 = YamlParser::CreateFromPath(TestDataFile(m_upgradeUsesLicenses ? &quot;UpdateFlowTest_Exe_2_LicenseAgreement.yaml&quot; : &quot;UpdateFlowTest_Exe_2.yaml&quot;));
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+                Manifest manifest3;
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+                switch (m_searchOptions)
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+                {
+</a><a href="#h6-1-7" id="h6-1-7" class="i">+                case TestSourceSearchOptions::UpgradeUsesAgreements:
+</a><a href="#h6-1-8" id="h6-1-8" class="i">+                    manifest3 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Exe_2_LicenseAgreement.yaml&quot;));
+</a><a href="#h6-1-9" id="h6-1-9" class="i">+                    break;
+</a><a href="#h6-1-10" id="h6-1-10" class="i">+                default:
+</a><a href="#h6-1-11" id="h6-1-11" class="i">+                    manifest3 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Exe_2.yaml&quot;));
+</a><a href="#h6-1-12" id="h6-1-12" class="i">+                    break;
+</a><a href="#h6-1-13" id="h6-1-13" class="i">+                }
+</a><a href="#h6-1-14" id="h6-1-14" class="i">+
+</a>                 auto testPackage =
+                     TestPackage::Make(
+                         manifest,
+<a href="#h6-2" id="h6-2" class="h">@@ -171,12 +188,33 @@ namespace
+</a>             if (input.empty() || input == &quot;AppInstallerCliTest.TestMsixInstaller&quot;)
+             {
+                 auto manifest = YamlParser::CreateFromPath(TestDataFile(&quot;InstallFlowTest_Msix_StreamingFlow.yaml&quot;));
+<a href="#h6-2-3" id="h6-2-3" class="d">-                auto manifest2 = YamlParser::CreateFromPath(TestDataFile(m_upgradeUsesLicenses ? &quot;UpdateFlowTest_Msix_LicenseAgreement.yaml&quot; : &quot;UpdateFlowTest_Msix.yaml&quot;));
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+                Manifest manifest2;
+</a><a href="#h6-2-5" id="h6-2-5" class="i">+                switch (m_searchOptions)
+</a><a href="#h6-2-6" id="h6-2-6" class="i">+                {
+</a><a href="#h6-2-7" id="h6-2-7" class="i">+                case TestSourceSearchOptions::UpgradeUsesAgreements:
+</a><a href="#h6-2-8" id="h6-2-8" class="i">+                    manifest2 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Msix_LicenseAgreement.yaml&quot;));
+</a><a href="#h6-2-9" id="h6-2-9" class="i">+                    break;
+</a><a href="#h6-2-10" id="h6-2-10" class="i">+                case TestSourceSearchOptions::None:
+</a><a href="#h6-2-11" id="h6-2-11" class="i">+                default:
+</a><a href="#h6-2-12" id="h6-2-12" class="i">+                    manifest2 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Msix.yaml&quot;));
+</a><a href="#h6-2-13" id="h6-2-13" class="i">+                    break;
+</a><a href="#h6-2-14" id="h6-2-14" class="i">+                }
+</a><a href="#h6-2-15" id="h6-2-15" class="i">+
+</a><a href="#h6-2-16" id="h6-2-16" class="i">+                TestPackage::MetadataMap packageMetadata
+</a><a href="#h6-2-17" id="h6-2-17" class="i">+                {
+</a><a href="#h6-2-18" id="h6-2-18" class="i">+                    { PackageVersionMetadata::InstalledType, &quot;Msix&quot; },
+</a><a href="#h6-2-19" id="h6-2-19" class="i">+                };
+</a><a href="#h6-2-20" id="h6-2-20" class="i">+
+</a><a href="#h6-2-21" id="h6-2-21" class="i">+                if (m_searchOptions == TestSourceSearchOptions::UpgradeRequiresExplicit)
+</a><a href="#h6-2-22" id="h6-2-22" class="i">+                {
+</a><a href="#h6-2-23" id="h6-2-23" class="i">+                    packageMetadata[PackageVersionMetadata::PinnedState] = &quot;PinnedByManifest&quot;;
+</a><a href="#h6-2-24" id="h6-2-24" class="i">+                }
+</a><a href="#h6-2-25" id="h6-2-25" class="i">+
+</a>                 result.Matches.emplace_back(
+                     ResultMatch(
+                         TestPackage::Make(
+                             manifest,
+<a href="#h6-2-30" id="h6-2-30" class="d">-                            TestPackage::MetadataMap{ { PackageVersionMetadata::InstalledType, &quot;Msix&quot; } },
+</a><a href="#h6-2-31" id="h6-2-31" class="i">+                            packageMetadata,
+</a>                             std::vector&lt;Manifest&gt;{ manifest2, manifest },
+                             shared_from_this()
+                         ),
+<a href="#h6-3" id="h6-3" class="h">@@ -338,7 +376,7 @@ namespace
+</a>             {
+                 auto manifest = YamlParser::CreateFromPath(TestDataFile(&quot;InstallFlowTest_Exe.yaml&quot;));
+                 auto manifest2 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Exe.yaml&quot;));
+<a href="#h6-3-3" id="h6-3-3" class="d">-                auto manifest3 = YamlParser::CreateFromPath(TestDataFile(m_upgradeUsesLicenses ? &quot;UpdateFlowTest_Exe_2_LicenseAgreement.yaml&quot; : &quot;UpdateFlowTest_Exe_2.yaml&quot;));
+</a><a href="#h6-3-4" id="h6-3-4" class="i">+                auto manifest3 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Exe_2.yaml&quot;));
+</a>                 result.Matches.emplace_back(
+                     ResultMatch(
+                         TestPackage::Make(
+<a href="#h6-4" id="h6-4" class="h">@@ -373,7 +411,7 @@ namespace
+</a>         }
+ 
+     private:
+<a href="#h6-4-3" id="h6-4-3" class="d">-        bool m_upgradeUsesLicenses;
+</a><a href="#h6-4-4" id="h6-4-4" class="i">+        TestSourceSearchOptions m_searchOptions;
+</a>     };
+ 
+     struct TestContext;
+<a href="#h6-5" id="h6-5" class="h">@@ -479,7 +517,7 @@ void OverrideForOpenSource(TestContext&amp; context)
+</a>     } });
+ }
+ 
+<a href="#h6-5-3" id="h6-5-3" class="d">-void OverrideForCompositeInstalledSource(TestContext&amp; context, bool upgradeUsesLicenses = false)
+</a><a href="#h6-5-4" id="h6-5-4" class="i">+void OverrideForCompositeInstalledSource(TestContext&amp; context, TestSourceSearchOptions searchOptions = TestSourceSearchOptions::None)
+</a> {
+     context.Override({ &quot;OpenSource&quot;, [](TestContext&amp;)
+     {
+<a href="#h6-6" id="h6-6" class="h">@@ -487,7 +525,7 @@ void OverrideForCompositeInstalledSource(TestContext&amp; context, bool upgradeUsesL
+</a> 
+     context.Override({ &quot;OpenCompositeSource&quot;, [=](TestContext&amp; context)
+     {
+<a href="#h6-6-3" id="h6-6-3" class="d">-        context.Add&lt;Execution::Data::Source&gt;(Source{ std::make_shared&lt;WorkflowTestCompositeSource&gt;(upgradeUsesLicenses) });
+</a><a href="#h6-6-4" id="h6-6-4" class="i">+        context.Add&lt;Execution::Data::Source&gt;(Source{ std::make_shared&lt;WorkflowTestCompositeSource&gt;(searchOptions) });
+</a>     } });
+ }
+ 
+<a href="#h6-7" id="h6-7" class="h">@@ -495,13 +533,13 @@ void OverrideForImportSource(TestContext&amp; context, bool useTestCompositeSource =
+</a> {
+     context.Override({ &quot;OpenPredefinedSource&quot;, [=](TestContext&amp; context)
+     {
+<a href="#h6-7-3" id="h6-7-3" class="d">-        auto installedSource = useTestCompositeSource? std::make_shared&lt;WorkflowTestCompositeSource&gt;(false) : std::make_shared&lt;TestSource&gt;();
+</a><a href="#h6-7-4" id="h6-7-4" class="i">+        auto installedSource = useTestCompositeSource ? std::make_shared&lt;WorkflowTestCompositeSource&gt;() : std::make_shared&lt;TestSource&gt;();
+</a>         context.Add&lt;Execution::Data::Source&gt;(Source{ installedSource });
+     } });
+ 
+     context.Override({ Workflow::OpenSourcesForImport, [](TestContext&amp; context)
+     {
+<a href="#h6-7-10" id="h6-7-10" class="d">-        context.Add&lt;Execution::Data::Sources&gt;(std::vector&lt;Source&gt;{ Source{ std::make_shared&lt;WorkflowTestCompositeSource&gt;(false) } });
+</a><a href="#h6-7-11" id="h6-7-11" class="i">+        context.Add&lt;Execution::Data::Sources&gt;(std::vector&lt;Source&gt;{ Source{ std::make_shared&lt;WorkflowTestCompositeSource&gt;() } });
+</a>     } });
+ }
+ 
+<a href="#h6-8" id="h6-8" class="h">@@ -2212,7 +2250,7 @@ TEST_CASE(&quot;UpdateFlow_All_LicenseAgreement&quot;, &quot;[UpdateFlow][workflow]&quot;)
+</a>     std::ostringstream updateOutput;
+     TestContext context{ updateOutput, std::cin };
+     auto previousThreadGlobals = context.SetForCurrentThread();
+<a href="#h6-8-3" id="h6-8-3" class="d">-    OverrideForCompositeInstalledSource(context, /* upgradeUsesLicenses */ true);
+</a><a href="#h6-8-4" id="h6-8-4" class="i">+    OverrideForCompositeInstalledSource(context, TestSourceSearchOptions::UpgradeUsesAgreements);
+</a>     OverrideForShellExecute(context);
+     OverrideForMSIX(context);
+     OverrideForMSStore(context, true);
+<a href="#h6-9" id="h6-9" class="h">@@ -2249,7 +2287,7 @@ TEST_CASE(&quot;UpdateFlow_All_LicenseAgreement_NotAccepted&quot;, &quot;[UpdateFlow][workflow]
+</a>     std::ostringstream updateOutput;
+     TestContext context{ updateOutput, updateInput };
+     auto previousThreadGlobals = context.SetForCurrentThread();
+<a href="#h6-9-3" id="h6-9-3" class="d">-    OverrideForCompositeInstalledSource(context, /* upgradeUsesLicenses */ true);
+</a><a href="#h6-9-4" id="h6-9-4" class="i">+    OverrideForCompositeInstalledSource(context, TestSourceSearchOptions::UpgradeUsesAgreements);
+</a>     context.Args.AddArg(Execution::Args::Type::All);
+ 
+     UpgradeCommand update({});
+<a href="#h6-10" id="h6-10" class="h">@@ -2286,6 +2324,75 @@ TEST_CASE(&quot;UninstallFlow_UninstallPortable&quot;, &quot;[UninstallFlow][workflow]&quot;)
+</a>     REQUIRE(std::filesystem::exists(uninstallResultPath.GetPath()));
+ }
+ 
+<a href="#h6-10-3" id="h6-10-3" class="i">+TEST_CASE(&quot;UpdateFlow_RequireExplicit&quot;, &quot;[UpdateFlow][workflow]&quot;)
+</a><a href="#h6-10-4" id="h6-10-4" class="i">+{
+</a><a href="#h6-10-5" id="h6-10-5" class="i">+    TestCommon::TempFile updateExeResultPath(&quot;TestExeInstalled.txt&quot;);
+</a><a href="#h6-10-6" id="h6-10-6" class="i">+    TestCommon::TempFile updateMsixResultPath(&quot;TestMsixInstalled.txt&quot;);
+</a><a href="#h6-10-7" id="h6-10-7" class="i">+
+</a><a href="#h6-10-8" id="h6-10-8" class="i">+    std::ostringstream updateOutput;
+</a><a href="#h6-10-9" id="h6-10-9" class="i">+    TestContext context{ updateOutput, std::cin };
+</a><a href="#h6-10-10" id="h6-10-10" class="i">+    auto previousThreadGlobals = context.SetForCurrentThread();
+</a><a href="#h6-10-11" id="h6-10-11" class="i">+
+</a><a href="#h6-10-12" id="h6-10-12" class="i">+    // Msix package has an update that requires explicit upgrade.
+</a><a href="#h6-10-13" id="h6-10-13" class="i">+    // Exe, Portable, MSStore, Zip are also listed with an available upgrade.
+</a><a href="#h6-10-14" id="h6-10-14" class="i">+    OverrideForCompositeInstalledSource(context, TestSourceSearchOptions::UpgradeRequiresExplicit);
+</a><a href="#h6-10-15" id="h6-10-15" class="i">+
+</a><a href="#h6-10-16" id="h6-10-16" class="i">+    SECTION(&quot;List available upgrades&quot;)
+</a><a href="#h6-10-17" id="h6-10-17" class="i">+    {
+</a><a href="#h6-10-18" id="h6-10-18" class="i">+        UpgradeCommand update({});
+</a><a href="#h6-10-19" id="h6-10-19" class="i">+        update.Execute(context);
+</a><a href="#h6-10-20" id="h6-10-20" class="i">+        INFO(updateOutput.str());
+</a><a href="#h6-10-21" id="h6-10-21" class="i">+
+</a><a href="#h6-10-22" id="h6-10-22" class="i">+        // The package that requires explicit upgrade is listed below the header for pinned packages
+</a><a href="#h6-10-23" id="h6-10-23" class="i">+        REQUIRE(updateOutput.str().find(&quot;AppInstallerCliTest.TestExeInstaller&quot;) != std::string::npos);
+</a><a href="#h6-10-24" id="h6-10-24" class="i">+
+</a><a href="#h6-10-25" id="h6-10-25" class="i">+        auto pinnedPackagesHeaderPosition = updateOutput.str().find(Resource::LocString(Resource::String::UpgradeAvailableForPinned));
+</a><a href="#h6-10-26" id="h6-10-26" class="i">+        auto pinnedPackageLinePosition = updateOutput.str().find(&quot;AppInstallerCliTest.TestMsixInstaller&quot;);
+</a><a href="#h6-10-27" id="h6-10-27" class="i">+        REQUIRE(pinnedPackagesHeaderPosition != std::string::npos);
+</a><a href="#h6-10-28" id="h6-10-28" class="i">+        REQUIRE(pinnedPackageLinePosition != std::string::npos);
+</a><a href="#h6-10-29" id="h6-10-29" class="i">+        REQUIRE(pinnedPackagesHeaderPosition &lt; pinnedPackageLinePosition);
+</a><a href="#h6-10-30" id="h6-10-30" class="i">+        REQUIRE(updateOutput.str().find(Resource::LocString(Resource::String::UpgradeRequireExplicitCount)) == std::string::npos);
+</a><a href="#h6-10-31" id="h6-10-31" class="i">+    }
+</a><a href="#h6-10-32" id="h6-10-32" class="i">+
+</a><a href="#h6-10-33" id="h6-10-33" class="i">+    SECTION(&quot;Upgrade all except pinned&quot;)
+</a><a href="#h6-10-34" id="h6-10-34" class="i">+    {
+</a><a href="#h6-10-35" id="h6-10-35" class="i">+        context.Args.AddArg(Args::Type::All);
+</a><a href="#h6-10-36" id="h6-10-36" class="i">+        OverrideForMSStore(context, true);
+</a><a href="#h6-10-37" id="h6-10-37" class="i">+        OverrideForPortableInstall(context);
+</a><a href="#h6-10-38" id="h6-10-38" class="i">+        OverrideForShellExecute(context);
+</a><a href="#h6-10-39" id="h6-10-39" class="i">+        OverrideForExtractInstallerFromArchive(context);
+</a><a href="#h6-10-40" id="h6-10-40" class="i">+        OverrideForVerifyAndSetNestedInstaller(context);
+</a><a href="#h6-10-41" id="h6-10-41" class="i">+
+</a><a href="#h6-10-42" id="h6-10-42" class="i">+        UpgradeCommand update({});
+</a><a href="#h6-10-43" id="h6-10-43" class="i">+        update.Execute(context);
+</a><a href="#h6-10-44" id="h6-10-44" class="i">+        INFO(updateOutput.str());
+</a><a href="#h6-10-45" id="h6-10-45" class="i">+
+</a><a href="#h6-10-46" id="h6-10-46" class="i">+        auto s = updateOutput.str();
+</a><a href="#h6-10-47" id="h6-10-47" class="i">+
+</a><a href="#h6-10-48" id="h6-10-48" class="i">+        // Verify message is printed for skipped package
+</a><a href="#h6-10-49" id="h6-10-49" class="i">+        REQUIRE(updateOutput.str().find(Resource::LocString(Resource::String::UpgradeRequireExplicitCount)) != std::string::npos);
+</a><a href="#h6-10-50" id="h6-10-50" class="i">+
+</a><a href="#h6-10-51" id="h6-10-51" class="i">+        // Verify package is not installed, but all others are
+</a><a href="#h6-10-52" id="h6-10-52" class="i">+        REQUIRE(std::filesystem::exists(updateExeResultPath.GetPath()));
+</a><a href="#h6-10-53" id="h6-10-53" class="i">+        REQUIRE(!std::filesystem::exists(updateMsixResultPath.GetPath()));
+</a><a href="#h6-10-54" id="h6-10-54" class="i">+    }
+</a><a href="#h6-10-55" id="h6-10-55" class="i">+
+</a><a href="#h6-10-56" id="h6-10-56" class="i">+    SECTION(&quot;Upgrade explicitly&quot;)
+</a><a href="#h6-10-57" id="h6-10-57" class="i">+    {
+</a><a href="#h6-10-58" id="h6-10-58" class="i">+        context.Args.AddArg(Execution::Args::Type::Query, &quot;AppInstallerCliTest.TestMsixInstaller&quot;sv);
+</a><a href="#h6-10-59" id="h6-10-59" class="i">+        OverrideForMSIX(context);
+</a><a href="#h6-10-60" id="h6-10-60" class="i">+
+</a><a href="#h6-10-61" id="h6-10-61" class="i">+        UpgradeCommand update({});
+</a><a href="#h6-10-62" id="h6-10-62" class="i">+        update.Execute(context);
+</a><a href="#h6-10-63" id="h6-10-63" class="i">+        INFO(updateOutput.str());
+</a><a href="#h6-10-64" id="h6-10-64" class="i">+
+</a><a href="#h6-10-65" id="h6-10-65" class="i">+        REQUIRE(std::filesystem::exists(updateMsixResultPath.GetPath()));
+</a><a href="#h6-10-66" id="h6-10-66" class="i">+    }
+</a><a href="#h6-10-67" id="h6-10-67" class="i">+
+</a><a href="#h6-10-68" id="h6-10-68" class="i">+    // Command should always succeed
+</a><a href="#h6-10-69" id="h6-10-69" class="i">+    REQUIRE(context.GetTerminationHR() == S_OK);
+</a><a href="#h6-10-70" id="h6-10-70" class="i">+}
+</a><a href="#h6-10-71" id="h6-10-71" class="i">+
+</a> TEST_CASE(&quot;UninstallFlow_UninstallExe&quot;, &quot;[UninstallFlow][workflow]&quot;)
+ {
+     TestCommon::TempFile uninstallResultPath(&quot;TestExeUninstalled.txt&quot;);
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp.html">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp.html">src/AppInstallerRepositoryCore/PackageTrackingCatalog.cpp</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -215,7 +215,6 @@ namespace AppInstaller::Repository
+</a>         bool isUpgrade)
+     {
+         // TODO: Store additional information from these if needed
+<a href="#h7-0-3" id="h7-0-3" class="d">-        UNREFERENCED_PARAMETER(installer);
+</a>         UNREFERENCED_PARAMETER(isUpgrade);
+ 
+         auto&amp; index = m_implementation-&gt;Source-&gt;GetIndex();
+<a href="#h7-1" id="h7-1" class="h">@@ -239,6 +238,11 @@ namespace AppInstaller::Repository
+</a>         strstr &lt;&lt; Utility::GetCurrentUnixEpoch();
+         index.SetMetadataByManifestId(manifestId, PackageVersionMetadata::TrackingWriteTime, strstr.str());
+ 
+<a href="#h7-1-3" id="h7-1-3" class="i">+        if (installer.RequireExplicitUpgrade)
+</a><a href="#h7-1-4" id="h7-1-4" class="i">+        {
+</a><a href="#h7-1-5" id="h7-1-5" class="i">+            index.SetMetadataByManifestId(manifestId, PackageVersionMetadata::PinnedState, ToString(PackagePinnedState::PinnedByManifest));
+</a><a href="#h7-1-6" id="h7-1-6" class="i">+        }
+</a><a href="#h7-1-7" id="h7-1-7" class="i">+
+</a>         std::shared_ptr&lt;Version::implementation&gt; result = std::make_shared&lt;Version::implementation&gt;();
+         result-&gt;Id = manifestId;
+         return { std::move(result) };
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySearch.h</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -178,11 +178,24 @@ namespace AppInstaller::Repository
+</a>         TrackingWriteTime,
+         // The Architecture of an installed package
+         InstalledArchitecture,
+<a href="#h8-0-3" id="h8-0-3" class="i">+        // The PackagePinnedState of the installed package
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+        PinnedState,
+</a>     };
+ 
+     // Convert a PackageVersionMetadata to a string.
+     std::string_view ToString(PackageVersionMetadata pvm);
+ 
+<a href="#h8-0-10" id="h8-0-10" class="i">+    // Possible pinned states for a package.
+</a><a href="#h8-0-11" id="h8-0-11" class="i">+    // Pinned packages need to be explicitly updated (i.e., are not included in `upgrade --all`)
+</a><a href="#h8-0-12" id="h8-0-12" class="i">+    enum class PackagePinnedState
+</a><a href="#h8-0-13" id="h8-0-13" class="i">+    {
+</a><a href="#h8-0-14" id="h8-0-14" class="i">+        NotPinned,
+</a><a href="#h8-0-15" id="h8-0-15" class="i">+        PinnedByManifest,
+</a><a href="#h8-0-16" id="h8-0-16" class="i">+    };
+</a><a href="#h8-0-17" id="h8-0-17" class="i">+
+</a><a href="#h8-0-18" id="h8-0-18" class="i">+    std::string_view ToString(PackagePinnedState state);
+</a><a href="#h8-0-19" id="h8-0-19" class="i">+    PackagePinnedState ConvertToPackagePinnedStateEnum(std::string_view in);
+</a><a href="#h8-0-20" id="h8-0-20" class="i">+
+</a>     // A single package version.
+     struct IPackageVersion
+     {
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerRepositoryCore/RepositorySearch.cpp.html">src/AppInstallerRepositoryCore/RepositorySearch.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/RepositorySearch.cpp.html">src/AppInstallerRepositoryCore/RepositorySearch.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -88,6 +88,30 @@ namespace AppInstaller::Repository
+</a>         }
+     }
+ 
+<a href="#h9-0-3" id="h9-0-3" class="i">+    std::string_view ToString(PackagePinnedState state)
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+    {
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+        switch (state)
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+        {
+</a><a href="#h9-0-7" id="h9-0-7" class="i">+        case PackagePinnedState::PinnedByManifest: return &quot;PinnedByManifest&quot;sv;
+</a><a href="#h9-0-8" id="h9-0-8" class="i">+        case PackagePinnedState::NotPinned:
+</a><a href="#h9-0-9" id="h9-0-9" class="i">+        default:
+</a><a href="#h9-0-10" id="h9-0-10" class="i">+            return &quot;Unknown&quot;;
+</a><a href="#h9-0-11" id="h9-0-11" class="i">+        }
+</a><a href="#h9-0-12" id="h9-0-12" class="i">+    }
+</a><a href="#h9-0-13" id="h9-0-13" class="i">+
+</a><a href="#h9-0-14" id="h9-0-14" class="i">+    PackagePinnedState ConvertToPackagePinnedStateEnum(std::string_view in)
+</a><a href="#h9-0-15" id="h9-0-15" class="i">+    {
+</a><a href="#h9-0-16" id="h9-0-16" class="i">+        if (Utility::CaseInsensitiveEquals(in, &quot;PinnedByManifest&quot;sv))
+</a><a href="#h9-0-17" id="h9-0-17" class="i">+        {
+</a><a href="#h9-0-18" id="h9-0-18" class="i">+            return PackagePinnedState::PinnedByManifest;
+</a><a href="#h9-0-19" id="h9-0-19" class="i">+        }
+</a><a href="#h9-0-20" id="h9-0-20" class="i">+        else
+</a><a href="#h9-0-21" id="h9-0-21" class="i">+        {
+</a><a href="#h9-0-22" id="h9-0-22" class="i">+            return PackagePinnedState::NotPinned;
+</a><a href="#h9-0-23" id="h9-0-23" class="i">+        }
+</a><a href="#h9-0-24" id="h9-0-24" class="i">+    }
+</a><a href="#h9-0-25" id="h9-0-25" class="i">+
+</a><a href="#h9-0-26" id="h9-0-26" class="i">+
+</a>     const char* UnsupportedRequestException::what() const noexcept
+     {
+         if (m_whatMessage.empty())
+</pre>
+</div>
+</body>
+</html>

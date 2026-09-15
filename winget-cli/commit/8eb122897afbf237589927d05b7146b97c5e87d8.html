@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Use copy instead of rename for moving extracted archive directories (#3003) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/8eb122897afbf237589927d05b7146b97c5e87d8.html">8eb122897afbf237589927d05b7146b97c5e87d8</a>
+<b>parent</b> <a href="../commit/9acb01b2fbc10ecc943ed56edf92c60084b95c66.html">9acb01b2fbc10ecc943ed56edf92c60084b95c66</a>
+<b>Author:</b> Ryan Fu &lt;<a href="mailto:69221034+ryfu-msft@users.noreply.github.com">69221034+ryfu-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Mon, 13 Mar 2023 17:36:00 -0700
+
+Use copy instead of rename for moving extracted archive directories (#3003)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/PortableInstaller.cpp</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/Filesystem.cpp</a></td><td> | </td><td class="num">30</td><td><span class="i">++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Filesystem.cpp</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCommonCore/Public/winget/Filesystem.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+</table></pre><pre>4 files changed, 57 insertions(+), 2 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/PortableInstaller.cpp.html">src/AppInstallerCLICore/PortableInstaller.cpp</a> b/<a href="../file/src/AppInstallerCLICore/PortableInstaller.cpp.html">src/AppInstallerCLICore/PortableInstaller.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -107,8 +107,17 @@ namespace AppInstaller::CLI::Portable
+</a>         }
+         else if (fileType == PortableFileType::Directory)
+         {
+<a href="#h0-0-3" id="h0-0-3" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Moving directory to: &quot; &lt;&lt; filePath);
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-            Filesystem::RenameFile(entry.CurrentPath, filePath);
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+            if (Filesystem::IsSameVolume(entry.CurrentPath, filePath))
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+            {
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+                AICLI_LOG(Core, Info, &lt;&lt; &quot;Renaming directory to: &quot; &lt;&lt; filePath);
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+                Filesystem::RenameFile(entry.CurrentPath, filePath);
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+            }
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+            else
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+            {
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+                // Copy directory instead of renaming as there is a known issue with renaming across drives.
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+                AICLI_LOG(Core, Info, &lt;&lt; &quot;Copying directory to: &quot; &lt;&lt; filePath);
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                std::filesystem::copy(entry.CurrentPath, filePath, std::filesystem::copy_options::overwrite_existing | std::filesystem::copy_options::recursive);
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+            }
+</a>         }
+         else if (entry.FileType == PortableFileType::Symlink)
+         {
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/Filesystem.cpp.html">src/AppInstallerCLITests/Filesystem.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Filesystem.cpp.html">src/AppInstallerCLITests/Filesystem.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -56,4 +56,34 @@ TEST_CASE(&quot;VerifySymlink&quot;, &quot;[filesystem]&quot;)
+</a>     std::filesystem::remove(symlinkPath);
+ 
+     REQUIRE_FALSE(SymlinkExists(symlinkPath));
+<a href="#h1-0-3" id="h1-0-3" class="i">+}
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+TEST_CASE(&quot;VerifyIsSameVolume&quot;, &quot;[filesystem]&quot;)
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+{
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    // Note: Pipeline build machine uses &#39;D:\&#39; as the volume.
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+    std::filesystem::path path1 = L&quot;C:\\Program Files\\WinGet\\Packages&quot;;
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    std::filesystem::path path2 = L&quot;c:\\Users\\testUser\\AppData\\Local\\Microsoft\\WinGet\\Packages&quot;;
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    std::filesystem::path path3 = L&quot;localPath\\test\\folder&quot;;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+    std::filesystem::path path4 = L&quot;test\\folder&quot;;
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+    std::filesystem::path path5 = L&quot;D:\\test\\folder&quot;;
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+    std::filesystem::path path6 = L&quot;F:\\test\\folder&quot;;
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+    std::filesystem::path path7 = L&quot;d:\\randomFolder&quot;;
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+    std::filesystem::path path8 = L&quot;f:\\randomFolder&quot;;
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+    std::filesystem::path path9 = L&quot;a&quot;;
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+    std::filesystem::path path10 = L&quot;b&quot;;
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+    // Verify that a relative path points to the current volume.
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+    REQUIRE(IsSameVolume(path1, path2));
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+    REQUIRE(IsSameVolume(path5, path7));
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+    REQUIRE(IsSameVolume(path3, path4));
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+    REQUIRE(IsSameVolume(path9, path10));
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+    REQUIRE_FALSE(IsSameVolume(path1, path5));
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+    REQUIRE_FALSE(IsSameVolume(path1, path6));
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+    REQUIRE_FALSE(IsSameVolume(path2, path5));
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+    REQUIRE_FALSE(IsSameVolume(path2, path6));
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+    REQUIRE_FALSE(IsSameVolume(path3, path6));
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+    REQUIRE_FALSE(IsSameVolume(path5, path6));
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+    REQUIRE_FALSE(IsSameVolume(path4, path6));
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+    REQUIRE_FALSE(IsSameVolume(path6, path8));
+</a> } 
+\ No newline at end of file
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Filesystem.cpp.html">src/AppInstallerCommonCore/Filesystem.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Filesystem.cpp.html">src/AppInstallerCommonCore/Filesystem.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -238,4 +238,17 @@ namespace AppInstaller::Filesystem
+</a>         THROW_IF_FAILED(SHGetKnownFolderPath(id, KF_FLAG_NO_ALIAS | KF_FLAG_DONT_VERIFY | KF_FLAG_NO_PACKAGE_REDIRECTION, NULL, &amp;knownFolder));
+         return knownFolder.get();
+     }
+<a href="#h2-0-3" id="h2-0-3" class="i">+
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    bool IsSameVolume(const std::filesystem::path&amp; path1, const std::filesystem::path&amp; path2)
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    {
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        WCHAR volumeName1[MAX_PATH];
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+        WCHAR volumeName2[MAX_PATH];
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+        // Note: GetVolumePathNameW will return false if the volume drive does not exist.
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+        if (!GetVolumePathNameW(path1.c_str(), volumeName1, MAX_PATH) || !GetVolumePathNameW(path2.c_str(), volumeName2, MAX_PATH))
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+        {
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+            return false;
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+        }
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+        return Utility::CaseInsensitiveEquals(Utility::ConvertToUTF8(volumeName1), Utility::ConvertToUTF8(volumeName2));
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+    }
+</a> } 
+\ No newline at end of file
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCommonCore/Public/winget/Filesystem.h.html">src/AppInstallerCommonCore/Public/winget/Filesystem.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/Filesystem.h.html">src/AppInstallerCommonCore/Public/winget/Filesystem.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -42,4 +42,7 @@ namespace AppInstaller::Filesystem
+</a> 
+     // Gets the path of a known folder.
+     std::filesystem::path GetKnownFolderPath(const KNOWNFOLDERID&amp; id);
+<a href="#h3-0-3" id="h3-0-3" class="i">+
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    // Verifies that the paths are on the same volume.
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+    bool IsSameVolume(const std::filesystem::path&amp; path1, const std::filesystem::path&amp; path2);
+</a> } 
+\ No newline at end of file
+</pre>
+</div>
+</body>
+</html>

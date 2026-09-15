@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Move to using sqlite3_errmsg to extract a contextual error for SQLite failures (#2352) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/90f13932dc1fbcbd8e706951b24a5f1a12ba4788.html">90f13932dc1fbcbd8e706951b24a5f1a12ba4788</a>
+<b>parent</b> <a href="../commit/3f0346609df7a4efc2851858a8e6a8c2507d024a.html">3f0346609df7a4efc2851858a8e6a8c2507d024a</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 21 Jul 2022 14:16:47 -0700
+
+Move to using sqlite3_errmsg to extract a contextual error for SQLite failures (#2352)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/SQLiteWrapper.cpp</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/SQLiteWrapper.cpp</a></td><td> | </td><td class="num">33</td><td><span class="i">+++++++++++++++++</span><span class="d">----------------</span></td></tr>
+</table></pre><pre>3 files changed, 30 insertions(+), 16 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -117,6 +117,7 @@ enr
+</a> enums
+ EQU
+ ERANGE
+<a href="#h0-0-3" id="h0-0-3" class="i">+errmsg
+</a> errno
+ ESRB
+ etest
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/SQLiteWrapper.cpp.html">src/AppInstallerCLITests/SQLiteWrapper.cpp</a> b/<a href="../file/src/AppInstallerCLITests/SQLiteWrapper.cpp.html">src/AppInstallerCLITests/SQLiteWrapper.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -300,6 +300,18 @@ TEST_CASE(&quot;SQLiteWrapper_BindWithEmbeddedNull&quot;, &quot;[sqlitewrapper]&quot;)
+</a>     REQUIRE_THROWS_HR(InsertIntoSimpleTestTable(connection, firstVal, secondVal), APPINSTALLER_CLI_ERROR_BIND_WITH_EMBEDDED_NULL);
+ }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+TEST_CASE(&quot;SQLiteWrapper_PrepareFailure&quot;, &quot;[sqlitewrapper]&quot;)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+{
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    Connection connection = Connection::Create(SQLITE_MEMORY_DB_CONNECTION_TARGET, Connection::OpenDisposition::Create);
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    CreateSimpleTestTable(connection);
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    Builder::StatementBuilder builder;
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    builder.Select({ s_firstColumn, s_secondColumn }).From(std::string{ s_tableName } + &quot;2&quot;).Where(s_firstColumn).Equals(2);
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+    REQUIRE_THROWS_HR(builder.Prepare(connection), MAKE_HRESULT(SEVERITY_ERROR, FACILITY_SQLITE, SQLITE_ERROR));
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+}
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+
+</a> TEST_CASE(&quot;SQLBuilder_SimpleSelectBind&quot;, &quot;[sqlbuilder]&quot;)
+ {
+     Connection connection = Connection::Create(SQLITE_MEMORY_DB_CONNECTION_TARGET, Connection::OpenDisposition::Create);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/SQLiteWrapper.cpp.html">src/AppInstallerRepositoryCore/SQLiteWrapper.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/SQLiteWrapper.cpp.html">src/AppInstallerRepositoryCore/SQLiteWrapper.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -15,18 +15,19 @@ using namespace std::string_view_literals;
+</a> #include &lt;stack&gt;
+ #endif
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-#define THROW_SQLITE(_error_) \
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+#define THROW_SQLITE(_error_,_connection_) \
+</a>     do { \
+         int _ts_sqliteReturnValue = _error_; \
+<a href="#h2-0-7" id="h2-0-7" class="d">-        THROW_EXCEPTION_MSG(SQLiteException(_ts_sqliteReturnValue), sqlite3_errstr(_ts_sqliteReturnValue)); \
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+        sqlite3* _ts_sqliteConnection = _connection_; \
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+        THROW_EXCEPTION_MSG(SQLiteException(_ts_sqliteReturnValue), _ts_sqliteConnection ? sqlite3_errmsg(_ts_sqliteConnection) : sqlite3_errstr(_ts_sqliteReturnValue)); \
+</a>     } while (0,0)
+ 
+<a href="#h2-0-12" id="h2-0-12" class="d">-#define THROW_IF_SQLITE_FAILED(_statement_) \
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+#define THROW_IF_SQLITE_FAILED(_statement_,_connection_) \
+</a>     do { \
+         int _tisf_sqliteReturnValue = _statement_; \
+         if (_tisf_sqliteReturnValue != SQLITE_OK) \
+         { \
+<a href="#h2-0-18" id="h2-0-18" class="d">-            THROW_SQLITE(_tisf_sqliteReturnValue); \
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+            THROW_SQLITE(_tisf_sqliteReturnValue,_connection_); \
+</a>         } \
+     } while (0,0)
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -47,7 +48,7 @@ namespace AppInstaller::Repository::SQLite
+</a>     {
+         void ParameterSpecificsImpl&lt;nullptr_t&gt;::Bind(sqlite3_stmt* stmt, int index, nullptr_t)
+         {
+<a href="#h2-1-3" id="h2-1-3" class="d">-            THROW_IF_SQLITE_FAILED(sqlite3_bind_null(stmt, index));
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+            THROW_IF_SQLITE_FAILED(sqlite3_bind_null(stmt, index), sqlite3_db_handle(stmt));
+</a>         }
+ 
+         void ThrowIfContainsEmbeddedNullCharacter(std::string_view v)
+<a href="#h2-2" id="h2-2" class="h">@@ -58,7 +59,7 @@ namespace AppInstaller::Repository::SQLite
+</a>         void ParameterSpecificsImpl&lt;std::string&gt;::Bind(sqlite3_stmt* stmt, int index, const std::string&amp; v)
+         {
+             ThrowIfContainsEmbeddedNullCharacter(v);
+<a href="#h2-2-3" id="h2-2-3" class="d">-            THROW_IF_SQLITE_FAILED(sqlite3_bind_text64(stmt, index, v.c_str(), v.size(), SQLITE_TRANSIENT, SQLITE_UTF8));
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+            THROW_IF_SQLITE_FAILED(sqlite3_bind_text64(stmt, index, v.c_str(), v.size(), SQLITE_TRANSIENT, SQLITE_UTF8), sqlite3_db_handle(stmt));
+</a>         }
+ 
+         std::string ParameterSpecificsImpl&lt;std::string&gt;::GetColumn(sqlite3_stmt* stmt, int column)
+<a href="#h2-3" id="h2-3" class="h">@@ -77,13 +78,13 @@ namespace AppInstaller::Repository::SQLite
+</a>             else
+             {
+                 ThrowIfContainsEmbeddedNullCharacter(v);
+<a href="#h2-3-3" id="h2-3-3" class="d">-                THROW_IF_SQLITE_FAILED(sqlite3_bind_text64(stmt, index, v.data(), v.size(), SQLITE_TRANSIENT, SQLITE_UTF8));
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+                THROW_IF_SQLITE_FAILED(sqlite3_bind_text64(stmt, index, v.data(), v.size(), SQLITE_TRANSIENT, SQLITE_UTF8), sqlite3_db_handle(stmt));
+</a>             }
+         }
+ 
+         void ParameterSpecificsImpl&lt;int&gt;::Bind(sqlite3_stmt* stmt, int index, int v)
+         {
+<a href="#h2-3-10" id="h2-3-10" class="d">-            THROW_IF_SQLITE_FAILED(sqlite3_bind_int(stmt, index, v));
+</a><a href="#h2-3-11" id="h2-3-11" class="i">+            THROW_IF_SQLITE_FAILED(sqlite3_bind_int(stmt, index, v), sqlite3_db_handle(stmt));
+</a>         }
+ 
+         int ParameterSpecificsImpl&lt;int&gt;::GetColumn(sqlite3_stmt* stmt, int column)
+<a href="#h2-4" id="h2-4" class="h">@@ -93,7 +94,7 @@ namespace AppInstaller::Repository::SQLite
+</a> 
+         void ParameterSpecificsImpl&lt;int64_t&gt;::Bind(sqlite3_stmt* stmt, int index, int64_t v)
+         {
+<a href="#h2-4-3" id="h2-4-3" class="d">-            THROW_IF_SQLITE_FAILED(sqlite3_bind_int64(stmt, index, v));
+</a><a href="#h2-4-4" id="h2-4-4" class="i">+            THROW_IF_SQLITE_FAILED(sqlite3_bind_int64(stmt, index, v), sqlite3_db_handle(stmt));
+</a>         }
+ 
+         int64_t ParameterSpecificsImpl&lt;int64_t&gt;::GetColumn(sqlite3_stmt* stmt, int column)
+<a href="#h2-5" id="h2-5" class="h">@@ -103,7 +104,7 @@ namespace AppInstaller::Repository::SQLite
+</a> 
+         void ParameterSpecificsImpl&lt;bool&gt;::Bind(sqlite3_stmt* stmt, int index, bool v)
+         {
+<a href="#h2-5-3" id="h2-5-3" class="d">-            THROW_IF_SQLITE_FAILED(sqlite3_bind_int(stmt, index, (v ? 1 : 0)));
+</a><a href="#h2-5-4" id="h2-5-4" class="i">+            THROW_IF_SQLITE_FAILED(sqlite3_bind_int(stmt, index, (v ? 1 : 0)), sqlite3_db_handle(stmt));
+</a>         }
+ 
+         bool ParameterSpecificsImpl&lt;bool&gt;::GetColumn(sqlite3_stmt* stmt, int column)
+<a href="#h2-6" id="h2-6" class="h">@@ -120,7 +121,7 @@ namespace AppInstaller::Repository::SQLite
+</a> 
+         void ParameterSpecificsImpl&lt;blob_t&gt;::Bind(sqlite3_stmt* stmt, int index, const blob_t&amp; v)
+         {
+<a href="#h2-6-3" id="h2-6-3" class="d">-            THROW_IF_SQLITE_FAILED(sqlite3_bind_blob64(stmt, index, v.data(), v.size(), SQLITE_TRANSIENT));
+</a><a href="#h2-6-4" id="h2-6-4" class="i">+            THROW_IF_SQLITE_FAILED(sqlite3_bind_blob64(stmt, index, v.data(), v.size(), SQLITE_TRANSIENT), sqlite3_db_handle(stmt));
+</a>         }
+ 
+         blob_t ParameterSpecificsImpl&lt;blob_t&gt;::GetColumn(sqlite3_stmt* stmt, int column)
+<a href="#h2-7" id="h2-7" class="h">@@ -143,14 +144,14 @@ namespace AppInstaller::Repository::SQLite
+</a>         AICLI_LOG(SQL, Info, &lt;&lt; &quot;Opening SQLite connection: &#39;&quot; &lt;&lt; target &lt;&lt; &quot;&#39; [&quot; &lt;&lt; std::hex &lt;&lt; static_cast&lt;int&gt;(disposition) &lt;&lt; &quot;, &quot; &lt;&lt; std::hex &lt;&lt; static_cast&lt;int&gt;(flags) &lt;&lt; &quot;]&quot;);
+         // Always force connection serialization until we determine that there are situations where it is not needed
+         int resultingFlags = static_cast&lt;int&gt;(disposition) | static_cast&lt;int&gt;(flags) | SQLITE_OPEN_FULLMUTEX;
+<a href="#h2-7-3" id="h2-7-3" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3_open_v2(target.c_str(), &amp;m_dbconn, resultingFlags, nullptr));
+</a><a href="#h2-7-4" id="h2-7-4" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3_open_v2(target.c_str(), &amp;m_dbconn, resultingFlags, nullptr), nullptr);
+</a>     }
+ 
+     Connection Connection::Create(const std::string&amp; target, OpenDisposition disposition, OpenFlags flags)
+     {
+         Connection result{ target, disposition, flags };
+         
+<a href="#h2-7-11" id="h2-7-11" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3_extended_result_codes(result.m_dbconn.get(), 1));
+</a><a href="#h2-7-12" id="h2-7-12" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3_extended_result_codes(result.m_dbconn.get(), 1), result.m_dbconn.get());
+</a> 
+         return result;
+     }
+<a href="#h2-8" id="h2-8" class="h">@@ -158,7 +159,7 @@ namespace AppInstaller::Repository::SQLite
+</a>     void Connection::EnableICU()
+     {
+         AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Enabling ICU&quot;);
+<a href="#h2-8-3" id="h2-8-3" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3IcuInit(m_dbconn.get()));
+</a><a href="#h2-8-4" id="h2-8-4" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3IcuInit(m_dbconn.get()), m_dbconn.get());
+</a>     }
+ 
+     rowid_t Connection::GetLastInsertRowID()
+<a href="#h2-9" id="h2-9" class="h">@@ -177,7 +178,7 @@ namespace AppInstaller::Repository::SQLite
+</a>         AICLI_LOG(SQL, Verbose, &lt;&lt; &quot;Preparing statement #&quot; &lt;&lt; m_id &lt;&lt; &quot;: &quot; &lt;&lt; sql);
+         // SQL string size should include the null terminator (https://www.sqlite.org/c3ref/prepare.html)
+         assert(sql.data()[sql.size()] == &#39;\0&#39;);
+<a href="#h2-9-3" id="h2-9-3" class="d">-        THROW_IF_SQLITE_FAILED(sqlite3_prepare_v2(connection, sql.data(), static_cast&lt;int&gt;(sql.size() + 1), &amp;m_stmt, nullptr));
+</a><a href="#h2-9-4" id="h2-9-4" class="i">+        THROW_IF_SQLITE_FAILED(sqlite3_prepare_v2(connection, sql.data(), static_cast&lt;int&gt;(sql.size() + 1), &amp;m_stmt, nullptr), connection);
+</a>     }
+ 
+ #if WINGET_SQLITE_EXPLAIN_QUERY_PLAN_ENABLED
+<a href="#h2-10" id="h2-10" class="h">@@ -264,7 +265,7 @@ namespace AppInstaller::Repository::SQLite
+</a>             }
+             else
+             {
+<a href="#h2-10-3" id="h2-10-3" class="d">-                THROW_SQLITE(result);
+</a><a href="#h2-10-4" id="h2-10-4" class="i">+                THROW_SQLITE(result, sqlite3_db_handle(m_stmt.get()));
+</a>             }
+         }
+     }
+</pre>
+</div>
+</body>
+</html>

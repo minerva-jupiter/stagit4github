@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Add deferred registration for MSIX (#1397) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/8f653e0ccd0a290fd9be462a5a716a00a21ccaf6.html">8f653e0ccd0a290fd9be462a5a716a00a21ccaf6</a>
+<b>parent</b> <a href="../commit/2536bde0f6e6f502fd0193e0580787ccd4960091.html">2536bde0f6e6f502fd0193e0580787ccd4960091</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 25 Aug 2021 09:21:39 -0700
+
+Add deferred registration for MSIX (#1397)
+
+Prior to this change, MSIX install (and upgrade) would forcibly shut down the application so that it could upgrade the package during the command.  After, the new package will be staged and the upgrade will complete when the application is restarted.
+
+This is done by first attempting `RequestAddPackageAsync` if SmartScreen is necessary.  Then if it that fails due to the package being in use (or it is not needed at all), we stage (place files onto the machine) then register (install package for user).  If the package is in use at this point, we detect it and change the success message to indicate that the user must restart the application:
+```
+Successfully installed. Restart the application to complete the upgrade.
+```
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Commands/HashCommand.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">30</td><td><span class="i">++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></td><td> | </td><td class="num">3</td><td><span class="i">++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/pch.h</a></td><td> | </td><td class="num">2</td><td><span class="i"></span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">6</td><td><span class="i">+++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCommonCore/Deployment.cpp</a></td><td> | </td><td class="num">115</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a></td><td> | </td><td class="num">10</td><td><span class="i">++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerRepositoryCore/pch.h</a></td><td> | </td><td class="num">2</td><td><span class="i"></span><span class="d">--</span></td></tr>
+</table></pre><pre>10 files changed, 150 insertions(+), 24 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Commands/HashCommand.cpp.html">src/AppInstallerCLICore/Commands/HashCommand.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Commands/HashCommand.cpp.html">src/AppInstallerCLICore/Commands/HashCommand.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -5,6 +5,8 @@
+</a> #include &quot;Workflows/WorkflowBase.h&quot;
+ #include &quot;Resources.h&quot;
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+#include &lt;AppInstallerMsixInfo.h&gt;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+
+</a> namespace AppInstaller::CLI
+ {
+     using namespace std::string_view_literals;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -100,6 +100,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallerHashMismatchOverrideRequired);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallerHashVerified);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallFlowInstallSuccess);
+<a href="#h1-0-3" id="h1-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(InstallFlowRegistrationDeferred);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallFlowStartingPackageInstall);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallForceArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallScopeDescription);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -10,6 +10,9 @@
+</a> #include &quot;WorkflowBase.h&quot;
+ #include &quot;Workflows/DependenciesFlow.h&quot;
+ 
+<a href="#h2-0-3" id="h2-0-3" class="i">+#include &lt;AppInstallerDeployment.h&gt;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+#include &lt;AppInstallerMsixInfo.h&gt;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+
+</a> namespace AppInstaller::CLI::Workflow
+ {
+     using namespace winrt::Windows::ApplicationModel::Store::Preview::InstallControl;
+<a href="#h2-1" id="h2-1" class="h">@@ -408,26 +411,26 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+     void MsixInstall(Execution::Context&amp; context)
+     {
+<a href="#h2-1-3" id="h2-1-3" class="d">-        Uri uri = nullptr;
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        std::string uri;
+</a>         if (context.Contains(Execution::Data::InstallerPath))
+         {
+<a href="#h2-1-7" id="h2-1-7" class="d">-            uri = Uri(context.Get&lt;Execution::Data::InstallerPath&gt;().c_str());
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+            uri = context.Get&lt;Execution::Data::InstallerPath&gt;().u8string();
+</a>         }
+         else
+         {
+<a href="#h2-1-12" id="h2-1-12" class="d">-            uri = Uri(Utility::ConvertToUTF16(context.Get&lt;Execution::Data::Installer&gt;()-&gt;Url));
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+            uri = context.Get&lt;Execution::Data::Installer&gt;()-&gt;Url;
+</a>         }
+ 
+         context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowStartingPackageInstall &lt;&lt; std::endl;
+ 
+<a href="#h2-1-18" id="h2-1-18" class="i">+        bool registrationDeferred = false;
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+
+</a>         try
+         {
+<a href="#h2-1-22" id="h2-1-22" class="d">-            DeploymentOptions deploymentOptions =
+</a><a href="#h2-1-23" id="h2-1-23" class="d">-                DeploymentOptions::ForceApplicationShutdown |
+</a><a href="#h2-1-24" id="h2-1-24" class="d">-                DeploymentOptions::ForceTargetApplicationShutdown;
+</a><a href="#h2-1-25" id="h2-1-25" class="d">-
+</a><a href="#h2-1-26" id="h2-1-26" class="d">-            context.Reporter.ExecuteWithProgress(std::bind(Deployment::AddPackage, uri, deploymentOptions,
+</a><a href="#h2-1-27" id="h2-1-27" class="d">-                WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerTrusted), std::placeholders::_1));
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+            registrationDeferred = context.Reporter.ExecuteWithProgress([&amp;](IProgressCallback&amp; callback)
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+            {
+</a><a href="#h2-1-30" id="h2-1-30" class="i">+                return Deployment::AddPackageWithDeferredFallback(uri, WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerTrusted), callback);
+</a><a href="#h2-1-31" id="h2-1-31" class="i">+            });
+</a>         }
+         catch (const wil::ResultException&amp; re)
+         {
+<a href="#h2-2" id="h2-2" class="h">@@ -438,7 +441,14 @@ namespace AppInstaller::CLI::Workflow
+</a>             AICLI_TERMINATE_CONTEXT(re.GetErrorCode());
+         }
+ 
+<a href="#h2-2-3" id="h2-2-3" class="d">-        context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowInstallSuccess &lt;&lt; std::endl;
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+        if (registrationDeferred)
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+        {
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+            context.Reporter.Warn() &lt;&lt; Resource::String::InstallFlowRegistrationDeferred &lt;&lt; std::endl;
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+        }
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+        else
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+        {
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+            context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowInstallSuccess &lt;&lt; std::endl;
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+        }
+</a>     }
+ 
+     void RemoveInstaller(Execution::Context&amp; context)
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -1,12 +1,13 @@
+</a> // Copyright (c) Microsoft Corporation.
+ // Licensed under the MIT License.
+<a href="#h3-0-2" id="h3-0-2" class="d">-
+</a> #include &quot;pch.h&quot;
+ #include &quot;UninstallFlow.h&quot;
+ #include &quot;WorkflowBase.h&quot;
+ #include &quot;ShellExecuteInstallerHandler.h&quot;
+ #include &quot;AppInstallerMsixInfo.h&quot;
+ 
+<a href="#h3-0-9" id="h3-0-9" class="i">+#include &lt;AppInstallerDeployment.h&gt;
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+
+</a> using namespace AppInstaller::Manifest;
+ using namespace AppInstaller::Msix;
+ using namespace AppInstaller::Repository;
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/pch.h.html">src/AppInstallerCLICore/pch.h</a> b/<a href="../file/src/AppInstallerCLICore/pch.h.html">src/AppInstallerCLICore/pch.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -49,11 +49,9 @@
+</a> 
+ #include &lt;AppInstallerArchitecture.h&gt;
+ #include &lt;AppInstallerDateTime.h&gt;
+<a href="#h4-0-3" id="h4-0-3" class="d">-#include &lt;AppInstallerDeployment.h&gt;
+</a> #include &lt;AppInstallerDownloader.h&gt;
+ #include &lt;AppInstallerErrors.h&gt;
+ #include &lt;AppInstallerLogging.h&gt;
+<a href="#h4-0-7" id="h4-0-7" class="d">-#include &lt;AppInstallerMsixInfo.h&gt;
+</a> #include &lt;AppInstallerRepositorySearch.h&gt;
+ #include &lt;AppInstallerRepositorySource.h&gt;
+ #include &lt;AppInstallerRuntime.h&gt;
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -1019,4 +1019,7 @@ Do you agree to the terms?&lt;/value&gt;
+</a>   &lt;data name=&quot;PromptOptionYes&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Yes&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h5-0-3" id="h5-0-3" class="d">-&lt;/root&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+  &lt;data name=&quot;InstallFlowRegistrationDeferred&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+    &lt;value&gt;Successfully installed. Restart the application to complete the upgrade.&lt;/value&gt;
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+  &lt;/data&gt;
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+&lt;/root&gt;</a><a href="#h5-0-8" id="h5-0-8" class="i">+
+\ No newline at end of file
+</a><b>diff --git a/<a id="h6" href="../file/src/AppInstallerCommonCore/Deployment.cpp.html">src/AppInstallerCommonCore/Deployment.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Deployment.cpp.html">src/AppInstallerCommonCore/Deployment.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -4,6 +4,8 @@
+</a> #include &quot;pch.h&quot;
+ #include &quot;Public/AppInstallerDeployment.h&quot;
+ #include &quot;Public/AppInstallerLogging.h&quot;
+<a href="#h6-0-3" id="h6-0-3" class="i">+#include &quot;Public/AppInstallerMsixInfo.h&quot;
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+#include &quot;Public/AppInstallerRuntime.h&quot;
+</a> #include &quot;Public/AppInstallerStrings.h&quot;
+ 
+ namespace AppInstaller::Deployment
+<a href="#h6-1" id="h6-1" class="h">@@ -19,12 +21,13 @@ namespace AppInstaller::Deployment
+</a>             return s_deploymentId.fetch_add(1);
+         }
+ 
+<a href="#h6-1-3" id="h6-1-3" class="d">-        void WaitForDeployment(
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+        HRESULT WaitForDeployment(
+</a>             IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt;&amp; deployOperation,
+             size_t id,
+<a href="#h6-1-7" id="h6-1-7" class="d">-            IProgressCallback&amp; callback)
+</a><a href="#h6-1-8" id="h6-1-8" class="i">+            IProgressCallback&amp; callback,
+</a><a href="#h6-1-9" id="h6-1-9" class="i">+            bool throwOnError = true)
+</a>         {
+<a href="#h6-1-11" id="h6-1-11" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Begin waiting for deployment #&quot; &lt;&lt; id);
+</a><a href="#h6-1-12" id="h6-1-12" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Begin waiting for operation #&quot; &lt;&lt; id);
+</a> 
+             AsyncOperationProgressHandler&lt;DeploymentResult, DeploymentProgress&gt; progressCallback(
+                 [&amp;callback](const IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt;&amp;, DeploymentProgress progress)
+<a href="#h6-2" id="h6-2" class="h">@@ -38,21 +41,31 @@ namespace AppInstaller::Deployment
+</a> 
+             auto removeCancel = callback.SetCancellationFunction([&amp;]() { deployOperation.Cancel(); });
+ 
+<a href="#h6-2-3" id="h6-2-3" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Begin blocking for deployment #&quot; &lt;&lt; id);
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Begin blocking for operation #&quot; &lt;&lt; id);
+</a> 
+             auto deployResult = deployOperation.get();
+ 
+             if (!SUCCEEDED(deployResult.ExtendedErrorCode()))
+             {
+<a href="#h6-2-10" id="h6-2-10" class="d">-                AICLI_LOG(Core, Error, &lt;&lt; &quot;Deployment failed #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(deployResult.ErrorText()));
+</a><a href="#h6-2-11" id="h6-2-11" class="i">+                AICLI_LOG(Core, Error, &lt;&lt; &quot;Deployment operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(deployResult.ErrorText()));
+</a> 
+                 // Note that while the format string is char*, it gets converted to wchar before being used.
+<a href="#h6-2-14" id="h6-2-14" class="d">-                THROW_HR_MSG(deployResult.ExtendedErrorCode(), &quot;Install failed: %ws&quot;, deployResult.ErrorText().c_str());
+</a><a href="#h6-2-15" id="h6-2-15" class="i">+                if (throwOnError)
+</a><a href="#h6-2-16" id="h6-2-16" class="i">+                {
+</a><a href="#h6-2-17" id="h6-2-17" class="i">+                    THROW_HR_MSG(deployResult.ExtendedErrorCode(), &quot;Operation failed: %ws&quot;, deployResult.ErrorText().c_str());
+</a><a href="#h6-2-18" id="h6-2-18" class="i">+                }
+</a><a href="#h6-2-19" id="h6-2-19" class="i">+                else
+</a><a href="#h6-2-20" id="h6-2-20" class="i">+                {
+</a><a href="#h6-2-21" id="h6-2-21" class="i">+                    // Simple return because this path is generally used for recovery cases
+</a><a href="#h6-2-22" id="h6-2-22" class="i">+                    return deployResult.ExtendedErrorCode();
+</a><a href="#h6-2-23" id="h6-2-23" class="i">+                }
+</a>             }
+             else
+             {
+<a href="#h6-2-27" id="h6-2-27" class="d">-                AICLI_LOG(Core, Info, &lt;&lt; &quot;Successfully deployed #&quot; &lt;&lt; id);
+</a><a href="#h6-2-28" id="h6-2-28" class="i">+                AICLI_LOG(Core, Info, &lt;&lt; &quot;Successfully completed #&quot; &lt;&lt; id);
+</a>             }
+<a href="#h6-2-30" id="h6-2-30" class="i">+
+</a><a href="#h6-2-31" id="h6-2-31" class="i">+            return S_OK;
+</a>         }
+     }
+ 
+<a href="#h6-3" id="h6-3" class="h">@@ -63,7 +76,7 @@ namespace AppInstaller::Deployment
+</a>         IProgressCallback&amp; callback)
+     {
+         size_t id = GetDeploymentOperationId();
+<a href="#h6-3-3" id="h6-3-3" class="d">-        AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting AddPackage operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(uri.AbsoluteUri().c_str()) &lt;&lt; &quot;SkipSmartScreen: &quot; &lt;&lt; skipSmartScreen);
+</a><a href="#h6-3-4" id="h6-3-4" class="i">+        AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting AddPackage operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(uri.AbsoluteUri().c_str()) &lt;&lt; &quot; SkipSmartScreen: &quot; &lt;&lt; skipSmartScreen);
+</a> 
+         PackageManager packageManager;
+ 
+<a href="#h6-4" id="h6-4" class="h">@@ -94,6 +107,92 @@ namespace AppInstaller::Deployment
+</a>         WaitForDeployment(deployOperation, id, callback);
+     }
+ 
+<a href="#h6-4-3" id="h6-4-3" class="i">+    bool AddPackageWithDeferredFallback(
+</a><a href="#h6-4-4" id="h6-4-4" class="i">+        const std::string&amp; uri,
+</a><a href="#h6-4-5" id="h6-4-5" class="i">+        bool skipSmartScreen,
+</a><a href="#h6-4-6" id="h6-4-6" class="i">+        IProgressCallback&amp; callback)
+</a><a href="#h6-4-7" id="h6-4-7" class="i">+    {
+</a><a href="#h6-4-8" id="h6-4-8" class="i">+        PackageManager packageManager;
+</a><a href="#h6-4-9" id="h6-4-9" class="i">+
+</a><a href="#h6-4-10" id="h6-4-10" class="i">+        // In the event of a failure we want to ensure that the package is not left on the system.
+</a><a href="#h6-4-11" id="h6-4-11" class="i">+        Msix::MsixInfo packageInfo{ uri };
+</a><a href="#h6-4-12" id="h6-4-12" class="i">+        std::wstring packageFullName = packageInfo.GetPackageFullNameWide();
+</a><a href="#h6-4-13" id="h6-4-13" class="i">+        auto removePackage = wil::scope_exit([&amp;]() {
+</a><a href="#h6-4-14" id="h6-4-14" class="i">+            try
+</a><a href="#h6-4-15" id="h6-4-15" class="i">+            {
+</a><a href="#h6-4-16" id="h6-4-16" class="i">+                RemovePackage(Utility::ConvertToUTF8(packageFullName), callback);
+</a><a href="#h6-4-17" id="h6-4-17" class="i">+            }
+</a><a href="#h6-4-18" id="h6-4-18" class="i">+            CATCH_LOG();
+</a><a href="#h6-4-19" id="h6-4-19" class="i">+        });
+</a><a href="#h6-4-20" id="h6-4-20" class="i">+
+</a><a href="#h6-4-21" id="h6-4-21" class="i">+        Uri uriObject(Utility::ConvertToUTF16(uri));
+</a><a href="#h6-4-22" id="h6-4-22" class="i">+
+</a><a href="#h6-4-23" id="h6-4-23" class="i">+        if (!skipSmartScreen)
+</a><a href="#h6-4-24" id="h6-4-24" class="i">+        {
+</a><a href="#h6-4-25" id="h6-4-25" class="i">+            // The only way to get SmartScreen is to use RequestAddPackageAsync, so we will have to start with that.
+</a><a href="#h6-4-26" id="h6-4-26" class="i">+            size_t id = GetDeploymentOperationId();
+</a><a href="#h6-4-27" id="h6-4-27" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting RequestAddPackageAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; uri);
+</a><a href="#h6-4-28" id="h6-4-28" class="i">+
+</a><a href="#h6-4-29" id="h6-4-29" class="i">+            DeploymentOptions options = DeploymentOptions::None;
+</a><a href="#h6-4-30" id="h6-4-30" class="i">+            // Optimization to keep files if the package is in use. Only available in a newer OS per:
+</a><a href="#h6-4-31" id="h6-4-31" class="i">+            // https://docs.microsoft.com/en-us/uwp/api/Windows.Management.Deployment.DeploymentOptions
+</a><a href="#h6-4-32" id="h6-4-32" class="i">+            if (Runtime::IsCurrentOSVersionGreaterThanOrEqual(Utility::Version{ &quot;10.0.18362.0&quot; }))
+</a><a href="#h6-4-33" id="h6-4-33" class="i">+            {
+</a><a href="#h6-4-34" id="h6-4-34" class="i">+                options = DeploymentOptions::RetainFilesOnFailure;
+</a><a href="#h6-4-35" id="h6-4-35" class="i">+            }
+</a><a href="#h6-4-36" id="h6-4-36" class="i">+
+</a><a href="#h6-4-37" id="h6-4-37" class="i">+            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; deployOperation = packageManager.RequestAddPackageAsync(
+</a><a href="#h6-4-38" id="h6-4-38" class="i">+                uriObject,
+</a><a href="#h6-4-39" id="h6-4-39" class="i">+                nullptr, /*dependencyPackageUris*/
+</a><a href="#h6-4-40" id="h6-4-40" class="i">+                options,
+</a><a href="#h6-4-41" id="h6-4-41" class="i">+                nullptr, /*targetVolume*/
+</a><a href="#h6-4-42" id="h6-4-42" class="i">+                nullptr, /*optionalAndRelatedPackageFamilyNames*/
+</a><a href="#h6-4-43" id="h6-4-43" class="i">+                nullptr /*relatedPackageUris*/);
+</a><a href="#h6-4-44" id="h6-4-44" class="i">+
+</a><a href="#h6-4-45" id="h6-4-45" class="i">+            HRESULT hr = WaitForDeployment(deployOperation, id, callback, false);
+</a><a href="#h6-4-46" id="h6-4-46" class="i">+
+</a><a href="#h6-4-47" id="h6-4-47" class="i">+            if (SUCCEEDED(hr))
+</a><a href="#h6-4-48" id="h6-4-48" class="i">+            {
+</a><a href="#h6-4-49" id="h6-4-49" class="i">+                removePackage.release();
+</a><a href="#h6-4-50" id="h6-4-50" class="i">+                return false;
+</a><a href="#h6-4-51" id="h6-4-51" class="i">+            }
+</a><a href="#h6-4-52" id="h6-4-52" class="i">+
+</a><a href="#h6-4-53" id="h6-4-53" class="i">+            THROW_HR_IF(hr, FAILED(hr) &amp;&amp; hr != HRESULT_FROM_WIN32(ERROR_PACKAGES_IN_USE));
+</a><a href="#h6-4-54" id="h6-4-54" class="i">+        }
+</a><a href="#h6-4-55" id="h6-4-55" class="i">+
+</a><a href="#h6-4-56" id="h6-4-56" class="i">+        // If we are skipping SmartScreen or the package was in use, stage then register the package.
+</a><a href="#h6-4-57" id="h6-4-57" class="i">+        {
+</a><a href="#h6-4-58" id="h6-4-58" class="i">+            size_t id = GetDeploymentOperationId();
+</a><a href="#h6-4-59" id="h6-4-59" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting StagePackageAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; uri);
+</a><a href="#h6-4-60" id="h6-4-60" class="i">+
+</a><a href="#h6-4-61" id="h6-4-61" class="i">+            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; stageOperation = packageManager.StagePackageAsync(uriObject, nullptr);
+</a><a href="#h6-4-62" id="h6-4-62" class="i">+            WaitForDeployment(stageOperation, id, callback);
+</a><a href="#h6-4-63" id="h6-4-63" class="i">+        }
+</a><a href="#h6-4-64" id="h6-4-64" class="i">+
+</a><a href="#h6-4-65" id="h6-4-65" class="i">+        bool registrationDeferred = false;
+</a><a href="#h6-4-66" id="h6-4-66" class="i">+
+</a><a href="#h6-4-67" id="h6-4-67" class="i">+        {
+</a><a href="#h6-4-68" id="h6-4-68" class="i">+            size_t id = GetDeploymentOperationId();
+</a><a href="#h6-4-69" id="h6-4-69" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting RegisterPackageByFullNameAsync operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(packageFullName));
+</a><a href="#h6-4-70" id="h6-4-70" class="i">+
+</a><a href="#h6-4-71" id="h6-4-71" class="i">+            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt; registerOperation =
+</a><a href="#h6-4-72" id="h6-4-72" class="i">+                packageManager.RegisterPackageByFullNameAsync(packageFullName, nullptr, DeploymentOptions::None);
+</a><a href="#h6-4-73" id="h6-4-73" class="i">+            HRESULT hr = WaitForDeployment(registerOperation, id, callback, false);
+</a><a href="#h6-4-74" id="h6-4-74" class="i">+
+</a><a href="#h6-4-75" id="h6-4-75" class="i">+            if (hr == HRESULT_FROM_WIN32(ERROR_PACKAGES_IN_USE))
+</a><a href="#h6-4-76" id="h6-4-76" class="i">+            {
+</a><a href="#h6-4-77" id="h6-4-77" class="i">+                registrationDeferred = true;
+</a><a href="#h6-4-78" id="h6-4-78" class="i">+            }
+</a><a href="#h6-4-79" id="h6-4-79" class="i">+            else
+</a><a href="#h6-4-80" id="h6-4-80" class="i">+            {
+</a><a href="#h6-4-81" id="h6-4-81" class="i">+                THROW_IF_FAILED(hr);
+</a><a href="#h6-4-82" id="h6-4-82" class="i">+            }
+</a><a href="#h6-4-83" id="h6-4-83" class="i">+        }
+</a><a href="#h6-4-84" id="h6-4-84" class="i">+
+</a><a href="#h6-4-85" id="h6-4-85" class="i">+        removePackage.release();
+</a><a href="#h6-4-86" id="h6-4-86" class="i">+        return registrationDeferred;
+</a><a href="#h6-4-87" id="h6-4-87" class="i">+    }
+</a><a href="#h6-4-88" id="h6-4-88" class="i">+
+</a>     void RemovePackage(
+         std::string_view packageFullName,
+         IProgressCallback&amp; callback)
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCommonCore/Public/AppInstallerDeployment.h.html">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerDeployment.h.html">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -15,6 +15,16 @@ namespace AppInstaller::Deployment
+</a>         bool skipSmartScreen,
+         IProgressCallback&amp; callback);
+ 
+<a href="#h7-0-3" id="h7-0-3" class="i">+    // Calls winrt::Windows::Management::Deployment::PackageManager::AddPackageAsync if skipSmartScreen is true,
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+    // Otherwise, calls winrt::Windows::Management::Deployment::PackageManager::RequestAddPackageAsync.
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+    // If the Add function fails due to the package being in use, we fall back to stage and register, which allows
+</a><a href="#h7-0-6" id="h7-0-6" class="i">+    // a deferred registration.
+</a><a href="#h7-0-7" id="h7-0-7" class="i">+    // Returns true if the registration was deferred; false if not.
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+    bool AddPackageWithDeferredFallback(
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+        const std::string&amp; uri,
+</a><a href="#h7-0-10" id="h7-0-10" class="i">+        bool skipSmartScreen,
+</a><a href="#h7-0-11" id="h7-0-11" class="i">+        IProgressCallback&amp; callback);
+</a><a href="#h7-0-12" id="h7-0-12" class="i">+
+</a>     // Calls winrt::Windows::Management::Deployment::PackageManager::RemovePackageAsync
+     void RemovePackage(
+         std::string_view packageFullName,
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -6,6 +6,9 @@
+</a> #include &quot;Microsoft/SQLiteIndex.h&quot;
+ #include &quot;Microsoft/SQLiteIndexSource.h&quot;
+ 
+<a href="#h8-0-3" id="h8-0-3" class="i">+#include &lt;AppInstallerDeployment.h&gt;
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+#include &lt;AppInstallerMsixInfo.h&gt;
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+
+</a> using namespace std::string_literals;
+ using namespace std::string_view_literals;
+ 
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerRepositoryCore/pch.h.html">src/AppInstallerRepositoryCore/pch.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/pch.h.html">src/AppInstallerRepositoryCore/pch.h</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -15,11 +15,9 @@
+</a> #pragma warning( pop )
+ 
+ #include &lt;AppInstallerDateTime.h&gt;
+<a href="#h9-0-3" id="h9-0-3" class="d">-#include &lt;AppInstallerDeployment.h&gt;
+</a> #include &lt;AppInstallerDownloader.h&gt;
+ #include &lt;AppInstallerErrors.h&gt;
+ #include &lt;AppInstallerLogging.h&gt;
+<a href="#h9-0-7" id="h9-0-7" class="d">-#include &lt;AppInstallerMsixInfo.h&gt;
+</a> #include &lt;AppInstallerRuntime.h&gt;
+ #include &lt;AppInstallerSHA256.h&gt;
+ #include &lt;AppInstallerStrings.h&gt;
+</pre>
+</div>
+</body>
+</html>

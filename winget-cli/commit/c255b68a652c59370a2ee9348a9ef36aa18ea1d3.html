@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Enable COM API access to correlate with the tracking database only (#3670) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/c255b68a652c59370a2ee9348a9ef36aa18ea1d3.html">c255b68a652c59370a2ee9348a9ef36aa18ea1d3</a>
+<b>parent</b> <a href="../commit/804c1252382cd0435f9fde68b192d2012516c3d0.html">804c1252382cd0435f9fde68b192d2012516c3d0</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 26 Sep 2023 08:15:01 -0700
+
+Enable COM API access to correlate with the tracking database only (#3670)
+
+This change adds a flag that lets the caller specify that they are only interested in the installed tracking data, not the available packages.  With it set, one can correlate to the catalog via the tracking database without ever needing to access the remote source information.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerRepositoryCore/CompositeSource.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i"></span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></td><td> | </td><td class="num">119</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Deployment/PackageCatalogReference.cpp</a></td><td> | </td><td class="num">22</td><td><span class="i">++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Deployment/PackageCatalogReference.h</a></td><td> | </td><td class="num">5</td><td><span class="i">++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Deployment/PackageManager.idl</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+</table></pre><pre>6 files changed, 129 insertions(+), 30 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerRepositoryCore/CompositeSource.cpp.html">src/AppInstallerRepositoryCore/CompositeSource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/CompositeSource.cpp.html">src/AppInstallerRepositoryCore/CompositeSource.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1412,15 +1412,12 @@ namespace AppInstaller::Repository
+</a>                         }
+                     }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-                    bool addedAvailablePackage = false;
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-
+</a>                     // Directly search for the available package from tracking information.
+                     if (trackingPackage)
+                     {
+                         auto availablePackage = GetTrackedPackageFromAvailableSource(result, trackedSource, trackingPackage-&gt;GetProperty(PackageProperty::Id));
+                         if (availablePackage)
+                         {
+<a href="#h0-0-11" id="h0-0-11" class="d">-                            addedAvailablePackage = true;
+</a>                             compositePackage-&gt;AddAvailablePackage(std::move(availablePackage));
+                         }
+                         compositePackage-&gt;SetTracking(std::move(trackedSource), std::move(trackingPackage), std::move(trackingPackageVersion));
+<a href="#h0-1" id="h0-1" class="h">@@ -1453,7 +1450,6 @@ namespace AppInstaller::Repository
+</a>                             });
+ 
+                         // For non pinning cases. We found some matching packages here, don&#39;t keep going.
+<a href="#h0-1-3" id="h0-1-3" class="d">-                        addedAvailablePackage = true;
+</a>                         compositePackage-&gt;AddAvailablePackage(std::move(availablePackage));
+                     }
+                 }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -225,6 +225,10 @@ namespace AppInstaller::Repository
+</a>         // Set background update check interval.
+         void SetBackgroundUpdateInterval(TimeSpan interval);
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+        // Indicates that we are only interested in the PackageTrackingCatalog for the source.
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        // Must be set before Open to have effect, and will prevent the underlying source from being updated or opened.
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        void InstalledPackageInformationOnly(bool value);
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+
+</a>         // Execute a search on the source.
+         SearchResult Search(const SearchRequest&amp; request) const;
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -287,6 +291,7 @@ namespace AppInstaller::Repository
+</a>         bool m_isSourceToBeAdded = false;
+         bool m_isComposite = false;
+         std::optional&lt;TimeSpan&gt; m_backgroundUpdateInterval;
+<a href="#h1-1-3" id="h1-1-3" class="i">+        bool m_installedPackageInformationOnly = false;
+</a>         mutable PackageTrackingCatalog m_trackingCatalog;
+     };
+ }
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -202,6 +202,53 @@ namespace AppInstaller::Repository
+</a>             SourceDetails m_details;
+             std::exception_ptr m_exception;
+         };
+<a href="#h2-0-3" id="h2-0-3" class="i">+
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        // A wrapper that doesn&#39;t actually forward the search requests.
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+        struct TrackingOnlySourceWrapper : public ISource
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        {
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+            TrackingOnlySourceWrapper(std::shared_ptr&lt;ISourceReference&gt; wrapped) : m_wrapped(std::move(wrapped))
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+            {
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+                m_identifier = m_wrapped-&gt;GetIdentifier();
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+            }
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+            const std::string&amp; GetIdentifier() const override { return m_identifier; }
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+            SourceDetails&amp; GetDetails() const override { return m_wrapped-&gt;GetDetails(); }
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+            SourceInformation GetInformation() const override { return m_wrapped-&gt;GetInformation(); }
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+            SearchResult Search(const SearchRequest&amp;) const override { return {}; }
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+            void* CastTo(ISourceType) override { return nullptr; }
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+        private:
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+            std::shared_ptr&lt;ISourceReference&gt; m_wrapped;
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+            std::string m_identifier;
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+        };
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+
+</a><a href="#h2-0-27" id="h2-0-27" class="i">+        // A wrapper to create another wrapper.
+</a><a href="#h2-0-28" id="h2-0-28" class="i">+        struct TrackingOnlyReferenceWrapper : public ISourceReference
+</a><a href="#h2-0-29" id="h2-0-29" class="i">+        {
+</a><a href="#h2-0-30" id="h2-0-30" class="i">+            TrackingOnlyReferenceWrapper(std::shared_ptr&lt;ISourceReference&gt; wrapped) : m_wrapped(std::move(wrapped)) {}
+</a><a href="#h2-0-31" id="h2-0-31" class="i">+
+</a><a href="#h2-0-32" id="h2-0-32" class="i">+            std::string GetIdentifier() override { return m_wrapped-&gt;GetIdentifier(); }
+</a><a href="#h2-0-33" id="h2-0-33" class="i">+
+</a><a href="#h2-0-34" id="h2-0-34" class="i">+            SourceDetails&amp; GetDetails() override { return m_wrapped-&gt;GetDetails(); }
+</a><a href="#h2-0-35" id="h2-0-35" class="i">+
+</a><a href="#h2-0-36" id="h2-0-36" class="i">+            SourceInformation GetInformation() override { return m_wrapped-&gt;GetInformation(); }
+</a><a href="#h2-0-37" id="h2-0-37" class="i">+
+</a><a href="#h2-0-38" id="h2-0-38" class="i">+            bool SetCustomHeader(std::optional&lt;std::string&gt;) override { return false; }
+</a><a href="#h2-0-39" id="h2-0-39" class="i">+
+</a><a href="#h2-0-40" id="h2-0-40" class="i">+            void SetCaller(std::string caller) override { m_wrapped-&gt;SetCaller(std::move(caller)); }
+</a><a href="#h2-0-41" id="h2-0-41" class="i">+
+</a><a href="#h2-0-42" id="h2-0-42" class="i">+            std::shared_ptr&lt;ISource&gt; Open(IProgressCallback&amp;) override
+</a><a href="#h2-0-43" id="h2-0-43" class="i">+            {
+</a><a href="#h2-0-44" id="h2-0-44" class="i">+                return std::make_shared&lt;TrackingOnlySourceWrapper&gt;(m_wrapped);
+</a><a href="#h2-0-45" id="h2-0-45" class="i">+            }
+</a><a href="#h2-0-46" id="h2-0-46" class="i">+
+</a><a href="#h2-0-47" id="h2-0-47" class="i">+        private:
+</a><a href="#h2-0-48" id="h2-0-48" class="i">+            std::shared_ptr&lt;ISourceReference&gt; m_wrapped;
+</a><a href="#h2-0-49" id="h2-0-49" class="i">+        };
+</a>     }
+ 
+     std::unique_ptr&lt;ISourceFactory&gt; ISourceFactory::GetForType(std::string_view type)
+<a href="#h2-1" id="h2-1" class="h">@@ -475,6 +522,11 @@ namespace AppInstaller::Repository
+</a>         m_backgroundUpdateInterval = interval;
+     }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="i">+    void Source::InstalledPackageInformationOnly(bool value)
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+    {
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+        m_installedPackageInformationOnly = value;
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+    }
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+
+</a>     SearchResult Source::Search(const SearchRequest&amp; request) const
+     {
+         THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_INVALID_STATE), !m_source);
+<a href="#h2-2" id="h2-2" class="h">@@ -554,51 +606,68 @@ namespace AppInstaller::Repository
+</a> 
+         if (!m_source)
+         {
+<a href="#h2-2-3" id="h2-2-3" class="i">+            std::vector&lt;std::shared_ptr&lt;ISourceReference&gt;&gt;* sourceReferencesToOpen = nullptr;
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+            std::vector&lt;std::shared_ptr&lt;ISourceReference&gt;&gt; sourceReferencesForTrackingOnly;
+</a>             std::unique_ptr&lt;SourceList&gt; sourceList;
+ 
+<a href="#h2-2-7" id="h2-2-7" class="d">-            // Check for updates before opening.
+</a><a href="#h2-2-8" id="h2-2-8" class="d">-            for (auto&amp; sourceReference : m_sourceReferences)
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+            if (m_installedPackageInformationOnly)
+</a>             {
+<a href="#h2-2-11" id="h2-2-11" class="d">-                auto&amp; details = sourceReference-&gt;GetDetails();
+</a><a href="#h2-2-12" id="h2-2-12" class="d">-                if (ShouldUpdateBeforeOpen(details, m_backgroundUpdateInterval))
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+                sourceReferencesToOpen = &amp;sourceReferencesForTrackingOnly;
+</a><a href="#h2-2-14" id="h2-2-14" class="i">+
+</a><a href="#h2-2-15" id="h2-2-15" class="i">+                // Create a wrapper for each reference
+</a><a href="#h2-2-16" id="h2-2-16" class="i">+                for (auto&amp; sourceReference : m_sourceReferences)
+</a>                 {
+<a href="#h2-2-18" id="h2-2-18" class="d">-                    try
+</a><a href="#h2-2-19" id="h2-2-19" class="i">+                    sourceReferencesForTrackingOnly.emplace_back(std::make_shared&lt;TrackingOnlyReferenceWrapper&gt;(sourceReference));
+</a><a href="#h2-2-20" id="h2-2-20" class="i">+                }
+</a><a href="#h2-2-21" id="h2-2-21" class="i">+            }
+</a><a href="#h2-2-22" id="h2-2-22" class="i">+            else
+</a><a href="#h2-2-23" id="h2-2-23" class="i">+            {
+</a><a href="#h2-2-24" id="h2-2-24" class="i">+                // Check for updates before opening.
+</a><a href="#h2-2-25" id="h2-2-25" class="i">+                for (auto&amp; sourceReference : m_sourceReferences)
+</a><a href="#h2-2-26" id="h2-2-26" class="i">+                {
+</a><a href="#h2-2-27" id="h2-2-27" class="i">+                    auto&amp; details = sourceReference-&gt;GetDetails();
+</a><a href="#h2-2-28" id="h2-2-28" class="i">+                    if (ShouldUpdateBeforeOpen(details, m_backgroundUpdateInterval))
+</a>                     {
+<a href="#h2-2-30" id="h2-2-30" class="d">-                        // TODO: Consider adding a context callback to indicate we are doing the same action
+</a><a href="#h2-2-31" id="h2-2-31" class="d">-                        // to avoid the progress bar fill up multiple times.
+</a><a href="#h2-2-32" id="h2-2-32" class="d">-                        if (BackgroundUpdateSourceFromDetails(details, progress))
+</a><a href="#h2-2-33" id="h2-2-33" class="i">+                        try
+</a>                         {
+<a href="#h2-2-35" id="h2-2-35" class="d">-                            if (sourceList == nullptr)
+</a><a href="#h2-2-36" id="h2-2-36" class="i">+                            // TODO: Consider adding a context callback to indicate we are doing the same action
+</a><a href="#h2-2-37" id="h2-2-37" class="i">+                            // to avoid the progress bar fill up multiple times.
+</a><a href="#h2-2-38" id="h2-2-38" class="i">+                            if (BackgroundUpdateSourceFromDetails(details, progress))
+</a>                             {
+<a href="#h2-2-40" id="h2-2-40" class="d">-                                sourceList = std::make_unique&lt;SourceList&gt;();
+</a><a href="#h2-2-41" id="h2-2-41" class="i">+                                if (sourceList == nullptr)
+</a><a href="#h2-2-42" id="h2-2-42" class="i">+                                {
+</a><a href="#h2-2-43" id="h2-2-43" class="i">+                                    sourceList = std::make_unique&lt;SourceList&gt;();
+</a><a href="#h2-2-44" id="h2-2-44" class="i">+                                }
+</a><a href="#h2-2-45" id="h2-2-45" class="i">+
+</a><a href="#h2-2-46" id="h2-2-46" class="i">+                                auto detailsInternal = sourceList-&gt;GetSource(details.Name);
+</a><a href="#h2-2-47" id="h2-2-47" class="i">+                                detailsInternal-&gt;LastUpdateTime = details.LastUpdateTime;
+</a><a href="#h2-2-48" id="h2-2-48" class="i">+                                sourceList-&gt;SaveMetadata(*detailsInternal);
+</a><a href="#h2-2-49" id="h2-2-49" class="i">+                            }
+</a><a href="#h2-2-50" id="h2-2-50" class="i">+                            else
+</a><a href="#h2-2-51" id="h2-2-51" class="i">+                            {
+</a><a href="#h2-2-52" id="h2-2-52" class="i">+                                AICLI_LOG(Repo, Error, &lt;&lt; &quot;Failed to update source: &quot; &lt;&lt; details.Name);
+</a><a href="#h2-2-53" id="h2-2-53" class="i">+                                result.emplace_back(details);
+</a>                             }
+<a href="#h2-2-55" id="h2-2-55" class="d">-
+</a><a href="#h2-2-56" id="h2-2-56" class="d">-                            auto detailsInternal = sourceList-&gt;GetSource(details.Name);
+</a><a href="#h2-2-57" id="h2-2-57" class="d">-                            detailsInternal-&gt;LastUpdateTime = details.LastUpdateTime;
+</a><a href="#h2-2-58" id="h2-2-58" class="d">-                            sourceList-&gt;SaveMetadata(*detailsInternal);
+</a>                         }
+<a href="#h2-2-60" id="h2-2-60" class="d">-                        else
+</a><a href="#h2-2-61" id="h2-2-61" class="i">+                        catch (...)
+</a>                         {
+<a href="#h2-2-63" id="h2-2-63" class="d">-                            AICLI_LOG(Repo, Error, &lt;&lt; &quot;Failed to update source: &quot; &lt;&lt; details.Name);
+</a><a href="#h2-2-64" id="h2-2-64" class="i">+                            LOG_CAUGHT_EXCEPTION();
+</a><a href="#h2-2-65" id="h2-2-65" class="i">+                            AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Failed to update source: &quot; &lt;&lt; details.Name);
+</a>                             result.emplace_back(details);
+                         }
+                     }
+<a href="#h2-2-69" id="h2-2-69" class="d">-                    catch (...)
+</a><a href="#h2-2-70" id="h2-2-70" class="d">-                    {
+</a><a href="#h2-2-71" id="h2-2-71" class="d">-                        LOG_CAUGHT_EXCEPTION();
+</a><a href="#h2-2-72" id="h2-2-72" class="d">-                        AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Failed to update source: &quot; &lt;&lt; details.Name);
+</a><a href="#h2-2-73" id="h2-2-73" class="d">-                        result.emplace_back(details);
+</a><a href="#h2-2-74" id="h2-2-74" class="d">-                    }
+</a>                 }
+<a href="#h2-2-76" id="h2-2-76" class="i">+
+</a><a href="#h2-2-77" id="h2-2-77" class="i">+                sourceReferencesToOpen = &amp;m_sourceReferences;
+</a>             }
+ 
+<a href="#h2-2-80" id="h2-2-80" class="d">-            if (m_sourceReferences.size() &gt; 1)
+</a><a href="#h2-2-81" id="h2-2-81" class="i">+            if (sourceReferencesToOpen-&gt;size() &gt; 1)
+</a>             {
+                 AICLI_LOG(Repo, Info, &lt;&lt; &quot;Multiple sources available, creating aggregated source.&quot;);
+                 auto aggregatedSource = std::make_shared&lt;CompositeSource&gt;(&quot;*DefaultSource&quot;);
+                 std::vector&lt;std::shared_ptr&lt;OpenExceptionProxy&gt;&gt; openExceptionProxies;
+ 
+<a href="#h2-2-87" id="h2-2-87" class="d">-                for (auto&amp; sourceReference : m_sourceReferences)
+</a><a href="#h2-2-88" id="h2-2-88" class="i">+                for (auto&amp; sourceReference : *sourceReferencesToOpen)
+</a>                 {
+                     AICLI_LOG(Repo, Info, &lt;&lt; &quot;Adding to aggregated source: &quot; &lt;&lt; sourceReference-&gt;GetDetails().Name);
+ 
+<a href="#h2-3" id="h2-3" class="h">@@ -628,7 +697,7 @@ namespace AppInstaller::Repository
+</a>             }
+             else
+             {
+<a href="#h2-3-3" id="h2-3-3" class="d">-                m_source = m_sourceReferences[0]-&gt;Open(progress);
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+                m_source = (*sourceReferencesToOpen)[0]-&gt;Open(progress);
+</a>             }
+         }
+ 
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Deployment/PackageCatalogReference.cpp.html">src/Microsoft.Management.Deployment/PackageCatalogReference.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageCatalogReference.cpp.html">src/Microsoft.Management.Deployment/PackageCatalogReference.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -28,6 +28,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a> 
+         if (IsBackgroundProcessForPolicy())
+         {
+<a href="#h3-0-3" id="h3-0-3" class="i">+            // Delay the default update interval for these background processes
+</a>             static constexpr winrt::Windows::Foundation::TimeSpan s_PackageCatalogUpdateIntervalDelay_Base = 168h; //1 week
+ 
+             // Add a bit of randomness to the default interval time
+<a href="#h3-1" id="h3-1" class="h">@@ -35,6 +36,9 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             std::uniform_int_distribution&lt;long long&gt; distribution(0, 604800);
+ 
+             m_packageCatalogBackgroundUpdateInterval = s_PackageCatalogUpdateIntervalDelay_Base + std::chrono::seconds(distribution(randomEngine));
+<a href="#h3-1-3" id="h3-1-3" class="i">+
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+            // Prevent any update / data processing by default for these background processes
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+            m_installedPackageInformationOnly = true;
+</a>         }
+     }
+     void PackageCatalogReference::Initialize(winrt::Microsoft::Management::Deployment::CreateCompositePackageCatalogOptions options)
+<a href="#h3-2" id="h3-2" class="h">@@ -95,6 +99,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>                     auto copy = catalogImpl-&gt;m_sourceReference;
+                     copy.SetCaller(callerName);
+                     copy.SetBackgroundUpdateInterval(catalog.PackageCatalogBackgroundUpdateInterval());
+<a href="#h3-2-3" id="h3-2-3" class="i">+                    copy.InstalledPackageInformationOnly(catalog.InstalledPackageInformationOnly());
+</a>                     copy.Open(progress);
+                     remoteSources.emplace_back(std::move(copy));
+                 }
+<a href="#h3-3" id="h3-3" class="h">@@ -137,6 +142,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>                 source = m_sourceReference;
+                 source.SetCaller(callerName);
+                 source.SetBackgroundUpdateInterval(PackageCatalogBackgroundUpdateInterval());
+<a href="#h3-3-3" id="h3-3-3" class="i">+                source.InstalledPackageInformationOnly(m_installedPackageInformationOnly);
+</a>                 source.Open(progress);
+             }
+ 
+<a href="#h3-4" id="h3-4" class="h">@@ -216,6 +222,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>     {
+         return m_acceptSourceAgreements;
+     }
+<a href="#h3-4-3" id="h3-4-3" class="i">+    
+</a>     void PackageCatalogReference::PackageCatalogBackgroundUpdateInterval(winrt::Windows::Foundation::TimeSpan const&amp; value)
+     {
+         if (IsComposite())
+<a href="#h3-5" id="h3-5" class="h">@@ -229,4 +236,19 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>     {
+         return m_packageCatalogBackgroundUpdateInterval;
+     }
+<a href="#h3-5-3" id="h3-5-3" class="i">+
+</a><a href="#h3-5-4" id="h3-5-4" class="i">+    bool PackageCatalogReference::InstalledPackageInformationOnly()
+</a><a href="#h3-5-5" id="h3-5-5" class="i">+    {
+</a><a href="#h3-5-6" id="h3-5-6" class="i">+        return m_installedPackageInformationOnly;
+</a><a href="#h3-5-7" id="h3-5-7" class="i">+    }
+</a><a href="#h3-5-8" id="h3-5-8" class="i">+
+</a><a href="#h3-5-9" id="h3-5-9" class="i">+    void PackageCatalogReference::InstalledPackageInformationOnly(bool value)
+</a><a href="#h3-5-10" id="h3-5-10" class="i">+    {
+</a><a href="#h3-5-11" id="h3-5-11" class="i">+        if (IsComposite())
+</a><a href="#h3-5-12" id="h3-5-12" class="i">+        {
+</a><a href="#h3-5-13" id="h3-5-13" class="i">+            throw winrt::hresult_illegal_state_change();
+</a><a href="#h3-5-14" id="h3-5-14" class="i">+        }
+</a><a href="#h3-5-15" id="h3-5-15" class="i">+
+</a><a href="#h3-5-16" id="h3-5-16" class="i">+        m_installedPackageInformationOnly = value;
+</a><a href="#h3-5-17" id="h3-5-17" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Deployment/PackageCatalogReference.h.html">src/Microsoft.Management.Deployment/PackageCatalogReference.h</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageCatalogReference.h.html">src/Microsoft.Management.Deployment/PackageCatalogReference.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -22,12 +22,14 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         winrt::Windows::Foundation::Collections::IVectorView&lt;winrt::Microsoft::Management::Deployment::SourceAgreement&gt; SourceAgreements();
+         hstring AdditionalPackageCatalogArguments();
+         void AdditionalPackageCatalogArguments(hstring const&amp; value);
+<a href="#h4-0-3" id="h4-0-3" class="d">-        // Contract 6.0
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        // Contract 6
+</a>         bool AcceptSourceAgreements();
+         void AcceptSourceAgreements(bool value);
+         // Contract 8.0
+         winrt::Windows::Foundation::TimeSpan PackageCatalogBackgroundUpdateInterval();
+         void PackageCatalogBackgroundUpdateInterval(winrt::Windows::Foundation::TimeSpan const&amp; value);
+<a href="#h4-0-10" id="h4-0-10" class="i">+        bool InstalledPackageInformationOnly();
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+        void InstalledPackageInformationOnly(bool value);
+</a> 
+ #if !defined(INCLUDE_ONLY_INTERFACE_METHODS)
+     private:
+<a href="#h4-1" id="h4-1" class="h">@@ -37,6 +39,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>         ::AppInstaller::Repository::Source m_sourceReference;
+         std::optional&lt;std::string&gt; m_additionalPackageCatalogArguments;
+         bool m_acceptSourceAgreements = true;
+<a href="#h4-1-3" id="h4-1-3" class="i">+        bool m_installedPackageInformationOnly = false;
+</a>         std::once_flag m_sourceAgreementsOnceFlag;
+         winrt::Windows::Foundation::TimeSpan m_packageCatalogBackgroundUpdateInterval = winrt::Windows::Foundation::TimeSpan::zero();
+ #endif
+<b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Deployment/PackageManager.idl.html">src/Microsoft.Management.Deployment/PackageManager.idl</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageManager.idl.html">src/Microsoft.Management.Deployment/PackageManager.idl</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -754,6 +754,10 @@ namespace Microsoft.Management.Deployment
+</a>         {
+             /// Time interval for package catalog to check for an update. Setting to zero will disable the check for update.
+             Windows.Foundation.TimeSpan PackageCatalogBackgroundUpdateInterval;
+<a href="#h5-0-3" id="h5-0-3" class="i">+
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+            // When set to true, the opened catalog will only provide the information regarding packages installed from this catalog.
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+            // In this mode, no external resources should be required.
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+            Boolean InstalledPackageInformationOnly;
+</a>         }
+     }
+ 
+</pre>
+</div>
+</body>
+</html>

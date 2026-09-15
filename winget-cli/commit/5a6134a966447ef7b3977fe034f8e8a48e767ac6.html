@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Read value data on demand (#3642) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/5a6134a966447ef7b3977fe034f8e8a48e767ac6.html">5a6134a966447ef7b3977fe034f8e8a48e767ac6</a>
+<b>parent</b> <a href="../commit/04ccec385f842590d02e94fe784ee162648d8257.html">04ccec385f842590d02e94fe784ee162648d8257</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 19 Sep 2023 15:31:41 -0700
+
+Read value data on demand (#3642)
+
+When enumerating registry keys, move the code that reads the registry value data to be on request rather than during the iterator advancement.  This enables code that doesn&#39;t need the data to simply skip it, and code that does to better handle the error if desired.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerSharedLib/GroupPolicy.cpp</a></td><td> | </td><td class="num">17</td><td><span class="i">+++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerSharedLib/Public/winget/Registry.h</a></td><td> | </td><td class="num">9</td><td><span class="i">+++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerSharedLib/Registry.cpp</a></td><td> | </td><td class="num">23</td><td><span class="i">++++++++++++++</span><span class="d">---------</span></td></tr>
+</table></pre><pre>3 files changed, 34 insertions(+), 15 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerSharedLib/GroupPolicy.cpp.html">src/AppInstallerSharedLib/GroupPolicy.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/GroupPolicy.cpp.html">src/AppInstallerSharedLib/GroupPolicy.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -136,14 +136,23 @@ namespace AppInstaller::Settings
+</a>             typename Mapping::value_t items;
+             for (const auto&amp; value : listKey-&gt;Values())
+             {
+<a href="#h0-0-3" id="h0-0-3" class="d">-                auto item = Mapping::ReadAndValidateItem(value);
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-                if (item.has_value())
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+                std::optional&lt;Registry::Value&gt; potentialValue = value.Value();
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+                if (potentialValue)
+</a>                 {
+<a href="#h0-0-9" id="h0-0-9" class="d">-                    items.emplace_back(std::move(item.value()));
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+                    auto item = Mapping::ReadAndValidateItem(potentialValue.value());
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+                    if (item.has_value())
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+                    {
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+                        items.emplace_back(std::move(item.value()));
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                    }
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                    else
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                    {
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                        AICLI_LOG(Core, Warning, &lt;&lt; &quot;Failed to read Group Policy list value. Policy [&quot; &lt;&lt; Mapping::KeyName &lt;&lt; &quot;], Value [&quot; &lt;&lt; value.Name() &lt;&lt; &#39;]&#39;);
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+                    }
+</a>                 }
+                 else
+                 {
+<a href="#h0-0-22" id="h0-0-22" class="d">-                    AICLI_LOG(Core, Warning, &lt;&lt; &quot;Failed to read Group Policy list value. Policy [&quot; &lt;&lt; Mapping::KeyName &lt;&lt; &quot;], Value [&quot; &lt;&lt; value.Name() &lt;&lt; &#39;]&#39;);
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+                    AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Group Policy list value not found. Policy [&quot; &lt;&lt; Mapping::KeyName &lt;&lt; &quot;], Value [&quot; &lt;&lt; value.Name() &lt;&lt; &#39;]&#39;);
+</a>                 }
+             }
+ 
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerSharedLib/Public/winget/Registry.h.html">src/AppInstallerSharedLib/Public/winget/Registry.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/winget/Registry.h.html">src/AppInstallerSharedLib/Public/winget/Registry.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -148,16 +148,21 @@ namespace AppInstaller::Registry
+</a> 
+         struct const_iterator;
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        struct ValueRef : Value
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        struct ValueRef
+</a>         {
+             friend const_iterator;
+ 
+             // Gets the name of the value.
+             std::string Name() const;
+ 
+<a href="#h1-0-11" id="h1-0-11" class="i">+            // Gets the actual value of the value.
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+            // The optional allows for the potential race with the value being removed.
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+            std::optional&lt;Value&gt; Value() const;
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+
+</a>         private:
+<a href="#h1-0-16" id="h1-0-16" class="d">-            ValueRef(std::wstring&amp;&amp; valueName, DWORD type, std::vector&lt;BYTE&gt;&amp;&amp; data);
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+            ValueRef(wil::shared_hkey key, std::wstring&amp;&amp; valueName);
+</a> 
+<a href="#h1-0-19" id="h1-0-19" class="i">+            wil::shared_hkey m_key;
+</a>             std::wstring m_valueName;
+         };
+ 
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerSharedLib/Registry.cpp.html">src/AppInstallerSharedLib/Registry.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/Registry.cpp.html">src/AppInstallerSharedLib/Registry.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -188,13 +188,25 @@ namespace AppInstaller::Registry
+</a>         return m_type == type;
+     }
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-    ValueList::ValueRef::ValueRef(std::wstring&amp;&amp; valueName, DWORD type, std::vector&lt;BYTE&gt;&amp;&amp; data) : Value(type, std::move(data)), m_valueName(std::move(valueName)) {}
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    ValueList::ValueRef::ValueRef(wil::shared_hkey key, std::wstring&amp;&amp; valueName) : m_key(std::move(key)), m_valueName(std::move(valueName)) {}
+</a> 
+     std::string ValueList::ValueRef::Name() const
+     {
+         return Utility::ConvertToUTF8(m_valueName);
+     }
+ 
+<a href="#h2-0-11" id="h2-0-11" class="i">+    std::optional&lt;Value&gt; ValueList::ValueRef::Value() const
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+    {
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+        DWORD type;
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+        std::vector&lt;BYTE&gt; data;
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+        if (!TryGetRegistryValueData(m_key, m_valueName, type, data))
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+        {
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+            return std::nullopt;
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+        }
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+        return Registry::Value{ type, std::move(data) };
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+    }
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+
+</a>     ValueList::const_iterator&amp; ValueList::const_iterator::operator++()
+     {
+         ++m_index;
+<a href="#h2-1" id="h2-1" class="h">@@ -232,14 +244,7 @@ namespace AppInstaller::Registry
+</a>             return;
+         }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-        DWORD type;
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-        std::vector&lt;BYTE&gt; data;
+</a><a href="#h2-1-5" id="h2-1-5" class="d">-        if (!TryGetRegistryValueData(m_key, valueName, type, data))
+</a><a href="#h2-1-6" id="h2-1-6" class="d">-        {
+</a><a href="#h2-1-7" id="h2-1-7" class="d">-            THROW_HR(E_UNEXPECTED);
+</a><a href="#h2-1-8" id="h2-1-8" class="d">-        }
+</a><a href="#h2-1-9" id="h2-1-9" class="d">-
+</a><a href="#h2-1-10" id="h2-1-10" class="d">-        m_value = ValueRef{ std::move(valueName), type, std::move(data) };
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+        m_value = ValueRef{ m_key, std::move(valueName) };
+</a>     }
+ 
+     const ValueList::ValueRef&amp; ValueList::const_iterator::operator*() const
+</pre>
+</div>
+</body>
+</html>

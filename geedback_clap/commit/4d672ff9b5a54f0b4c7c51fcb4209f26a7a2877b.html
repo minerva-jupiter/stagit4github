@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat: implement synthesis engine with sensor-mapped parameters - geedback_clap - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="geedback_clap.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="geedback_clap.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>geedback_clap</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/4d672ff9b5a54f0b4c7c51fcb4209f26a7a2877b.html">4d672ff9b5a54f0b4c7c51fcb4209f26a7a2877b</a>
+<b>parent</b> <a href="../commit/71ec7f4243a55739cf05b792476300c1d4a483b0.html">71ec7f4243a55739cf05b792476300c1d4a483b0</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Fri,  5 Jun 2026 18:55:10 +0900
+
+feat: implement synthesis engine with sensor-mapped parameters
+
+- Added Waveform enum and oscillators with phase tracking.
+- Replaced gain parameters with accelerometer and quaternion controls (accel_x/y/z, quat_x/y/z).
+- Implemented core synthesis logic including FM modulation, morphing, and saturation.
+- Updated CLAP features to identify the plugin as an instrument/synthesizer.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/lib.rs</a></td><td> | </td><td class="num">214</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------------</span></td></tr>
+</table></pre><pre>1 file changed, 151 insertions(+), 63 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/lib.rs.html">src/lib.rs</a> b/<a href="../file/src/lib.rs.html">src/lib.rs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1,28 +1,56 @@
+</a> use nih_plug::prelude::*;
+ use std::sync::Arc;
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-// This is a shortened version of the gain example with most comments removed, check out
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-// https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-// started
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+#[derive(PartialEq, Clone, Copy)]
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+pub enum Waveform {
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+    Sine,
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+    Triangle,
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+    TriangleSawtooth,
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+    Sawtooth,
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+    ReverseSawtooth,
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+    Square,
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+    WidePulse,
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+    NarrowPulse,
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+}
+</a> 
+ struct GeedbackClap {
+     params: Arc&lt;GeedbackClapParams&gt;,
+<a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+    // Oscillator States
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+    phases: [f64; 3],
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+    phases_mod: [f64; 3],
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+    waveforms: [Waveform; 3],
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+    mixes: [f64; 3],
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+    sample_rate: f32,
+</a> }
+ 
+ #[derive(Params)]
+ struct GeedbackClapParams {
+<a href="#h0-0-32" id="h0-0-32" class="d">-    /// The parameter&#39;s ID is used to identify the parameter in the wrappred plugin API. As long as
+</a><a href="#h0-0-33" id="h0-0-33" class="d">-    /// these IDs remain constant, you can rename and reorder these fields as you wish. The
+</a><a href="#h0-0-34" id="h0-0-34" class="d">-    /// parameters are exposed to the host in the same order they were defined. In this case, this
+</a><a href="#h0-0-35" id="h0-0-35" class="d">-    /// gain parameter is stored as linear gain while the values are displayed in decibels.
+</a><a href="#h0-0-36" id="h0-0-36" class="d">-    #[id = &quot;gain&quot;]
+</a><a href="#h0-0-37" id="h0-0-37" class="d">-    pub gain: FloatParam,
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+    #[id = &quot;accel_x&quot;]
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+    pub accel_x: FloatParam,
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+    #[id = &quot;accel_y&quot;]
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+    pub accel_y: FloatParam,
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+    #[id = &quot;accel_z&quot;]
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+    pub accel_z: FloatParam,
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+    #[id = &quot;quat_x&quot;]
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+    pub quat_x: FloatParam,
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+    #[id = &quot;quat_y&quot;]
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+    pub quat_y: FloatParam,
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+    #[id = &quot;quat_z&quot;]
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+    pub quat_z: FloatParam,
+</a> }
+ 
+ impl Default for GeedbackClap {
+     fn default() -&gt; Self {
+         Self {
+             params: Arc::new(GeedbackClapParams::default()),
+<a href="#h0-0-57" id="h0-0-57" class="i">+            phases: [0.0; 3],
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+            phases_mod: [0.0; 3],
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+            waveforms: [Waveform::Sine, Waveform::Sine, Waveform::Sine],
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+            mixes: [0.3, 0.3, 0.3],
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+            sample_rate: 44100.0,
+</a>         }
+     }
+ }
+<a href="#h0-1" id="h0-1" class="h">@@ -30,29 +58,70 @@ impl Default for GeedbackClap {
+</a> impl Default for GeedbackClapParams {
+     fn default() -&gt; Self {
+         Self {
+<a href="#h0-1-3" id="h0-1-3" class="d">-            // This gain is stored as linear gain. NIH-plug comes with useful conversion functions
+</a><a href="#h0-1-4" id="h0-1-4" class="d">-            // to treat these kinds of parameters as if we were dealing with decibels. Storing this
+</a><a href="#h0-1-5" id="h0-1-5" class="d">-            // as decibels is easier to work with, but requires a conversion for every sample.
+</a><a href="#h0-1-6" id="h0-1-6" class="d">-            gain: FloatParam::new(
+</a><a href="#h0-1-7" id="h0-1-7" class="d">-                &quot;Gain&quot;,
+</a><a href="#h0-1-8" id="h0-1-8" class="d">-                util::db_to_gain(0.0),
+</a><a href="#h0-1-9" id="h0-1-9" class="d">-                FloatRange::Skewed {
+</a><a href="#h0-1-10" id="h0-1-10" class="d">-                    min: util::db_to_gain(-30.0),
+</a><a href="#h0-1-11" id="h0-1-11" class="d">-                    max: util::db_to_gain(30.0),
+</a><a href="#h0-1-12" id="h0-1-12" class="d">-                    // This makes the range appear as if it was linear when displaying the values as
+</a><a href="#h0-1-13" id="h0-1-13" class="d">-                    // decibels
+</a><a href="#h0-1-14" id="h0-1-14" class="d">-                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+            accel_x: FloatParam::new(&quot;Accel X&quot;, 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+</a><a href="#h0-1-16" id="h0-1-16" class="i">+                .with_smoother(SmoothingStyle::Linear(50.0)),
+</a><a href="#h0-1-17" id="h0-1-17" class="i">+            accel_y: FloatParam::new(&quot;Accel Y&quot;, 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+</a><a href="#h0-1-18" id="h0-1-18" class="i">+                .with_smoother(SmoothingStyle::Linear(50.0)),
+</a><a href="#h0-1-19" id="h0-1-19" class="i">+            accel_z: FloatParam::new(&quot;Accel Z&quot;, 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+</a><a href="#h0-1-20" id="h0-1-20" class="i">+                .with_smoother(SmoothingStyle::Linear(50.0)),
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+            quat_x: FloatParam::new(
+</a><a href="#h0-1-22" id="h0-1-22" class="i">+                &quot;Quat X&quot;,
+</a><a href="#h0-1-23" id="h0-1-23" class="i">+                0.0,
+</a><a href="#h0-1-24" id="h0-1-24" class="i">+                FloatRange::Linear {
+</a><a href="#h0-1-25" id="h0-1-25" class="i">+                    min: -1.0,
+</a><a href="#h0-1-26" id="h0-1-26" class="i">+                    max: 1.0,
+</a>                 },
+             )
+<a href="#h0-1-29" id="h0-1-29" class="d">-            // Because the gain parameter is stored as linear gain instead of storing the value as
+</a><a href="#h0-1-30" id="h0-1-30" class="d">-            // decibels, we need logarithmic smoothing
+</a><a href="#h0-1-31" id="h0-1-31" class="d">-            .with_smoother(SmoothingStyle::Logarithmic(50.0))
+</a><a href="#h0-1-32" id="h0-1-32" class="d">-            .with_unit(&quot; dB&quot;)
+</a><a href="#h0-1-33" id="h0-1-33" class="d">-            // There are many predefined formatters we can use here. If the gain was stored as
+</a><a href="#h0-1-34" id="h0-1-34" class="d">-            // decibels instead of as a linear gain value, we could have also used the
+</a><a href="#h0-1-35" id="h0-1-35" class="d">-            // `.with_step_size(0.1)` function to get internal rounding.
+</a><a href="#h0-1-36" id="h0-1-36" class="d">-            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+</a><a href="#h0-1-37" id="h0-1-37" class="d">-            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+</a><a href="#h0-1-38" id="h0-1-38" class="i">+            .with_smoother(SmoothingStyle::Linear(50.0)),
+</a><a href="#h0-1-39" id="h0-1-39" class="i">+            quat_y: FloatParam::new(
+</a><a href="#h0-1-40" id="h0-1-40" class="i">+                &quot;Quat Y&quot;,
+</a><a href="#h0-1-41" id="h0-1-41" class="i">+                0.0,
+</a><a href="#h0-1-42" id="h0-1-42" class="i">+                FloatRange::Linear {
+</a><a href="#h0-1-43" id="h0-1-43" class="i">+                    min: -1.0,
+</a><a href="#h0-1-44" id="h0-1-44" class="i">+                    max: 1.0,
+</a><a href="#h0-1-45" id="h0-1-45" class="i">+                },
+</a><a href="#h0-1-46" id="h0-1-46" class="i">+            )
+</a><a href="#h0-1-47" id="h0-1-47" class="i">+            .with_smoother(SmoothingStyle::Linear(50.0)),
+</a><a href="#h0-1-48" id="h0-1-48" class="i">+            quat_z: FloatParam::new(
+</a><a href="#h0-1-49" id="h0-1-49" class="i">+                &quot;Quat Z&quot;,
+</a><a href="#h0-1-50" id="h0-1-50" class="i">+                0.0,
+</a><a href="#h0-1-51" id="h0-1-51" class="i">+                FloatRange::Linear {
+</a><a href="#h0-1-52" id="h0-1-52" class="i">+                    min: -1.0,
+</a><a href="#h0-1-53" id="h0-1-53" class="i">+                    max: 1.0,
+</a><a href="#h0-1-54" id="h0-1-54" class="i">+                },
+</a><a href="#h0-1-55" id="h0-1-55" class="i">+            )
+</a><a href="#h0-1-56" id="h0-1-56" class="i">+            .with_smoother(SmoothingStyle::Linear(50.0)),
+</a><a href="#h0-1-57" id="h0-1-57" class="i">+        }
+</a><a href="#h0-1-58" id="h0-1-58" class="i">+    }
+</a><a href="#h0-1-59" id="h0-1-59" class="i">+}
+</a><a href="#h0-1-60" id="h0-1-60" class="i">+
+</a><a href="#h0-1-61" id="h0-1-61" class="i">+impl GeedbackClap {
+</a><a href="#h0-1-62" id="h0-1-62" class="i">+    fn calculate_wave(&amp;self, phase: f64, wave: Waveform, morph: f64) -&gt; f64 {
+</a><a href="#h0-1-63" id="h0-1-63" class="i">+        let m = (morph + 1.0) * 0.5;
+</a><a href="#h0-1-64" id="h0-1-64" class="i">+        let p = phase.fract();
+</a><a href="#h0-1-65" id="h0-1-65" class="i">+
+</a><a href="#h0-1-66" id="h0-1-66" class="i">+        match wave {
+</a><a href="#h0-1-67" id="h0-1-67" class="i">+            Waveform::Sine =&gt; {
+</a><a href="#h0-1-68" id="h0-1-68" class="i">+                let raw = (p * 2.0 * std::f64::consts::PI).sin();
+</a><a href="#h0-1-69" id="h0-1-69" class="i">+                if m &gt; 0.5 {
+</a><a href="#h0-1-70" id="h0-1-70" class="i">+                    let drive = 1.0 + (m - 0.5) * 2.0;
+</a><a href="#h0-1-71" id="h0-1-71" class="i">+                    (raw * drive).tanh()
+</a><a href="#h0-1-72" id="h0-1-72" class="i">+                } else {
+</a><a href="#h0-1-73" id="h0-1-73" class="i">+                    raw
+</a><a href="#h0-1-74" id="h0-1-74" class="i">+                }
+</a><a href="#h0-1-75" id="h0-1-75" class="i">+            }
+</a><a href="#h0-1-76" id="h0-1-76" class="i">+            Waveform::Triangle =&gt; 1.0 - 2.0 * (p + 0.75).fract().abs(),
+</a><a href="#h0-1-77" id="h0-1-77" class="i">+            Waveform::TriangleSawtooth =&gt; {
+</a><a href="#h0-1-78" id="h0-1-78" class="i">+                let tri = 1.0 - 2.0 * (p + 0.75).fract().abs();
+</a><a href="#h0-1-79" id="h0-1-79" class="i">+                let saw = 2.0 * p - 1.0;
+</a><a href="#h0-1-80" id="h0-1-80" class="i">+                tri * (1.0 - m) + saw * m
+</a><a href="#h0-1-81" id="h0-1-81" class="i">+            }
+</a><a href="#h0-1-82" id="h0-1-82" class="i">+            Waveform::Sawtooth =&gt; 2.0 * p - 1.0,
+</a><a href="#h0-1-83" id="h0-1-83" class="i">+            Waveform::ReverseSawtooth =&gt; 1.0 - p * 2.0,
+</a><a href="#h0-1-84" id="h0-1-84" class="i">+            Waveform::Square | Waveform::WidePulse | Waveform::NarrowPulse =&gt; {
+</a><a href="#h0-1-85" id="h0-1-85" class="i">+                let width = 0.02 + m * 0.48;
+</a><a href="#h0-1-86" id="h0-1-86" class="i">+                if p &lt; width { 1.0 } else { -1.0 }
+</a><a href="#h0-1-87" id="h0-1-87" class="i">+            }
+</a>         }
+     }
+ }
+<a href="#h0-2" id="h0-2" class="h">@@ -65,18 +134,11 @@ impl Plugin for GeedbackClap {
+</a> 
+     const VERSION: &amp;&#39;static str = env!(&quot;CARGO_PKG_VERSION&quot;);
+ 
+<a href="#h0-2-3" id="h0-2-3" class="d">-    // The first audio IO layout is used as the default. The other layouts may be selected either
+</a><a href="#h0-2-4" id="h0-2-4" class="d">-    // explicitly or automatically by the host or the user depending on the plugin API/backend.
+</a>     const AUDIO_IO_LAYOUTS: &amp;&#39;static [AudioIOLayout] = &amp;[AudioIOLayout {
+         main_input_channels: NonZeroU32::new(2),
+         main_output_channels: NonZeroU32::new(2),
+<a href="#h0-2-8" id="h0-2-8" class="d">-
+</a>         aux_input_ports: &amp;[],
+         aux_output_ports: &amp;[],
+<a href="#h0-2-11" id="h0-2-11" class="d">-
+</a><a href="#h0-2-12" id="h0-2-12" class="d">-        // Individual ports and the layout as a whole can be named here. By default these names
+</a><a href="#h0-2-13" id="h0-2-13" class="d">-        // are generated as needed. This layout will be called &#39;Stereo&#39;, while a layout with
+</a><a href="#h0-2-14" id="h0-2-14" class="d">-        // only one input and output channel would be called &#39;Mono&#39;.
+</a>         names: PortNames::const_default(),
+     }];
+ 
+<a href="#h0-3" id="h0-3" class="h">@@ -85,13 +147,7 @@ impl Plugin for GeedbackClap {
+</a> 
+     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
+ 
+<a href="#h0-3-3" id="h0-3-3" class="d">-    // If the plugin can send or receive SysEx messages, it can define a type to wrap around those
+</a><a href="#h0-3-4" id="h0-3-4" class="d">-    // messages here. The type implements the `SysExMessage` trait, which allows conversion to and
+</a><a href="#h0-3-5" id="h0-3-5" class="d">-    // from plain byte buffers.
+</a>     type SysExMessage = ();
+<a href="#h0-3-7" id="h0-3-7" class="d">-    // More advanced plugins can use this to run expensive background tasks. See the field&#39;s
+</a><a href="#h0-3-8" id="h0-3-8" class="d">-    // documentation for more information. `()` means that the plugin does not have any background
+</a><a href="#h0-3-9" id="h0-3-9" class="d">-    // tasks.
+</a>     type BackgroundTask = ();
+ 
+     fn params(&amp;self) -&gt; Arc&lt;dyn Params&gt; {
+<a href="#h0-4" id="h0-4" class="h">@@ -101,18 +157,16 @@ impl Plugin for GeedbackClap {
+</a>     fn initialize(
+         &amp;mut self,
+         _audio_io_layout: &amp;AudioIOLayout,
+<a href="#h0-4-3" id="h0-4-3" class="d">-        _buffer_config: &amp;BufferConfig,
+</a><a href="#h0-4-4" id="h0-4-4" class="i">+        buffer_config: &amp;BufferConfig,
+</a>         _context: &amp;mut impl InitContext&lt;Self&gt;,
+     ) -&gt; bool {
+<a href="#h0-4-7" id="h0-4-7" class="d">-        // Resize buffers and perform other potentially expensive initialization operations here.
+</a><a href="#h0-4-8" id="h0-4-8" class="d">-        // The `reset()` function is always called right after this function. You can remove this
+</a><a href="#h0-4-9" id="h0-4-9" class="d">-        // function if you do not need it.
+</a><a href="#h0-4-10" id="h0-4-10" class="i">+        self.sample_rate = buffer_config.sample_rate;
+</a>         true
+     }
+ 
+     fn reset(&amp;mut self) {
+<a href="#h0-4-15" id="h0-4-15" class="d">-        // Reset buffers and envelopes here. This can be called from the audio thread and may not
+</a><a href="#h0-4-16" id="h0-4-16" class="d">-        // allocate. You can remove this function if you do not need it.
+</a><a href="#h0-4-17" id="h0-4-17" class="i">+        self.phases = [0.0; 3];
+</a><a href="#h0-4-18" id="h0-4-18" class="i">+        self.phases_mod = [0.0; 3];
+</a>     }
+ 
+     fn process(
+<a href="#h0-5" id="h0-5" class="h">@@ -122,11 +176,51 @@ impl Plugin for GeedbackClap {
+</a>         _context: &amp;mut impl ProcessContext&lt;Self&gt;,
+     ) -&gt; ProcessStatus {
+         for channel_samples in buffer.iter_samples() {
+<a href="#h0-5-3" id="h0-5-3" class="d">-            // Smoothing is optionally built into the parameters themselves
+</a><a href="#h0-5-4" id="h0-5-4" class="d">-            let gain = self.params.gain.smoothed.next();
+</a><a href="#h0-5-5" id="h0-5-5" class="i">+            // Get smoothed parameters
+</a><a href="#h0-5-6" id="h0-5-6" class="i">+            let ax = self.params.accel_x.smoothed.next() as f64 * 2.0 - 1.0;
+</a><a href="#h0-5-7" id="h0-5-7" class="i">+            let ay = self.params.accel_y.smoothed.next() as f64 * 2.0 - 1.0;
+</a><a href="#h0-5-8" id="h0-5-8" class="i">+            let az = self.params.accel_z.smoothed.next() as f64 * 2.0 - 1.0;
+</a><a href="#h0-5-9" id="h0-5-9" class="i">+
+</a><a href="#h0-5-10" id="h0-5-10" class="i">+            let qx = self.params.quat_x.smoothed.next() as f64;
+</a><a href="#h0-5-11" id="h0-5-11" class="i">+            let qy = self.params.quat_y.smoothed.next() as f64;
+</a><a href="#h0-5-12" id="h0-5-12" class="i">+            let qz = self.params.quat_z.smoothed.next() as f64;
+</a><a href="#h0-5-13" id="h0-5-13" class="i">+
+</a><a href="#h0-5-14" id="h0-5-14" class="i">+            // Mapping Quaternions (X, Y, Z) to Oscillator frequencies and morphs
+</a><a href="#h0-5-15" id="h0-5-15" class="i">+            let freqs = [
+</a><a href="#h0-5-16" id="h0-5-16" class="i">+                110.0 * 2.0_f64.powf(qy * 2.5),
+</a><a href="#h0-5-17" id="h0-5-17" class="i">+                164.8 * 2.0_f64.powf(qz * 4.0),
+</a><a href="#h0-5-18" id="h0-5-18" class="i">+                220.0 * 2.0_f64.powf(qx * 2.5),
+</a><a href="#h0-5-19" id="h0-5-19" class="i">+            ];
+</a><a href="#h0-5-20" id="h0-5-20" class="i">+
+</a><a href="#h0-5-21" id="h0-5-21" class="i">+            let morphs = [qy, qz, qx];
+</a><a href="#h0-5-22" id="h0-5-22" class="i">+
+</a><a href="#h0-5-23" id="h0-5-23" class="i">+            let fm_depths = [
+</a><a href="#h0-5-24" id="h0-5-24" class="i">+                ay.abs().powi(3) * 1.0,
+</a><a href="#h0-5-25" id="h0-5-25" class="i">+                az.abs().powi(3) * 1.0,
+</a><a href="#h0-5-26" id="h0-5-26" class="i">+                ax.abs().powi(3) * 1.0,
+</a><a href="#h0-5-27" id="h0-5-27" class="i">+            ];
+</a><a href="#h0-5-28" id="h0-5-28" class="i">+
+</a><a href="#h0-5-29" id="h0-5-29" class="i">+            let mut mixed_output = 0.0;
+</a><a href="#h0-5-30" id="h0-5-30" class="i">+            let sample_rate = self.sample_rate as f64;
+</a><a href="#h0-5-31" id="h0-5-31" class="i">+
+</a><a href="#h0-5-32" id="h0-5-32" class="i">+            for i in 0..3 {
+</a><a href="#h0-5-33" id="h0-5-33" class="i">+                self.phases_mod[i] = (self.phases_mod[i] + freqs[i] / sample_rate) % 1.0;
+</a><a href="#h0-5-34" id="h0-5-34" class="i">+                let modulation =
+</a><a href="#h0-5-35" id="h0-5-35" class="i">+                    (self.phases_mod[i] * 2.0 * std::f64::consts::PI).sin() * fm_depths[i];
+</a><a href="#h0-5-36" id="h0-5-36" class="i">+                let osc_out =
+</a><a href="#h0-5-37" id="h0-5-37" class="i">+                    self.calculate_wave(self.phases[i] + modulation, self.waveforms[i], morphs[i]);
+</a><a href="#h0-5-38" id="h0-5-38" class="i">+                mixed_output += osc_out * self.mixes[i];
+</a><a href="#h0-5-39" id="h0-5-39" class="i">+                self.phases[i] = (self.phases[i] + freqs[i] / sample_rate) % 1.0;
+</a><a href="#h0-5-40" id="h0-5-40" class="i">+            }
+</a><a href="#h0-5-41" id="h0-5-41" class="i">+
+</a><a href="#h0-5-42" id="h0-5-42" class="i">+            // Master Gain / Saturation based on Accel only
+</a><a href="#h0-5-43" id="h0-5-43" class="i">+            let shake_intensity = (ax.abs() + ay.abs() + az.abs()) * 4.0;
+</a><a href="#h0-5-44" id="h0-5-44" class="i">+            let master_gain = 0.6 + shake_intensity;
+</a><a href="#h0-5-45" id="h0-5-45" class="i">+
+</a><a href="#h0-5-46" id="h0-5-46" class="i">+            let final_output = (mixed_output * master_gain).tanh() as f32;
+</a> 
+             for sample in channel_samples {
+<a href="#h0-5-49" id="h0-5-49" class="d">-                *sample *= gain;
+</a><a href="#h0-5-50" id="h0-5-50" class="i">+                *sample = final_output;
+</a>             }
+         }
+ 
+<a href="#h0-6" id="h0-6" class="h">@@ -140,17 +234,11 @@ impl ClapPlugin for GeedbackClap {
+</a>     const CLAP_MANUAL_URL: Option&lt;&amp;&#39;static str&gt; = Some(Self::URL);
+     const CLAP_SUPPORT_URL: Option&lt;&amp;&#39;static str&gt; = None;
+ 
+<a href="#h0-6-3" id="h0-6-3" class="d">-    // Don&#39;t forget to change these features
+</a><a href="#h0-6-4" id="h0-6-4" class="d">-    const CLAP_FEATURES: &amp;&#39;static [ClapFeature] = &amp;[ClapFeature::AudioEffect, ClapFeature::Stereo];
+</a><a href="#h0-6-5" id="h0-6-5" class="i">+    const CLAP_FEATURES: &amp;&#39;static [ClapFeature] = &amp;[
+</a><a href="#h0-6-6" id="h0-6-6" class="i">+        ClapFeature::Instrument,
+</a><a href="#h0-6-7" id="h0-6-7" class="i">+        ClapFeature::Synthesizer,
+</a><a href="#h0-6-8" id="h0-6-8" class="i">+        ClapFeature::Stereo,
+</a><a href="#h0-6-9" id="h0-6-9" class="i">+    ];
+</a> }
+ 
+<a href="#h0-6-12" id="h0-6-12" class="d">-// impl Vst3Plugin for GeedbackClap {
+</a><a href="#h0-6-13" id="h0-6-13" class="d">-//     const VST3_CLASS_ID: [u8; 16] = *b&quot;Exactly16Chars!!&quot;;
+</a><a href="#h0-6-14" id="h0-6-14" class="d">-
+</a><a href="#h0-6-15" id="h0-6-15" class="d">-//     // And also don&#39;t forget to change these categories
+</a><a href="#h0-6-16" id="h0-6-16" class="d">-//     const VST3_SUBCATEGORIES: &amp;&#39;static [Vst3SubCategory] =
+</a><a href="#h0-6-17" id="h0-6-17" class="d">-//         &amp;[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
+</a><a href="#h0-6-18" id="h0-6-18" class="d">-// }
+</a><a href="#h0-6-19" id="h0-6-19" class="d">-
+</a> nih_export_clap!(GeedbackClap);
+<a href="#h0-6-21" id="h0-6-21" class="d">-// nih_export_vst3!(GeedbackClap);
+</a></pre>
+</div>
+</body>
+</html>

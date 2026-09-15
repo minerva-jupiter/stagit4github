@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Make adding overlapping ARP range a hard error (#4870) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/e80ca4aba744a38f47b1e3fcaeb21ca2a62b09c5.html">e80ca4aba744a38f47b1e3fcaeb21ca2a62b09c5</a>
+<b>parent</b> <a href="../commit/19ce709f5d628b9dd3495defa4dc3217b05e4cda.html">19ce709f5d628b9dd3495defa4dc3217b05e4cda</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Fri, 11 Oct 2024 16:04:59 -0700
+
+Make adding overlapping ARP range a hard error (#4870)
+
+## Change
+Implements two independent but related changes:
+1. Makes adding/updating an overlapping ARP range a hard error
+2. Adds `AddOrUpdate` functionality to the index so that callers don&#39;t
+need to know if the manifest is already present
+
+## Validation
+Added/updated unit tests for ARP overlap.
+Added unit and interop test for AddOrUpdate.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/SQLiteIndex.cpp</a></td><td> | </td><td class="num">83</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a></td><td> | </td><td class="num">44</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></td><td> | </td><td class="num">15</td><td><span class="i">+++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface.h</a></td><td> | </td><td class="num">8</td><td><span class="i">+++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp</a></td><td> | </td><td class="num">86</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/WinGetUtil/Exports.cpp</a></td><td> | </td><td class="num">20</td><td><span class="i">++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/WinGetUtil/Source.def</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/WinGetUtil/WinGetUtil.h</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/WinGetUtilInterop.UnitTests/APIUnitTests/SQLiteIndexUnitTests.cs</a></td><td> | </td><td class="num">23</td><td><span class="i">++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/WinGetUtilInterop/Api/WinGetSQLiteIndex.cs</a></td><td> | </td><td class="num">37</td><td><span class="i">+++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/WinGetUtilInterop/Interfaces/IWinGetSQLiteIndex.cs</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>11 files changed, 310 insertions(+), 23 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a> b/<a href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -3241,7 +3241,7 @@ TEST_CASE(&quot;SQLiteIndex_RemoveManifestArpVersionKeepUsedDeleteUnused&quot;, &quot;[sqlitein
+</a>     }
+ }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-TEST_CASE(&quot;SQLiteIndex_ManifestArpVersion_CheckConsistency&quot;, &quot;[sqliteindex]&quot;)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+TEST_CASE(&quot;SQLiteIndex_ManifestArpVersionConflict_AddThrows&quot;, &quot;[sqliteindex]&quot;)
+</a> {
+     TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+     INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+<a href="#h0-1" id="h0-1" class="h">@@ -3267,9 +3267,44 @@ TEST_CASE(&quot;SQLiteIndex_ManifestArpVersion_CheckConsistency&quot;, &quot;[sqliteindex]&quot;)
+</a>     // Add a conflicting one
+     manifest.Version = &quot;10.1&quot;;
+ 
+<a href="#h0-1-3" id="h0-1-3" class="i">+    REQUIRE_THROWS_HR(index.AddManifest(manifest, &quot;path2&quot;), APPINSTALLER_CLI_ERROR_ARP_VERSION_VALIDATION_FAILED);
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+}
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+TEST_CASE(&quot;SQLiteIndex_ManifestArpVersionConflict_UpdateThrows&quot;, &quot;[sqliteindex]&quot;)
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+{
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+    TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+    INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+    SQLiteIndex index = CreateTestIndex(tempFile, SQLiteVersion::Latest());
+</a><a href="#h0-1-12" id="h0-1-12" class="i">+
+</a><a href="#h0-1-13" id="h0-1-13" class="i">+    Manifest manifest;
+</a><a href="#h0-1-14" id="h0-1-14" class="i">+    manifest.Id = &quot;Foo&quot;;
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+    manifest.Version = &quot;10.0&quot;;
+</a><a href="#h0-1-16" id="h0-1-16" class="i">+    manifest.DefaultLocalization.Add&lt;Localization::PackageName&gt;(&quot;ArpVersionCheckConsistencyTest&quot;);
+</a><a href="#h0-1-17" id="h0-1-17" class="i">+    manifest.Moniker = &quot;testmoniker&quot;;
+</a><a href="#h0-1-18" id="h0-1-18" class="i">+    manifest.Installers.push_back({});
+</a><a href="#h0-1-19" id="h0-1-19" class="i">+    manifest.Installers[0].BaseInstallerType = InstallerTypeEnum::Exe;
+</a><a href="#h0-1-20" id="h0-1-20" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries.push_back({});
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries[0].DisplayVersion = &quot;1.0&quot;;
+</a><a href="#h0-1-22" id="h0-1-22" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries.push_back({});
+</a><a href="#h0-1-23" id="h0-1-23" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries[1].DisplayVersion = &quot;1.1&quot;;
+</a><a href="#h0-1-24" id="h0-1-24" class="i">+
+</a><a href="#h0-1-25" id="h0-1-25" class="i">+    index.AddManifest(manifest, &quot;path&quot;);
+</a><a href="#h0-1-26" id="h0-1-26" class="i">+    REQUIRE(index.CheckConsistency(true));
+</a><a href="#h0-1-27" id="h0-1-27" class="i">+
+</a><a href="#h0-1-28" id="h0-1-28" class="i">+    // Add another version
+</a><a href="#h0-1-29" id="h0-1-29" class="i">+    manifest.Version = &quot;10.1&quot;;
+</a><a href="#h0-1-30" id="h0-1-30" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries[0].DisplayVersion = &quot;2.0&quot;;
+</a><a href="#h0-1-31" id="h0-1-31" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries[1].DisplayVersion = &quot;2.1&quot;;
+</a><a href="#h0-1-32" id="h0-1-32" class="i">+
+</a>     index.AddManifest(manifest, &quot;path2&quot;);
+<a href="#h0-1-34" id="h0-1-34" class="i">+    REQUIRE(index.CheckConsistency(true));
+</a> 
+<a href="#h0-1-36" id="h0-1-36" class="d">-    REQUIRE_FALSE(index.CheckConsistency(true));
+</a><a href="#h0-1-37" id="h0-1-37" class="i">+    // Update to a conflict
+</a><a href="#h0-1-38" id="h0-1-38" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries[0].DisplayVersion = &quot;1.0&quot;;
+</a><a href="#h0-1-39" id="h0-1-39" class="i">+    manifest.Installers[0].AppsAndFeaturesEntries[1].DisplayVersion = &quot;2.1&quot;;
+</a><a href="#h0-1-40" id="h0-1-40" class="i">+
+</a><a href="#h0-1-41" id="h0-1-41" class="i">+    REQUIRE_THROWS_HR(index.UpdateManifest(manifest, &quot;path2&quot;), APPINSTALLER_CLI_ERROR_ARP_VERSION_VALIDATION_FAILED);
+</a> }
+ 
+ TEST_CASE(&quot;SQLiteIndex_ManifestArpVersion_ValidateManifestAgainstIndex&quot;, &quot;[sqliteindex]&quot;)
+<a href="#h0-2" id="h0-2" class="h">@@ -3856,3 +3891,47 @@ TEST_CASE(&quot;SQLiteIndex_DependencyWithCaseMismatch&quot;, &quot;[sqliteindex][V1_4]&quot;)
+</a> 
+     index.AddManifest(manifest, GetPathFromManifest(manifest));
+ }
+<a href="#h0-2-3" id="h0-2-3" class="i">+
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+TEST_CASE(&quot;SQLiteIndex_AddOrUpdateManifest&quot;, &quot;[sqliteindex]&quot;)
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+{
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+    TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+    INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+    std::string manifestPath = &quot;test/id/test.id-1.0.0.yaml&quot;;
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+    Manifest manifest;
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+    manifest.Installers.push_back({});
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+    manifest.Id = &quot;test.id&quot;;
+</a><a href="#h0-2-13" id="h0-2-13" class="i">+    manifest.DefaultLocalization.Add &lt; Localization::PackageName&gt;(&quot;Test Name&quot;);
+</a><a href="#h0-2-14" id="h0-2-14" class="i">+    manifest.Moniker = &quot;testmoniker&quot;;
+</a><a href="#h0-2-15" id="h0-2-15" class="i">+    manifest.Version = &quot;1.0.0&quot;;
+</a><a href="#h0-2-16" id="h0-2-16" class="i">+    manifest.Channel = &quot;test&quot;;
+</a><a href="#h0-2-17" id="h0-2-17" class="i">+    manifest.DefaultLocalization.Add&lt;Localization::Tags&gt;({ &quot;t1&quot;, &quot;t2&quot; });
+</a><a href="#h0-2-18" id="h0-2-18" class="i">+    manifest.Installers[0].Commands = { &quot;test1&quot;, &quot;test2&quot; };
+</a><a href="#h0-2-19" id="h0-2-19" class="i">+
+</a><a href="#h0-2-20" id="h0-2-20" class="i">+    {
+</a><a href="#h0-2-21" id="h0-2-21" class="i">+        auto version = GENERATE(SQLiteVersion{ 1, 0 }, SQLiteVersion::Latest());
+</a><a href="#h0-2-22" id="h0-2-22" class="i">+        SQLiteIndex index = SQLiteIndex::CreateNew(tempFile, version);
+</a><a href="#h0-2-23" id="h0-2-23" class="i">+
+</a><a href="#h0-2-24" id="h0-2-24" class="i">+        REQUIRE(index.AddOrUpdateManifest(manifest, manifestPath));
+</a><a href="#h0-2-25" id="h0-2-25" class="i">+    }
+</a><a href="#h0-2-26" id="h0-2-26" class="i">+
+</a><a href="#h0-2-27" id="h0-2-27" class="i">+    {
+</a><a href="#h0-2-28" id="h0-2-28" class="i">+        SQLiteIndex index = SQLiteIndex::Open(tempFile, SQLiteStorageBase::OpenDisposition::ReadWrite);
+</a><a href="#h0-2-29" id="h0-2-29" class="i">+
+</a><a href="#h0-2-30" id="h0-2-30" class="i">+        // Update with no updates should return false
+</a><a href="#h0-2-31" id="h0-2-31" class="i">+        REQUIRE(!index.AddOrUpdateManifest(manifest, manifestPath));
+</a><a href="#h0-2-32" id="h0-2-32" class="i">+
+</a><a href="#h0-2-33" id="h0-2-33" class="i">+        manifest.DefaultLocalization.Add&lt;Localization::Description&gt;(&quot;description2&quot;);
+</a><a href="#h0-2-34" id="h0-2-34" class="i">+
+</a><a href="#h0-2-35" id="h0-2-35" class="i">+        // Update with no indexed updates should return false
+</a><a href="#h0-2-36" id="h0-2-36" class="i">+        REQUIRE(!index.AddOrUpdateManifest(manifest, manifestPath));
+</a><a href="#h0-2-37" id="h0-2-37" class="i">+
+</a><a href="#h0-2-38" id="h0-2-38" class="i">+        // Update with indexed changes
+</a><a href="#h0-2-39" id="h0-2-39" class="i">+        manifest.DefaultLocalization.Add&lt;Localization::PackageName&gt;(&quot;Test Name2&quot;);
+</a><a href="#h0-2-40" id="h0-2-40" class="i">+        manifest.Moniker = &quot;testmoniker2&quot;;
+</a><a href="#h0-2-41" id="h0-2-41" class="i">+        manifest.DefaultLocalization.Add&lt;Localization::Tags&gt;({ &quot;t1&quot;, &quot;t2&quot;, &quot;t3&quot; });
+</a><a href="#h0-2-42" id="h0-2-42" class="i">+        manifest.Installers[0].Commands = {};
+</a><a href="#h0-2-43" id="h0-2-43" class="i">+
+</a><a href="#h0-2-44" id="h0-2-44" class="i">+        REQUIRE(index.AddOrUpdateManifest(manifest, manifestPath));
+</a><a href="#h0-2-45" id="h0-2-45" class="i">+    }
+</a><a href="#h0-2-46" id="h0-2-46" class="i">+}
+</a><b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -109,6 +109,11 @@ namespace AppInstaller::Repository::Microsoft
+</a>     SQLiteIndex::IdType SQLiteIndex::AddManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath)
+     {
+         std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+<a href="#h1-0-3" id="h1-0-3" class="i">+        return AddManifestInternalHoldingLock(manifest, relativePath);
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    }
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    SQLiteIndex::IdType SQLiteIndex::AddManifestInternalHoldingLock(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath)
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+    {
+</a>         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Adding manifest for [&quot; &lt;&lt; manifest.Id &lt;&lt; &quot;, &quot; &lt;&lt; manifest.Version &lt;&lt; &quot;] at relative path [&quot; &lt;&lt; relativePath.value_or(&quot;&quot;) &lt;&lt; &quot;]&quot;);
+ 
+         SQLite::Savepoint savepoint = SQLite::Savepoint::Create(m_dbconn, &quot;sqliteindex_addmanifest&quot;);
+<a href="#h1-1" id="h1-1" class="h">@@ -143,6 +148,11 @@ namespace AppInstaller::Repository::Microsoft
+</a>     bool SQLiteIndex::UpdateManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath)
+     {
+         std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+<a href="#h1-1-3" id="h1-1-3" class="i">+        return UpdateManifestInternalHoldingLock(manifest, relativePath);
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+    }
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+    bool SQLiteIndex::UpdateManifestInternalHoldingLock(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath)
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+    {
+</a>         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Updating manifest for [&quot; &lt;&lt; manifest.Id &lt;&lt; &quot;, &quot; &lt;&lt; manifest.Version &lt;&lt; &quot;] at relative path [&quot; &lt;&lt; relativePath.value_or(&quot;&quot;) &lt;&lt; &quot;]&quot;);
+ 
+         SQLite::Savepoint savepoint = SQLite::Savepoint::Create(m_dbconn, &quot;sqliteindex_updatemanifest&quot;);
+<a href="#h1-2" id="h1-2" class="h">@@ -159,6 +169,40 @@ namespace AppInstaller::Repository::Microsoft
+</a>         return result;
+     }
+ 
+<a href="#h1-2-3" id="h1-2-3" class="i">+    bool SQLiteIndex::AddOrUpdateManifest(const std::filesystem::path&amp; manifestPath, const std::filesystem::path&amp; relativePath)
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+    {
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+        AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Adding or Updating manifest from file [&quot; &lt;&lt; manifestPath &lt;&lt; &quot;]&quot;);
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+        Manifest::Manifest manifest = Manifest::YamlParser::CreateFromPath(manifestPath);
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        return AddOrUpdateManifestInternal(manifest, relativePath);
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+    }
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+    bool SQLiteIndex::AddOrUpdateManifest(const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath)
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+    {
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+        return AddOrUpdateManifestInternal(manifest, relativePath);
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+    }
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+
+</a><a href="#h1-2-16" id="h1-2-16" class="i">+    bool SQLiteIndex::AddOrUpdateManifest(const Manifest::Manifest&amp; manifest)
+</a><a href="#h1-2-17" id="h1-2-17" class="i">+    {
+</a><a href="#h1-2-18" id="h1-2-18" class="i">+        return AddOrUpdateManifestInternal(manifest, {});
+</a><a href="#h1-2-19" id="h1-2-19" class="i">+    }
+</a><a href="#h1-2-20" id="h1-2-20" class="i">+
+</a><a href="#h1-2-21" id="h1-2-21" class="i">+    bool SQLiteIndex::AddOrUpdateManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath)
+</a><a href="#h1-2-22" id="h1-2-22" class="i">+    {
+</a><a href="#h1-2-23" id="h1-2-23" class="i">+        std::lock_guard&lt;std::mutex&gt; lockInterface{ *m_interfaceLock };
+</a><a href="#h1-2-24" id="h1-2-24" class="i">+        AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Adding or Updating manifest for [&quot; &lt;&lt; manifest.Id &lt;&lt; &quot;, &quot; &lt;&lt; manifest.Version &lt;&lt; &quot;] at relative path [&quot; &lt;&lt; relativePath.value_or(&quot;&quot;) &lt;&lt; &quot;]&quot;);
+</a><a href="#h1-2-25" id="h1-2-25" class="i">+
+</a><a href="#h1-2-26" id="h1-2-26" class="i">+        if (m_interface-&gt;GetManifestIdByManifest(m_dbconn, manifest))
+</a><a href="#h1-2-27" id="h1-2-27" class="i">+        {
+</a><a href="#h1-2-28" id="h1-2-28" class="i">+            return UpdateManifestInternalHoldingLock(manifest, relativePath);
+</a><a href="#h1-2-29" id="h1-2-29" class="i">+        }
+</a><a href="#h1-2-30" id="h1-2-30" class="i">+        else
+</a><a href="#h1-2-31" id="h1-2-31" class="i">+        {
+</a><a href="#h1-2-32" id="h1-2-32" class="i">+            AddManifestInternalHoldingLock(manifest, relativePath);
+</a><a href="#h1-2-33" id="h1-2-33" class="i">+            return true;
+</a><a href="#h1-2-34" id="h1-2-34" class="i">+        }
+</a><a href="#h1-2-35" id="h1-2-35" class="i">+    }
+</a><a href="#h1-2-36" id="h1-2-36" class="i">+
+</a>     void SQLiteIndex::RemoveManifest(const std::filesystem::path&amp; manifestPath, const std::filesystem::path&amp; relativePath)
+     {
+         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Removing manifest from file [&quot; &lt;&lt; manifestPath &lt;&lt; &quot;]&quot;);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -94,6 +94,18 @@ namespace AppInstaller::Repository::Microsoft
+</a>         // The return value indicates whether the index was modified by the function.
+         bool UpdateManifest(const Manifest::Manifest&amp; manifest);
+ 
+<a href="#h2-0-3" id="h2-0-3" class="i">+        // Adds or updates the manifest with matching { Id, Version, Channel } in the index.
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        // The return value indicates whether the index was modified by the function.
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+        bool AddOrUpdateManifest(const std::filesystem::path&amp; manifestPath, const std::filesystem::path&amp; relativePath);
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+        // Updates the manifest with matching { Id, Version, Channel } in the index.
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+        // The return value indicates whether the index was modified by the function.
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+        bool AddOrUpdateManifest(const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath);
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+        // Updates the manifest with matching { Id, Version, Channel } in the index.
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+        // The return value indicates whether the index was modified by the function.
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+        bool AddOrUpdateManifest(const Manifest::Manifest&amp; manifest);
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+
+</a>         // Removes the manifest with matching { Id, Version, Channel } from the index.
+         void RemoveManifest(const std::filesystem::path&amp; manifestPath, const std::filesystem::path&amp; relativePath);
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -176,7 +188,10 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+         // Internal functions to normalize on the relativePath being present.
+         IdType AddManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath);
+<a href="#h2-1-3" id="h2-1-3" class="i">+        IdType AddManifestInternalHoldingLock(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath);
+</a>         bool UpdateManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath);
+<a href="#h2-1-5" id="h2-1-5" class="i">+        bool UpdateManifestInternalHoldingLock(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath);
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+        bool AddOrUpdateManifestInternal(const Manifest::Manifest&amp; manifest, const std::optional&lt;std::filesystem::path&gt;&amp; relativePath);
+</a> 
+         std::unique_ptr&lt;Schema::ISQLiteIndex&gt; m_interface;
+         Schema::SQLiteIndexContextData m_contextData;
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -26,8 +26,11 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+</a>         // Gets a property already knowing that the manifest id is valid.
+         std::optional&lt;std::string&gt; GetPropertyByManifestIdInternal(const SQLite::Connection&amp; connection, SQLite::rowid_t manifestId, PackageVersionProperty property) const override;
+ 
+<a href="#h3-0-3" id="h3-0-3" class="d">-    private:
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    private:
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        // Gets the ARP version ranges for the given package identifier.
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        std::vector&lt;Utility::VersionRange&gt; GetArpVersionRanges(const SQLite::Connection&amp; connection, SQLite::rowid_t packageIdentifier) const;
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+
+</a>         // Semantic check to validate all arp version ranges within the index
+         bool ValidateArpVersionConsistency(const SQLite::Connection&amp; connection, bool log) const;
+     };
+<a href="#h3-0-11" id="h3-0-11" class="d">-}</a><a href="#h3-0-12" id="h3-0-12" class="d">-
+\ No newline at end of file
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+}
+</a><b>diff --git a/<a id="h4" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_5/Interface_1_5.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -4,6 +4,7 @@
+</a> #include &quot;Microsoft/Schema/1_5/Interface.h&quot;
+ #include &quot;Microsoft/Schema/1_5/ArpVersionVirtualTable.h&quot;
+ #include &quot;Microsoft/Schema/1_0/ManifestTable.h&quot;
+<a href="#h4-0-3" id="h4-0-3" class="i">+#include &quot;Microsoft/Schema/1_0/IdTable.h&quot;
+</a> #include &quot;Microsoft/Schema/1_0/VersionTable.h&quot;
+ 
+ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+<a href="#h4-1" id="h4-1" class="h">@@ -36,8 +37,32 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+</a>         SQLite::rowid_t manifestId = V1_4::Interface::AddManifest(connection, manifest, relativePath);
+ 
+         auto arpVersionRange = manifest.GetArpVersionRange();
+<a href="#h4-1-3" id="h4-1-3" class="d">-        Manifest::string_t arpMinVersion = arpVersionRange.IsEmpty() ? &quot;&quot; : arpVersionRange.GetMinVersion().ToString();
+</a><a href="#h4-1-4" id="h4-1-4" class="d">-        Manifest::string_t arpMaxVersion = arpVersionRange.IsEmpty() ? &quot;&quot; : arpVersionRange.GetMaxVersion().ToString();
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+        Manifest::string_t arpMinVersion, arpMaxVersion;
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+        if (!arpVersionRange.IsEmpty())
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+        {
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+            // Check to see if adding this version range will create a conflict
+</a><a href="#h4-1-10" id="h4-1-10" class="i">+            SQLite::rowid_t packageIdentifier = V1_0::ManifestTable::GetIdById&lt;V1_0::IdTable&gt;(connection, manifestId).value();
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+            std::vector&lt;Utility::VersionRange&gt; ranges = GetArpVersionRanges(connection, packageIdentifier);
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+            ranges.push_back(arpVersionRange);
+</a><a href="#h4-1-13" id="h4-1-13" class="i">+
+</a><a href="#h4-1-14" id="h4-1-14" class="i">+            if (Utility::HasOverlapInVersionRanges(ranges))
+</a><a href="#h4-1-15" id="h4-1-15" class="i">+            {
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+                AICLI_LOG(Repo, Error, &lt;&lt; &quot;Overlapped Arp version ranges found for package. All ranges currently in index followed by new range:\n&quot; &lt;&lt; [&amp;]() {
+</a><a href="#h4-1-17" id="h4-1-17" class="i">+                        std::stringstream stream;
+</a><a href="#h4-1-18" id="h4-1-18" class="i">+                        for (const auto&amp; range : ranges)
+</a><a href="#h4-1-19" id="h4-1-19" class="i">+                        {
+</a><a href="#h4-1-20" id="h4-1-20" class="i">+                            stream &lt;&lt; &#39;[&#39; &lt;&lt; range.GetMinVersion().ToString() &lt;&lt; &quot;] - [&quot; &lt;&lt; range.GetMaxVersion().ToString() &lt;&lt; &quot;]\n&quot;;
+</a><a href="#h4-1-21" id="h4-1-21" class="i">+                        }
+</a><a href="#h4-1-22" id="h4-1-22" class="i">+                        return std::move(stream).str();
+</a><a href="#h4-1-23" id="h4-1-23" class="i">+                    }());
+</a><a href="#h4-1-24" id="h4-1-24" class="i">+                THROW_HR(APPINSTALLER_CLI_ERROR_ARP_VERSION_VALIDATION_FAILED);
+</a><a href="#h4-1-25" id="h4-1-25" class="i">+            }
+</a><a href="#h4-1-26" id="h4-1-26" class="i">+
+</a><a href="#h4-1-27" id="h4-1-27" class="i">+            arpMinVersion = arpVersionRange.GetMinVersion().ToString();
+</a><a href="#h4-1-28" id="h4-1-28" class="i">+            arpMaxVersion = arpVersionRange.GetMaxVersion().ToString();
+</a><a href="#h4-1-29" id="h4-1-29" class="i">+        }
+</a><a href="#h4-1-30" id="h4-1-30" class="i">+
+</a>         SQLite::rowid_t arpMinVersionId = V1_0::VersionTable::EnsureExists(connection, arpMinVersion);
+         SQLite::rowid_t arpMaxVersionId = V1_0::VersionTable::EnsureExists(connection, arpMaxVersion);
+         V1_0::ManifestTable::UpdateValueIdById&lt;ArpMinVersionVirtualTable&gt;(connection, manifestId, arpMinVersionId);
+<a href="#h4-2" id="h4-2" class="h">@@ -82,6 +107,27 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+</a>             indexModified = true;
+         }
+ 
+<a href="#h4-2-3" id="h4-2-3" class="i">+        if (!arpVersionRange.IsEmpty())
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+        {
+</a><a href="#h4-2-5" id="h4-2-5" class="i">+            // Check to see if the new set of version ranges created a conflict.
+</a><a href="#h4-2-6" id="h4-2-6" class="i">+            // We could have done this before attempting the update but it would be more complex and SQLite gives us easy rollback.
+</a><a href="#h4-2-7" id="h4-2-7" class="i">+            SQLite::rowid_t packageIdentifier = V1_0::ManifestTable::GetIdById&lt;V1_0::IdTable&gt;(connection, manifestId).value();
+</a><a href="#h4-2-8" id="h4-2-8" class="i">+            std::vector&lt;Utility::VersionRange&gt; ranges = GetArpVersionRanges(connection, packageIdentifier);
+</a><a href="#h4-2-9" id="h4-2-9" class="i">+
+</a><a href="#h4-2-10" id="h4-2-10" class="i">+            if (Utility::HasOverlapInVersionRanges(ranges))
+</a><a href="#h4-2-11" id="h4-2-11" class="i">+            {
+</a><a href="#h4-2-12" id="h4-2-12" class="i">+                AICLI_LOG(Repo, Error, &lt;&lt; &quot;Overlapped Arp version ranges found for package. Ranges that would be present with attempted upgrade:\n&quot; &lt;&lt; [&amp;]() {
+</a><a href="#h4-2-13" id="h4-2-13" class="i">+                        std::stringstream stream;
+</a><a href="#h4-2-14" id="h4-2-14" class="i">+                        for (const auto&amp; range : ranges)
+</a><a href="#h4-2-15" id="h4-2-15" class="i">+                        {
+</a><a href="#h4-2-16" id="h4-2-16" class="i">+                            stream &lt;&lt; &#39;[&#39; &lt;&lt; range.GetMinVersion().ToString() &lt;&lt; &quot;] - [&quot; &lt;&lt; range.GetMaxVersion().ToString() &lt;&lt; &quot;]\n&quot;;
+</a><a href="#h4-2-17" id="h4-2-17" class="i">+                        }
+</a><a href="#h4-2-18" id="h4-2-18" class="i">+                        return std::move(stream).str();
+</a><a href="#h4-2-19" id="h4-2-19" class="i">+                    }());
+</a><a href="#h4-2-20" id="h4-2-20" class="i">+                THROW_HR(APPINSTALLER_CLI_ERROR_ARP_VERSION_VALIDATION_FAILED);
+</a><a href="#h4-2-21" id="h4-2-21" class="i">+            }
+</a><a href="#h4-2-22" id="h4-2-22" class="i">+        }
+</a><a href="#h4-2-23" id="h4-2-23" class="i">+
+</a>         if (cleanOldMinVersionId &amp;&amp; NotNeeded(connection, V1_0::VersionTable::TableName(), V1_0::VersionTable::ValueName(), oldMinVersionId))
+         {
+             V1_0::VersionTable::DeleteById(connection, oldMinVersionId);
+<a href="#h4-3" id="h4-3" class="h">@@ -181,6 +227,26 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+</a>         }
+     }
+ 
+<a href="#h4-3-3" id="h4-3-3" class="i">+    std::vector&lt;Utility::VersionRange&gt; Interface::GetArpVersionRanges(const SQLite::Connection&amp; connection, SQLite::rowid_t packageIdentifier) const
+</a><a href="#h4-3-4" id="h4-3-4" class="i">+    {
+</a><a href="#h4-3-5" id="h4-3-5" class="i">+        std::vector&lt;Utility::VersionRange&gt; ranges;
+</a><a href="#h4-3-6" id="h4-3-6" class="i">+        auto versionKeys = GetVersionKeysById(connection, packageIdentifier);
+</a><a href="#h4-3-7" id="h4-3-7" class="i">+        for (auto const&amp; versionKey : versionKeys)
+</a><a href="#h4-3-8" id="h4-3-8" class="i">+        {
+</a><a href="#h4-3-9" id="h4-3-9" class="i">+            auto arpMinVersion = GetPropertyByPrimaryId(connection, versionKey.ManifestId, PackageVersionProperty::ArpMinVersion).value_or(&quot;&quot;);
+</a><a href="#h4-3-10" id="h4-3-10" class="i">+            auto arpMaxVersion = GetPropertyByPrimaryId(connection, versionKey.ManifestId, PackageVersionProperty::ArpMaxVersion).value_or(&quot;&quot;);
+</a><a href="#h4-3-11" id="h4-3-11" class="i">+
+</a><a href="#h4-3-12" id="h4-3-12" class="i">+            // Either both empty or both not empty
+</a><a href="#h4-3-13" id="h4-3-13" class="i">+            THROW_HR_IF(E_UNEXPECTED, arpMinVersion.empty() != arpMaxVersion.empty());
+</a><a href="#h4-3-14" id="h4-3-14" class="i">+
+</a><a href="#h4-3-15" id="h4-3-15" class="i">+            if (!arpMinVersion.empty() &amp;&amp; !arpMaxVersion.empty())
+</a><a href="#h4-3-16" id="h4-3-16" class="i">+            {
+</a><a href="#h4-3-17" id="h4-3-17" class="i">+                ranges.emplace_back(Utility::VersionRange{ Utility::Version{ std::move(arpMinVersion) }, Utility::Version{ std::move(arpMaxVersion) } });
+</a><a href="#h4-3-18" id="h4-3-18" class="i">+            }
+</a><a href="#h4-3-19" id="h4-3-19" class="i">+        }
+</a><a href="#h4-3-20" id="h4-3-20" class="i">+        return ranges;
+</a><a href="#h4-3-21" id="h4-3-21" class="i">+    }
+</a><a href="#h4-3-22" id="h4-3-22" class="i">+
+</a>     bool Interface::ValidateArpVersionConsistency(const SQLite::Connection&amp; connection, bool log) const
+     {
+         try
+<a href="#h4-4" id="h4-4" class="h">@@ -193,21 +259,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_5
+</a>             for (auto const&amp; match : searchResult.Matches)
+             {
+                 // Get arp version ranges for each package to check
+<a href="#h4-4-3" id="h4-4-3" class="d">-                std::vector&lt;Utility::VersionRange&gt; ranges;
+</a><a href="#h4-4-4" id="h4-4-4" class="d">-                auto versionKeys = GetVersionKeysById(connection, match.first);
+</a><a href="#h4-4-5" id="h4-4-5" class="d">-                for (auto const&amp; versionKey : versionKeys)
+</a><a href="#h4-4-6" id="h4-4-6" class="d">-                {
+</a><a href="#h4-4-7" id="h4-4-7" class="d">-                    auto arpMinVersion = GetPropertyByPrimaryId(connection, versionKey.ManifestId, PackageVersionProperty::ArpMinVersion).value_or(&quot;&quot;);
+</a><a href="#h4-4-8" id="h4-4-8" class="d">-                    auto arpMaxVersion = GetPropertyByPrimaryId(connection, versionKey.ManifestId, PackageVersionProperty::ArpMaxVersion).value_or(&quot;&quot;);
+</a><a href="#h4-4-9" id="h4-4-9" class="d">-
+</a><a href="#h4-4-10" id="h4-4-10" class="d">-                    // Either both empty or both not empty
+</a><a href="#h4-4-11" id="h4-4-11" class="d">-                    THROW_HR_IF(E_UNEXPECTED, arpMinVersion.empty() != arpMaxVersion.empty());
+</a><a href="#h4-4-12" id="h4-4-12" class="d">-
+</a><a href="#h4-4-13" id="h4-4-13" class="d">-                    if (!arpMinVersion.empty() &amp;&amp; !arpMaxVersion.empty())
+</a><a href="#h4-4-14" id="h4-4-14" class="d">-                    {
+</a><a href="#h4-4-15" id="h4-4-15" class="d">-                        ranges.emplace_back(Utility::VersionRange{ Utility::Version{ std::move(arpMinVersion) }, Utility::Version{ std::move(arpMaxVersion) } });
+</a><a href="#h4-4-16" id="h4-4-16" class="d">-                    }
+</a><a href="#h4-4-17" id="h4-4-17" class="d">-                }
+</a><a href="#h4-4-18" id="h4-4-18" class="i">+                std::vector&lt;Utility::VersionRange&gt; ranges = GetArpVersionRanges(connection, match.first);
+</a> 
+                 // Check overlap
+                 if (Utility::HasOverlapInVersionRanges(ranges))
+<b>diff --git a/<a id="h5" href="../file/src/WinGetUtil/Exports.cpp.html">src/WinGetUtil/Exports.cpp</a> b/<a href="../file/src/WinGetUtil/Exports.cpp.html">src/WinGetUtil/Exports.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -192,6 +192,26 @@ extern &quot;C&quot;
+</a>     }
+     CATCH_RETURN()
+ 
+<a href="#h5-0-3" id="h5-0-3" class="i">+    WINGET_UTIL_API WinGetSQLiteIndexAddOrUpdateManifest(
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+        WINGET_SQLITE_INDEX_HANDLE index,
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+        WINGET_STRING manifestPath,
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+        WINGET_STRING relativePath,
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+        BOOL* indexModified) try
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+    {
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+        THROW_HR_IF(E_INVALIDARG, !index);
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+        THROW_HR_IF(E_INVALIDARG, !manifestPath);
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+        THROW_HR_IF(E_INVALIDARG, !relativePath);
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+        bool result = reinterpret_cast&lt;SQLiteIndex*&gt;(index)-&gt;AddOrUpdateManifest(manifestPath, relativePath);
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+        if (indexModified)
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+        {
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+            *indexModified = (result ? TRUE : FALSE);
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+        }
+</a><a href="#h5-0-18" id="h5-0-18" class="i">+
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+        return S_OK;
+</a><a href="#h5-0-20" id="h5-0-20" class="i">+    }
+</a><a href="#h5-0-21" id="h5-0-21" class="i">+    CATCH_RETURN()
+</a><a href="#h5-0-22" id="h5-0-22" class="i">+
+</a>     WINGET_UTIL_API WinGetSQLiteIndexRemoveManifest(
+         WINGET_SQLITE_INDEX_HANDLE index, 
+         WINGET_STRING manifestPath,
+<b>diff --git a/<a id="h6" href="../file/src/WinGetUtil/Source.def.html">src/WinGetUtil/Source.def</a> b/<a href="../file/src/WinGetUtil/Source.def.html">src/WinGetUtil/Source.def</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -7,6 +7,7 @@ EXPORTS
+</a>     WinGetSQLiteIndexClose
+     WinGetSQLiteIndexAddManifest
+     WinGetSQLiteIndexUpdateManifest
+<a href="#h6-0-3" id="h6-0-3" class="i">+    WinGetSQLiteIndexAddOrUpdateManifest
+</a>     WinGetSQLiteIndexRemoveManifest
+     WinGetSQLiteIndexPrepareForPackaging
+     WinGetSQLiteIndexCheckConsistency
+<b>diff --git a/<a id="h7" href="../file/src/WinGetUtil/WinGetUtil.h.html">src/WinGetUtil/WinGetUtil.h</a> b/<a href="../file/src/WinGetUtil/WinGetUtil.h.html">src/WinGetUtil/WinGetUtil.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -158,6 +158,14 @@ extern &quot;C&quot;
+</a>         WINGET_STRING relativePath,
+         BOOL* indexModified);
+ 
+<a href="#h7-0-3" id="h7-0-3" class="i">+    // Adds or Updates the manifest with matching { Id, Version, Channel } in the index.
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+    // The return value indicates whether the index was modified by the function.
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+    WINGET_UTIL_API WinGetSQLiteIndexAddOrUpdateManifest(
+</a><a href="#h7-0-6" id="h7-0-6" class="i">+        WINGET_SQLITE_INDEX_HANDLE index,
+</a><a href="#h7-0-7" id="h7-0-7" class="i">+        WINGET_STRING manifestPath,
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+        WINGET_STRING relativePath,
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+        BOOL* indexModified);
+</a><a href="#h7-0-10" id="h7-0-10" class="i">+
+</a>     // Removes the manifest with matching { Id, Version, Channel } from the index.
+     // Path is currently ignored.
+     WINGET_UTIL_API WinGetSQLiteIndexRemoveManifest(
+<b>diff --git a/<a id="h8" href="../file/src/WinGetUtilInterop.UnitTests/APIUnitTests/SQLiteIndexUnitTests.cs.html">src/WinGetUtilInterop.UnitTests/APIUnitTests/SQLiteIndexUnitTests.cs</a> b/<a href="../file/src/WinGetUtilInterop.UnitTests/APIUnitTests/SQLiteIndexUnitTests.cs.html">src/WinGetUtilInterop.UnitTests/APIUnitTests/SQLiteIndexUnitTests.cs</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -1,4 +1,4 @@
+</a><a href="#h8-0-0" id="h8-0-0" class="d">-﻿// -----------------------------------------------------------------------------
+</a><a href="#h8-0-1" id="h8-0-1" class="i">+// -----------------------------------------------------------------------------
+</a> // &lt;copyright file=&quot;SQLiteIndexUnitTests.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+ //     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+ // &lt;/copyright&gt;
+<a href="#h8-1" id="h8-1" class="h">@@ -180,6 +180,27 @@ namespace WinGetUtilInterop.UnitTests.APIUnitTests
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h8-1-3" id="h8-1-3" class="i">+        ///  Verify that add or update works both times.
+</a><a href="#h8-1-4" id="h8-1-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h8-1-5" id="h8-1-5" class="i">+        [Fact]
+</a><a href="#h8-1-6" id="h8-1-6" class="i">+        [DisplayTestMethodName]
+</a><a href="#h8-1-7" id="h8-1-7" class="i">+        public void AddOrUpdateManifest()
+</a><a href="#h8-1-8" id="h8-1-8" class="i">+        {
+</a><a href="#h8-1-9" id="h8-1-9" class="i">+            this.CreateIndexHelperForIndexTest((wrapper) =&gt;
+</a><a href="#h8-1-10" id="h8-1-10" class="i">+            {
+</a><a href="#h8-1-11" id="h8-1-11" class="i">+                // Add manifest.
+</a><a href="#h8-1-12" id="h8-1-12" class="i">+                string addManifest = Path.Combine(this.indexTestDataPath, PackageTest);
+</a><a href="#h8-1-13" id="h8-1-13" class="i">+                wrapper.AddOrUpdateManifest(addManifest, PackageTestRelativePath);
+</a><a href="#h8-1-14" id="h8-1-14" class="i">+
+</a><a href="#h8-1-15" id="h8-1-15" class="i">+                // Update manifest. name is different, should return true.
+</a><a href="#h8-1-16" id="h8-1-16" class="i">+                string updateManifest = Path.Combine(this.indexTestDataPath, PackageTestNewName);
+</a><a href="#h8-1-17" id="h8-1-17" class="i">+                Assert.True(wrapper.AddOrUpdateManifest(updateManifest, PackageTestRelativePath));
+</a><a href="#h8-1-18" id="h8-1-18" class="i">+
+</a><a href="#h8-1-19" id="h8-1-19" class="i">+                return true;
+</a><a href="#h8-1-20" id="h8-1-20" class="i">+            });
+</a><a href="#h8-1-21" id="h8-1-21" class="i">+        }
+</a><a href="#h8-1-22" id="h8-1-22" class="i">+
+</a><a href="#h8-1-23" id="h8-1-23" class="i">+        /// &lt;summary&gt;
+</a>         ///  Verify that updating a manifest in the index with the exact same information succeeds.
+         /// &lt;/summary&gt;
+         [Fact]
+<b>diff --git a/<a id="h9" href="../file/src/WinGetUtilInterop/Api/WinGetSQLiteIndex.cs.html">src/WinGetUtilInterop/Api/WinGetSQLiteIndex.cs</a> b/<a href="../file/src/WinGetUtilInterop/Api/WinGetSQLiteIndex.cs.html">src/WinGetUtilInterop/Api/WinGetSQLiteIndex.cs</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -90,6 +90,27 @@ namespace Microsoft.WinGetUtil.Api
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+<a href="#h9-0-3" id="h9-0-3" class="i">+        public bool AddOrUpdateManifest(string manifestPath, string relativePath)
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+        {
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+            try
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+            {
+</a><a href="#h9-0-7" id="h9-0-7" class="i">+                // For now, modifying a manifest implies that the file didn&#39;t got moved in the repository. So only
+</a><a href="#h9-0-8" id="h9-0-8" class="i">+                // contents of the file are modified. However, in the future we might support moving which requires
+</a><a href="#h9-0-9" id="h9-0-9" class="i">+                // oldManifestPath, oldRelativePath, newManifestPath and oldManifestPath.
+</a><a href="#h9-0-10" id="h9-0-10" class="i">+                WinGetSQLiteIndexAddOrUpdateManifest(
+</a><a href="#h9-0-11" id="h9-0-11" class="i">+                    this.indexHandle,
+</a><a href="#h9-0-12" id="h9-0-12" class="i">+                    manifestPath,
+</a><a href="#h9-0-13" id="h9-0-13" class="i">+                    relativePath,
+</a><a href="#h9-0-14" id="h9-0-14" class="i">+                    out bool indexModified);
+</a><a href="#h9-0-15" id="h9-0-15" class="i">+                return indexModified;
+</a><a href="#h9-0-16" id="h9-0-16" class="i">+            }
+</a><a href="#h9-0-17" id="h9-0-17" class="i">+            catch (Exception e)
+</a><a href="#h9-0-18" id="h9-0-18" class="i">+            {
+</a><a href="#h9-0-19" id="h9-0-19" class="i">+                throw new WinGetSQLiteIndexException(e);
+</a><a href="#h9-0-20" id="h9-0-20" class="i">+            }
+</a><a href="#h9-0-21" id="h9-0-21" class="i">+        }
+</a><a href="#h9-0-22" id="h9-0-22" class="i">+
+</a><a href="#h9-0-23" id="h9-0-23" class="i">+        /// &lt;inheritdoc/&gt;
+</a>         public void RemoveManifest(string manifestPath, string relativePath)
+         {
+             try
+<a href="#h9-1" id="h9-1" class="h">@@ -217,6 +238,22 @@ namespace Microsoft.WinGetUtil.Api
+</a>             [MarshalAs(UnmanagedType.U1)] out bool indexModified);
+ 
+         /// &lt;summary&gt;
+<a href="#h9-1-3" id="h9-1-3" class="i">+        /// Adds or Updates the manifest at the repository relative path in the index.
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+        /// The out value indicates whether the index was modified by the function.
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h9-1-6" id="h9-1-6" class="i">+        /// &lt;param name=&quot;index&quot;&gt;Handle of the index.&lt;/param&gt;
+</a><a href="#h9-1-7" id="h9-1-7" class="i">+        /// &lt;param name=&quot;manifestPath&quot;&gt;Manifest path.&lt;/param&gt;
+</a><a href="#h9-1-8" id="h9-1-8" class="i">+        /// &lt;param name=&quot;relativePath&quot;&gt;Relative path in the container.&lt;/param&gt;
+</a><a href="#h9-1-9" id="h9-1-9" class="i">+        /// &lt;param name=&quot;indexModified&quot;&gt;Out bool if the index is modified.&lt;/param&gt;
+</a><a href="#h9-1-10" id="h9-1-10" class="i">+        /// &lt;returns&gt;HRESULT.&lt;/returns&gt;
+</a><a href="#h9-1-11" id="h9-1-11" class="i">+        [DllImport(Constants.DllName, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Unicode, PreserveSig = false)]
+</a><a href="#h9-1-12" id="h9-1-12" class="i">+        private static extern IntPtr WinGetSQLiteIndexAddOrUpdateManifest(
+</a><a href="#h9-1-13" id="h9-1-13" class="i">+            IntPtr index,
+</a><a href="#h9-1-14" id="h9-1-14" class="i">+            string manifestPath,
+</a><a href="#h9-1-15" id="h9-1-15" class="i">+            string relativePath,
+</a><a href="#h9-1-16" id="h9-1-16" class="i">+            [MarshalAs(UnmanagedType.U1)] out bool indexModified);
+</a><a href="#h9-1-17" id="h9-1-17" class="i">+
+</a><a href="#h9-1-18" id="h9-1-18" class="i">+        /// &lt;summary&gt;
+</a>         /// Removes the manifest at the repository relative path from the index.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;index&quot;&gt;Index handle.&lt;/param&gt;
+<b>diff --git a/<a id="h10" href="../file/src/WinGetUtilInterop/Interfaces/IWinGetSQLiteIndex.cs.html">src/WinGetUtilInterop/Interfaces/IWinGetSQLiteIndex.cs</a> b/<a href="../file/src/WinGetUtilInterop/Interfaces/IWinGetSQLiteIndex.cs.html">src/WinGetUtilInterop/Interfaces/IWinGetSQLiteIndex.cs</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -63,6 +63,14 @@ namespace Microsoft.WinGetUtil.Interfaces
+</a>         bool UpdateManifest(string manifestPath, string relativePath);
+ 
+         /// &lt;summary&gt;
+<a href="#h10-0-3" id="h10-0-3" class="i">+        /// Adds or Updates manifest in the index.
+</a><a href="#h10-0-4" id="h10-0-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h10-0-5" id="h10-0-5" class="i">+        /// &lt;param name=&quot;manifestPath&quot;&gt;Path to manifest.&lt;/param&gt;
+</a><a href="#h10-0-6" id="h10-0-6" class="i">+        /// &lt;param name=&quot;relativePath&quot;&gt;Path of the manifest in the repository.&lt;/param&gt;
+</a><a href="#h10-0-7" id="h10-0-7" class="i">+        /// &lt;returns&gt;True if index was modified.&lt;/returns&gt;
+</a><a href="#h10-0-8" id="h10-0-8" class="i">+        bool AddOrUpdateManifest(string manifestPath, string relativePath);
+</a><a href="#h10-0-9" id="h10-0-9" class="i">+
+</a><a href="#h10-0-10" id="h10-0-10" class="i">+        /// &lt;summary&gt;
+</a>         /// Delete manifest from index.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;manifestPath&quot;&gt;Path to manifest to modify.&lt;/param&gt;
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Case insensitivity improvements (#459) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/7b0866c2d594939e9ba9a8078551c02e8c26be3d.html">7b0866c2d594939e9ba9a8078551c02e8c26be3d</a>
+<b>parent</b> <a href="../commit/066616193477388f3390121ad90d10e25a45836a.html">066616193477388f3390121ad90d10e25a45836a</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 25 Jun 2020 17:14:20 -0700
+
+Case insensitivity improvements (#459)
+
+Makes version and channel case insensitive for lookups from the user.  They already were required to be case insensitive unique, so this shouldn&#39;t have any effect other than making use easier.
+
+Causes an index modification (add / update) to overwrite the existing Id value with the incoming one if the casing is different.  So last writer wins on Id casing.  Other fields can have distinct casing per manifest revision for now, but since Id needs to be the thing that ties them together, it needs to be a single value.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/SQLiteIndex.cpp</a></td><td> | </td><td class="num">116</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp</a></td><td> | </td><td class="num">17</td><td><span class="i">+++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h</a></td><td> | </td><td class="num">6</td><td><span class="i">+++</span><span class="d">---</span></td></tr>
+</table></pre><pre>4 files changed, 140 insertions(+), 11 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a> b/<a href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -531,6 +531,90 @@ TEST_CASE(&quot;SQLiteIndex_UpdateManifestChangeCase&quot;, &quot;[sqliteindex][V1_0]&quot;)
+</a>     REQUIRE(Schema::V1_0::CommandsTable::IsEmpty(connection));
+ }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+TEST_CASE(&quot;SQLiteIndex_IdCaseInsensitivity&quot;, &quot;[sqliteindex][V1_0]&quot;)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+{
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+    TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+    INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+    std::string manifest1Path = &quot;test/id/test.id-1.0.0.yaml&quot;;
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+    Manifest manifest1;
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+    manifest1.Id = &quot;test.id&quot;;
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+    manifest1.Name = &quot;Test Name&quot;;
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+    manifest1.AppMoniker = &quot;testmoniker&quot;;
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+    manifest1.Version = &quot;1.0.0&quot;;
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+    manifest1.Tags = { &quot;t1&quot;, &quot;t2&quot; };
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+    manifest1.Commands = { &quot;test1&quot;, &quot;test2&quot; };
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+    std::string manifest2Path = &quot;test/id/test.id-2.0.0.yaml&quot;;
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+    Manifest manifest2 = manifest1;
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+    manifest2.Id = &quot;Test.Id&quot;;
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+    manifest1.Version = &quot;2.0.0&quot;;
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+    {
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+        SQLiteIndex index = SQLiteIndex::CreateNew(tempFile, { 1, 0 });
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+        index.AddManifest(manifest1, manifest1Path);
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+        auto results = index.Search({});
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+        REQUIRE(results.Matches.size() == 1);
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+        REQUIRE(manifest1.Id == index.GetIdStringById(results.Matches[0].first));
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+    }
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+    {
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+        SQLiteIndex index = SQLiteIndex::Open(tempFile, SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+        index.AddManifest(manifest2, manifest2Path);
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+        auto results = index.Search({});
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+        REQUIRE(results.Matches.size() == 1);
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+        REQUIRE(manifest2.Id == index.GetIdStringById(results.Matches[0].first));
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+    }
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+    {
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+        SQLiteIndex index = SQLiteIndex::Open(tempFile, SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+        manifest1.Id = &quot;TEST.ID&quot;;
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+        REQUIRE(index.UpdateManifest(manifest1, manifest1Path));
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+        auto results = index.Search({});
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+        REQUIRE(results.Matches.size() == 1);
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+        REQUIRE(manifest1.Id == index.GetIdStringById(results.Matches[0].first));
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+    }
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+    {
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+        SQLiteIndex index = SQLiteIndex::Open(tempFile, SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+        index.RemoveManifest(manifest1, manifest1Path);
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+        auto results = index.Search({});
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+        REQUIRE(results.Matches.size() == 1);
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+        REQUIRE(manifest1.Id == index.GetIdStringById(results.Matches[0].first));
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+    }
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+    {
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+        SQLiteIndex index = SQLiteIndex::Open(tempFile, SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+        index.RemoveManifest(manifest2, manifest2Path);
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+        auto results = index.Search({});
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+        REQUIRE(results.Matches.empty());
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+    }
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+    // Open it directly to directly test table state
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+    Connection connection = Connection::Create(tempFile, Connection::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+    REQUIRE(Schema::V1_0::ManifestTable::IsEmpty(connection));
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+    REQUIRE(Schema::V1_0::IdTable::IsEmpty(connection));
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+    REQUIRE(Schema::V1_0::NameTable::IsEmpty(connection));
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+    REQUIRE(Schema::V1_0::MonikerTable::IsEmpty(connection));
+</a><a href="#h0-0-80" id="h0-0-80" class="i">+    REQUIRE(Schema::V1_0::VersionTable::IsEmpty(connection));
+</a><a href="#h0-0-81" id="h0-0-81" class="i">+    REQUIRE(Schema::V1_0::ChannelTable::IsEmpty(connection));
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+    REQUIRE(Schema::V1_0::PathPartTable::IsEmpty(connection));
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+    REQUIRE(Schema::V1_0::TagsTable::IsEmpty(connection));
+</a><a href="#h0-0-84" id="h0-0-84" class="i">+    REQUIRE(Schema::V1_0::CommandsTable::IsEmpty(connection));
+</a><a href="#h0-0-85" id="h0-0-85" class="i">+}
+</a><a href="#h0-0-86" id="h0-0-86" class="i">+
+</a> TEST_CASE(&quot;PathPartTable_EnsurePathExists_Negative_Paths&quot;, &quot;[sqliteindex][V1_0]&quot;)
+ {
+     // Open it directly to directly test pathpart table
+<a href="#h0-1" id="h0-1" class="h">@@ -853,6 +937,38 @@ TEST_CASE(&quot;SQLiteIndex_PathString_VersionSorting&quot;, &quot;[sqliteindex]&quot;)
+</a>     REQUIRE(!result.has_value());
+ }
+ 
+<a href="#h0-1-3" id="h0-1-3" class="i">+TEST_CASE(&quot;SQLiteIndex_PathString_CaseInsensitive&quot;, &quot;[sqliteindex]&quot;)
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+{
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+    TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+    INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+    SQLiteIndex index = SearchTestSetup(tempFile, {
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;14.0.0&quot;, &quot;&quot;, { &quot;foot&quot; }, { &quot;com34&quot; }, &quot;Path1&quot; },
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;16.0.0&quot;, &quot;alpha&quot;, { &quot;floor&quot; }, { &quot;com3&quot; }, &quot;Path2&quot; },
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;15.0.0&quot;, &quot;&quot;, {}, { &quot;Command&quot; }, &quot;Path3&quot; },
+</a><a href="#h0-1-12" id="h0-1-12" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;13.2.0-BUGFIX&quot;, &quot;&quot;, {}, { &quot;Command&quot; }, &quot;Path4&quot; },
+</a><a href="#h0-1-13" id="h0-1-13" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;15.1.0&quot;, &quot;beta&quot;, { &quot;foo&quot; }, { &quot;com3&quot; }, &quot;Path5&quot; },
+</a><a href="#h0-1-14" id="h0-1-14" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;15.8.0&quot;, &quot;alpha&quot;, { &quot;foo&quot; }, { &quot;com3&quot; }, &quot;Path6&quot; },
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;13.2.0-bugfix&quot;, &quot;beta&quot;, { &quot;foo&quot; }, { &quot;com3&quot; }, &quot;Path7&quot; },
+</a><a href="#h0-1-16" id="h0-1-16" class="i">+        { &quot;Id&quot;, &quot;Name&quot;, &quot;Moniker&quot;, &quot;13.0.0&quot;, &quot;&quot;, { &quot;foo&quot; }, { &quot;com3&quot; }, &quot;Path8&quot; },
+</a><a href="#h0-1-17" id="h0-1-17" class="i">+        });
+</a><a href="#h0-1-18" id="h0-1-18" class="i">+
+</a><a href="#h0-1-19" id="h0-1-19" class="i">+    SearchRequest request;
+</a><a href="#h0-1-20" id="h0-1-20" class="i">+    request.Filters.emplace_back(ApplicationMatchField::Id, MatchType::Exact, &quot;Id&quot;);
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+
+</a><a href="#h0-1-22" id="h0-1-22" class="i">+    auto results = index.Search(request);
+</a><a href="#h0-1-23" id="h0-1-23" class="i">+    REQUIRE(results.Matches.size() == 1);
+</a><a href="#h0-1-24" id="h0-1-24" class="i">+
+</a><a href="#h0-1-25" id="h0-1-25" class="i">+    auto result = index.GetPathStringByKey(results.Matches[0].first, &quot;&quot;, &quot;Alpha&quot;);
+</a><a href="#h0-1-26" id="h0-1-26" class="i">+    REQUIRE(result.has_value());
+</a><a href="#h0-1-27" id="h0-1-27" class="i">+
+</a><a href="#h0-1-28" id="h0-1-28" class="i">+    result = index.GetPathStringByKey(results.Matches[0].first, &quot;13.2.0-BugFix&quot;, &quot;&quot;);
+</a><a href="#h0-1-29" id="h0-1-29" class="i">+    REQUIRE(result.has_value());
+</a><a href="#h0-1-30" id="h0-1-30" class="i">+
+</a><a href="#h0-1-31" id="h0-1-31" class="i">+    result = index.GetPathStringByKey(results.Matches[0].first, &quot;13.2.0-BugFix&quot;, &quot;BETA&quot;);
+</a><a href="#h0-1-32" id="h0-1-32" class="i">+    REQUIRE(!result.has_value());
+</a><a href="#h0-1-33" id="h0-1-33" class="i">+}
+</a><a href="#h0-1-34" id="h0-1-34" class="i">+
+</a> TEST_CASE(&quot;SQLiteIndex_SearchResultsTableSearches&quot;, &quot;[sqliteindex][V1_0]&quot;)
+ {
+     TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -60,7 +60,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         // Gets a manifest id by the given key values.
+         std::optional&lt;SQLite::rowid_t&gt; GetManifestIdByKey(SQLite::Connection&amp; connection, SQLite::rowid_t id, std::string_view version = &quot;&quot;, std::string_view channel = &quot;&quot;)
+         {
+<a href="#h1-0-3" id="h1-0-3" class="d">-            std::optional&lt;SQLite::rowid_t&gt; channelIdOpt = ChannelTable::SelectIdByValue(connection, channel);
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+            std::optional&lt;SQLite::rowid_t&gt; channelIdOpt = ChannelTable::SelectIdByValue(connection, channel, true);
+</a>             if (!channelIdOpt &amp;&amp; !channel.empty())
+             {
+                 // If an empty channel was given but none was found, we will just not filter on channel.
+<a href="#h1-1" id="h1-1" class="h">@@ -104,7 +104,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             }
+             else
+             {
+<a href="#h1-1-3" id="h1-1-3" class="d">-                versionIdOpt = VersionTable::SelectIdByValue(connection, version);
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+                versionIdOpt = VersionTable::SelectIdByValue(connection, version, true);
+</a>             }
+ 
+             if (!versionIdOpt)
+<a href="#h1-2" id="h1-2" class="h">@@ -125,11 +125,11 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a> 
+         // Updates the manifest column and related table based on the given value.
+         template &lt;typename Table&gt;
+<a href="#h1-2-3" id="h1-2-3" class="d">-        void UpdateManifestValueById(SQLite::Connection&amp; connection, const typename Table::value_t&amp; value, SQLite::rowid_t manifestId)
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+        void UpdateManifestValueById(SQLite::Connection&amp; connection, const typename Table::value_t&amp; value, SQLite::rowid_t manifestId, bool overwriteLikeMatch = false)
+</a>         {
+             auto [oldValueId] = ManifestTable::GetIdsById&lt;Table&gt;(connection, manifestId);
+ 
+<a href="#h1-2-8" id="h1-2-8" class="d">-            SQLite::rowid_t newValueId = Table::EnsureExists(connection, value);
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+            SQLite::rowid_t newValueId = Table::EnsureExists(connection, value, overwriteLikeMatch);
+</a> 
+             ManifestTable::UpdateValueIdById&lt;Table&gt;(connection, manifestId, newValueId);
+ 
+<a href="#h1-3" id="h1-3" class="h">@@ -204,7 +204,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS), !pathAdded);
+ 
+         // Ensure that all of the 1:1 data exists.
+<a href="#h1-3-3" id="h1-3-3" class="d">-        SQLite::rowid_t idId = IdTable::EnsureExists(connection, manifest.Id);
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+        SQLite::rowid_t idId = IdTable::EnsureExists(connection, manifest.Id, true);
+</a>         SQLite::rowid_t nameId = NameTable::EnsureExists(connection, manifest.Name);
+         SQLite::rowid_t monikerId = MonikerTable::EnsureExists(connection, manifest.AppMoniker);
+         SQLite::rowid_t versionId = VersionTable::EnsureExists(connection, manifest.Version);
+<a href="#h1-4" id="h1-4" class="h">@@ -245,7 +245,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         // Id, Version, and Channel may have changed casing. If so, they too need to be updated.
+         if (idInIndex != manifest.Id)
+         {
+<a href="#h1-4-3" id="h1-4-3" class="d">-            UpdateManifestValueById&lt;IdTable&gt;(connection, manifest.Id, manifestId);
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+            UpdateManifestValueById&lt;IdTable&gt;(connection, manifest.Id, manifestId, true);
+</a>             indexModified = true;
+         }
+ 
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -85,11 +85,24 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             return result;
+         }
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-        SQLite::rowid_t OneToOneTableEnsureExists(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value)
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        SQLite::rowid_t OneToOneTableEnsureExists(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value, bool overwriteLikeMatch)
+</a>         {
+<a href="#h2-0-6" id="h2-0-6" class="d">-            auto selectResult = OneToOneTableSelectIdByValue(connection, tableName, valueName, value);
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+            auto selectResult = OneToOneTableSelectIdByValue(connection, tableName, valueName, value, overwriteLikeMatch);
+</a>             if (selectResult)
+             {
+<a href="#h2-0-10" id="h2-0-10" class="i">+                if (overwriteLikeMatch)
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+                {
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+                    // If the value in the table is not an exact match, overwrite it with the incoming value
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+                    auto tableValue = OneToOneTableSelectValueById(connection, tableName, valueName, selectResult.value());
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+                    if (tableValue.value() != value)
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+                    {
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+                        SQLite::Builder::StatementBuilder updateBuilder;
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+                        updateBuilder.Update(tableName).Set().Column(valueName).Equals(value).Where(SQLite::RowIDName).Equals(selectResult);
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+                        updateBuilder.Execute(connection);
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+                    }
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+                }
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+
+</a>                 return selectResult.value();
+             }
+ 
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -25,7 +25,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         std::vector&lt;SQLite::rowid_t&gt; OneToOneTableGetAllRowIds(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, size_t limit);
+ 
+         // Ensures that the values exists in the table.
+<a href="#h3-0-3" id="h3-0-3" class="d">-        SQLite::rowid_t OneToOneTableEnsureExists(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value);
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        SQLite::rowid_t OneToOneTableEnsureExists(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value, bool overwriteLikeMatch = false);
+</a> 
+         // Removes the given row by its rowid if it is no longer referenced.
+         void OneToOneTableDeleteIfNotNeededById(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, SQLite::rowid_t id);
+<a href="#h3-1" id="h3-1" class="h">@@ -90,9 +90,9 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         }
+ 
+         // Ensures that the given value exists in the table, returning the rowid.
+<a href="#h3-1-3" id="h3-1-3" class="d">-        static SQLite::rowid_t EnsureExists(SQLite::Connection&amp; connection, std::string_view value)
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+        static SQLite::rowid_t EnsureExists(SQLite::Connection&amp; connection, std::string_view value, bool overwriteLikeMatch = false)
+</a>         {
+<a href="#h3-1-6" id="h3-1-6" class="d">-            return details::OneToOneTableEnsureExists(connection, TableInfo::TableName(), TableInfo::ValueName(), value);
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+            return details::OneToOneTableEnsureExists(connection, TableInfo::TableName(), TableInfo::ValueName(), value, overwriteLikeMatch);
+</a>         }
+ 
+         // Removes the given row by its rowid if it is no longer referenced.
+</pre>
+</div>
+</body>
+</html>

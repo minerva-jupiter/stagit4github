@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(draw): Implement WASM-based SVG path snapping and dynamic loading - AIdentity - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>AIdentity</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/a76446155c8b43528a7c03e9f0c16be557c9f8a4.html">a76446155c8b43528a7c03e9f0c16be557c9f8a4</a>
+<b>parent</b> <a href="../commit/321880ae975eac13b69e5fd06d74419399653ebd.html">321880ae975eac13b69e5fd06d74419399653ebd</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Fri, 24 Oct 2025 00:00:23 +0900
+
+feat(draw): Implement WASM-based SVG path snapping and dynamic loading
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">app/components/2_draw.tsx</a></td><td> | </td><td class="num">259</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">app/ctrl/page.tsx</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">public/whiteperson.svg</a></td><td> | </td><td class="num">26</td><td><span class="i">++++++++</span><span class="d">------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">rust-wasm/Cargo.lock</a></td><td> | </td><td class="num">33</td><td><span class="i">+++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">rust-wasm/Cargo.toml</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">rust-wasm/pkg/rust_wasm.d.ts</a></td><td> | </td><td class="num">21</td><td><span class="i">+++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">rust-wasm/pkg/rust_wasm.js</a></td><td> | </td><td class="num">75</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">rust-wasm/pkg/rust_wasm_bg.wasm</a></td><td> | </td><td class="num">0</td><td><span class="i"></span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">rust-wasm/pkg/rust_wasm_bg.wasm.d.ts</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">rust-wasm/src/lib.rs</a></td><td> | </td><td class="num">407</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------</span></td></tr>
+</table></pre><pre>10 files changed, 655 insertions(+), 177 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/app/components/2_draw.tsx.html">app/components/2_draw.tsx</a> b/<a href="../file/app/components/2_draw.tsx.html">app/components/2_draw.tsx</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1,36 +1,23 @@
+</a> &#39;use client&#39;
+ 
+<a href="#h0-0-2" id="h0-0-2" class="d">-import React, { useState, useRef, useCallback, useEffect, useMemo } from &#39;react&#39;;
+</a><a href="#h0-0-3" id="h0-0-3" class="d">-// ⚠️ WASMモジュールのインポート。パスはプロジェクト構造に合わせてください。
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-// 例: import { find_nearest_point_on_path } from &#39;@/wasm/pkg/snap_calculator&#39;; 
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-// WASMモジュールが返すべき型を定義
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-interface NearestPointResult {
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-    x: number;
+</a><a href="#h0-0-9" id="h0-0-9" class="d">-    y: number;
+</a><a href="#h0-0-10" id="h0-0-10" class="d">-}
+</a><a href="#h0-0-11" id="h0-0-11" class="d">-// find_nearest_point_on_path関数のダミー宣言 (WASMの実際のインポートに置き換え)
+</a><a href="#h0-0-12" id="h0-0-12" class="d">-declare function find_nearest_point_on_path(
+</a><a href="#h0-0-13" id="h0-0-13" class="d">-    path_d: string, 
+</a><a href="#h0-0-14" id="h0-0-14" class="d">-    target_x: number, 
+</a><a href="#h0-0-15" id="h0-0-15" class="d">-    target_y: number,
+</a><a href="#h0-0-16" id="h0-0-16" class="d">-    max_distance: number
+</a><a href="#h0-0-17" id="h0-0-17" class="d">-): NearestPointResult | null; 
+</a><a href="#h0-0-18" id="h0-0-18" class="d">-
+</a><a href="#h0-0-19" id="h0-0-19" class="d">-// --- 型定義 ---
+</a><a href="#h0-0-20" id="h0-0-20" class="d">-interface StageProps { onComplete: () =&gt; void; }
+</a><a href="#h0-0-21" id="h0-0-21" class="d">-type Point = { x: number; y: number; };
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+import React, { useState, useRef, useCallback, useEffect } from &#39;react&#39;;
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+import init, { find_nearest_point_on_path, NearestPointResult } from &#39;../../rust-wasm/pkg/rust_wasm.js&#39;;
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+import { StageProps } from &#39;../ctrl/page.tsx&#39;;
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+type Tool = &#39;pen&#39;;
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+type Point = { x: number; y: number; }; 
+</a> 
+ interface LineData {
+     id: number;
+<a href="#h0-0-31" id="h0-0-31" class="d">-    tool: &#39;pen&#39;;
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+    tool: Tool;
+</a> 	points: Point[];      
+ 	targetPoints: Point[]; 
+ }
+ 
+<a href="#h0-0-37" id="h0-0-37" class="d">-// ⚠️ 実際のSVGのパスデータ。このパスデータに基づいてWASMが計算します。
+</a><a href="#h0-0-38" id="h0-0-38" class="d">-const BACKGROUND_SVG_PATH_D = &quot;M100 100 L400 100 L400 400 L100 400 Z&quot;; 
+</a><a href="#h0-0-39" id="h0-0-39" class="d">-const SNAPPING_DISTANCE_PIXELS = 50; // 吸着距離 (50px)
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+const BACKGROUND_SVG_PATH_D_DEFAULT = &quot;&quot;; 
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+const VIEWSBOX_SIZE = 500; 
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+const SNAPPING_DISTANCE_PIXELS = 30; 
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+
+</a> 
+ function DrawingApp({onComplete}: StageProps) {
+ 	const [isClient, setIsClient] = useState(false);
+<a href="#h0-1" id="h0-1" class="h">@@ -38,6 +25,11 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 	const [lines, setLines] = useState&lt;LineData[]&gt;([]); 
+ 	const [currentLines, setCurrentLines] = useState&lt;LineData[]&gt;([]); 
+ 
+<a href="#h0-1-3" id="h0-1-3" class="i">+    const [stageWidth, setStageWidth] = useState(0);
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+    const [stageHeight, setStageHeight] = useState(0);
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+    const [backgroundPathD, setBackgroundPathD] = useState(BACKGROUND_SVG_PATH_D_DEFAULT); 
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+    const [viewBoxSize, setViewBoxSize] = useState(VIEWSBOX_SIZE); 
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+    
+</a> 	const isDrawing = useRef(false);
+ 	
+ 	const animationRef = useRef&lt;number&gt;(0);
+<a href="#h0-2" id="h0-2" class="h">@@ -45,54 +37,62 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 
+ 	const stageRef = useRef&lt;HTMLDivElement&gt;(null);
+ 
+<a href="#h0-2-3" id="h0-2-3" class="d">-    // Stageサイズはビューボックスの標準値として500を基準に、画面サイズに合わせてスケーリングします。
+</a><a href="#h0-2-4" id="h0-2-4" class="d">-    const VIEWSBOX_SIZE = 500;
+</a><a href="#h0-2-5" id="h0-2-5" class="d">-	const [stageSize, setStageSize] = useState(0);
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+	useEffect(() =&gt; {
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+		init();
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+	},[])
+</a> 
+<a href="#h0-2-10" id="h0-2-10" class="i">+	// --- 1. サイズ計算とステージ設定 (画面全体を使用) ---
+</a> 	useEffect(() =&gt; {
+ 		setIsClient(true);
+ 		
+ 		const handleResize = () =&gt; {
+<a href="#h0-2-15" id="h0-2-15" class="d">-			if (typeof window !== &#39;undefined&#39;) {
+</a><a href="#h0-2-16" id="h0-2-16" class="d">-				const size = Math.min(window.innerWidth, window.innerHeight);
+</a><a href="#h0-2-17" id="h0-2-17" class="d">-				// 画面の小さい方に合わせて90%のサイズを設定
+</a><a href="#h0-2-18" id="h0-2-18" class="d">-				setStageSize(size * 0.9);
+</a><a href="#h0-2-19" id="h0-2-19" class="i">+			if (typeof globalThis !== &#39;undefined&#39;) {
+</a><a href="#h0-2-20" id="h0-2-20" class="i">+				setStageWidth(globalThis.innerWidth);
+</a><a href="#h0-2-21" id="h0-2-21" class="i">+				setStageHeight(globalThis.innerHeight);
+</a> 			}
+ 		};
+ 
+ 		handleResize();
+<a href="#h0-2-26" id="h0-2-26" class="d">-		window.addEventListener(&#39;resize&#39;, handleResize);
+</a><a href="#h0-2-27" id="h0-2-27" class="i">+		globalThis.addEventListener(&#39;resize&#39;, handleResize);
+</a> 
+ 		return () =&gt; {
+<a href="#h0-2-30" id="h0-2-30" class="d">-			window.removeEventListener(&#39;resize&#39;, handleResize);
+</a><a href="#h0-2-31" id="h0-2-31" class="i">+			globalThis.removeEventListener(&#39;resize&#39;, handleResize);
+</a> 		};
+ 	}, []);
+<a href="#h0-2-34" id="h0-2-34" class="i">+    
+</a><a href="#h0-2-35" id="h0-2-35" class="i">+    // --- 2. 座標変換ユーティリティ ---
+</a><a href="#h0-2-36" id="h0-2-36" class="i">+    
+</a><a href="#h0-2-37" id="h0-2-37" class="i">+    const scaleToViewBox = useCallback((p: Point): Point =&gt; {
+</a><a href="#h0-2-38" id="h0-2-38" class="i">+        if (stageWidth === 0 || stageHeight === 0) return p;
+</a><a href="#h0-2-39" id="h0-2-39" class="i">+        
+</a><a href="#h0-2-40" id="h0-2-40" class="i">+        const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h0-2-41" id="h0-2-41" class="i">+        const scale = viewBoxSize / effectiveSize;
+</a> 
+<a href="#h0-2-43" id="h0-2-43" class="i">+        const offsetX = (stageWidth - effectiveSize) / 2;
+</a><a href="#h0-2-44" id="h0-2-44" class="i">+        const offsetY = (stageHeight - effectiveSize) / 2;
+</a> 
+<a href="#h0-2-46" id="h0-2-46" class="d">-    // --- 座標変換ユーティリティ ---
+</a><a href="#h0-2-47" id="h0-2-47" class="d">-    // 画面座標をSVGビューボックス座標にスケーリング
+</a><a href="#h0-2-48" id="h0-2-48" class="d">-    const scaleToViewBox = useCallback((p: Point): Point =&gt; {
+</a><a href="#h0-2-49" id="h0-2-49" class="d">-        if (stageSize === 0) return p;
+</a><a href="#h0-2-50" id="h0-2-50" class="d">-        const scale = VIEWSBOX_SIZE / stageSize;
+</a>         return {
+<a href="#h0-2-52" id="h0-2-52" class="d">-            x: p.x * scale,
+</a><a href="#h0-2-53" id="h0-2-53" class="d">-            y: p.y * scale,
+</a><a href="#h0-2-54" id="h0-2-54" class="i">+            x: (p.x - offsetX) * scale,
+</a><a href="#h0-2-55" id="h0-2-55" class="i">+            y: (p.y - offsetY) * scale,
+</a>         };
+<a href="#h0-2-57" id="h0-2-57" class="d">-    }, [stageSize]);
+</a><a href="#h0-2-58" id="h0-2-58" class="i">+    }, [stageWidth, stageHeight, viewBoxSize]);
+</a> 
+<a href="#h0-2-60" id="h0-2-60" class="d">-    // SVGビューボックス座標を画面座標にスケーリング
+</a>     const scaleToScreen = useCallback((p: Point): Point =&gt; {
+<a href="#h0-2-62" id="h0-2-62" class="d">-        if (stageSize === 0) return p;
+</a><a href="#h0-2-63" id="h0-2-63" class="d">-        const scale = stageSize / VIEWSBOX_SIZE;
+</a><a href="#h0-2-64" id="h0-2-64" class="i">+        if (stageWidth === 0 || stageHeight === 0) return p;
+</a><a href="#h0-2-65" id="h0-2-65" class="i">+
+</a><a href="#h0-2-66" id="h0-2-66" class="i">+        const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h0-2-67" id="h0-2-67" class="i">+        const scale = effectiveSize / viewBoxSize;
+</a><a href="#h0-2-68" id="h0-2-68" class="i">+        
+</a><a href="#h0-2-69" id="h0-2-69" class="i">+        const offsetX = (stageWidth - effectiveSize) / 2;
+</a><a href="#h0-2-70" id="h0-2-70" class="i">+        const offsetY = (stageHeight - effectiveSize) / 2;
+</a><a href="#h0-2-71" id="h0-2-71" class="i">+
+</a>         return {
+<a href="#h0-2-73" id="h0-2-73" class="d">-            x: p.x * scale,
+</a><a href="#h0-2-74" id="h0-2-74" class="d">-            y: p.y * scale,
+</a><a href="#h0-2-75" id="h0-2-75" class="i">+            x: p.x * scale + offsetX,
+</a><a href="#h0-2-76" id="h0-2-76" class="i">+            y: p.y * scale + offsetY,
+</a>         };
+<a href="#h0-2-78" id="h0-2-78" class="d">-    }, [stageSize]);
+</a><a href="#h0-2-79" id="h0-2-79" class="d">-
+</a><a href="#h0-2-80" id="h0-2-80" class="i">+    }, [stageWidth, stageHeight, viewBoxSize]);
+</a> 
+<a href="#h0-2-82" id="h0-2-82" class="d">-    // ユーティリティ関数: マウス/タッチ座標の取得 (画面座標)
+</a><a href="#h0-2-83" id="h0-2-83" class="d">-	const getPointerPosition = useCallback((e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent): Point | null =&gt; {
+</a><a href="#h0-2-84" id="h0-2-84" class="i">+    const getPointerPosition = useCallback((e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent): Point | null =&gt; {
+</a> 		if (!stageRef.current) return null;
+ 		const rect = stageRef.current.getBoundingClientRect();
+ 		
+<a href="#h0-3" id="h0-3" class="h">@@ -108,51 +108,106 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 
+ 		return { x: clientX - rect.left, y: clientY - rect.top };
+ 	}, []);
+<a href="#h0-3-3" id="h0-3-3" class="i">+    
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+    // --- 3. SVGコンテンツの取得ロジック (DOMParser) ---
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+    useEffect(() =&gt; {
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+        const fetchAndParseSvg = async () =&gt; {
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+            try {
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+                const response = await fetch(&#39;/whiteperson.svg&#39;); 
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+                const svgText = await response.text();
+</a><a href="#h0-3-10" id="h0-3-10" class="i">+
+</a><a href="#h0-3-11" id="h0-3-11" class="i">+                const parser = new DOMParser();
+</a><a href="#h0-3-12" id="h0-3-12" class="i">+                const doc = parser.parseFromString(svgText, &quot;image/svg+xml&quot;);
+</a><a href="#h0-3-13" id="h0-3-13" class="i">+                
+</a><a href="#h0-3-14" id="h0-3-14" class="i">+                const svgElement = doc.querySelector(&#39;svg&#39;);
+</a><a href="#h0-3-15" id="h0-3-15" class="i">+                if (svgElement) {
+</a><a href="#h0-3-16" id="h0-3-16" class="i">+                    const viewBoxAttr = svgElement.getAttribute(&#39;viewBox&#39;);
+</a><a href="#h0-3-17" id="h0-3-17" class="i">+                    if (viewBoxAttr) {
+</a><a href="#h0-3-18" id="h0-3-18" class="i">+                        const parts = viewBoxAttr.trim().split(/\s+/);
+</a><a href="#h0-3-19" id="h0-3-19" class="i">+                        if (parts.length === 4) {
+</a><a href="#h0-3-20" id="h0-3-20" class="i">+                             const size = Math.max(parseFloat(parts[2]), parseFloat(parts[3]));
+</a><a href="#h0-3-21" id="h0-3-21" class="i">+                             if (!isNaN(size) &amp;&amp; size &gt; 0) {
+</a><a href="#h0-3-22" id="h0-3-22" class="i">+                                 setViewBoxSize(size);
+</a><a href="#h0-3-23" id="h0-3-23" class="i">+                             }
+</a><a href="#h0-3-24" id="h0-3-24" class="i">+                        }
+</a><a href="#h0-3-25" id="h0-3-25" class="i">+                    }
+</a><a href="#h0-3-26" id="h0-3-26" class="i">+                }
+</a><a href="#h0-3-27" id="h0-3-27" class="i">+                
+</a><a href="#h0-3-28" id="h0-3-28" class="i">+                const pathElements = doc.querySelectorAll(&#39;path&#39;);
+</a><a href="#h0-3-29" id="h0-3-29" class="i">+                let foundDValue = null;
+</a><a href="#h0-3-30" id="h0-3-30" class="i">+
+</a><a href="#h0-3-31" id="h0-3-31" class="i">+                for (const element of Array.from(pathElements)) {
+</a><a href="#h0-3-32" id="h0-3-32" class="i">+                    const dValue = element.getAttribute(&#39;d&#39;);
+</a><a href="#h0-3-33" id="h0-3-33" class="i">+                    if (dValue &amp;&amp; dValue.trim().length &gt; 0) {
+</a><a href="#h0-3-34" id="h0-3-34" class="i">+                        foundDValue = dValue;
+</a><a href="#h0-3-35" id="h0-3-35" class="i">+                        break; 
+</a><a href="#h0-3-36" id="h0-3-36" class="i">+                    }
+</a><a href="#h0-3-37" id="h0-3-37" class="i">+                }
+</a><a href="#h0-3-38" id="h0-3-38" class="i">+
+</a><a href="#h0-3-39" id="h0-3-39" class="i">+                if (foundDValue) {
+</a><a href="#h0-3-40" id="h0-3-40" class="i">+                    setBackgroundPathD(foundDValue);
+</a><a href="#h0-3-41" id="h0-3-41" class="i">+                    return; 
+</a><a href="#h0-3-42" id="h0-3-42" class="i">+                }
+</a><a href="#h0-3-43" id="h0-3-43" class="i">+                
+</a><a href="#h0-3-44" id="h0-3-44" class="i">+                console.error(&quot;Error: &lt;path&gt; element or &#39;d&#39; attribute not found in whiteperson.svg.&quot;);
+</a><a href="#h0-3-45" id="h0-3-45" class="i">+
+</a><a href="#h0-3-46" id="h0-3-46" class="i">+            } catch (error) {
+</a><a href="#h0-3-47" id="h0-3-47" class="i">+                console.error(&quot;Failed to load or parse whiteperson.svg:&quot;, error);
+</a><a href="#h0-3-48" id="h0-3-48" class="i">+            }
+</a><a href="#h0-3-49" id="h0-3-49" class="i">+        };
+</a><a href="#h0-3-50" id="h0-3-50" class="i">+
+</a><a href="#h0-3-51" id="h0-3-51" class="i">+        if (isClient &amp;&amp; backgroundPathD === &quot;&quot;) { 
+</a><a href="#h0-3-52" id="h0-3-52" class="i">+             fetchAndParseSvg();
+</a><a href="#h0-3-53" id="h0-3-53" class="i">+        }
+</a><a href="#h0-3-54" id="h0-3-54" class="i">+    }, [isClient, backgroundPathD]);
+</a> 
+ 
+<a href="#h0-3-57" id="h0-3-57" class="d">-	// --- 吸着ロジック (WASM利用) ---
+</a><a href="#h0-3-58" id="h0-3-58" class="i">+    // --- 4. 吸着ロジック (WASM呼び出し) ---
+</a>     const calculateNearestTargetPoint = useCallback((p: Point): Point =&gt; {
+<a href="#h0-3-60" id="h0-3-60" class="d">-        // 描画点 (画面座標) を WASM に渡す前にビューボックス座標に変換
+</a>         const p_viewbox = scaleToViewBox(p);
+         
+<a href="#h0-3-63" id="h0-3-63" class="d">-        // ⚠️ WASMの代わりにダミー関数を使用
+</a><a href="#h0-3-64" id="h0-3-64" class="d">-        /*
+</a><a href="#h0-3-65" id="h0-3-65" class="d">-        const nearest_viewbox = find_nearest_point_on_path(
+</a><a href="#h0-3-66" id="h0-3-66" class="d">-            BACKGROUND_SVG_PATH_D, 
+</a><a href="#h0-3-67" id="h0-3-67" class="i">+        const effectiveSize = Math.min(stageWidth, stageHeight);
+</a><a href="#h0-3-68" id="h0-3-68" class="i">+        const snapping_distance_viewbox = SNAPPING_DISTANCE_PIXELS * (viewBoxSize / effectiveSize);
+</a><a href="#h0-3-69" id="h0-3-69" class="i">+
+</a><a href="#h0-3-70" id="h0-3-70" class="i">+        // ⚠️ WASM呼び出し
+</a><a href="#h0-3-71" id="h0-3-71" class="i">+        const nearest_viewbox: NearestPointResult | null = find_nearest_point_on_path(
+</a><a href="#h0-3-72" id="h0-3-72" class="i">+            backgroundPathD, 
+</a>             p_viewbox.x, 
+             p_viewbox.y,
+<a href="#h0-3-75" id="h0-3-75" class="d">-            SNAPPING_DISTANCE_PIXELS // 距離はビューボックス座標系で計算される
+</a><a href="#h0-3-76" id="h0-3-76" class="i">+            snapping_distance_viewbox
+</a>         );
+<a href="#h0-3-78" id="h0-3-78" class="i">+		console.log(&quot;nearest_viewbox is &quot;,nearest_viewbox);
+</a> 
+         if (nearest_viewbox) {
+<a href="#h0-3-81" id="h0-3-81" class="d">-            // 見つかったターゲット点 (ビューボックス座標) を画面座標に戻して返す
+</a>             return scaleToScreen(nearest_viewbox);
+         }
+<a href="#h0-3-84" id="h0-3-84" class="d">-        */
+</a><a href="#h0-3-85" id="h0-3-85" class="d">-
+</a><a href="#h0-3-86" id="h0-3-86" class="d">-        // 吸着しない場合は元の点を返す
+</a>         return p; 
+<a href="#h0-3-88" id="h0-3-88" class="d">-
+</a><a href="#h0-3-89" id="h0-3-89" class="d">-    }, [scaleToViewBox, scaleToScreen]); 
+</a><a href="#h0-3-90" id="h0-3-90" class="i">+    }, [scaleToViewBox, scaleToScreen, stageWidth, stageHeight, viewBoxSize, backgroundPathD]); 
+</a> 
+ 	const calculateTargetPoints = useCallback((points: Point[]): Point[] =&gt; {
+<a href="#h0-3-93" id="h0-3-93" class="d">-        // 全点に対してターゲット点を計算
+</a>         return points.map(p =&gt; calculateNearestTargetPoint(p));
+ 	}, [calculateNearestTargetPoint]);
+ 
+<a href="#h0-3-97" id="h0-3-97" class="d">-	// --- イベントハンドラ（前回の実装を継承し、Konvaの型を削除） ---
+</a> 
+<a href="#h0-3-99" id="h0-3-99" class="i">+    // --- 5. イベントハンドラ (吹き飛んでいた部分を再定義) ---
+</a><a href="#h0-3-100" id="h0-3-100" class="i">+
+</a><a href="#h0-3-101" id="h0-3-101" class="i">+    /**
+</a><a href="#h0-3-102" id="h0-3-102" class="i">+	 * マウス・タッチ開始時の処理
+</a><a href="#h0-3-103" id="h0-3-103" class="i">+	 */
+</a>     const handleMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent) =&gt; {
+ 		isDrawing.current = true;
+ 		const pos = getPointerPosition(e);
+ 		if (pos) {
+             lineIdCounter.current += 1;
+<a href="#h0-3-109" id="h0-3-109" class="d">-            const newLine = { id: lineIdCounter.current, tool: &#39;pen&#39; as const, points: [pos], targetPoints: [] };
+</a><a href="#h0-3-110" id="h0-3-110" class="i">+            const newLine: LineData = { id: lineIdCounter.current, tool: &#39;pen&#39;, points: [pos], targetPoints: [] };
+</a> 			setLines(prev =&gt; [...prev, newLine]);
+             setCurrentLines(prev =&gt; [...prev, newLine]);
+ 		}
+ 	}, [getPointerPosition]); 
+ 
+<a href="#h0-3-116" id="h0-3-116" class="i">+    /**
+</a><a href="#h0-3-117" id="h0-3-117" class="i">+	 * マウス・タッチ移動時の処理
+</a><a href="#h0-3-118" id="h0-3-118" class="i">+	 */
+</a> 	const handleMouseMove = useCallback((e: React.MouseEvent | React.TouchEvent) =&gt; {
+ 		if (!isDrawing.current) return;
+ 		const point = getPointerPosition(e);
+<a href="#h0-4" id="h0-4" class="h">@@ -162,15 +217,18 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			const lastLineIndex = prevLines.length - 1;
+ 			if (lastLineIndex &lt; 0) return prevLines;
+ 			const lastLine = prevLines[lastLineIndex];
+<a href="#h0-4-3" id="h0-4-3" class="d">-			const newLine: LineData = { ...lastLine, points: [...lastLine.points, point] };
+</a><a href="#h0-4-4" id="h0-4-4" class="d">-			return [...prevLines.slice(0, lastLineIndex), newLine];
+</a><a href="#h0-4-5" id="h0-4-5" class="i">+			const newPoints: Point[] = [...lastLine.points, point];
+</a><a href="#h0-4-6" id="h0-4-6" class="i">+			return [...prevLines.slice(0, lastLineIndex), { ...lastLine, points: newPoints }];
+</a> 		};
+<a href="#h0-4-8" id="h0-4-8" class="d">-
+</a><a href="#h0-4-9" id="h0-4-9" class="i">+        
+</a> 		setLines(updateLines);
+         setCurrentLines(updateLines);
+ 
+ 	}, [getPointerPosition]);
+ 
+<a href="#h0-4-15" id="h0-4-15" class="i">+    /**
+</a><a href="#h0-4-16" id="h0-4-16" class="i">+	 * マウス・タッチ終了時の処理
+</a><a href="#h0-4-17" id="h0-4-17" class="i">+	 */
+</a> 	const handleMouseUp = useCallback(() =&gt; {
+ 		isDrawing.current = false;
+ 
+<a href="#h0-5" id="h0-5" class="h">@@ -178,8 +236,7 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			const lastLineIndex = prevLines.length - 1;
+ 			if (lastLineIndex &lt; 0) return prevLines;
+ 			const lastLine = prevLines[lastLineIndex];
+<a href="#h0-5-3" id="h0-5-3" class="d">-            
+</a><a href="#h0-5-4" id="h0-5-4" class="d">-			// 描画終了時にtargetPointsを計算
+</a><a href="#h0-5-5" id="h0-5-5" class="i">+			
+</a> 			const targetPoints = calculateTargetPoints(lastLine.points);
+ 
+ 			const newLine: LineData = {
+<a href="#h0-6" id="h0-6" class="h">@@ -190,7 +247,7 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 		});
+ 	}, [calculateTargetPoints]);
+     
+<a href="#h0-6-3" id="h0-6-3" class="d">-	// --- アニメーションロジック（前回の実装を継承） ---
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+	// --- 6. アニメーションロジック (変更なし) ---
+</a> 
+ 	const animateLines = useCallback((timestamp: number) =&gt; {
+ 		if (!startTimeRef.current) startTimeRef.current = timestamp;
+<a href="#h0-7" id="h0-7" class="h">@@ -218,7 +275,6 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			animationRef.current = requestAnimationFrame(animateLines);
+ 		} else {
+ 			startTimeRef.current = undefined;
+<a href="#h0-7-3" id="h0-7-3" class="d">-			// 移動後のラインを lines (マスターデータ)に反映
+</a> 			setLines(newCurrentLines.map(line =&gt; ({ 
+                 ...line, 
+                 points: line.targetPoints, 
+<a href="#h0-8" id="h0-8" class="h">@@ -241,7 +297,7 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 		};
+ 	}, [lines, animateLines]);
+ 
+<a href="#h0-8-3" id="h0-8-3" class="d">-    // points配列を &#39;x1,y1 x2,y2 ...&#39; 形式の文字列に変換するヘルパー
+</a><a href="#h0-8-4" id="h0-8-4" class="i">+
+</a>     const pointsToSvgString = (points: Point[]): string =&gt; {
+         return points.map(p =&gt; `${p.x},${p.y}`).join(&#39; &#39;);
+     };
+<a href="#h0-9" id="h0-9" class="h">@@ -250,39 +306,48 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 		&lt;div
+ 			ref={stageRef}
+ 			style={{
+<a href="#h0-9-3" id="h0-9-3" class="d">-				width: stageSize,
+</a><a href="#h0-9-4" id="h0-9-4" class="d">-				height: stageSize,
+</a><a href="#h0-9-5" id="h0-9-5" class="d">-				margin: &#39;auto&#39;, 
+</a><a href="#h0-9-6" id="h0-9-6" class="d">-				position: &#39;relative&#39;,
+</a><a href="#h0-9-7" id="h0-9-7" class="d">-				border: &#39;1px solid #ccc&#39;,
+</a><a href="#h0-9-8" id="h0-9-8" class="i">+				width: stageWidth,
+</a><a href="#h0-9-9" id="h0-9-9" class="i">+				height: stageHeight,
+</a><a href="#h0-9-10" id="h0-9-10" class="i">+				margin: 0,
+</a><a href="#h0-9-11" id="h0-9-11" class="i">+				position: &#39;fixed&#39;,
+</a><a href="#h0-9-12" id="h0-9-12" class="i">+                top: 0,
+</a><a href="#h0-9-13" id="h0-9-13" class="i">+                left: 0,
+</a> 				overflow: &#39;hidden&#39;,
+ 				touchAction: &#39;none&#39;, 
+ 			}}
+ 			onMouseDown={handleMouseDown}
+ 			onMouseMove={handleMouseMove}
+ 			onMouseUp={handleMouseUp}
+<a href="#h0-9-20" id="h0-9-20" class="d">-			onTouchStart={handleMouseDown as any}
+</a><a href="#h0-9-21" id="h0-9-21" class="d">-			onTouchMove={handleMouseMove as any}
+</a><a href="#h0-9-22" id="h0-9-22" class="i">+			onTouchStart={handleMouseDown}
+</a><a href="#h0-9-23" id="h0-9-23" class="i">+			onTouchMove={handleMouseMove}
+</a> 			onTouchEnd={handleMouseUp}
+ 		&gt;
+<a href="#h0-9-26" id="h0-9-26" class="d">-            {/* 1. 背景のSVG (模倣対象) - ビューボックスを使用 */}
+</a><a href="#h0-9-27" id="h0-9-27" class="d">-			&lt;svg width={stageSize} height={stageSize} viewBox={`0 0 ${VIEWSBOX_SIZE} ${VIEWSBOX_SIZE}`} style={{ position: &#39;absolute&#39; }}&gt;
+</a><a href="#h0-9-28" id="h0-9-28" class="d">-				{/* BACKGROUND_SVG_PATH_Dは VIEWSBOX_SIZE の座標系で定義されていることを前提とする */}
+</a><a href="#h0-9-29" id="h0-9-29" class="d">-				&lt;path 
+</a><a href="#h0-9-30" id="h0-9-30" class="d">-                    d={BACKGROUND_SVG_PATH_D} 
+</a><a href="#h0-9-31" id="h0-9-31" class="d">-                    fill=&quot;none&quot; 
+</a><a href="#h0-9-32" id="h0-9-32" class="d">-                    stroke=&quot;black&quot; 
+</a><a href="#h0-9-33" id="h0-9-33" class="d">-                    strokeWidth=&quot;5&quot; 
+</a><a href="#h0-9-34" id="h0-9-34" class="d">-                    opacity=&quot;0.2&quot;
+</a><a href="#h0-9-35" id="h0-9-35" class="d">-                /&gt;
+</a><a href="#h0-9-36" id="h0-9-36" class="d">-			&lt;/svg&gt;
+</a><a href="#h0-9-37" id="h0-9-37" class="d">-
+</a><a href="#h0-9-38" id="h0-9-38" class="d">-            {/* 2. ユーザーの描画 (アニメーション表示用) - ビューボックスを使用 */}
+</a><a href="#h0-9-39" id="h0-9-39" class="d">-            &lt;svg width={stageSize} height={stageSize} viewBox={`0 0 ${VIEWSBOX_SIZE} ${VIEWSBOX_SIZE}`} style={{ position: &#39;absolute&#39;, top: 0, left: 0 }}&gt;
+</a><a href="#h0-9-40" id="h0-9-40" class="i">+            {/* 1. 背景のSVG (模倣対象) */}
+</a><a href="#h0-9-41" id="h0-9-41" class="i">+			{backgroundPathD &amp;&amp; (
+</a><a href="#h0-9-42" id="h0-9-42" class="i">+                &lt;svg 
+</a><a href="#h0-9-43" id="h0-9-43" class="i">+                    width={stageWidth} 
+</a><a href="#h0-9-44" id="h0-9-44" class="i">+                    height={stageHeight} 
+</a><a href="#h0-9-45" id="h0-9-45" class="i">+                    viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} 
+</a><a href="#h0-9-46" id="h0-9-46" class="i">+                    style={{ position: &#39;absolute&#39; }}
+</a><a href="#h0-9-47" id="h0-9-47" class="i">+                    preserveAspectRatio=&quot;xMidYMid meet&quot; 
+</a><a href="#h0-9-48" id="h0-9-48" class="i">+                &gt;
+</a><a href="#h0-9-49" id="h0-9-49" class="i">+                    &lt;path 
+</a><a href="#h0-9-50" id="h0-9-50" class="i">+                        d={backgroundPathD} 
+</a><a href="#h0-9-51" id="h0-9-51" class="i">+                        fill=&quot;none&quot; 
+</a><a href="#h0-9-52" id="h0-9-52" class="i">+                        stroke=&quot;white&quot; 
+</a><a href="#h0-9-53" id="h0-9-53" class="i">+                        strokeWidth=&quot;5&quot; 
+</a><a href="#h0-9-54" id="h0-9-54" class="i">+                        opacity=&quot;0.2&quot;
+</a><a href="#h0-9-55" id="h0-9-55" class="i">+                    /&gt;
+</a><a href="#h0-9-56" id="h0-9-56" class="i">+                &lt;/svg&gt;
+</a><a href="#h0-9-57" id="h0-9-57" class="i">+			)}
+</a><a href="#h0-9-58" id="h0-9-58" class="i">+
+</a><a href="#h0-9-59" id="h0-9-59" class="i">+            {/* 2. ユーザーの描画 (アニメーション表示用) */}
+</a><a href="#h0-9-60" id="h0-9-60" class="i">+            &lt;svg width={stageWidth} height={stageHeight} viewBox={`0 0 ${viewBoxSize} ${viewBoxSize}`} style={{ position: &#39;absolute&#39;, top: 0, left: 0 }}
+</a><a href="#h0-9-61" id="h0-9-61" class="i">+                 preserveAspectRatio=&quot;xMidYMid meet&quot;
+</a><a href="#h0-9-62" id="h0-9-62" class="i">+            &gt;
+</a>                 {currentLines.map((line) =&gt; (
+                     &lt;polyline
+                         key={line.id}
+<a href="#h0-9-66" id="h0-9-66" class="d">-                        // 描画はビューボックス座標系で行われる
+</a>                         points={pointsToSvgString(line.points.map(scaleToViewBox))} 
+                         fill=&quot;none&quot;
+                         stroke=&quot;#FF4500&quot; 
+<a href="#h0-10" id="h0-10" class="h">@@ -296,7 +361,7 @@ function DrawingApp({onComplete}: StageProps) {
+</a> 			&lt;button
+ 				type=&quot;submit&quot;
+ 				onClick={onComplete}
+<a href="#h0-10-3" id="h0-10-3" class="d">-                style={{ position: &#39;absolute&#39;, bottom: 10, left: 10 }}
+</a><a href="#h0-10-4" id="h0-10-4" class="i">+                style={{ position: &#39;fixed&#39;, bottom: 10, left: 10 }}
+</a> 			&gt;
+ 			完了 (onComplete)
+ 			&lt;/button&gt;
+<b>diff --git a/<a id="h1" href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a> b/<a href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -31,6 +31,7 @@ export default function Chat() {
+</a> 	}, []);
+ 
+ 	let StageComponent: React.ReactNode;
+<a href="#h1-0-3" id="h1-0-3" class="i">+	/*
+</a> 	switch (stage) {
+ 		case 1:
+ 			StageComponent = &lt;FirstChat onComplete={handleStageComplete}/&gt;;
+<a href="#h1-1" id="h1-1" class="h">@@ -41,6 +42,8 @@ export default function Chat() {
+</a> 		default:
+ 			StageComponent = &lt;Error onComplete={handleStageComplete}/&gt;;
+ 	}
+<a href="#h1-1-3" id="h1-1-3" class="i">+	*/
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+   	StageComponent = &lt;SecondDraw onComplete={handleStageComplete}/&gt;;
+</a> 	const checkFullscreen = () =&gt; {
+ 		const isTargetFullscreen = document.fullscreenElement === pageRef.current;
+ 		setIsFullscreen(isTargetFullscreen);
+<b>diff --git a/<a id="h2" href="../file/public/whiteperson.svg.html">public/whiteperson.svg</a> b/<a href="../file/public/whiteperson.svg.html">public/whiteperson.svg</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -9,22 +9,12 @@
+</a>    id=&quot;svg1&quot;
+    xmlns=&quot;http://www.w3.org/2000/svg&quot;
+    xmlns:svg=&quot;http://www.w3.org/2000/svg&quot;&gt;
+<a href="#h2-0-3" id="h2-0-3" class="d">-  &lt;defs
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-     id=&quot;defs1&quot; /&gt;
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-  &lt;g
+</a><a href="#h2-0-6" id="h2-0-6" class="d">-     id=&quot;layer1&quot;&gt;
+</a><a href="#h2-0-7" id="h2-0-7" class="d">-    &lt;circle
+</a><a href="#h2-0-8" id="h2-0-8" class="d">-       style=&quot;fill:#ffffff;stroke-width:0.837442&quot;
+</a><a href="#h2-0-9" id="h2-0-9" class="d">-       id=&quot;path1&quot;
+</a><a href="#h2-0-10" id="h2-0-10" class="d">-       cx=&quot;257.87497&quot;
+</a><a href="#h2-0-11" id="h2-0-11" class="d">-       cy=&quot;195.09868&quot;
+</a><a href="#h2-0-12" id="h2-0-12" class="d">-       r=&quot;150&quot; /&gt;
+</a><a href="#h2-0-13" id="h2-0-13" class="d">-    &lt;ellipse
+</a><a href="#h2-0-14" id="h2-0-14" class="d">-       style=&quot;fill:#ffffff;stroke-width:1.18432&quot;
+</a><a href="#h2-0-15" id="h2-0-15" class="d">-       id=&quot;path1-8&quot;
+</a><a href="#h2-0-16" id="h2-0-16" class="d">-       cx=&quot;251.02637&quot;
+</a><a href="#h2-0-17" id="h2-0-17" class="d">-       cy=&quot;453.14139&quot;
+</a><a href="#h2-0-18" id="h2-0-18" class="d">-       rx=&quot;300&quot;
+</a><a href="#h2-0-19" id="h2-0-19" class="d">-       ry=&quot;150&quot; /&gt;
+</a><a href="#h2-0-20" id="h2-0-20" class="d">-  &lt;/g&gt;
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+	 &lt;path
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+	 	stroke=&quot;white&quot;
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+		stroke-width=&quot;5&quot;
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+		fill=&quot;none&quot;
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+	 	d=&quot;M 100 250
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+A 150 150 0 1 0 400 250
+</a><a href="#h2-0-27" id="h2-0-27" class="i">+A 150 150 0 1 0 100 250&quot;
+</a><a href="#h2-0-28" id="h2-0-28" class="i">+	 /&gt;
+</a> &lt;/svg&gt;
+<b>diff --git a/<a id="h3" href="../file/rust-wasm/Cargo.lock.html">rust-wasm/Cargo.lock</a> b/<a href="../file/rust-wasm/Cargo.lock.html">rust-wasm/Cargo.lock</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -88,6 +88,12 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h3-0-3" id="h3-0-3" class="i">+name = &quot;arrayvec&quot;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+version = &quot;0.7.6&quot;
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+checksum = &quot;7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50&quot;
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+[[package]]
+</a> name = &quot;autocfg&quot;
+ version = &quot;1.5.0&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h3-1" id="h3-1" class="h">@@ -211,6 +217,15 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h3-1-3" id="h3-1-3" class="i">+name = &quot;euclid&quot;
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+version = &quot;0.22.11&quot;
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+checksum = &quot;ad9cdb4b747e485a12abb0e6566612956c7a1bafa3bdb8d682c5b6d403589e48&quot;
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+dependencies = [
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+ &quot;num-traits&quot;,
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+]
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+[[package]]
+</a> name = &quot;find-msvc-tools&quot;
+ version = &quot;0.1.4&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h3-2" id="h3-2" class="h">@@ -346,6 +361,17 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h3-2-3" id="h3-2-3" class="i">+name = &quot;kurbo&quot;
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+version = &quot;0.12.0&quot;
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+checksum = &quot;ce9729cc38c18d86123ab736fd2e7151763ba226ac2490ec092d1dd148825e32&quot;
+</a><a href="#h3-2-7" id="h3-2-7" class="i">+dependencies = [
+</a><a href="#h3-2-8" id="h3-2-8" class="i">+ &quot;arrayvec&quot;,
+</a><a href="#h3-2-9" id="h3-2-9" class="i">+ &quot;euclid&quot;,
+</a><a href="#h3-2-10" id="h3-2-10" class="i">+ &quot;smallvec&quot;,
+</a><a href="#h3-2-11" id="h3-2-11" class="i">+]
+</a><a href="#h3-2-12" id="h3-2-12" class="i">+
+</a><a href="#h3-2-13" id="h3-2-13" class="i">+[[package]]
+</a> name = &quot;libc&quot;
+ version = &quot;0.2.177&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h3-3" id="h3-3" class="h">@@ -542,6 +568,7 @@ dependencies = [
+</a>  &quot;getrandom 0.2.16&quot;,
+  &quot;getrandom 0.3.4&quot;,
+  &quot;js-sys&quot;,
+<a href="#h3-3-3" id="h3-3-3" class="i">+ &quot;kurbo&quot;,
+</a>  &quot;vibrato&quot;,
+  &quot;wasm-bindgen&quot;,
+  &quot;zstd&quot;,
+<a href="#h3-4" id="h3-4" class="h">@@ -627,6 +654,12 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h3-4-3" id="h3-4-3" class="i">+name = &quot;smallvec&quot;
+</a><a href="#h3-4-4" id="h3-4-4" class="i">+version = &quot;1.15.1&quot;
+</a><a href="#h3-4-5" id="h3-4-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h3-4-6" id="h3-4-6" class="i">+checksum = &quot;67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03&quot;
+</a><a href="#h3-4-7" id="h3-4-7" class="i">+
+</a><a href="#h3-4-8" id="h3-4-8" class="i">+[[package]]
+</a> name = &quot;syn&quot;
+ version = &quot;2.0.106&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<b>diff --git a/<a id="h4" href="../file/rust-wasm/Cargo.toml.html">rust-wasm/Cargo.toml</a> b/<a href="../file/rust-wasm/Cargo.toml.html">rust-wasm/Cargo.toml</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -13,3 +13,4 @@ wasm-bindgen = &quot;0.2.104&quot;
+</a> getrandom_v02 = { package = &quot;getrandom&quot;, version = &quot;0.2&quot;, features = [&quot;js&quot;] }
+ getrandom_v03 = { package = &quot;getrandom&quot;, version = &quot;0.3&quot;, features = [&quot;wasm_js&quot;] }
+ zstd = &quot;0.13.3&quot;
+<a href="#h4-0-3" id="h4-0-3" class="i">+kurbo = &quot;0.12.0&quot;
+</a><b>diff --git a/<a id="h5" href="../file/rust-wasm/pkg/rust_wasm.d.ts.html">rust-wasm/pkg/rust_wasm.d.ts</a> b/<a href="../file/rust-wasm/pkg/rust_wasm.d.ts.html">rust-wasm/pkg/rust_wasm.d.ts</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -1,12 +1,33 @@
+</a> /* tslint:disable */
+ /* eslint-disable */
+ export function chat(dict_data: Uint8Array, input: string): string;
+<a href="#h5-0-3" id="h5-0-3" class="i">+/**
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+ *
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+ * * SVGパス上で指定された点に最も近い点を計算します。
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+ * 
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+ */
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+export function find_nearest_point_on_path(path_d: string, x: number, y: number, _snapping_distance_viewbox: number): NearestPointResult | undefined;
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+export function main_js(): void;
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+export class NearestPointResult {
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+  private constructor();
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+  free(): void;
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+  [Symbol.dispose](): void;
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+  x: number;
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+  y: number;
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+}
+</a> 
+ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+ 
+ export interface InitOutput {
+   readonly memory: WebAssembly.Memory;
+   readonly chat: (a: number, b: number, c: number, d: number) =&gt; [number, number, number, number];
+<a href="#h5-0-23" id="h5-0-23" class="i">+  readonly __wbg_nearestpointresult_free: (a: number, b: number) =&gt; void;
+</a><a href="#h5-0-24" id="h5-0-24" class="i">+  readonly __wbg_get_nearestpointresult_x: (a: number) =&gt; number;
+</a><a href="#h5-0-25" id="h5-0-25" class="i">+  readonly __wbg_set_nearestpointresult_x: (a: number, b: number) =&gt; void;
+</a><a href="#h5-0-26" id="h5-0-26" class="i">+  readonly __wbg_get_nearestpointresult_y: (a: number) =&gt; number;
+</a><a href="#h5-0-27" id="h5-0-27" class="i">+  readonly __wbg_set_nearestpointresult_y: (a: number, b: number) =&gt; void;
+</a><a href="#h5-0-28" id="h5-0-28" class="i">+  readonly find_nearest_point_on_path: (a: number, b: number, c: number, d: number, e: number) =&gt; number;
+</a><a href="#h5-0-29" id="h5-0-29" class="i">+  readonly main_js: () =&gt; void;
+</a>   readonly rust_zstd_wasm_shim_qsort: (a: number, b: number, c: number, d: number) =&gt; void;
+   readonly rust_zstd_wasm_shim_malloc: (a: number) =&gt; number;
+   readonly rust_zstd_wasm_shim_memcmp: (a: number, b: number, c: number) =&gt; number;
+<b>diff --git a/<a id="h6" href="../file/rust-wasm/pkg/rust_wasm.js.html">rust-wasm/pkg/rust_wasm.js</a> b/<a href="../file/rust-wasm/pkg/rust_wasm.js.html">rust-wasm/pkg/rust_wasm.js</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -124,6 +124,81 @@ export function chat(dict_data, input) {
+</a>     }
+ }
+ 
+<a href="#h6-0-3" id="h6-0-3" class="i">+/**
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+ *
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+ * * SVGパス上で指定された点に最も近い点を計算します。
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+ *
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+ * @param {string} path_d
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+ * @param {number} x
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+ * @param {number} y
+</a><a href="#h6-0-10" id="h6-0-10" class="i">+ * @param {number} _snapping_distance_viewbox
+</a><a href="#h6-0-11" id="h6-0-11" class="i">+ * @returns {NearestPointResult | undefined}
+</a><a href="#h6-0-12" id="h6-0-12" class="i">+ */
+</a><a href="#h6-0-13" id="h6-0-13" class="i">+export function find_nearest_point_on_path(path_d, x, y, _snapping_distance_viewbox) {
+</a><a href="#h6-0-14" id="h6-0-14" class="i">+    const ptr0 = passStringToWasm0(path_d, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+</a><a href="#h6-0-15" id="h6-0-15" class="i">+    const len0 = WASM_VECTOR_LEN;
+</a><a href="#h6-0-16" id="h6-0-16" class="i">+    const ret = wasm.find_nearest_point_on_path(ptr0, len0, x, y, _snapping_distance_viewbox);
+</a><a href="#h6-0-17" id="h6-0-17" class="i">+    return ret === 0 ? undefined : NearestPointResult.__wrap(ret);
+</a><a href="#h6-0-18" id="h6-0-18" class="i">+}
+</a><a href="#h6-0-19" id="h6-0-19" class="i">+
+</a><a href="#h6-0-20" id="h6-0-20" class="i">+export function main_js() {
+</a><a href="#h6-0-21" id="h6-0-21" class="i">+    wasm.main_js();
+</a><a href="#h6-0-22" id="h6-0-22" class="i">+}
+</a><a href="#h6-0-23" id="h6-0-23" class="i">+
+</a><a href="#h6-0-24" id="h6-0-24" class="i">+const NearestPointResultFinalization = (typeof FinalizationRegistry === &#39;undefined&#39;)
+</a><a href="#h6-0-25" id="h6-0-25" class="i">+    ? { register: () =&gt; {}, unregister: () =&gt; {} }
+</a><a href="#h6-0-26" id="h6-0-26" class="i">+    : new FinalizationRegistry(ptr =&gt; wasm.__wbg_nearestpointresult_free(ptr &gt;&gt;&gt; 0, 1));
+</a><a href="#h6-0-27" id="h6-0-27" class="i">+
+</a><a href="#h6-0-28" id="h6-0-28" class="i">+export class NearestPointResult {
+</a><a href="#h6-0-29" id="h6-0-29" class="i">+
+</a><a href="#h6-0-30" id="h6-0-30" class="i">+    static __wrap(ptr) {
+</a><a href="#h6-0-31" id="h6-0-31" class="i">+        ptr = ptr &gt;&gt;&gt; 0;
+</a><a href="#h6-0-32" id="h6-0-32" class="i">+        const obj = Object.create(NearestPointResult.prototype);
+</a><a href="#h6-0-33" id="h6-0-33" class="i">+        obj.__wbg_ptr = ptr;
+</a><a href="#h6-0-34" id="h6-0-34" class="i">+        NearestPointResultFinalization.register(obj, obj.__wbg_ptr, obj);
+</a><a href="#h6-0-35" id="h6-0-35" class="i">+        return obj;
+</a><a href="#h6-0-36" id="h6-0-36" class="i">+    }
+</a><a href="#h6-0-37" id="h6-0-37" class="i">+
+</a><a href="#h6-0-38" id="h6-0-38" class="i">+    __destroy_into_raw() {
+</a><a href="#h6-0-39" id="h6-0-39" class="i">+        const ptr = this.__wbg_ptr;
+</a><a href="#h6-0-40" id="h6-0-40" class="i">+        this.__wbg_ptr = 0;
+</a><a href="#h6-0-41" id="h6-0-41" class="i">+        NearestPointResultFinalization.unregister(this);
+</a><a href="#h6-0-42" id="h6-0-42" class="i">+        return ptr;
+</a><a href="#h6-0-43" id="h6-0-43" class="i">+    }
+</a><a href="#h6-0-44" id="h6-0-44" class="i">+
+</a><a href="#h6-0-45" id="h6-0-45" class="i">+    free() {
+</a><a href="#h6-0-46" id="h6-0-46" class="i">+        const ptr = this.__destroy_into_raw();
+</a><a href="#h6-0-47" id="h6-0-47" class="i">+        wasm.__wbg_nearestpointresult_free(ptr, 0);
+</a><a href="#h6-0-48" id="h6-0-48" class="i">+    }
+</a><a href="#h6-0-49" id="h6-0-49" class="i">+    /**
+</a><a href="#h6-0-50" id="h6-0-50" class="i">+     * @returns {number}
+</a><a href="#h6-0-51" id="h6-0-51" class="i">+     */
+</a><a href="#h6-0-52" id="h6-0-52" class="i">+    get x() {
+</a><a href="#h6-0-53" id="h6-0-53" class="i">+        const ret = wasm.__wbg_get_nearestpointresult_x(this.__wbg_ptr);
+</a><a href="#h6-0-54" id="h6-0-54" class="i">+        return ret;
+</a><a href="#h6-0-55" id="h6-0-55" class="i">+    }
+</a><a href="#h6-0-56" id="h6-0-56" class="i">+    /**
+</a><a href="#h6-0-57" id="h6-0-57" class="i">+     * @param {number} arg0
+</a><a href="#h6-0-58" id="h6-0-58" class="i">+     */
+</a><a href="#h6-0-59" id="h6-0-59" class="i">+    set x(arg0) {
+</a><a href="#h6-0-60" id="h6-0-60" class="i">+        wasm.__wbg_set_nearestpointresult_x(this.__wbg_ptr, arg0);
+</a><a href="#h6-0-61" id="h6-0-61" class="i">+    }
+</a><a href="#h6-0-62" id="h6-0-62" class="i">+    /**
+</a><a href="#h6-0-63" id="h6-0-63" class="i">+     * @returns {number}
+</a><a href="#h6-0-64" id="h6-0-64" class="i">+     */
+</a><a href="#h6-0-65" id="h6-0-65" class="i">+    get y() {
+</a><a href="#h6-0-66" id="h6-0-66" class="i">+        const ret = wasm.__wbg_get_nearestpointresult_y(this.__wbg_ptr);
+</a><a href="#h6-0-67" id="h6-0-67" class="i">+        return ret;
+</a><a href="#h6-0-68" id="h6-0-68" class="i">+    }
+</a><a href="#h6-0-69" id="h6-0-69" class="i">+    /**
+</a><a href="#h6-0-70" id="h6-0-70" class="i">+     * @param {number} arg0
+</a><a href="#h6-0-71" id="h6-0-71" class="i">+     */
+</a><a href="#h6-0-72" id="h6-0-72" class="i">+    set y(arg0) {
+</a><a href="#h6-0-73" id="h6-0-73" class="i">+        wasm.__wbg_set_nearestpointresult_y(this.__wbg_ptr, arg0);
+</a><a href="#h6-0-74" id="h6-0-74" class="i">+    }
+</a><a href="#h6-0-75" id="h6-0-75" class="i">+}
+</a><a href="#h6-0-76" id="h6-0-76" class="i">+if (Symbol.dispose) NearestPointResult.prototype[Symbol.dispose] = NearestPointResult.prototype.free;
+</a><a href="#h6-0-77" id="h6-0-77" class="i">+
+</a> const EXPECTED_RESPONSE_TYPES = new Set([&#39;basic&#39;, &#39;cors&#39;, &#39;default&#39;]);
+ 
+ async function __wbg_load(module, imports) {
+<b>diff --git a/<a id="h7" href="../file/rust-wasm/pkg/rust_wasm_bg.wasm.html">rust-wasm/pkg/rust_wasm_bg.wasm</a> b/<a href="../file/rust-wasm/pkg/rust_wasm_bg.wasm.html">rust-wasm/pkg/rust_wasm_bg.wasm</a></b>
+Binary files differ.
+<b>diff --git a/<a id="h8" href="../file/rust-wasm/pkg/rust_wasm_bg.wasm.d.ts.html">rust-wasm/pkg/rust_wasm_bg.wasm.d.ts</a> b/<a href="../file/rust-wasm/pkg/rust_wasm_bg.wasm.d.ts.html">rust-wasm/pkg/rust_wasm_bg.wasm.d.ts</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -2,6 +2,13 @@
+</a> /* eslint-disable */
+ export const memory: WebAssembly.Memory;
+ export const chat: (a: number, b: number, c: number, d: number) =&gt; [number, number, number, number];
+<a href="#h8-0-3" id="h8-0-3" class="i">+export const __wbg_nearestpointresult_free: (a: number, b: number) =&gt; void;
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+export const __wbg_get_nearestpointresult_x: (a: number) =&gt; number;
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+export const __wbg_set_nearestpointresult_x: (a: number, b: number) =&gt; void;
+</a><a href="#h8-0-6" id="h8-0-6" class="i">+export const __wbg_get_nearestpointresult_y: (a: number) =&gt; number;
+</a><a href="#h8-0-7" id="h8-0-7" class="i">+export const __wbg_set_nearestpointresult_y: (a: number, b: number) =&gt; void;
+</a><a href="#h8-0-8" id="h8-0-8" class="i">+export const find_nearest_point_on_path: (a: number, b: number, c: number, d: number, e: number) =&gt; number;
+</a><a href="#h8-0-9" id="h8-0-9" class="i">+export const main_js: () =&gt; void;
+</a> export const rust_zstd_wasm_shim_qsort: (a: number, b: number, c: number, d: number) =&gt; void;
+ export const rust_zstd_wasm_shim_malloc: (a: number) =&gt; number;
+ export const rust_zstd_wasm_shim_memcmp: (a: number, b: number, c: number) =&gt; number;
+<b>diff --git a/<a id="h9" href="../file/rust-wasm/src/lib.rs.html">rust-wasm/src/lib.rs</a> b/<a href="../file/rust-wasm/src/lib.rs.html">rust-wasm/src/lib.rs</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -1,4 +1,4 @@
+</a><a href="#h9-0-0" id="h9-0-0" class="d">-use std::{io:: Cursor, usize};
+</a><a href="#h9-0-1" id="h9-0-1" class="i">+use std::{io:: Cursor, iter::Peekable, str::SplitWhitespace, usize};
+</a> use vibrato::{Dictionary, Tokenizer};
+ use wasm_bindgen::prelude::*;
+ 
+<a href="#h9-1" id="h9-1" class="h">@@ -32,81 +32,364 @@ pub fn chat(dict_data: &amp;[u8], input: &amp;str) -&gt; Result&lt;String, JsValue&gt; {
+</a>     Ok(ans)
+ }
+ 
+<a href="#h9-1-3" id="h9-1-3" class="i">+use kurbo::{Point, BezPath, ParamCurve, PathSeg, Vec2}; 
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+use kurbo::ParamCurveNearest;
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+use wasm_bindgen::JsValue;
+</a><a href="#h9-1-6" id="h9-1-6" class="i">+use std::f64::consts::PI;
+</a><a href="#h9-1-7" id="h9-1-7" class="i">+
+</a><a href="#h9-1-8" id="h9-1-8" class="i">+// TypeScriptのPoint型に対応する構造体を定義
+</a><a href="#h9-1-9" id="h9-1-9" class="i">+#[derive(Debug, Clone, Copy)]
+</a> #[wasm_bindgen]
+ pub struct NearestPointResult {
+<a href="#h9-1-12" id="h9-1-12" class="d">-    x: f64,
+</a><a href="#h9-1-13" id="h9-1-13" class="d">-    y: f64,
+</a><a href="#h9-1-14" id="h9-1-14" class="i">+    pub x: f64,
+</a><a href="#h9-1-15" id="h9-1-15" class="i">+    pub y: f64,
+</a> }
+ 
+<a href="#h9-1-18" id="h9-1-18" class="d">-#[wasm_bindgen]
+</a><a href="#h9-1-19" id="h9-1-19" class="d">-impl NearestPointResult {
+</a><a href="#h9-1-20" id="h9-1-20" class="d">-    pub fn new(x: f64, y: f64) -&gt; NearestPointResult {
+</a><a href="#h9-1-21" id="h9-1-21" class="d">-        NearestPointResult { x, y }
+</a><a href="#h9-1-22" id="h9-1-22" class="i">+// -------------------------------------------------------------------------
+</a><a href="#h9-1-23" id="h9-1-23" class="i">+// 🛠️ Arc to Bezier 変換ヘルパ
+</a><a href="#h9-1-24" id="h9-1-24" class="i">+// -------------------------------------------------------------------------
+</a><a href="#h9-1-25" id="h9-1-25" class="i">+
+</a><a href="#h9-1-26" id="h9-1-26" class="i">+/// ベクトルVを回転角度φだけ回転させます。（名前を rotate_vec2 に変更）
+</a><a href="#h9-1-27" id="h9-1-27" class="i">+fn rotate_vec2(v: Vec2, sin_phi: f64, cos_phi: f64) -&gt; Vec2 {
+</a><a href="#h9-1-28" id="h9-1-28" class="i">+    Vec2::new(
+</a><a href="#h9-1-29" id="h9-1-29" class="i">+        v.x * cos_phi - v.y * sin_phi,
+</a><a href="#h9-1-30" id="h9-1-30" class="i">+        v.x * sin_phi + v.y * cos_phi,
+</a><a href="#h9-1-31" id="h9-1-31" class="i">+    )
+</a><a href="#h9-1-32" id="h9-1-32" class="i">+}
+</a><a href="#h9-1-33" id="h9-1-33" class="i">+
+</a><a href="#h9-1-34" id="h9-1-34" class="i">+/// 単一のArcセグメント（2つの角度間）をCubic Bezierに変換します。
+</a><a href="#h9-1-35" id="h9-1-35" class="i">+fn segment_to_cubic(
+</a><a href="#h9-1-36" id="h9-1-36" class="i">+    center: Point,
+</a><a href="#h9-1-37" id="h9-1-37" class="i">+    radii: Point, // (rx, ry)
+</a><a href="#h9-1-38" id="h9-1-38" class="i">+    phi: f64,     // x軸回転角度
+</a><a href="#h9-1-39" id="h9-1-39" class="i">+    start_angle: f64,
+</a><a href="#h9-1-40" id="h9-1-40" class="i">+    delta_angle: f64,
+</a><a href="#h9-1-41" id="h9-1-41" class="i">+    path: &amp;mut BezPath,
+</a><a href="#h9-1-42" id="h9-1-42" class="i">+    current_point: Point,
+</a><a href="#h9-1-43" id="h9-1-43" class="i">+) -&gt; Point {
+</a><a href="#h9-1-44" id="h9-1-44" class="i">+
+</a><a href="#h9-1-45" id="h9-1-45" class="i">+    if delta_angle.abs() &lt; 1e-6 {
+</a><a href="#h9-1-46" id="h9-1-46" class="i">+        return current_point;
+</a>     }
+ 
+<a href="#h9-1-49" id="h9-1-49" class="d">-    #[wasm_bindgen(getter)]
+</a><a href="#h9-1-50" id="h9-1-50" class="d">-    pub fn x(&amp;self) -&gt; f64 { self.x }
+</a><a href="#h9-1-51" id="h9-1-51" class="d">-    #[wasm_bindgen(getter)]
+</a><a href="#h9-1-52" id="h9-1-52" class="d">-    pub fn y(&amp;self) -&gt; f64 { self.y }
+</a><a href="#h9-1-53" id="h9-1-53" class="i">+    let t_factor = 4.0 / 3.0 * (delta_angle / 4.0).tan();
+</a><a href="#h9-1-54" id="h9-1-54" class="i">+
+</a><a href="#h9-1-55" id="h9-1-55" class="i">+    let a = radii.x;
+</a><a href="#h9-1-56" id="h9-1-56" class="i">+    let b = radii.y;
+</a><a href="#h9-1-57" id="h9-1-57" class="i">+    let cos_phi = phi.cos();
+</a><a href="#h9-1-58" id="h9-1-58" class="i">+    let sin_phi = phi.sin();
+</a><a href="#h9-1-59" id="h9-1-59" class="i">+
+</a><a href="#h9-1-60" id="h9-1-60" class="i">+    // Vec2として扱う
+</a><a href="#h9-1-61" id="h9-1-61" class="i">+    let start_vec = Vec2::new(start_angle.cos() * a, start_angle.sin() * b);
+</a><a href="#h9-1-62" id="h9-1-62" class="i">+    let end_vec = Vec2::new((start_angle + delta_angle).cos() * a, (start_angle + delta_angle).sin() * b);
+</a><a href="#h9-1-63" id="h9-1-63" class="i">+
+</a><a href="#h9-1-64" id="h9-1-64" class="i">+    // Vec2を回転
+</a><a href="#h9-1-65" id="h9-1-65" class="i">+    let start_vec_rotated = rotate_vec2(start_vec, sin_phi, cos_phi);
+</a><a href="#h9-1-66" id="h9-1-66" class="i">+    let end_vec_rotated = rotate_vec2(end_vec, sin_phi, cos_phi);
+</a><a href="#h9-1-67" id="h9-1-67" class="i">+
+</a><a href="#h9-1-68" id="h9-1-68" class="i">+    let p0 = center + start_vec_rotated; 
+</a><a href="#h9-1-69" id="h9-1-69" class="i">+    let p3 = center + end_vec_rotated;   
+</a><a href="#h9-1-70" id="h9-1-70" class="i">+
+</a><a href="#h9-1-71" id="h9-1-71" class="i">+    // Vec2 を使ったタンジェント計算
+</a><a href="#h9-1-72" id="h9-1-72" class="i">+    let t_start_vec = Vec2::new(-start_vec.y * t_factor, start_vec.x * t_factor);
+</a><a href="#h9-1-73" id="h9-1-73" class="i">+    let t_end_vec = Vec2::new(end_vec.y * t_factor, -end_vec.x * t_factor);
+</a><a href="#h9-1-74" id="h9-1-74" class="i">+
+</a><a href="#h9-1-75" id="h9-1-75" class="i">+    // Vec2を回転
+</a><a href="#h9-1-76" id="h9-1-76" class="i">+    let t_start = rotate_vec2(t_start_vec, sin_phi, cos_phi);
+</a><a href="#h9-1-77" id="h9-1-77" class="i">+    let t_end = rotate_vec2(t_end_vec, sin_phi, cos_phi);
+</a><a href="#h9-1-78" id="h9-1-78" class="i">+
+</a><a href="#h9-1-79" id="h9-1-79" class="i">+    let p1 = p0 + t_start;
+</a><a href="#h9-1-80" id="h9-1-80" class="i">+    let p2 = p3 + t_end;
+</a><a href="#h9-1-81" id="h9-1-81" class="i">+
+</a><a href="#h9-1-82" id="h9-1-82" class="i">+    path.curve_to(p1, p2, p3);
+</a><a href="#h9-1-83" id="h9-1-83" class="i">+    p3
+</a> }
+ 
+<a href="#h9-1-86" id="h9-1-86" class="i">+
+</a><a href="#h9-1-87" id="h9-1-87" class="i">+/// SVG Arcコマンドを複数のCubic Bezierセグメントに分解します。
+</a><a href="#h9-1-88" id="h9-1-88" class="i">+fn arc_to_beziers(
+</a><a href="#h9-1-89" id="h9-1-89" class="i">+    start_point: Point,
+</a><a href="#h9-1-90" id="h9-1-90" class="i">+    mut rx: f64,
+</a><a href="#h9-1-91" id="h9-1-91" class="i">+    mut ry: f64,
+</a><a href="#h9-1-92" id="h9-1-92" class="i">+    x_axis_rotation: f64,
+</a><a href="#h9-1-93" id="h9-1-93" class="i">+    large_arc_flag: bool,
+</a><a href="#h9-1-94" id="h9-1-94" class="i">+    sweep_flag: bool,
+</a><a href="#h9-1-95" id="h9-1-95" class="i">+    end_point: Point,
+</a><a href="#h9-1-96" id="h9-1-96" class="i">+    path: &amp;mut BezPath,
+</a><a href="#h9-1-97" id="h9-1-97" class="i">+) -&gt; Point {
+</a><a href="#h9-1-98" id="h9-1-98" class="i">+
+</a><a href="#h9-1-99" id="h9-1-99" class="i">+    if (rx.abs() &lt; 1e-6 || ry.abs() &lt; 1e-6) || start_point == end_point {
+</a><a href="#h9-1-100" id="h9-1-100" class="i">+        path.line_to(end_point);
+</a><a href="#h9-1-101" id="h9-1-101" class="i">+        return end_point;
+</a><a href="#h9-1-102" id="h9-1-102" class="i">+    }
+</a><a href="#h9-1-103" id="h9-1-103" class="i">+
+</a><a href="#h9-1-104" id="h9-1-104" class="i">+    rx = rx.abs();
+</a><a href="#h9-1-105" id="h9-1-105" class="i">+    ry = ry.abs();
+</a><a href="#h9-1-106" id="h9-1-106" class="i">+
+</a><a href="#h9-1-107" id="h9-1-107" class="i">+    let phi = x_axis_rotation * PI / 180.0;
+</a><a href="#h9-1-108" id="h9-1-108" class="i">+    let cos_phi = phi.cos();
+</a><a href="#h9-1-109" id="h9-1-109" class="i">+    let sin_phi = phi.sin();
+</a><a href="#h9-1-110" id="h9-1-110" class="i">+
+</a><a href="#h9-1-111" id="h9-1-111" class="i">+    // Vec2を回転し、結果も Vec2
+</a><a href="#h9-1-112" id="h9-1-112" class="i">+    let p_vec = (start_point - end_point) * 0.5;
+</a><a href="#h9-1-113" id="h9-1-113" class="i">+    let mut p_prime_vec = rotate_vec2(
+</a><a href="#h9-1-114" id="h9-1-114" class="i">+        p_vec,
+</a><a href="#h9-1-115" id="h9-1-115" class="i">+        -sin_phi, 
+</a><a href="#h9-1-116" id="h9-1-116" class="i">+        cos_phi,
+</a><a href="#h9-1-117" id="h9-1-117" class="i">+    );
+</a><a href="#h9-1-118" id="h9-1-118" class="i">+    // Pointとして使うために一時的に変換
+</a><a href="#h9-1-119" id="h9-1-119" class="i">+    let p_prime = Point::new(p_prime_vec.x, p_prime_vec.y);
+</a><a href="#h9-1-120" id="h9-1-120" class="i">+
+</a><a href="#h9-1-121" id="h9-1-121" class="i">+    let lambda = p_prime.x * p_prime.x / (rx * rx) + p_prime.y * p_prime.y / (ry * ry);
+</a><a href="#h9-1-122" id="h9-1-122" class="i">+    if lambda &gt; 1.0 {
+</a><a href="#h9-1-123" id="h9-1-123" class="i">+        let root = lambda.sqrt();
+</a><a href="#h9-1-124" id="h9-1-124" class="i">+        rx *= root;
+</a><a href="#h9-1-125" id="h9-1-125" class="i">+        ry *= root;
+</a><a href="#h9-1-126" id="h9-1-126" class="i">+    }
+</a><a href="#h9-1-127" id="h9-1-127" class="i">+
+</a><a href="#h9-1-128" id="h9-1-128" class="i">+    let rx_sq = rx * rx;
+</a><a href="#h9-1-129" id="h9-1-129" class="i">+    let ry_sq = ry * ry;
+</a><a href="#h9-1-130" id="h9-1-130" class="i">+    let x_prime_sq = p_prime.x * p_prime.x;
+</a><a href="#h9-1-131" id="h9-1-131" class="i">+    let y_prime_sq = p_prime.y * p_prime.y;
+</a><a href="#h9-1-132" id="h9-1-132" class="i">+
+</a><a href="#h9-1-133" id="h9-1-133" class="i">+    let mut center_coeff = (
+</a><a href="#h9-1-134" id="h9-1-134" class="i">+        (rx_sq * ry_sq - rx_sq * y_prime_sq - ry_sq * x_prime_sq) /
+</a><a href="#h9-1-135" id="h9-1-135" class="i">+        (rx_sq * y_prime_sq + ry_sq * x_prime_sq)
+</a><a href="#h9-1-136" id="h9-1-136" class="i">+    ).max(0.0).sqrt(); 
+</a><a href="#h9-1-137" id="h9-1-137" class="i">+
+</a><a href="#h9-1-138" id="h9-1-138" class="i">+    if large_arc_flag == sweep_flag {
+</a><a href="#h9-1-139" id="h9-1-139" class="i">+        center_coeff = -center_coeff;
+</a><a href="#h9-1-140" id="h9-1-140" class="i">+    }
+</a><a href="#h9-1-141" id="h9-1-141" class="i">+
+</a><a href="#h9-1-142" id="h9-1-142" class="i">+    let center_prime = Vec2::new( // 中心C&#39;は変位なのでVec2で表現
+</a><a href="#h9-1-143" id="h9-1-143" class="i">+        center_coeff * rx * p_prime.y / ry,
+</a><a href="#h9-1-144" id="h9-1-144" class="i">+        center_coeff * -ry * p_prime.x / rx,
+</a><a href="#h9-1-145" id="h9-1-145" class="i">+    );
+</a><a href="#h9-1-146" id="h9-1-146" class="i">+
+</a><a href="#h9-1-147" id="h9-1-147" class="i">+    // 🚨 修正: 楕円の中心 C を計算 (Vec2で計算し、Point + Vec2 で最終位置を決定)
+</a><a href="#h9-1-148" id="h9-1-148" class="i">+    let center_diff_vec = (start_point - Point::ZERO + end_point.to_vec2()) * 0.5;
+</a><a href="#h9-1-149" id="h9-1-149" class="i">+
+</a><a href="#h9-1-150" id="h9-1-150" class="i">+    let center_midpoint_vec: Vec2 = (start_point - Point::ZERO + end_point.to_vec2()) * 0.5;
+</a><a href="#h9-1-151" id="h9-1-151" class="i">+    let midpoint: Point = Point::new(center_midpoint_vec.x, center_midpoint_vec.y);
+</a><a href="#h9-1-152" id="h9-1-152" class="i">+
+</a><a href="#h9-1-153" id="h9-1-153" class="i">+    // C&#39; (Vec2) を回転
+</a><a href="#h9-1-154" id="h9-1-154" class="i">+    let center_prime_rotated = rotate_vec2(center_prime, sin_phi, cos_phi);
+</a><a href="#h9-1-155" id="h9-1-155" class="i">+
+</a><a href="#h9-1-156" id="h9-1-156" class="i">+    // 中点 (Point) + 回転変位 (Vec2) = 最終的な中心 (Point)
+</a><a href="#h9-1-157" id="h9-1-157" class="i">+    let center: Point = midpoint + center_prime_rotated;
+</a><a href="#h9-1-158" id="h9-1-158" class="i">+
+</a><a href="#h9-1-159" id="h9-1-159" class="i">+    // 7. 角度の計算
+</a><a href="#h9-1-160" id="h9-1-160" class="i">+    let to_angle = |p: Point| -&gt; f64 {
+</a><a href="#h9-1-161" id="h9-1-161" class="i">+        let mut angle = (p.y).atan2(p.x);
+</a><a href="#h9-1-162" id="h9-1-162" class="i">+        if angle &lt; 0.0 { angle += 2.0 * PI; }
+</a><a href="#h9-1-163" id="h9-1-163" class="i">+        angle
+</a><a href="#h9-1-164" id="h9-1-164" class="i">+    };
+</a><a href="#h9-1-165" id="h9-1-165" class="i">+
+</a><a href="#h9-1-166" id="h9-1-166" class="i">+    // 始点と終点の角度を計算 (Pointを使って角度を求める)
+</a><a href="#h9-1-167" id="h9-1-167" class="i">+    let start_vec_p = Point::new(
+</a><a href="#h9-1-168" id="h9-1-168" class="i">+        (p_prime.x - center_prime.x) / rx,
+</a><a href="#h9-1-169" id="h9-1-169" class="i">+        (p_prime.y - center_prime.y) / ry,
+</a><a href="#h9-1-170" id="h9-1-170" class="i">+    );
+</a><a href="#h9-1-171" id="h9-1-171" class="i">+    let mut start_angle = to_angle(start_vec_p);
+</a><a href="#h9-1-172" id="h9-1-172" class="i">+
+</a><a href="#h9-1-173" id="h9-1-173" class="i">+    let end_vec_p = Point::new(
+</a><a href="#h9-1-174" id="h9-1-174" class="i">+        (-p_prime.x - center_prime.x) / rx,
+</a><a href="#h9-1-175" id="h9-1-175" class="i">+        (-p_prime.y - center_prime.y) / ry,
+</a><a href="#h9-1-176" id="h9-1-176" class="i">+    );
+</a><a href="#h9-1-177" id="h9-1-177" class="i">+    let mut end_angle = to_angle(end_vec_p);
+</a><a href="#h9-1-178" id="h9-1-178" class="i">+
+</a><a href="#h9-1-179" id="h9-1-179" class="i">+    // 角度差の計算
+</a><a href="#h9-1-180" id="h9-1-180" class="i">+    let mut delta_angle = end_angle - start_angle;
+</a><a href="#h9-1-181" id="h9-1-181" class="i">+    if !sweep_flag &amp;&amp; delta_angle &gt; 0.0 {
+</a><a href="#h9-1-182" id="h9-1-182" class="i">+        delta_angle -= 2.0 * PI;
+</a><a href="#h9-1-183" id="h9-1-183" class="i">+    } else if sweep_flag &amp;&amp; delta_angle &lt; 0.0 {
+</a><a href="#h9-1-184" id="h9-1-184" class="i">+        delta_angle += 2.0 * PI;
+</a><a href="#h9-1-185" id="h9-1-185" class="i">+    }
+</a><a href="#h9-1-186" id="h9-1-186" class="i">+
+</a><a href="#h9-1-187" id="h9-1-187" class="i">+    let num_segments = (delta_angle.abs() / (PI / 2.0)).ceil() as i32;
+</a><a href="#h9-1-188" id="h9-1-188" class="i">+    let segment_delta = delta_angle / num_segments as f64;
+</a><a href="#h9-1-189" id="h9-1-189" class="i">+
+</a><a href="#h9-1-190" id="h9-1-190" class="i">+    let mut current_arc_angle = start_angle;
+</a><a href="#h9-1-191" id="h9-1-191" class="i">+    let mut current_p = start_point;
+</a><a href="#h9-1-192" id="h9-1-192" class="i">+
+</a><a href="#h9-1-193" id="h9-1-193" class="i">+    for _ in 0..num_segments {
+</a><a href="#h9-1-194" id="h9-1-194" class="i">+        let next_angle = current_arc_angle + segment_delta;
+</a><a href="#h9-1-195" id="h9-1-195" class="i">+
+</a><a href="#h9-1-196" id="h9-1-196" class="i">+        current_p = segment_to_cubic(
+</a><a href="#h9-1-197" id="h9-1-197" class="i">+            center,
+</a><a href="#h9-1-198" id="h9-1-198" class="i">+            Point::new(rx, ry),
+</a><a href="#h9-1-199" id="h9-1-199" class="i">+            phi,
+</a><a href="#h9-1-200" id="h9-1-200" class="i">+            current_arc_angle,
+</a><a href="#h9-1-201" id="h9-1-201" class="i">+            segment_delta,
+</a><a href="#h9-1-202" id="h9-1-202" class="i">+            path,
+</a><a href="#h9-1-203" id="h9-1-203" class="i">+            current_p,
+</a><a href="#h9-1-204" id="h9-1-204" class="i">+        );
+</a><a href="#h9-1-205" id="h9-1-205" class="i">+
+</a><a href="#h9-1-206" id="h9-1-206" class="i">+        current_arc_angle = next_angle;
+</a><a href="#h9-1-207" id="h9-1-207" class="i">+    }
+</a><a href="#h9-1-208" id="h9-1-208" class="i">+
+</a><a href="#h9-1-209" id="h9-1-209" class="i">+    end_point
+</a><a href="#h9-1-210" id="h9-1-210" class="i">+}
+</a><a href="#h9-1-211" id="h9-1-211" class="i">+
+</a><a href="#h9-1-212" id="h9-1-212" class="i">+// ... (残りの関数は変更なし) ...
+</a><a href="#h9-1-213" id="h9-1-213" class="i">+
+</a><a href="#h9-1-214" id="h9-1-214" class="i">+/// SVG Path Data (d attribute) を解析し、kurbo::BezPathに変換します。
+</a><a href="#h9-1-215" id="h9-1-215" class="i">+fn parse_svg_path_to_bezpath(path_d: &amp;str) -&gt; Option&lt;BezPath&gt; {
+</a><a href="#h9-1-216" id="h9-1-216" class="i">+    let mut path = BezPath::new();
+</a><a href="#h9-1-217" id="h9-1-217" class="i">+
+</a><a href="#h9-1-218" id="h9-1-218" class="i">+    let binding = path_d.replace(&#39;,&#39;, &quot; &quot;);
+</a><a href="#h9-1-219" id="h9-1-219" class="i">+
+</a><a href="#h9-1-220" id="h9-1-220" class="i">+    let mut tokens: Peekable&lt;SplitWhitespace&gt; = binding.split_whitespace().peekable();
+</a><a href="#h9-1-221" id="h9-1-221" class="i">+
+</a><a href="#h9-1-222" id="h9-1-222" class="i">+    let mut current_point = Point::new(0.0, 0.0);
+</a><a href="#h9-1-223" id="h9-1-223" class="i">+    let mut subpath_start = Point::new(0.0, 0.0);
+</a><a href="#h9-1-224" id="h9-1-224" class="i">+
+</a><a href="#h9-1-225" id="h9-1-225" class="i">+    let get_f64 = | tokens: &amp;mut Peekable&lt;SplitWhitespace&gt;| -&gt; Option&lt;f64&gt; {
+</a><a href="#h9-1-226" id="h9-1-226" class="i">+        tokens.next().and_then(|s| s.parse::&lt;f64&gt;().ok())
+</a><a href="#h9-1-227" id="h9-1-227" class="i">+    };
+</a><a href="#h9-1-228" id="h9-1-228" class="i">+
+</a><a href="#h9-1-229" id="h9-1-229" class="i">+    while let Some(token) = tokens.next() {
+</a><a href="#h9-1-230" id="h9-1-230" class="i">+        let command = token.to_uppercase();
+</a><a href="#h9-1-231" id="h9-1-231" class="i">+
+</a><a href="#h9-1-232" id="h9-1-232" class="i">+        match command.as_str() {
+</a><a href="#h9-1-233" id="h9-1-233" class="i">+            &quot;M&quot; =&gt; {
+</a><a href="#h9-1-234" id="h9-1-234" class="i">+                let x = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-235" id="h9-1-235" class="i">+                let y = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-236" id="h9-1-236" class="i">+                current_point = Point::new(x, y);
+</a><a href="#h9-1-237" id="h9-1-237" class="i">+                subpath_start = current_point;
+</a><a href="#h9-1-238" id="h9-1-238" class="i">+                path.move_to(current_point);
+</a><a href="#h9-1-239" id="h9-1-239" class="i">+
+</a><a href="#h9-1-240" id="h9-1-240" class="i">+                while tokens.peek().and_then(|t| t.parse::&lt;f64&gt;().ok()).is_some() {
+</a><a href="#h9-1-241" id="h9-1-241" class="i">+                    let x = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-242" id="h9-1-242" class="i">+                    let y = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-243" id="h9-1-243" class="i">+                    current_point = Point::new(x, y);
+</a><a href="#h9-1-244" id="h9-1-244" class="i">+                    path.line_to(current_point);
+</a><a href="#h9-1-245" id="h9-1-245" class="i">+                }
+</a><a href="#h9-1-246" id="h9-1-246" class="i">+            }
+</a><a href="#h9-1-247" id="h9-1-247" class="i">+            &quot;L&quot; =&gt; {
+</a><a href="#h9-1-248" id="h9-1-248" class="i">+                let x = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-249" id="h9-1-249" class="i">+                let y = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-250" id="h9-1-250" class="i">+                current_point = Point::new(x, y);
+</a><a href="#h9-1-251" id="h9-1-251" class="i">+                path.line_to(current_point);
+</a><a href="#h9-1-252" id="h9-1-252" class="i">+            }
+</a><a href="#h9-1-253" id="h9-1-253" class="i">+            &quot;C&quot; =&gt; {
+</a><a href="#h9-1-254" id="h9-1-254" class="i">+                let x1 = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-255" id="h9-1-255" class="i">+                let y1 = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-256" id="h9-1-256" class="i">+                let x2 = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-257" id="h9-1-257" class="i">+                let y2 = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-258" id="h9-1-258" class="i">+                let x = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-259" id="h9-1-259" class="i">+                let y = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-260" id="h9-1-260" class="i">+
+</a><a href="#h9-1-261" id="h9-1-261" class="i">+                let p1 = Point::new(x1, y1);
+</a><a href="#h9-1-262" id="h9-1-262" class="i">+                let p2 = Point::new(x2, y2);
+</a><a href="#h9-1-263" id="h9-1-263" class="i">+                current_point = Point::new(x, y);
+</a><a href="#h9-1-264" id="h9-1-264" class="i">+
+</a><a href="#h9-1-265" id="h9-1-265" class="i">+                path.curve_to(p1, p2, current_point);
+</a><a href="#h9-1-266" id="h9-1-266" class="i">+            }
+</a><a href="#h9-1-267" id="h9-1-267" class="i">+            &quot;A&quot; =&gt; {
+</a><a href="#h9-1-268" id="h9-1-268" class="i">+                let rx = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-269" id="h9-1-269" class="i">+                let ry = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-270" id="h9-1-270" class="i">+                let x_axis_rotation = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-271" id="h9-1-271" class="i">+                let large_arc_flag = get_f64(&amp;mut tokens)? != 0.0;
+</a><a href="#h9-1-272" id="h9-1-272" class="i">+                let sweep_flag = get_f64(&amp;mut tokens)? != 0.0;
+</a><a href="#h9-1-273" id="h9-1-273" class="i">+                let x = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-274" id="h9-1-274" class="i">+                let y = get_f64(&amp;mut tokens)?;
+</a><a href="#h9-1-275" id="h9-1-275" class="i">+                let end_point = Point::new(x, y);
+</a><a href="#h9-1-276" id="h9-1-276" class="i">+
+</a><a href="#h9-1-277" id="h9-1-277" class="i">+                // Arc to Bezier 変換ロジックを呼び出し
+</a><a href="#h9-1-278" id="h9-1-278" class="i">+                current_point = arc_to_beziers(
+</a><a href="#h9-1-279" id="h9-1-279" class="i">+                    current_point,
+</a><a href="#h9-1-280" id="h9-1-280" class="i">+                    rx,
+</a><a href="#h9-1-281" id="h9-1-281" class="i">+                    ry,
+</a><a href="#h9-1-282" id="h9-1-282" class="i">+                    x_axis_rotation,
+</a><a href="#h9-1-283" id="h9-1-283" class="i">+                    large_arc_flag,
+</a><a href="#h9-1-284" id="h9-1-284" class="i">+                    sweep_flag,
+</a><a href="#h9-1-285" id="h9-1-285" class="i">+                    end_point,
+</a><a href="#h9-1-286" id="h9-1-286" class="i">+                    &amp;mut path,
+</a><a href="#h9-1-287" id="h9-1-287" class="i">+                );
+</a><a href="#h9-1-288" id="h9-1-288" class="i">+            }
+</a><a href="#h9-1-289" id="h9-1-289" class="i">+            &quot;Z&quot; =&gt; {
+</a><a href="#h9-1-290" id="h9-1-290" class="i">+                path.close_path();
+</a><a href="#h9-1-291" id="h9-1-291" class="i">+                current_point = subpath_start;
+</a><a href="#h9-1-292" id="h9-1-292" class="i">+            }
+</a><a href="#h9-1-293" id="h9-1-293" class="i">+            _ =&gt; {
+</a><a href="#h9-1-294" id="h9-1-294" class="i">+                return None;
+</a><a href="#h9-1-295" id="h9-1-295" class="i">+            }
+</a><a href="#h9-1-296" id="h9-1-296" class="i">+        }
+</a><a href="#h9-1-297" id="h9-1-297" class="i">+    }
+</a><a href="#h9-1-298" id="h9-1-298" class="i">+    Some(path)
+</a><a href="#h9-1-299" id="h9-1-299" class="i">+}
+</a><a href="#h9-1-300" id="h9-1-300" class="i">+
+</a><a href="#h9-1-301" id="h9-1-301" class="i">+
+</a><a href="#h9-1-302" id="h9-1-302" class="i">+/**
+</a><a href="#h9-1-303" id="h9-1-303" class="i">+ * SVGパス上で指定された点に最も近い点を計算します。
+</a><a href="#h9-1-304" id="h9-1-304" class="i">+ */
+</a> #[wasm_bindgen]
+ pub fn find_nearest_point_on_path(
+<a href="#h9-1-307" id="h9-1-307" class="d">-    path_d: &amp;str,       // 背景SVGのパスデータ (d属性)
+</a><a href="#h9-1-308" id="h9-1-308" class="d">-    target_x: f64,      // ユーザー描画点のX座標
+</a><a href="#h9-1-309" id="h9-1-309" class="d">-    target_y: f64,      // ユーザー描画点のY座標
+</a><a href="#h9-1-310" id="h9-1-310" class="d">-    max_snapping_distance: f64 // 吸着距離の閾値
+</a><a href="#h9-1-311" id="h9-1-311" class="i">+    path_d: &amp;str,
+</a><a href="#h9-1-312" id="h9-1-312" class="i">+    x: f64,
+</a><a href="#h9-1-313" id="h9-1-313" class="i">+    y: f64,
+</a><a href="#h9-1-314" id="h9-1-314" class="i">+    _snapping_distance_viewbox: f64
+</a> ) -&gt; Option&lt;NearestPointResult&gt; {
+<a href="#h9-1-316" id="h9-1-316" class="d">-    
+</a><a href="#h9-1-317" id="h9-1-317" class="d">-    let target_point = (target_x, target_y);
+</a><a href="#h9-1-318" id="h9-1-318" class="d">-
+</a><a href="#h9-1-319" id="h9-1-319" class="d">-    // 1. パスのパース: 
+</a><a href="#h9-1-320" id="h9-1-320" class="d">-    //    path_d をベジェ曲線セグメントのリストに変換
+</a><a href="#h9-1-321" id="h9-1-321" class="d">-    //    let segments = svgtypes::PathParser::from(path_d).collect(); 
+</a><a href="#h9-1-322" id="h9-1-322" class="d">-
+</a><a href="#h9-1-323" id="h9-1-323" class="d">-    let mut min_distance_sq = f64::MAX;
+</a><a href="#h9-1-324" id="h9-1-324" class="d">-    let max_distance_sq = max_snapping_distance * max_snapping_distance;
+</a><a href="#h9-1-325" id="h9-1-325" class="d">-    let mut nearest_point: Option&lt;(f64, f64)&gt; = None;
+</a><a href="#h9-1-326" id="h9-1-326" class="d">-
+</a><a href="#h9-1-327" id="h9-1-327" class="d">-    // 2. 最短距離計算 (各セグメントに対して実行)
+</a><a href="#h9-1-328" id="h9-1-328" class="d">-    //    - 擬似コード: 実際にはベジェ曲線と点の最短距離を計算する幾何学的アルゴリズムが必要。
+</a><a href="#h9-1-329" id="h9-1-329" class="d">-    //    - 非常に複雑なため、ここでは単純にパスを多数の点にサンプリングして探索するアプローチを想定。
+</a><a href="#h9-1-330" id="h9-1-330" class="d">-    //
+</a><a href="#h9-1-331" id="h9-1-331" class="d">-    //    for segment in segments {
+</a><a href="#h9-1-332" id="h9-1-332" class="d">-    //        let (closest_pt_on_seg, dist_sq) = segment.find_closest_point(target_point);
+</a><a href="#h9-1-333" id="h9-1-333" class="d">-    //        if dist_sq &lt; min_distance_sq {
+</a><a href="#h9-1-334" id="h9-1-334" class="d">-    //            min_distance_sq = dist_sq;
+</a><a href="#h9-1-335" id="h9-1-335" class="d">-    //            nearest_point = Some(closest_pt_on_seg);
+</a><a href="#h9-1-336" id="h9-1-336" class="d">-    //        }
+</a><a href="#h9-1-337" id="h9-1-337" class="d">-    //    }
+</a><a href="#h9-1-338" id="h9-1-338" class="d">-
+</a><a href="#h9-1-339" id="h9-1-339" class="d">-
+</a><a href="#h9-1-340" id="h9-1-340" class="d">-    // --- 暫定的なシンプルなサンプリングロジックの代替（実際のプロダクトでは置き換えが必要） ---
+</a><a href="#h9-1-341" id="h9-1-341" class="d">-    // ここでは、ダミーの矩形パス (M100 100 L400 100 L400 400 L100 400 Z) をサンプリングした点を仮定します。
+</a><a href="#h9-1-342" id="h9-1-342" class="d">-    // このダミーは、WASMが正しく動作することを示すためのものです。
+</a><a href="#h9-1-343" id="h9-1-343" class="d">-    let dummy_edge_points = vec![
+</a><a href="#h9-1-344" id="h9-1-344" class="d">-        (100.0, 100.0), (150.0, 100.0), (200.0, 100.0), /* ... */
+</a><a href="#h9-1-345" id="h9-1-345" class="d">-    ];
+</a><a href="#h9-1-346" id="h9-1-346" class="d">-    
+</a><a href="#h9-1-347" id="h9-1-347" class="d">-    for (ex, ey) in dummy_edge_points {
+</a><a href="#h9-1-348" id="h9-1-348" class="d">-        let dx = ex - target_x;
+</a><a href="#h9-1-349" id="h9-1-349" class="d">-        let dy = ey - target_y;
+</a><a href="#h9-1-350" id="h9-1-350" class="d">-        let dist_sq = dx * dx + dy * dy;
+</a><a href="#h9-1-351" id="h9-1-351" class="d">-
+</a><a href="#h9-1-352" id="h9-1-352" class="d">-        if dist_sq &lt; min_distance_sq {
+</a><a href="#h9-1-353" id="h9-1-353" class="d">-            min_distance_sq = dist_sq;
+</a><a href="#h9-1-354" id="h9-1-354" class="d">-            nearest_point = Some((ex, ey));
+</a><a href="#h9-1-355" id="h9-1-355" class="d">-        }
+</a><a href="#h9-1-356" id="h9-1-356" class="d">-    }
+</a><a href="#h9-1-357" id="h9-1-357" class="d">-    // ---------------------------------------------------------------------------------
+</a> 
+<a href="#h9-1-359" id="h9-1-359" class="i">+    let target_point = Point::new(x, y);
+</a><a href="#h9-1-360" id="h9-1-360" class="i">+
+</a><a href="#h9-1-361" id="h9-1-361" class="i">+    let bez_path = parse_svg_path_to_bezpath(path_d)?;
+</a> 
+<a href="#h9-1-363" id="h9-1-363" class="d">-    if min_distance_sq &lt; max_distance_sq {
+</a><a href="#h9-1-364" id="h9-1-364" class="d">-        if let Some((x, y)) = nearest_point {
+</a><a href="#h9-1-365" id="h9-1-365" class="d">-            return Some(NearestPointResult::new(x, y));
+</a><a href="#h9-1-366" id="h9-1-366" class="i">+    let mut closest_point: Option&lt;Point&gt; = None;
+</a><a href="#h9-1-367" id="h9-1-367" class="i">+    let mut min_dist_sq: f64 = f64::MAX;
+</a><a href="#h9-1-368" id="h9-1-368" class="i">+
+</a><a href="#h9-1-369" id="h9-1-369" class="i">+    // PathSegのバリアントからジオメトリ型（Line, CubicBez）を抽出
+</a><a href="#h9-1-370" id="h9-1-370" class="i">+    for segment in bez_path.segments() {
+</a><a href="#h9-1-371" id="h9-1-371" class="i">+
+</a><a href="#h9-1-372" id="h9-1-372" class="i">+        let new_closest_point = match segment {
+</a><a href="#h9-1-373" id="h9-1-373" class="i">+            // Line構造体を抽出
+</a><a href="#h9-1-374" id="h9-1-374" class="i">+            PathSeg::Line(line) =&gt; {
+</a><a href="#h9-1-375" id="h9-1-375" class="i">+                // nearest_param の代わりに nearest を使用し、accuracy に 1.0 (デフォルト値) を渡す
+</a><a href="#h9-1-376" id="h9-1-376" class="i">+                let nearest_result = line.nearest(target_point, 1.0);
+</a><a href="#h9-1-377" id="h9-1-377" class="i">+                let dist_sq = nearest_result.distance_sq;
+</a><a href="#h9-1-378" id="h9-1-378" class="i">+
+</a><a href="#h9-1-379" id="h9-1-379" class="i">+                if dist_sq &lt; min_dist_sq {
+</a><a href="#h9-1-380" id="h9-1-380" class="i">+                    min_dist_sq = dist_sq;
+</a><a href="#h9-1-381" id="h9-1-381" class="i">+                    // nearest_result.point は非公開なので、eval(param) を使用する
+</a><a href="#h9-1-382" id="h9-1-382" class="i">+                    Some(line.eval(nearest_result.t)) 
+</a><a href="#h9-1-383" id="h9-1-383" class="i">+                } else {
+</a><a href="#h9-1-384" id="h9-1-384" class="i">+                    None
+</a><a href="#h9-1-385" id="h9-1-385" class="i">+                }
+</a><a href="#h9-1-386" id="h9-1-386" class="i">+            },
+</a><a href="#h9-1-387" id="h9-1-387" class="i">+            // CubicBez構造体を抽出
+</a><a href="#h9-1-388" id="h9-1-388" class="i">+            PathSeg::Cubic(cubic_bez) =&gt; {
+</a><a href="#h9-1-389" id="h9-1-389" class="i">+                let nearest_result = cubic_bez.nearest(target_point, 1.0);
+</a><a href="#h9-1-390" id="h9-1-390" class="i">+                let dist_sq = nearest_result.distance_sq;
+</a><a href="#h9-1-391" id="h9-1-391" class="i">+
+</a><a href="#h9-1-392" id="h9-1-392" class="i">+                if dist_sq &lt; min_dist_sq {
+</a><a href="#h9-1-393" id="h9-1-393" class="i">+                    min_dist_sq = dist_sq;
+</a><a href="#h9-1-394" id="h9-1-394" class="i">+                    Some(cubic_bez.eval(nearest_result.t))
+</a><a href="#h9-1-395" id="h9-1-395" class="i">+                } else {
+</a><a href="#h9-1-396" id="h9-1-396" class="i">+                    None
+</a><a href="#h9-1-397" id="h9-1-397" class="i">+                }
+</a><a href="#h9-1-398" id="h9-1-398" class="i">+            },
+</a><a href="#h9-1-399" id="h9-1-399" class="i">+            // Quad Bezier (サポート外) およびその他のバリアントはスキップ
+</a><a href="#h9-1-400" id="h9-1-400" class="i">+            _ =&gt; None,
+</a><a href="#h9-1-401" id="h9-1-401" class="i">+        };
+</a><a href="#h9-1-402" id="h9-1-402" class="i">+
+</a><a href="#h9-1-403" id="h9-1-403" class="i">+        if new_closest_point.is_some() {
+</a><a href="#h9-1-404" id="h9-1-404" class="i">+            closest_point = new_closest_point;
+</a>         }
+     }
+ 
+<a href="#h9-1-408" id="h9-1-408" class="d">-    // 吸着範囲外、または計算不能
+</a><a href="#h9-1-409" id="h9-1-409" class="d">-    None
+</a><a href="#h9-1-410" id="h9-1-410" class="i">+    // 4. 結果の返却
+</a><a href="#h9-1-411" id="h9-1-411" class="i">+    if let Some(p) = closest_point {
+</a><a href="#h9-1-412" id="h9-1-412" class="i">+        return Some(NearestPointResult { x: p.x, y: p.y });
+</a><a href="#h9-1-413" id="h9-1-413" class="i">+    } else {
+</a><a href="#h9-1-414" id="h9-1-414" class="i">+        return Some(NearestPointResult {x:500.0,y:500.0});
+</a><a href="#h9-1-415" id="h9-1-415" class="i">+    }
+</a><a href="#h9-1-416" id="h9-1-416" class="i">+
+</a><a href="#h9-1-417" id="h9-1-417" class="i">+    return Some(NearestPointResult { x: 0.0, y: 0.0 })
+</a><a href="#h9-1-418" id="h9-1-418" class="i">+}
+</a><a href="#h9-1-419" id="h9-1-419" class="i">+
+</a><a href="#h9-1-420" id="h9-1-420" class="i">+// WASMの初期化関数 (必須)
+</a><a href="#h9-1-421" id="h9-1-421" class="i">+#[wasm_bindgen(start)]
+</a><a href="#h9-1-422" id="h9-1-422" class="i">+pub fn main_js() -&gt; Result&lt;(), JsValue&gt; {
+</a><a href="#h9-1-423" id="h9-1-423" class="i">+    Ok(())
+</a> }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Move hasData check to default installation check only (#3302) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/bea26bae8b5c983238139189d91ee3ebe4d5d268.html">bea26bae8b5c983238139189d91ee3ebe4d5d268</a>
+<b>parent</b> <a href="../commit/43fc40e7e065dda4d982ba316f92c44d311ff7a7.html">43fc40e7e065dda4d982ba316f92c44d311ff7a7</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Fri,  2 Jun 2023 18:35:34 -0700
+
+Move hasData check to default installation check only (#3302)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Argument.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a></td><td> | </td><td class="num">7</td><td><span class="i">++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/PackageInstalledStatus.cpp</a></td><td> | </td><td class="num">139</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------------------------</span></td></tr>
+</table></pre><pre>3 files changed, 71 insertions(+), 77 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Argument.cpp.html">src/AppInstallerCLICore/Argument.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Argument.cpp.html">src/AppInstallerCLICore/Argument.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -148,7 +148,7 @@ namespace AppInstaller::CLI
+</a>         case Execution::Args::Type::All:
+             return { type, &quot;all&quot;_liv, &#39;r&#39;, &quot;recurse&quot;_liv, ArgTypeCategory::MultiplePackages };
+         case Execution::Args::Type::IncludeUnknown:
+<a href="#h0-0-3" id="h0-0-3" class="d">-            return { type, &quot;include-unknown&quot;_liv, &#39;u&#39;, &quot;unknown&quot;_liv };
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            return { type, &quot;include-unknown&quot;_liv, &#39;u&#39;, &quot;unknown&quot;_liv, ArgTypeCategory::CopyFlagToSubContext };
+</a>         case Execution::Args::Type::IncludePinned:
+             return { type, &quot;include-pinned&quot;_liv, &quot;pinned&quot;_liv, ArgTypeCategory::CopyFlagToSubContext };
+         case Execution::Args::Type::UninstallPrevious:
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/UpdateFlow.cpp.html">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/UpdateFlow.cpp.html">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -218,11 +218,8 @@ namespace AppInstaller::CLI::Workflow
+</a>             updateContext.Add&lt;Execution::Data::Package&gt;(match.Package);
+ 
+             // Filter out packages with unknown installed versions
+<a href="#h1-0-3" id="h1-0-3" class="d">-            if (context.Args.Contains(Execution::Args::Type::IncludeUnknown))
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-            {
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-                updateContext.Args.AddArg(Execution::Args::Type::IncludeUnknown);
+</a><a href="#h1-0-6" id="h1-0-6" class="d">-            }
+</a><a href="#h1-0-7" id="h1-0-7" class="d">-            else if (Utility::Version(installedVersion-&gt;GetProperty(PackageVersionProperty::Version)).IsUnknown())
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+            if (Utility::Version(installedVersion-&gt;GetProperty(PackageVersionProperty::Version)).IsUnknown() &amp;&amp;
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+                !context.Args.Contains(Execution::Args::Type::IncludeUnknown))
+</a>             {
+                 // we don&#39;t know what the package&#39;s version is and the user didn&#39;t ask to upgrade it anyway.
+                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Skipping &quot; &lt;&lt; match.Package-&gt;GetProperty(PackageProperty::Id) &lt;&lt; &quot; as it has unknown installed version&quot;);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/PackageInstalledStatus.cpp.html">src/AppInstallerRepositoryCore/PackageInstalledStatus.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/PackageInstalledStatus.cpp.html">src/AppInstallerRepositoryCore/PackageInstalledStatus.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -146,93 +146,90 @@ namespace AppInstaller::Repository
+</a>             auto manifest = availableVersion-&gt;GetManifest();
+             for (auto const&amp; installer : manifest.Installers)
+             {
+<a href="#h2-0-3" id="h2-0-3" class="d">-                if (installer.InstallationMetadata.HasData())
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+                InstallerInstalledStatus installerStatus;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+                installerStatus.Installer = installer;
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+                // ARP related checks
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+                if (WI_IsAnyFlagSet(checkTypes, InstalledStatusType::AllAppsAndFeaturesEntryChecks))
+</a>                 {
+<a href="#h2-0-10" id="h2-0-10" class="d">-                    InstallerInstalledStatus installerStatus;
+</a><a href="#h2-0-11" id="h2-0-11" class="d">-                    installerStatus.Installer = installer;
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+                    bool isMatchingInstaller =
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+                        installedVersion &amp;&amp;
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+                        IsInstallerTypeCompatible(installedType, installer.EffectiveInstallerType()) &amp;&amp;
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+                        (installedScope == ScopeEnum::Unknown || installer.Scope == ScopeEnum::Unknown || installedScope == installer.Scope) &amp;&amp;  // Treat unknown scope as compatible
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+                        (installedArchitecture == Utility::Architecture::Unknown || installer.Arch == Utility::Architecture::Neutral || installedArchitecture == installer.Arch) &amp;&amp;  // Treat unknown installed architecture as compatible
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+                        (installedLocale.empty() || installer.Locale.empty() || !Locale::IsWellFormedBcp47Tag(installedLocale) || Locale::GetDistanceOfLanguage(installedLocale, installer.Locale) &gt;= Locale::MinimumDistanceScoreAsCompatibleMatch);  // Treat invalid locale as compatible
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+                    // ARP entry status
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+                    if (WI_IsFlagSet(checkTypes, InstalledStatusType::AppsAndFeaturesEntry))
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+                    {
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+                        installerStatus.Status.emplace_back(
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+                            InstalledStatusType::AppsAndFeaturesEntry,
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+                            &quot;&quot;,
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+                            isMatchingInstaller ? WINGET_INSTALLED_STATUS_ARP_ENTRY_FOUND : WINGET_INSTALLED_STATUS_ARP_ENTRY_NOT_FOUND);
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+                    }
+</a> 
+<a href="#h2-0-28" id="h2-0-28" class="d">-                    // ARP related checks
+</a><a href="#h2-0-29" id="h2-0-29" class="d">-                    if (WI_IsAnyFlagSet(checkTypes, InstalledStatusType::AllAppsAndFeaturesEntryChecks))
+</a><a href="#h2-0-30" id="h2-0-30" class="i">+                    // ARP install location status
+</a><a href="#h2-0-31" id="h2-0-31" class="i">+                    if (isMatchingInstaller &amp;&amp; WI_IsFlagSet(checkTypes, InstalledStatusType::AppsAndFeaturesEntryInstallLocation))
+</a>                     {
+<a href="#h2-0-33" id="h2-0-33" class="d">-                        bool isMatchingInstaller =
+</a><a href="#h2-0-34" id="h2-0-34" class="d">-                            installedVersion &amp;&amp;
+</a><a href="#h2-0-35" id="h2-0-35" class="d">-                            IsInstallerTypeCompatible(installedType, installer.EffectiveInstallerType()) &amp;&amp;
+</a><a href="#h2-0-36" id="h2-0-36" class="d">-                            (installedScope == ScopeEnum::Unknown || installer.Scope == ScopeEnum::Unknown || installedScope == installer.Scope) &amp;&amp;  // Treat unknown scope as compatible
+</a><a href="#h2-0-37" id="h2-0-37" class="d">-                            (installedArchitecture == Utility::Architecture::Unknown || installer.Arch == Utility::Architecture::Neutral || installedArchitecture == installer.Arch) &amp;&amp;  // Treat unknown installed architecture as compatible
+</a><a href="#h2-0-38" id="h2-0-38" class="d">-                            (installedLocale.empty() || installer.Locale.empty() || !Locale::IsWellFormedBcp47Tag(installedLocale) || Locale::GetDistanceOfLanguage(installedLocale, installer.Locale) &gt;= Locale::MinimumDistanceScoreAsCompatibleMatch);  // Treat invalid locale as compatible
+</a><a href="#h2-0-39" id="h2-0-39" class="d">-
+</a><a href="#h2-0-40" id="h2-0-40" class="d">-                        // ARP entry status
+</a><a href="#h2-0-41" id="h2-0-41" class="d">-                        if (WI_IsFlagSet(checkTypes, InstalledStatusType::AppsAndFeaturesEntry))
+</a><a href="#h2-0-42" id="h2-0-42" class="d">-                        {
+</a><a href="#h2-0-43" id="h2-0-43" class="d">-                            installerStatus.Status.emplace_back(
+</a><a href="#h2-0-44" id="h2-0-44" class="d">-                                InstalledStatusType::AppsAndFeaturesEntry,
+</a><a href="#h2-0-45" id="h2-0-45" class="d">-                                &quot;&quot;,
+</a><a href="#h2-0-46" id="h2-0-46" class="d">-                                isMatchingInstaller ? WINGET_INSTALLED_STATUS_ARP_ENTRY_FOUND : WINGET_INSTALLED_STATUS_ARP_ENTRY_NOT_FOUND);
+</a><a href="#h2-0-47" id="h2-0-47" class="d">-                        }
+</a><a href="#h2-0-48" id="h2-0-48" class="i">+                        installerStatus.Status.emplace_back(
+</a><a href="#h2-0-49" id="h2-0-49" class="i">+                            InstalledStatusType::AppsAndFeaturesEntryInstallLocation,
+</a><a href="#h2-0-50" id="h2-0-50" class="i">+                            installedLocation.u8string(),
+</a><a href="#h2-0-51" id="h2-0-51" class="i">+                            installedLocationStatus);
+</a><a href="#h2-0-52" id="h2-0-52" class="i">+                    }
+</a> 
+<a href="#h2-0-54" id="h2-0-54" class="d">-                        // ARP install location status
+</a><a href="#h2-0-55" id="h2-0-55" class="d">-                        if (isMatchingInstaller &amp;&amp; WI_IsFlagSet(checkTypes, InstalledStatusType::AppsAndFeaturesEntryInstallLocation))
+</a><a href="#h2-0-56" id="h2-0-56" class="i">+                    // ARP install location files
+</a><a href="#h2-0-57" id="h2-0-57" class="i">+                    if (isMatchingInstaller &amp;&amp;
+</a><a href="#h2-0-58" id="h2-0-58" class="i">+                        installedLocationStatus == WINGET_INSTALLED_STATUS_INSTALL_LOCATION_FOUND &amp;&amp;
+</a><a href="#h2-0-59" id="h2-0-59" class="i">+                        WI_IsFlagSet(checkTypes, InstalledStatusType::AppsAndFeaturesEntryInstallLocationFile))
+</a><a href="#h2-0-60" id="h2-0-60" class="i">+                    {
+</a><a href="#h2-0-61" id="h2-0-61" class="i">+                        for (auto const&amp; file : installer.InstallationMetadata.Files)
+</a>                         {
+<a href="#h2-0-63" id="h2-0-63" class="d">-                            installerStatus.Status.emplace_back(
+</a><a href="#h2-0-64" id="h2-0-64" class="d">-                                InstalledStatusType::AppsAndFeaturesEntryInstallLocation,
+</a><a href="#h2-0-65" id="h2-0-65" class="d">-                                installedLocation.u8string(),
+</a><a href="#h2-0-66" id="h2-0-66" class="d">-                                installedLocationStatus);
+</a><a href="#h2-0-67" id="h2-0-67" class="d">-                        }
+</a><a href="#h2-0-68" id="h2-0-68" class="i">+                            std::filesystem::path filePath = installedLocation / Utility::ConvertToUTF16(file.RelativeFilePath);
+</a><a href="#h2-0-69" id="h2-0-69" class="i">+                            auto fileStatus = CheckInstalledFileStatus(filePath, checkFileHash ? file.FileSha256 : Utility::SHA256::HashBuffer{}, fileHashes);
+</a> 
+<a href="#h2-0-71" id="h2-0-71" class="d">-                        // ARP install location files
+</a><a href="#h2-0-72" id="h2-0-72" class="d">-                        if (isMatchingInstaller &amp;&amp;
+</a><a href="#h2-0-73" id="h2-0-73" class="d">-                            installedLocationStatus == WINGET_INSTALLED_STATUS_INSTALL_LOCATION_FOUND &amp;&amp;
+</a><a href="#h2-0-74" id="h2-0-74" class="d">-                            WI_IsFlagSet(checkTypes, InstalledStatusType::AppsAndFeaturesEntryInstallLocationFile))
+</a><a href="#h2-0-75" id="h2-0-75" class="d">-                        {
+</a><a href="#h2-0-76" id="h2-0-76" class="d">-                            for (auto const&amp; file : installer.InstallationMetadata.Files)
+</a><a href="#h2-0-77" id="h2-0-77" class="d">-                            {
+</a><a href="#h2-0-78" id="h2-0-78" class="d">-                                std::filesystem::path filePath = installedLocation / Utility::ConvertToUTF16(file.RelativeFilePath);
+</a><a href="#h2-0-79" id="h2-0-79" class="d">-                                auto fileStatus = CheckInstalledFileStatus(filePath, checkFileHash ? file.FileSha256 : Utility::SHA256::HashBuffer{}, fileHashes);
+</a><a href="#h2-0-80" id="h2-0-80" class="d">-
+</a><a href="#h2-0-81" id="h2-0-81" class="d">-                                installerStatus.Status.emplace_back(
+</a><a href="#h2-0-82" id="h2-0-82" class="d">-                                    InstalledStatusType::AppsAndFeaturesEntryInstallLocationFile,
+</a><a href="#h2-0-83" id="h2-0-83" class="d">-                                    filePath.u8string(),
+</a><a href="#h2-0-84" id="h2-0-84" class="d">-                                    fileStatus);
+</a><a href="#h2-0-85" id="h2-0-85" class="d">-                            }
+</a><a href="#h2-0-86" id="h2-0-86" class="i">+                            installerStatus.Status.emplace_back(
+</a><a href="#h2-0-87" id="h2-0-87" class="i">+                                InstalledStatusType::AppsAndFeaturesEntryInstallLocationFile,
+</a><a href="#h2-0-88" id="h2-0-88" class="i">+                                filePath.u8string(),
+</a><a href="#h2-0-89" id="h2-0-89" class="i">+                                fileStatus);
+</a>                         }
+                     }
+<a href="#h2-0-92" id="h2-0-92" class="i">+                }
+</a> 
+<a href="#h2-0-94" id="h2-0-94" class="d">-                    // Default install location related checks
+</a><a href="#h2-0-95" id="h2-0-95" class="d">-                    if (WI_IsAnyFlagSet(checkTypes, InstalledStatusType::AllDefaultInstallLocationChecks))
+</a><a href="#h2-0-96" id="h2-0-96" class="i">+                // Default install location related checks
+</a><a href="#h2-0-97" id="h2-0-97" class="i">+                if (WI_IsAnyFlagSet(checkTypes, InstalledStatusType::AllDefaultInstallLocationChecks) &amp;&amp; installer.InstallationMetadata.HasData())
+</a><a href="#h2-0-98" id="h2-0-98" class="i">+                {
+</a><a href="#h2-0-99" id="h2-0-99" class="i">+                    auto defaultInstalledLocation = Filesystem::GetExpandedPath(installer.InstallationMetadata.DefaultInstallLocation);
+</a><a href="#h2-0-100" id="h2-0-100" class="i">+                    HRESULT defaultInstalledLocationStatus = CheckInstalledLocationStatus(defaultInstalledLocation);
+</a><a href="#h2-0-101" id="h2-0-101" class="i">+
+</a><a href="#h2-0-102" id="h2-0-102" class="i">+                    // Default install location status
+</a><a href="#h2-0-103" id="h2-0-103" class="i">+                    if (WI_IsFlagSet(checkTypes, InstalledStatusType::DefaultInstallLocation))
+</a>                     {
+<a href="#h2-0-105" id="h2-0-105" class="d">-                        auto defaultInstalledLocation = Filesystem::GetExpandedPath(installer.InstallationMetadata.DefaultInstallLocation);
+</a><a href="#h2-0-106" id="h2-0-106" class="d">-                        HRESULT defaultInstalledLocationStatus = CheckInstalledLocationStatus(defaultInstalledLocation);
+</a><a href="#h2-0-107" id="h2-0-107" class="i">+                        installerStatus.Status.emplace_back(
+</a><a href="#h2-0-108" id="h2-0-108" class="i">+                            InstalledStatusType::DefaultInstallLocation,
+</a><a href="#h2-0-109" id="h2-0-109" class="i">+                            defaultInstalledLocation.u8string(),
+</a><a href="#h2-0-110" id="h2-0-110" class="i">+                            defaultInstalledLocationStatus);
+</a><a href="#h2-0-111" id="h2-0-111" class="i">+                    }
+</a> 
+<a href="#h2-0-113" id="h2-0-113" class="d">-                        // Default install location status
+</a><a href="#h2-0-114" id="h2-0-114" class="d">-                        if (WI_IsFlagSet(checkTypes, InstalledStatusType::DefaultInstallLocation))
+</a><a href="#h2-0-115" id="h2-0-115" class="i">+                    // Default install location files
+</a><a href="#h2-0-116" id="h2-0-116" class="i">+                    if (defaultInstalledLocationStatus == WINGET_INSTALLED_STATUS_INSTALL_LOCATION_FOUND &amp;&amp;
+</a><a href="#h2-0-117" id="h2-0-117" class="i">+                        WI_IsFlagSet(checkTypes, InstalledStatusType::DefaultInstallLocationFile))
+</a><a href="#h2-0-118" id="h2-0-118" class="i">+                    {
+</a><a href="#h2-0-119" id="h2-0-119" class="i">+                        for (auto const&amp; file : installer.InstallationMetadata.Files)
+</a>                         {
+<a href="#h2-0-121" id="h2-0-121" class="d">-                            installerStatus.Status.emplace_back(
+</a><a href="#h2-0-122" id="h2-0-122" class="d">-                                InstalledStatusType::DefaultInstallLocation,
+</a><a href="#h2-0-123" id="h2-0-123" class="d">-                                defaultInstalledLocation.u8string(),
+</a><a href="#h2-0-124" id="h2-0-124" class="d">-                                defaultInstalledLocationStatus);
+</a><a href="#h2-0-125" id="h2-0-125" class="d">-                        }
+</a><a href="#h2-0-126" id="h2-0-126" class="i">+                            std::filesystem::path filePath = defaultInstalledLocation / Utility::ConvertToUTF16(file.RelativeFilePath);
+</a><a href="#h2-0-127" id="h2-0-127" class="i">+                            auto fileStatus = CheckInstalledFileStatus(filePath, checkFileHash ? file.FileSha256 : Utility::SHA256::HashBuffer{}, fileHashes);
+</a> 
+<a href="#h2-0-129" id="h2-0-129" class="d">-                        // Default install location files
+</a><a href="#h2-0-130" id="h2-0-130" class="d">-                        if (defaultInstalledLocationStatus == WINGET_INSTALLED_STATUS_INSTALL_LOCATION_FOUND &amp;&amp;
+</a><a href="#h2-0-131" id="h2-0-131" class="d">-                            WI_IsFlagSet(checkTypes, InstalledStatusType::DefaultInstallLocationFile))
+</a><a href="#h2-0-132" id="h2-0-132" class="d">-                        {
+</a><a href="#h2-0-133" id="h2-0-133" class="d">-                            for (auto const&amp; file : installer.InstallationMetadata.Files)
+</a><a href="#h2-0-134" id="h2-0-134" class="d">-                            {
+</a><a href="#h2-0-135" id="h2-0-135" class="d">-                                std::filesystem::path filePath = defaultInstalledLocation / Utility::ConvertToUTF16(file.RelativeFilePath);
+</a><a href="#h2-0-136" id="h2-0-136" class="d">-                                auto fileStatus = CheckInstalledFileStatus(filePath, checkFileHash ? file.FileSha256 : Utility::SHA256::HashBuffer{}, fileHashes);
+</a><a href="#h2-0-137" id="h2-0-137" class="d">-
+</a><a href="#h2-0-138" id="h2-0-138" class="d">-                                installerStatus.Status.emplace_back(
+</a><a href="#h2-0-139" id="h2-0-139" class="d">-                                    InstalledStatusType::DefaultInstallLocationFile,
+</a><a href="#h2-0-140" id="h2-0-140" class="d">-                                    filePath.u8string(),
+</a><a href="#h2-0-141" id="h2-0-141" class="d">-                                    fileStatus);
+</a><a href="#h2-0-142" id="h2-0-142" class="d">-                            }
+</a><a href="#h2-0-143" id="h2-0-143" class="i">+                            installerStatus.Status.emplace_back(
+</a><a href="#h2-0-144" id="h2-0-144" class="i">+                                InstalledStatusType::DefaultInstallLocationFile,
+</a><a href="#h2-0-145" id="h2-0-145" class="i">+                                filePath.u8string(),
+</a><a href="#h2-0-146" id="h2-0-146" class="i">+                                fileStatus);
+</a>                         }
+                     }
+<a href="#h2-0-149" id="h2-0-149" class="i">+                }
+</a> 
+<a href="#h2-0-151" id="h2-0-151" class="d">-                    if (!installerStatus.Status.empty())
+</a><a href="#h2-0-152" id="h2-0-152" class="d">-                    {
+</a><a href="#h2-0-153" id="h2-0-153" class="d">-                        result.emplace_back(std::move(installerStatus));
+</a><a href="#h2-0-154" id="h2-0-154" class="d">-                    }
+</a><a href="#h2-0-155" id="h2-0-155" class="i">+                if (!installerStatus.Status.empty())
+</a><a href="#h2-0-156" id="h2-0-156" class="i">+                {
+</a><a href="#h2-0-157" id="h2-0-157" class="i">+                    result.emplace_back(std::move(installerStatus));
+</a>                 }
+             }
+ 
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Better handling of min version merging in DependencyList (#4987) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/03df8247284d8b74aabe810871e6da9e0f5dbc5f.html">03df8247284d8b74aabe810871e6da9e0f5dbc5f</a>
+<b>parent</b> <a href="../commit/5645e0cd4def124ce717f1532f1a216564b951e1.html">5645e0cd4def124ce717f1532f1a216564b951e1</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 19 Nov 2024 11:25:43 -0800
+
+Better handling of min version merging in DependencyList (#4987)
+
+Likely fix for #4972
+
+## Change
+Use `std::optional` overloaded operator to handle all of the comparisons
+in `DependencyList::Add`. The operator already properly handles all of
+the cases, including treating `std::nullopt` as always less than a
+defined value.
+
+Also optimize a few other places around a reference to `MinVersion`.
+
+## Validation
+Added a unit test covering the cases where `Add` needs to merge the
+minimum version value.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/Dependencies.cpp</a></td><td> | </td><td class="num">63</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCommonCore/Manifest/ManifestCommon.cpp</a></td><td> | </td><td class="num">23</td><td><span class="i">++++++</span><span class="d">-----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Public/winget/ManifestCommon.h</a></td><td> | </td><td class="num">8</td><td><span class="i">++++</span><span class="d">----</span></td></tr>
+</table></pre><pre>3 files changed, 73 insertions(+), 21 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/Dependencies.cpp.html">src/AppInstallerCLITests/Dependencies.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Dependencies.cpp.html">src/AppInstallerCLITests/Dependencies.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -209,3 +209,66 @@ TEST_CASE(&quot;DependencyNodeProcessor_NoMatches&quot;, &quot;[dependencies]&quot;)
+</a>     REQUIRE(installOutput.str().find(Resource::LocString(Resource::String::DependenciesFlowNoMatches)) != std::string::npos);
+     REQUIRE(result == DependencyNodeProcessorResult::Error);
+ }
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+TEST_CASE(&quot;DependencyList_Add_MinVersion&quot;, &quot;[dependencies]&quot;)
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+{
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+    DependencyType type = DependencyType::Package;
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+    std::string identifier = &quot;Identifier&quot;;
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+    DependencyList list;
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+    Dependency dependencyWithoutMinVersion{ type, identifier };
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+    Dependency dependencyWithLowerMinVersion{ type, identifier, &quot;1.0&quot; };
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+    Dependency dependencyWithHigherMinVersion{ type, identifier, &quot;3.0&quot; };
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+    Dependency dependencyToAdd{ type, identifier, &quot;2.0&quot; };
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+    SECTION(&quot;Existing dependency has no min version, added does&quot;)
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+    {
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+        list.Add(dependencyWithoutMinVersion);
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+        list.Add(dependencyToAdd);
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+        const Dependency* dependency = list.HasDependency(dependencyToAdd);
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+        REQUIRE(dependency != nullptr);
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+        REQUIRE(dependency-&gt;MinVersion.has_value());
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+        REQUIRE(dependency-&gt;MinVersion == dependencyToAdd.MinVersion);
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+    }
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+    SECTION(&quot;Existing dependency has lower min version&quot;)
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+    {
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+        list.Add(dependencyWithLowerMinVersion);
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+        list.Add(dependencyToAdd);
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+        const Dependency* dependency = list.HasDependency(dependencyToAdd);
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+        REQUIRE(dependency != nullptr);
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+        REQUIRE(dependency-&gt;MinVersion.has_value());
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+        REQUIRE(dependency-&gt;MinVersion == dependencyToAdd.MinVersion);
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+    }
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+    SECTION(&quot;Existing dependency has higher min version&quot;)
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+    {
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+        list.Add(dependencyWithHigherMinVersion);
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+        list.Add(dependencyToAdd);
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+        const Dependency* dependency = list.HasDependency(dependencyToAdd);
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+        REQUIRE(dependency != nullptr);
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+        REQUIRE(dependency-&gt;MinVersion.has_value());
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+        REQUIRE(dependency-&gt;MinVersion == dependencyWithHigherMinVersion.MinVersion);
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+    }
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+    SECTION(&quot;Existing dependency has no min version, neither does added&quot;)
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+    {
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+        list.Add(dependencyWithoutMinVersion);
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+        list.Add(dependencyWithoutMinVersion);
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+        const Dependency* dependency = list.HasDependency(dependencyToAdd);
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+        REQUIRE(dependency != nullptr);
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+        REQUIRE(!dependency-&gt;MinVersion.has_value());
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+    }
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+    SECTION(&quot;Existing dependency has min version, added does not&quot;)
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+    {
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+        list.Add(dependencyWithHigherMinVersion);
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+        list.Add(dependencyWithoutMinVersion);
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+        const Dependency* dependency = list.HasDependency(dependencyToAdd);
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+        REQUIRE(dependency != nullptr);
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+        REQUIRE(dependency-&gt;MinVersion.has_value());
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+        REQUIRE(dependency-&gt;MinVersion == dependencyWithHigherMinVersion.MinVersion);
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+    }
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+}
+</a><b>diff --git a/<a id="h1" href="../file/src/AppInstallerCommonCore/Manifest/ManifestCommon.cpp.html">src/AppInstallerCommonCore/Manifest/ManifestCommon.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Manifest/ManifestCommon.cpp.html">src/AppInstallerCommonCore/Manifest/ManifestCommon.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1113,22 +1113,11 @@ namespace AppInstaller::Manifest
+</a>     {
+         Dependency* existingDependency = this-&gt;HasDependency(newDependency);
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        if (existingDependency != NULL) {
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-            if (newDependency.MinVersion)
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        if (existingDependency != NULL)
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        {
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+            if (newDependency.MinVersion &gt; existingDependency-&gt;MinVersion)
+</a>             {
+<a href="#h1-0-9" id="h1-0-9" class="d">-                if (existingDependency-&gt;MinVersion)
+</a><a href="#h1-0-10" id="h1-0-10" class="d">-                {
+</a><a href="#h1-0-11" id="h1-0-11" class="d">-                    const auto&amp; newDependencyVersion = Utility::Version(newDependency.MinVersion.value());
+</a><a href="#h1-0-12" id="h1-0-12" class="d">-                    const auto&amp; existingDependencyVersion = Utility::Version(existingDependency-&gt;MinVersion.value());
+</a><a href="#h1-0-13" id="h1-0-13" class="d">-                    if (newDependencyVersion &gt; existingDependencyVersion)
+</a><a href="#h1-0-14" id="h1-0-14" class="d">-                    {
+</a><a href="#h1-0-15" id="h1-0-15" class="d">-                        existingDependency-&gt;MinVersion.value() = newDependencyVersion.ToString();
+</a><a href="#h1-0-16" id="h1-0-16" class="d">-                    }
+</a><a href="#h1-0-17" id="h1-0-17" class="d">-                }
+</a><a href="#h1-0-18" id="h1-0-18" class="d">-                else
+</a><a href="#h1-0-19" id="h1-0-19" class="d">-                {
+</a><a href="#h1-0-20" id="h1-0-20" class="d">-                    existingDependency-&gt;MinVersion.value() = newDependency.MinVersion.value();
+</a><a href="#h1-0-21" id="h1-0-21" class="d">-                }
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+                existingDependency-&gt;MinVersion = newDependency.MinVersion;
+</a>             }
+         }
+         else
+<a href="#h1-1" id="h1-1" class="h">@@ -1168,7 +1157,7 @@ namespace AppInstaller::Manifest
+</a>     }
+ 
+     // for testing purposes
+<a href="#h1-1-3" id="h1-1-3" class="d">-    bool DependencyList::HasExactDependency(DependencyType type, string_t id, string_t minVersion)
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+    bool DependencyList::HasExactDependency(DependencyType type, const string_t&amp; id, const string_t&amp; minVersion)
+</a>     {
+         for (const auto&amp; dependency : m_dependencies)
+         {
+<a href="#h1-2" id="h1-2" class="h">@@ -1176,7 +1165,7 @@ namespace AppInstaller::Manifest
+</a>             {
+                 if (!minVersion.empty())
+                 {
+<a href="#h1-2-3" id="h1-2-3" class="d">-                    return dependency.MinVersion.has_value() &amp;&amp; dependency.MinVersion.value() == Utility::Version{ minVersion };
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+                    return dependency.MinVersion == Utility::Version{ minVersion };
+</a>                 }
+                 else
+                 {
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Public/winget/ManifestCommon.h.html">src/AppInstallerCommonCore/Public/winget/ManifestCommon.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/ManifestCommon.h.html">src/AppInstallerCommonCore/Public/winget/ManifestCommon.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -271,7 +271,7 @@ namespace AppInstaller::Manifest
+</a>         const string_t&amp; Id() const { return m_id; };
+         std::optional&lt;Utility::Version&gt; MinVersion;
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-        Dependency(DependencyType type, string_t id, string_t minVersion) : Type(type), m_id(std::move(id)), MinVersion(Utility::Version(minVersion)), m_foldedId(FoldCase(m_id)) {}
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        Dependency(DependencyType type, string_t id, string_t minVersion) : Type(type), m_id(std::move(id)), MinVersion(Utility::Version(std::move(minVersion))), m_foldedId(FoldCase(m_id)) {}
+</a>         Dependency(DependencyType type, string_t id) : Type(type), m_id(std::move(id)), m_foldedId(FoldCase(m_id)){}
+         Dependency(DependencyType type) : Type(type) {}
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -285,9 +285,9 @@ namespace AppInstaller::Manifest
+</a>             return m_foldedId &lt; rhs.m_foldedId;
+         }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-        bool IsVersionOk(Utility::Version version)
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        bool IsVersionOk(const Utility::Version&amp; version)
+</a>         {
+<a href="#h2-1-6" id="h2-1-6" class="d">-            return MinVersion &lt;= Utility::Version(version);
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+            return MinVersion &lt;= version;
+</a>         }
+ 
+         // m_foldedId should be set whenever Id is set
+<a href="#h2-2" id="h2-2" class="h">@@ -313,7 +313,7 @@ namespace AppInstaller::Manifest
+</a>         void ApplyToAll(std::function&lt;void(const Dependency&amp;)&gt; func) const;
+         bool Empty() const;
+         void Clear();
+<a href="#h2-2-3" id="h2-2-3" class="d">-        bool HasExactDependency(DependencyType type, string_t id, string_t minVersion = &quot;&quot;);
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+        bool HasExactDependency(DependencyType type, const string_t&amp; id, const string_t&amp; minVersion = &quot;&quot;);
+</a>         size_t Size();
+ 
+     private:
+</pre>
+</div>
+</body>
+</html>

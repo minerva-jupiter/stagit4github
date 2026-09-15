@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Command.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> Command.cpp (43311B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;Command.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;Resources.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Sixel.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;winget/UserSettings.h&gt;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;AppInstallerRuntime.h&gt;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;winget/Locale.h&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;winget/Reboot.h&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;winget/Authentication.h&gt;
+<a href="#l12" class="line" id="l12">     12</a> 
+<a href="#l13" class="line" id="l13">     13</a> using namespace std::string_view_literals;
+<a href="#l14" class="line" id="l14">     14</a> using namespace AppInstaller::Utility::literals;
+<a href="#l15" class="line" id="l15">     15</a> using namespace AppInstaller::Settings;
+<a href="#l16" class="line" id="l16">     16</a> 
+<a href="#l17" class="line" id="l17">     17</a> namespace AppInstaller::CLI
+<a href="#l18" class="line" id="l18">     18</a> {
+<a href="#l19" class="line" id="l19">     19</a>     namespace
+<a href="#l20" class="line" id="l20">     20</a>     {
+<a href="#l21" class="line" id="l21">     21</a>         constexpr Utility::LocIndView s_Command_ArgName_SilentAndInteractive = &quot;silent|interactive&quot;_liv;
+<a href="#l22" class="line" id="l22">     22</a> 
+<a href="#l23" class="line" id="l23">     23</a>         void LaunchLogsIfRequested(Execution::Context&amp; context)
+<a href="#l24" class="line" id="l24">     24</a>         {
+<a href="#l25" class="line" id="l25">     25</a>             try
+<a href="#l26" class="line" id="l26">     26</a>             {
+<a href="#l27" class="line" id="l27">     27</a>                 if (context.Args.Contains(Execution::Args::Type::OpenLogs))
+<a href="#l28" class="line" id="l28">     28</a>                 {
+<a href="#l29" class="line" id="l29">     29</a>                     // TODO: Consider possibly adding functionality that if the context contains &#39;Execution::Args::Type::Log&#39; to open the path provided for the log
+<a href="#l30" class="line" id="l30">     30</a>                     // The above was omitted initially as a security precaution to ensure that user input to &#39;--log&#39; wouldn&#39;t be passed directly to ShellExecute
+<a href="#l31" class="line" id="l31">     31</a>                     ShellExecute(NULL, NULL, Runtime::GetPathTo(Runtime::PathName::DefaultLogLocation).wstring().c_str(), NULL, NULL, SW_SHOWNORMAL);
+<a href="#l32" class="line" id="l32">     32</a>                 }
+<a href="#l33" class="line" id="l33">     33</a>             }
+<a href="#l34" class="line" id="l34">     34</a>             CATCH_LOG();
+<a href="#l35" class="line" id="l35">     35</a>         }
+<a href="#l36" class="line" id="l36">     36</a>     }
+<a href="#l37" class="line" id="l37">     37</a> 
+<a href="#l38" class="line" id="l38">     38</a>     Command::Command(
+<a href="#l39" class="line" id="l39">     39</a>         std::string_view name,
+<a href="#l40" class="line" id="l40">     40</a>         std::vector&lt;std::string_view&gt; aliases,
+<a href="#l41" class="line" id="l41">     41</a>         std::string_view parent,
+<a href="#l42" class="line" id="l42">     42</a>         Command::Visibility visibility,
+<a href="#l43" class="line" id="l43">     43</a>         Settings::ExperimentalFeature::Feature feature,
+<a href="#l44" class="line" id="l44">     44</a>         Settings::TogglePolicy::Policy groupPolicy,
+<a href="#l45" class="line" id="l45">     45</a>         CommandOutputFlags outputFlags) :
+<a href="#l46" class="line" id="l46">     46</a>         m_name(name), m_aliases(std::move(aliases)), m_visibility(visibility), m_feature(feature), m_groupPolicy(groupPolicy), m_outputFlags(outputFlags)
+<a href="#l47" class="line" id="l47">     47</a>     {
+<a href="#l48" class="line" id="l48">     48</a>         if (!parent.empty())
+<a href="#l49" class="line" id="l49">     49</a>         {
+<a href="#l50" class="line" id="l50">     50</a>             m_fullName.reserve(parent.length() + 1 + name.length());
+<a href="#l51" class="line" id="l51">     51</a>             m_fullName = parent;
+<a href="#l52" class="line" id="l52">     52</a>             m_fullName += ParentSplitChar;
+<a href="#l53" class="line" id="l53">     53</a>             m_fullName += name;
+<a href="#l54" class="line" id="l54">     54</a>         }
+<a href="#l55" class="line" id="l55">     55</a>         else
+<a href="#l56" class="line" id="l56">     56</a>         {
+<a href="#l57" class="line" id="l57">     57</a>             m_fullName = name;
+<a href="#l58" class="line" id="l58">     58</a>         }
+<a href="#l59" class="line" id="l59">     59</a>     }
+<a href="#l60" class="line" id="l60">     60</a> 
+<a href="#l61" class="line" id="l61">     61</a>     void Command::OutputIntroHeader(Execution::Reporter&amp; reporter) const
+<a href="#l62" class="line" id="l62">     62</a>     {
+<a href="#l63" class="line" id="l63">     63</a>         auto infoOut = reporter.Info();
+<a href="#l64" class="line" id="l64">     64</a>         VirtualTerminal::ConstructedSequence indent;
+<a href="#l65" class="line" id="l65">     65</a> 
+<a href="#l66" class="line" id="l66">     66</a>         if (reporter.SixelsEnabled())
+<a href="#l67" class="line" id="l67">     67</a>         {
+<a href="#l68" class="line" id="l68">     68</a>             try
+<a href="#l69" class="line" id="l69">     69</a>             {
+<a href="#l70" class="line" id="l70">     70</a>                 std::filesystem::path imagePath = Runtime::GetPathTo(Runtime::PathName::ImageAssets);
+<a href="#l71" class="line" id="l71">     71</a> 
+<a href="#l72" class="line" id="l72">     72</a>                 if (!imagePath.empty())
+<a href="#l73" class="line" id="l73">     73</a>                 {
+<a href="#l74" class="line" id="l74">     74</a>                     // This image matches the target pixel size. If changing the target size, choose the most appropriate image.
+<a href="#l75" class="line" id="l75">     75</a>                     imagePath /= &quot;AppList.targetsize-40.png&quot;;
+<a href="#l76" class="line" id="l76">     76</a> 
+<a href="#l77" class="line" id="l77">     77</a>                     VirtualTerminal::Sixel::Image wingetIcon{ imagePath };
+<a href="#l78" class="line" id="l78">     78</a> 
+<a href="#l79" class="line" id="l79">     79</a>                     // Using a height of 2 to match the two lines of header.
+<a href="#l80" class="line" id="l80">     80</a>                     UINT imageHeightCells = 2;
+<a href="#l81" class="line" id="l81">     81</a>                     UINT imageWidthCells = 2 * imageHeightCells;
+<a href="#l82" class="line" id="l82">     82</a> 
+<a href="#l83" class="line" id="l83">     83</a>                     wingetIcon.RenderSizeInCells(imageWidthCells, imageHeightCells);
+<a href="#l84" class="line" id="l84">     84</a>                     wingetIcon.RenderTo(infoOut);
+<a href="#l85" class="line" id="l85">     85</a> 
+<a href="#l86" class="line" id="l86">     86</a>                     indent = VirtualTerminal::Cursor::Position::Forward(static_cast&lt;int16_t&gt;(imageWidthCells));
+<a href="#l87" class="line" id="l87">     87</a>                     infoOut &lt;&lt; VirtualTerminal::Cursor::Position::Up(static_cast&lt;int16_t&gt;(imageHeightCells) - 1);
+<a href="#l88" class="line" id="l88">     88</a>                 }
+<a href="#l89" class="line" id="l89">     89</a>             }
+<a href="#l90" class="line" id="l90">     90</a>             CATCH_LOG();
+<a href="#l91" class="line" id="l91">     91</a>         }
+<a href="#l92" class="line" id="l92">     92</a> 
+<a href="#l93" class="line" id="l93">     93</a>         auto productName = Runtime::IsReleaseBuild() ? Resource::String::WindowsPackageManager : Resource::String::WindowsPackageManagerPreview;
+<a href="#l94" class="line" id="l94">     94</a>         infoOut &lt;&lt; indent &lt;&lt; productName(Runtime::GetClientVersion()) &lt;&lt; std::endl
+<a href="#l95" class="line" id="l95">     95</a>             &lt;&lt; indent &lt;&lt; Resource::String::MainCopyrightNotice &lt;&lt; std::endl;
+<a href="#l96" class="line" id="l96">     96</a>     }
+<a href="#l97" class="line" id="l97">     97</a> 
+<a href="#l98" class="line" id="l98">     98</a>     void Command::OutputHelp(Execution::Reporter&amp; reporter, const CommandException* exception) const
+<a href="#l99" class="line" id="l99">     99</a>     {
+<a href="#l100" class="line" id="l100">    100</a>         // Header
+<a href="#l101" class="line" id="l101">    101</a>         OutputIntroHeader(reporter);
+<a href="#l102" class="line" id="l102">    102</a>         reporter.EmptyLine();
+<a href="#l103" class="line" id="l103">    103</a> 
+<a href="#l104" class="line" id="l104">    104</a>         // Error if given
+<a href="#l105" class="line" id="l105">    105</a>         if (exception)
+<a href="#l106" class="line" id="l106">    106</a>         {
+<a href="#l107" class="line" id="l107">    107</a>             reporter.Error() &lt;&lt; exception-&gt;Message() &lt;&lt; std::endl &lt;&lt; std::endl;
+<a href="#l108" class="line" id="l108">    108</a>         }
+<a href="#l109" class="line" id="l109">    109</a> 
+<a href="#l110" class="line" id="l110">    110</a>         // Description
+<a href="#l111" class="line" id="l111">    111</a>         auto infoOut = reporter.Info();
+<a href="#l112" class="line" id="l112">    112</a>         infoOut &lt;&lt;
+<a href="#l113" class="line" id="l113">    113</a>             LongDescription() &lt;&lt; std::endl &lt;&lt;
+<a href="#l114" class="line" id="l114">    114</a>             std::endl;
+<a href="#l115" class="line" id="l115">    115</a> 
+<a href="#l116" class="line" id="l116">    116</a>         // Example usage for this command
+<a href="#l117" class="line" id="l117">    117</a>         // First create the command chain for output
+<a href="#l118" class="line" id="l118">    118</a>         std::string commandChain = FullName();
+<a href="#l119" class="line" id="l119">    119</a>         size_t firstSplit = commandChain.find_first_of(ParentSplitChar);
+<a href="#l120" class="line" id="l120">    120</a>         if (firstSplit == std::string::npos)
+<a href="#l121" class="line" id="l121">    121</a>         {
+<a href="#l122" class="line" id="l122">    122</a>             commandChain.clear();
+<a href="#l123" class="line" id="l123">    123</a>         }
+<a href="#l124" class="line" id="l124">    124</a>         else
+<a href="#l125" class="line" id="l125">    125</a>         {
+<a href="#l126" class="line" id="l126">    126</a>             commandChain = commandChain.substr(firstSplit + 1);
+<a href="#l127" class="line" id="l127">    127</a>             for (char&amp; c : commandChain)
+<a href="#l128" class="line" id="l128">    128</a>             {
+<a href="#l129" class="line" id="l129">    129</a>                 if (c == ParentSplitChar)
+<a href="#l130" class="line" id="l130">    130</a>                 {
+<a href="#l131" class="line" id="l131">    131</a>                     c = &#39; &#39;;
+<a href="#l132" class="line" id="l132">    132</a>                 }
+<a href="#l133" class="line" id="l133">    133</a>             }
+<a href="#l134" class="line" id="l134">    134</a>         }
+<a href="#l135" class="line" id="l135">    135</a> 
+<a href="#l136" class="line" id="l136">    136</a>         // Output the command preamble and command chain
+<a href="#l137" class="line" id="l137">    137</a>         infoOut &lt;&lt; Resource::String::Usage(&quot;winget&quot;_liv, Utility::LocIndView{ commandChain });
+<a href="#l138" class="line" id="l138">    138</a> 
+<a href="#l139" class="line" id="l139">    139</a>         auto commandAliases = Aliases();
+<a href="#l140" class="line" id="l140">    140</a>         auto commands = GetVisibleCommands();
+<a href="#l141" class="line" id="l141">    141</a>         auto arguments = GetVisibleArguments();
+<a href="#l142" class="line" id="l142">    142</a> 
+<a href="#l143" class="line" id="l143">    143</a>         bool hasArguments = false;
+<a href="#l144" class="line" id="l144">    144</a>         bool hasOptions = false;
+<a href="#l145" class="line" id="l145">    145</a> 
+<a href="#l146" class="line" id="l146">    146</a>         // Output the command token, made optional if arguments are present.
+<a href="#l147" class="line" id="l147">    147</a>         if (!commands.empty())
+<a href="#l148" class="line" id="l148">    148</a>         {
+<a href="#l149" class="line" id="l149">    149</a>             infoOut &lt;&lt; &#39; &#39;;
+<a href="#l150" class="line" id="l150">    150</a> 
+<a href="#l151" class="line" id="l151">    151</a>             if (!arguments.empty())
+<a href="#l152" class="line" id="l152">    152</a>             {
+<a href="#l153" class="line" id="l153">    153</a>                 infoOut &lt;&lt; &#39;[&#39;;
+<a href="#l154" class="line" id="l154">    154</a>             }
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a>             infoOut &lt;&lt; &#39;&lt;&#39; &lt;&lt; Resource::String::Command &lt;&lt; &#39;&gt;&#39;;
+<a href="#l157" class="line" id="l157">    157</a> 
+<a href="#l158" class="line" id="l158">    158</a>             if (!arguments.empty())
+<a href="#l159" class="line" id="l159">    159</a>             {
+<a href="#l160" class="line" id="l160">    160</a>                 infoOut &lt;&lt; &#39;]&#39;;
+<a href="#l161" class="line" id="l161">    161</a>             }
+<a href="#l162" class="line" id="l162">    162</a>         }
+<a href="#l163" class="line" id="l163">    163</a> 
+<a href="#l164" class="line" id="l164">    164</a>         // Arguments are required by a test to have all positionals first.
+<a href="#l165" class="line" id="l165">    165</a>         for (const auto&amp; arg : arguments)
+<a href="#l166" class="line" id="l166">    166</a>         {
+<a href="#l167" class="line" id="l167">    167</a>             if (arg.Type() == ArgumentType::Positional)
+<a href="#l168" class="line" id="l168">    168</a>             {
+<a href="#l169" class="line" id="l169">    169</a>                 hasArguments = true;
+<a href="#l170" class="line" id="l170">    170</a> 
+<a href="#l171" class="line" id="l171">    171</a>                 infoOut &lt;&lt; &#39; &#39;;
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a>                 if (!arg.Required())
+<a href="#l174" class="line" id="l174">    174</a>                 {
+<a href="#l175" class="line" id="l175">    175</a>                     infoOut &lt;&lt; &#39;[&#39;;
+<a href="#l176" class="line" id="l176">    176</a>                 }
+<a href="#l177" class="line" id="l177">    177</a> 
+<a href="#l178" class="line" id="l178">    178</a>                 infoOut &lt;&lt; &#39;[&#39;;
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>                 if (arg.Alias() == ArgumentCommon::NoAlias)
+<a href="#l181" class="line" id="l181">    181</a>                 {
+<a href="#l182" class="line" id="l182">    182</a>                     infoOut &lt;&lt; APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR &lt;&lt; APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR &lt;&lt; arg.Name();
+<a href="#l183" class="line" id="l183">    183</a>                 }
+<a href="#l184" class="line" id="l184">    184</a>                 else
+<a href="#l185" class="line" id="l185">    185</a>                 {
+<a href="#l186" class="line" id="l186">    186</a>                     infoOut &lt;&lt; APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR &lt;&lt; arg.Alias();
+<a href="#l187" class="line" id="l187">    187</a>                 }
+<a href="#l188" class="line" id="l188">    188</a> 
+<a href="#l189" class="line" id="l189">    189</a>                 infoOut &lt;&lt; &quot;] &lt;&quot;_liv &lt;&lt; arg.Name() &lt;&lt; &#39;&gt;&#39;;
+<a href="#l190" class="line" id="l190">    190</a> 
+<a href="#l191" class="line" id="l191">    191</a>                 if (arg.Limit() &gt; 1)
+<a href="#l192" class="line" id="l192">    192</a>                 {
+<a href="#l193" class="line" id="l193">    193</a>                     infoOut &lt;&lt; &quot;...&quot;_liv;
+<a href="#l194" class="line" id="l194">    194</a>                 }
+<a href="#l195" class="line" id="l195">    195</a> 
+<a href="#l196" class="line" id="l196">    196</a>                 if (!arg.Required())
+<a href="#l197" class="line" id="l197">    197</a>                 {
+<a href="#l198" class="line" id="l198">    198</a>                     infoOut &lt;&lt; &#39;]&#39;;
+<a href="#l199" class="line" id="l199">    199</a>                 }
+<a href="#l200" class="line" id="l200">    200</a>             }
+<a href="#l201" class="line" id="l201">    201</a>             else
+<a href="#l202" class="line" id="l202">    202</a>             {
+<a href="#l203" class="line" id="l203">    203</a>                 hasOptions = true;
+<a href="#l204" class="line" id="l204">    204</a>                 infoOut &lt;&lt; &quot; [&lt;&quot;_liv &lt;&lt; Resource::String::Options &lt;&lt; &quot;&gt;]&quot;_liv;
+<a href="#l205" class="line" id="l205">    205</a>                 break;
+<a href="#l206" class="line" id="l206">    206</a>             }
+<a href="#l207" class="line" id="l207">    207</a>         }
+<a href="#l208" class="line" id="l208">    208</a> 
+<a href="#l209" class="line" id="l209">    209</a>         infoOut &lt;&lt;
+<a href="#l210" class="line" id="l210">    210</a>             std::endl &lt;&lt;
+<a href="#l211" class="line" id="l211">    211</a>             std::endl;
+<a href="#l212" class="line" id="l212">    212</a> 
+<a href="#l213" class="line" id="l213">    213</a>         if (!commandAliases.empty())
+<a href="#l214" class="line" id="l214">    214</a>         {
+<a href="#l215" class="line" id="l215">    215</a>             infoOut &lt;&lt; Resource::String::AvailableCommandAliases &lt;&lt; std::endl;
+<a href="#l216" class="line" id="l216">    216</a>             
+<a href="#l217" class="line" id="l217">    217</a>             for (const auto&amp; commandAlias : commandAliases)
+<a href="#l218" class="line" id="l218">    218</a>             {
+<a href="#l219" class="line" id="l219">    219</a>                 infoOut &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::HelpCommandEmphasis &lt;&lt; commandAlias &lt;&lt; std::endl;
+<a href="#l220" class="line" id="l220">    220</a>             }
+<a href="#l221" class="line" id="l221">    221</a>             infoOut &lt;&lt; std::endl;
+<a href="#l222" class="line" id="l222">    222</a>         }
+<a href="#l223" class="line" id="l223">    223</a> 
+<a href="#l224" class="line" id="l224">    224</a>         if (!commands.empty())
+<a href="#l225" class="line" id="l225">    225</a>         {
+<a href="#l226" class="line" id="l226">    226</a>             if (Name() == FullName())
+<a href="#l227" class="line" id="l227">    227</a>             {
+<a href="#l228" class="line" id="l228">    228</a>                 infoOut &lt;&lt; Resource::String::AvailableCommands &lt;&lt; std::endl;
+<a href="#l229" class="line" id="l229">    229</a>             }
+<a href="#l230" class="line" id="l230">    230</a>             else
+<a href="#l231" class="line" id="l231">    231</a>             {
+<a href="#l232" class="line" id="l232">    232</a>                 infoOut &lt;&lt; Resource::String::AvailableSubcommands &lt;&lt; std::endl;
+<a href="#l233" class="line" id="l233">    233</a>             }
+<a href="#l234" class="line" id="l234">    234</a> 
+<a href="#l235" class="line" id="l235">    235</a>             size_t maxCommandNameLength = 0;
+<a href="#l236" class="line" id="l236">    236</a>             for (const auto&amp; command : commands)
+<a href="#l237" class="line" id="l237">    237</a>             {
+<a href="#l238" class="line" id="l238">    238</a>                 maxCommandNameLength = std::max(maxCommandNameLength, command-&gt;Name().length());
+<a href="#l239" class="line" id="l239">    239</a>             }
+<a href="#l240" class="line" id="l240">    240</a> 
+<a href="#l241" class="line" id="l241">    241</a>             for (const auto&amp; command : commands)
+<a href="#l242" class="line" id="l242">    242</a>             {
+<a href="#l243" class="line" id="l243">    243</a>                 size_t fillChars = (maxCommandNameLength - command-&gt;Name().length()) + 2;
+<a href="#l244" class="line" id="l244">    244</a>                 infoOut &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::HelpCommandEmphasis &lt;&lt; command-&gt;Name() &lt;&lt; Utility::LocIndString{ std::string(fillChars, &#39; &#39;) } &lt;&lt; command-&gt;ShortDescription() &lt;&lt; std::endl;
+<a href="#l245" class="line" id="l245">    245</a>             }
+<a href="#l246" class="line" id="l246">    246</a> 
+<a href="#l247" class="line" id="l247">    247</a>             infoOut &lt;&lt;
+<a href="#l248" class="line" id="l248">    248</a>                 std::endl &lt;&lt;
+<a href="#l249" class="line" id="l249">    249</a>                 Resource::String::HelpForDetails
+<a href="#l250" class="line" id="l250">    250</a>                 &lt;&lt; &quot; [&quot;_liv &lt;&lt; APPINSTALLER_CLI_HELP_ARGUMENT &lt;&lt; &#39;]&#39; &lt;&lt; std::endl;
+<a href="#l251" class="line" id="l251">    251</a>         }
+<a href="#l252" class="line" id="l252">    252</a> 
+<a href="#l253" class="line" id="l253">    253</a>         if (!arguments.empty())
+<a href="#l254" class="line" id="l254">    254</a>         {
+<a href="#l255" class="line" id="l255">    255</a>             if (!commands.empty())
+<a href="#l256" class="line" id="l256">    256</a>             {
+<a href="#l257" class="line" id="l257">    257</a>                 infoOut &lt;&lt; std::endl;
+<a href="#l258" class="line" id="l258">    258</a>             }
+<a href="#l259" class="line" id="l259">    259</a> 
+<a href="#l260" class="line" id="l260">    260</a>             std::vector&lt;std::string&gt; argNames;
+<a href="#l261" class="line" id="l261">    261</a>             size_t maxArgNameLength = 0;
+<a href="#l262" class="line" id="l262">    262</a>             for (const auto&amp; arg : arguments)
+<a href="#l263" class="line" id="l263">    263</a>             {
+<a href="#l264" class="line" id="l264">    264</a>                 argNames.emplace_back(arg.GetUsageString());
+<a href="#l265" class="line" id="l265">    265</a>                 maxArgNameLength = std::max(maxArgNameLength, argNames.back().length());
+<a href="#l266" class="line" id="l266">    266</a>             }
+<a href="#l267" class="line" id="l267">    267</a> 
+<a href="#l268" class="line" id="l268">    268</a>             if (hasArguments)
+<a href="#l269" class="line" id="l269">    269</a>             {
+<a href="#l270" class="line" id="l270">    270</a>                 infoOut &lt;&lt; Resource::String::AvailableArguments &lt;&lt; std::endl;
+<a href="#l271" class="line" id="l271">    271</a> 
+<a href="#l272" class="line" id="l272">    272</a>                 size_t i = 0;
+<a href="#l273" class="line" id="l273">    273</a>                 for (const auto&amp; arg : arguments)
+<a href="#l274" class="line" id="l274">    274</a>                 {
+<a href="#l275" class="line" id="l275">    275</a>                     const std::string&amp; argName = argNames[i++];
+<a href="#l276" class="line" id="l276">    276</a>                     if (arg.Type() == ArgumentType::Positional)
+<a href="#l277" class="line" id="l277">    277</a>                     {
+<a href="#l278" class="line" id="l278">    278</a>                         size_t fillChars = (maxArgNameLength - argName.length()) + 2;
+<a href="#l279" class="line" id="l279">    279</a>                         infoOut &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::HelpArgumentEmphasis &lt;&lt; argName &lt;&lt; Utility::LocIndString{ std::string(fillChars, &#39; &#39;) } &lt;&lt; arg.Description() &lt;&lt; std::endl;
+<a href="#l280" class="line" id="l280">    280</a>                     }
+<a href="#l281" class="line" id="l281">    281</a>                 }
+<a href="#l282" class="line" id="l282">    282</a>             }
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a>             if (hasOptions)
+<a href="#l285" class="line" id="l285">    285</a>             {
+<a href="#l286" class="line" id="l286">    286</a>                 if (hasArguments)
+<a href="#l287" class="line" id="l287">    287</a>                 {
+<a href="#l288" class="line" id="l288">    288</a>                     infoOut &lt;&lt; std::endl;
+<a href="#l289" class="line" id="l289">    289</a>                 }
+<a href="#l290" class="line" id="l290">    290</a> 
+<a href="#l291" class="line" id="l291">    291</a>                 infoOut &lt;&lt; Resource::String::AvailableOptions &lt;&lt; std::endl;
+<a href="#l292" class="line" id="l292">    292</a> 
+<a href="#l293" class="line" id="l293">    293</a>                 size_t i = 0;
+<a href="#l294" class="line" id="l294">    294</a>                 for (const auto&amp; arg : arguments)
+<a href="#l295" class="line" id="l295">    295</a>                 {
+<a href="#l296" class="line" id="l296">    296</a>                     const std::string&amp; argName = argNames[i++];
+<a href="#l297" class="line" id="l297">    297</a>                     if (arg.Type() != ArgumentType::Positional)
+<a href="#l298" class="line" id="l298">    298</a>                     {
+<a href="#l299" class="line" id="l299">    299</a>                         size_t fillChars = (maxArgNameLength - argName.length()) + 2;
+<a href="#l300" class="line" id="l300">    300</a>                         infoOut &lt;&lt; &quot;  &quot;_liv &lt;&lt; Execution::HelpArgumentEmphasis &lt;&lt; argName &lt;&lt; Utility::LocIndString{ std::string(fillChars, &#39; &#39;) } &lt;&lt; arg.Description() &lt;&lt; std::endl;
+<a href="#l301" class="line" id="l301">    301</a>                     }
+<a href="#l302" class="line" id="l302">    302</a>                 }
+<a href="#l303" class="line" id="l303">    303</a>             }
+<a href="#l304" class="line" id="l304">    304</a>         }
+<a href="#l305" class="line" id="l305">    305</a> 
+<a href="#l306" class="line" id="l306">    306</a>         // Finally, the link to the documentation pages
+<a href="#l307" class="line" id="l307">    307</a>         auto helpLink = HelpLink();
+<a href="#l308" class="line" id="l308">    308</a>         if (!helpLink.empty())
+<a href="#l309" class="line" id="l309">    309</a>         {
+<a href="#l310" class="line" id="l310">    310</a>             infoOut &lt;&lt; std::endl &lt;&lt; Resource::String::HelpLinkPreamble(helpLink) &lt;&lt; std::endl;
+<a href="#l311" class="line" id="l311">    311</a>         }
+<a href="#l312" class="line" id="l312">    312</a>     }
+<a href="#l313" class="line" id="l313">    313</a> 
+<a href="#l314" class="line" id="l314">    314</a>     std::unique_ptr&lt;Command&gt; Command::FindSubCommand(Invocation&amp; inv) const
+<a href="#l315" class="line" id="l315">    315</a>     {
+<a href="#l316" class="line" id="l316">    316</a>         auto itr = inv.begin();
+<a href="#l317" class="line" id="l317">    317</a>         if (itr == inv.end() || (*itr)[0] == APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR)
+<a href="#l318" class="line" id="l318">    318</a>         {
+<a href="#l319" class="line" id="l319">    319</a>             // No more command arguments to check, so no command to find
+<a href="#l320" class="line" id="l320">    320</a>             return {};
+<a href="#l321" class="line" id="l321">    321</a>         }
+<a href="#l322" class="line" id="l322">    322</a> 
+<a href="#l323" class="line" id="l323">    323</a>         auto commands = GetCommands();
+<a href="#l324" class="line" id="l324">    324</a>         if (commands.empty())
+<a href="#l325" class="line" id="l325">    325</a>         {
+<a href="#l326" class="line" id="l326">    326</a>             // No more subcommands
+<a href="#l327" class="line" id="l327">    327</a>             return {};
+<a href="#l328" class="line" id="l328">    328</a>         }
+<a href="#l329" class="line" id="l329">    329</a> 
+<a href="#l330" class="line" id="l330">    330</a>         for (auto&amp; command : commands)
+<a href="#l331" class="line" id="l331">    331</a>         {
+<a href="#l332" class="line" id="l332">    332</a>             if (
+<a href="#l333" class="line" id="l333">    333</a>                 Utility::CaseInsensitiveEquals(*itr, command-&gt;Name()) ||
+<a href="#l334" class="line" id="l334">    334</a>                 Utility::CaseInsensitiveContains(command-&gt;Aliases(), *itr)
+<a href="#l335" class="line" id="l335">    335</a>             )
+<a href="#l336" class="line" id="l336">    336</a>             {
+<a href="#l337" class="line" id="l337">    337</a>                 if (!ExperimentalFeature::IsEnabled(command-&gt;Feature()))
+<a href="#l338" class="line" id="l338">    338</a>                 {
+<a href="#l339" class="line" id="l339">    339</a>                     auto feature = ExperimentalFeature::GetFeature(command-&gt;Feature());
+<a href="#l340" class="line" id="l340">    340</a>                     AICLI_LOG(CLI, Error, &lt;&lt; &quot;Trying to use command: &quot; &lt;&lt; *itr &lt;&lt; &quot; without enabling feature &quot; &lt;&lt; feature.JsonName());
+<a href="#l341" class="line" id="l341">    341</a>                     throw CommandException(Resource::String::FeatureDisabledMessage(feature.JsonName()));
+<a href="#l342" class="line" id="l342">    342</a>                 }
+<a href="#l343" class="line" id="l343">    343</a> 
+<a href="#l344" class="line" id="l344">    344</a>                 if (!Settings::GroupPolicies().IsEnabled(command-&gt;GroupPolicy()))
+<a href="#l345" class="line" id="l345">    345</a>                 {
+<a href="#l346" class="line" id="l346">    346</a>                     auto policy = TogglePolicy::GetPolicy(command-&gt;GroupPolicy());
+<a href="#l347" class="line" id="l347">    347</a>                     AICLI_LOG(CLI, Error, &lt;&lt; &quot;Trying to use command: &quot; &lt;&lt; *itr &lt;&lt; &quot; disabled by group policy &quot; &lt;&lt; policy.RegValueName());
+<a href="#l348" class="line" id="l348">    348</a>                     throw GroupPolicyException(command-&gt;GroupPolicy());
+<a href="#l349" class="line" id="l349">    349</a>                 }
+<a href="#l350" class="line" id="l350">    350</a> 
+<a href="#l351" class="line" id="l351">    351</a>                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Found subcommand: &quot; &lt;&lt; *itr);
+<a href="#l352" class="line" id="l352">    352</a>                 inv.consume(itr);
+<a href="#l353" class="line" id="l353">    353</a>                 return std::move(command);
+<a href="#l354" class="line" id="l354">    354</a>             }
+<a href="#l355" class="line" id="l355">    355</a>         }
+<a href="#l356" class="line" id="l356">    356</a> 
+<a href="#l357" class="line" id="l357">    357</a>         // The command has opted-in to be executed when it has subcommands and the next token is a positional parameter value
+<a href="#l358" class="line" id="l358">    358</a>         if (m_selectCurrentCommandIfUnrecognizedSubcommandFound)
+<a href="#l359" class="line" id="l359">    359</a>         {
+<a href="#l360" class="line" id="l360">    360</a>             return {};
+<a href="#l361" class="line" id="l361">    361</a>         }
+<a href="#l362" class="line" id="l362">    362</a> 
+<a href="#l363" class="line" id="l363">    363</a>         // TODO: If we get to a large number of commands, do a fuzzy search much like git
+<a href="#l364" class="line" id="l364">    364</a>         throw CommandException(Resource::String::UnrecognizedCommand(Utility::LocIndView{ *itr }));
+<a href="#l365" class="line" id="l365">    365</a>     }
+<a href="#l366" class="line" id="l366">    366</a> 
+<a href="#l367" class="line" id="l367">    367</a>     // The argument parsing state machine.
+<a href="#l368" class="line" id="l368">    368</a>     // It is broken out to enable completion to process arguments, ignore errors,
+<a href="#l369" class="line" id="l369">    369</a>     // and determine the likely state of the word to be completed.
+<a href="#l370" class="line" id="l370">    370</a>     struct ParseArgumentsStateMachine
+<a href="#l371" class="line" id="l371">    371</a>     {
+<a href="#l372" class="line" id="l372">    372</a>         ParseArgumentsStateMachine(Invocation&amp; inv, Execution::Args&amp; execArgs, std::vector&lt;CLI::Argument&gt; arguments);
+<a href="#l373" class="line" id="l373">    373</a> 
+<a href="#l374" class="line" id="l374">    374</a>         ParseArgumentsStateMachine(const ParseArgumentsStateMachine&amp;) = delete;
+<a href="#l375" class="line" id="l375">    375</a>         ParseArgumentsStateMachine&amp; operator=(const ParseArgumentsStateMachine&amp;) = delete;
+<a href="#l376" class="line" id="l376">    376</a> 
+<a href="#l377" class="line" id="l377">    377</a>         ParseArgumentsStateMachine(ParseArgumentsStateMachine&amp;&amp;) = default;
+<a href="#l378" class="line" id="l378">    378</a>         ParseArgumentsStateMachine&amp; operator=(ParseArgumentsStateMachine&amp;&amp;) = default;
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>         // Processes the next argument from the invocation.
+<a href="#l381" class="line" id="l381">    381</a>         // Returns true if there was an argument to process;
+<a href="#l382" class="line" id="l382">    382</a>         // returns false if there were none.
+<a href="#l383" class="line" id="l383">    383</a>         bool Step();
+<a href="#l384" class="line" id="l384">    384</a> 
+<a href="#l385" class="line" id="l385">    385</a>         // Throws if there was an error during the prior step.
+<a href="#l386" class="line" id="l386">    386</a>         void ThrowIfError() const;
+<a href="#l387" class="line" id="l387">    387</a> 
+<a href="#l388" class="line" id="l388">    388</a>         // The current state of the state machine.
+<a href="#l389" class="line" id="l389">    389</a>         // An empty state indicates that the next argument can be anything.
+<a href="#l390" class="line" id="l390">    390</a>         struct State
+<a href="#l391" class="line" id="l391">    391</a>         {
+<a href="#l392" class="line" id="l392">    392</a>             State() = default;
+<a href="#l393" class="line" id="l393">    393</a>             State(Execution::Args::Type type, std::string_view arg) : m_type(type), m_arg(arg) {}
+<a href="#l394" class="line" id="l394">    394</a>             State(CommandException ce) : m_exception(std::move(ce)) {}
+<a href="#l395" class="line" id="l395">    395</a> 
+<a href="#l396" class="line" id="l396">    396</a>             // If set, indicates that the next argument is a value for this type.
+<a href="#l397" class="line" id="l397">    397</a>             const std::optional&lt;Execution::Args::Type&gt;&amp; Type() const { return m_type; }
+<a href="#l398" class="line" id="l398">    398</a> 
+<a href="#l399" class="line" id="l399">    399</a>             // The actual argument string associated with Type.
+<a href="#l400" class="line" id="l400">    400</a>             const Utility::LocIndString&amp; Arg() const { return m_arg; }
+<a href="#l401" class="line" id="l401">    401</a> 
+<a href="#l402" class="line" id="l402">    402</a>             // If set, indicates that the last argument produced an error.
+<a href="#l403" class="line" id="l403">    403</a>             const std::optional&lt;CommandException&gt;&amp; Exception() const { return m_exception; }
+<a href="#l404" class="line" id="l404">    404</a> 
+<a href="#l405" class="line" id="l405">    405</a>         private:
+<a href="#l406" class="line" id="l406">    406</a>             std::optional&lt;Execution::Args::Type&gt; m_type;
+<a href="#l407" class="line" id="l407">    407</a>             Utility::LocIndString m_arg;
+<a href="#l408" class="line" id="l408">    408</a>             std::optional&lt;CommandException&gt; m_exception;
+<a href="#l409" class="line" id="l409">    409</a>         };
+<a href="#l410" class="line" id="l410">    410</a> 
+<a href="#l411" class="line" id="l411">    411</a>         const State&amp; GetState() const { return m_state; }
+<a href="#l412" class="line" id="l412">    412</a> 
+<a href="#l413" class="line" id="l413">    413</a>         bool OnlyPositionalRemain() const { return m_onlyPositionalArgumentsRemain; }
+<a href="#l414" class="line" id="l414">    414</a> 
+<a href="#l415" class="line" id="l415">    415</a>         // Gets the next positional argument, or nullptr if there is not one.
+<a href="#l416" class="line" id="l416">    416</a>         const CLI::Argument* NextPositional();
+<a href="#l417" class="line" id="l417">    417</a> 
+<a href="#l418" class="line" id="l418">    418</a>         const std::vector&lt;CLI::Argument&gt;&amp; Arguments() const { return m_arguments; }
+<a href="#l419" class="line" id="l419">    419</a> 
+<a href="#l420" class="line" id="l420">    420</a>     private:
+<a href="#l421" class="line" id="l421">    421</a>         State StepInternal();
+<a href="#l422" class="line" id="l422">    422</a> 
+<a href="#l423" class="line" id="l423">    423</a>         void ProcessAdjoinedValue(Execution::Args::Type type, std::string_view value);
+<a href="#l424" class="line" id="l424">    424</a> 
+<a href="#l425" class="line" id="l425">    425</a>         Invocation&amp; m_invocation;
+<a href="#l426" class="line" id="l426">    426</a>         Execution::Args&amp; m_executionArgs;
+<a href="#l427" class="line" id="l427">    427</a>         std::vector&lt;CLI::Argument&gt; m_arguments;
+<a href="#l428" class="line" id="l428">    428</a> 
+<a href="#l429" class="line" id="l429">    429</a>         Invocation::iterator m_invocationItr;
+<a href="#l430" class="line" id="l430">    430</a>         std::vector&lt;CLI::Argument&gt;::iterator m_positionalSearchItr;
+<a href="#l431" class="line" id="l431">    431</a>         bool m_onlyPositionalArgumentsRemain = false;
+<a href="#l432" class="line" id="l432">    432</a> 
+<a href="#l433" class="line" id="l433">    433</a>         State m_state;
+<a href="#l434" class="line" id="l434">    434</a>     };
+<a href="#l435" class="line" id="l435">    435</a> 
+<a href="#l436" class="line" id="l436">    436</a>     ParseArgumentsStateMachine::ParseArgumentsStateMachine(Invocation&amp; inv, Execution::Args&amp; execArgs, std::vector&lt;CLI::Argument&gt; arguments) :
+<a href="#l437" class="line" id="l437">    437</a>         m_invocation(inv),
+<a href="#l438" class="line" id="l438">    438</a>         m_executionArgs(execArgs),
+<a href="#l439" class="line" id="l439">    439</a>         m_arguments(std::move(arguments)),
+<a href="#l440" class="line" id="l440">    440</a>         m_invocationItr(m_invocation.begin()),
+<a href="#l441" class="line" id="l441">    441</a>         m_positionalSearchItr(m_arguments.begin())
+<a href="#l442" class="line" id="l442">    442</a>     {
+<a href="#l443" class="line" id="l443">    443</a>     }
+<a href="#l444" class="line" id="l444">    444</a> 
+<a href="#l445" class="line" id="l445">    445</a>     bool ParseArgumentsStateMachine::Step()
+<a href="#l446" class="line" id="l446">    446</a>     {
+<a href="#l447" class="line" id="l447">    447</a>         if (m_invocationItr == m_invocation.end())
+<a href="#l448" class="line" id="l448">    448</a>         {
+<a href="#l449" class="line" id="l449">    449</a>             return false;
+<a href="#l450" class="line" id="l450">    450</a>         }
+<a href="#l451" class="line" id="l451">    451</a> 
+<a href="#l452" class="line" id="l452">    452</a>         m_state = StepInternal();
+<a href="#l453" class="line" id="l453">    453</a>         return true;
+<a href="#l454" class="line" id="l454">    454</a>     }
+<a href="#l455" class="line" id="l455">    455</a> 
+<a href="#l456" class="line" id="l456">    456</a>     void ParseArgumentsStateMachine::ThrowIfError() const
+<a href="#l457" class="line" id="l457">    457</a>     {
+<a href="#l458" class="line" id="l458">    458</a>         if (m_state.Exception())
+<a href="#l459" class="line" id="l459">    459</a>         {
+<a href="#l460" class="line" id="l460">    460</a>             throw m_state.Exception().value();
+<a href="#l461" class="line" id="l461">    461</a>         }
+<a href="#l462" class="line" id="l462">    462</a>         // If the next argument was to be a value, but none was provided, convert it to an exception.
+<a href="#l463" class="line" id="l463">    463</a>         else if (m_state.Type() &amp;&amp; m_invocationItr == m_invocation.end())
+<a href="#l464" class="line" id="l464">    464</a>         {
+<a href="#l465" class="line" id="l465">    465</a>             throw CommandException(Resource::String::MissingArgumentError(m_state.Arg()));
+<a href="#l466" class="line" id="l466">    466</a>         }
+<a href="#l467" class="line" id="l467">    467</a>     }
+<a href="#l468" class="line" id="l468">    468</a> 
+<a href="#l469" class="line" id="l469">    469</a>     const CLI::Argument* ParseArgumentsStateMachine::NextPositional()
+<a href="#l470" class="line" id="l470">    470</a>     {
+<a href="#l471" class="line" id="l471">    471</a>         // Find the next appropriate positional arg if the current itr isn&#39;t one or has hit its limit.
+<a href="#l472" class="line" id="l472">    472</a>         while (m_positionalSearchItr != m_arguments.end() &amp;&amp;
+<a href="#l473" class="line" id="l473">    473</a>             (m_positionalSearchItr-&gt;Type() != ArgumentType::Positional || m_executionArgs.GetCount(m_positionalSearchItr-&gt;ExecArgType()) == m_positionalSearchItr-&gt;Limit()))
+<a href="#l474" class="line" id="l474">    474</a>         {
+<a href="#l475" class="line" id="l475">    475</a>             ++m_positionalSearchItr;
+<a href="#l476" class="line" id="l476">    476</a>         }
+<a href="#l477" class="line" id="l477">    477</a> 
+<a href="#l478" class="line" id="l478">    478</a>         if (m_positionalSearchItr == m_arguments.end())
+<a href="#l479" class="line" id="l479">    479</a>         {
+<a href="#l480" class="line" id="l480">    480</a>             return nullptr;
+<a href="#l481" class="line" id="l481">    481</a>         }
+<a href="#l482" class="line" id="l482">    482</a> 
+<a href="#l483" class="line" id="l483">    483</a>         return &amp;*m_positionalSearchItr;
+<a href="#l484" class="line" id="l484">    484</a>     }
+<a href="#l485" class="line" id="l485">    485</a> 
+<a href="#l486" class="line" id="l486">    486</a>     // Parse arguments as such:
+<a href="#l487" class="line" id="l487">    487</a>     //  1. If argument starts with a single -, only the single character alias is considered.
+<a href="#l488" class="line" id="l488">    488</a>     //      a. If the named argument alias (a) needs a VALUE, it can be provided in these ways:
+<a href="#l489" class="line" id="l489">    489</a>     //          -a=VALUE
+<a href="#l490" class="line" id="l490">    490</a>     //          -a VALUE
+<a href="#l491" class="line" id="l491">    491</a>     //      b. If the argument is a flag, additional characters after are treated as if they start
+<a href="#l492" class="line" id="l492">    492</a>     //          with a -, repeatedly until the end of the argument is reached.  Fails if non-flags hit.
+<a href="#l493" class="line" id="l493">    493</a>     //  2. If the argument starts with a double --, only the full name is considered.
+<a href="#l494" class="line" id="l494">    494</a>     //      a. If the named argument (arg) needs a VALUE, it can be provided in these ways:
+<a href="#l495" class="line" id="l495">    495</a>     //          --arg=VALUE
+<a href="#l496" class="line" id="l496">    496</a>     //          --arg VALUE
+<a href="#l497" class="line" id="l497">    497</a>     //  3. If the argument does not start with any -, it is considered the next positional argument.
+<a href="#l498" class="line" id="l498">    498</a>     //  4. If the argument is only a double --, all further arguments are only considered as positional.
+<a href="#l499" class="line" id="l499">    499</a>     ParseArgumentsStateMachine::State ParseArgumentsStateMachine::StepInternal()
+<a href="#l500" class="line" id="l500">    500</a>     {
+<a href="#l501" class="line" id="l501">    501</a>         auto currArg = Utility::LocIndView{ *m_invocationItr };
+<a href="#l502" class="line" id="l502">    502</a>         ++m_invocationItr;
+<a href="#l503" class="line" id="l503">    503</a> 
+<a href="#l504" class="line" id="l504">    504</a>         // If the previous step indicated a value was needed, set it and forget it.
+<a href="#l505" class="line" id="l505">    505</a>         if (m_state.Type())
+<a href="#l506" class="line" id="l506">    506</a>         {
+<a href="#l507" class="line" id="l507">    507</a>             m_executionArgs.AddArg(m_state.Type().value(), currArg);
+<a href="#l508" class="line" id="l508">    508</a>             return {};
+<a href="#l509" class="line" id="l509">    509</a>         }
+<a href="#l510" class="line" id="l510">    510</a> 
+<a href="#l511" class="line" id="l511">    511</a>         // This is a positional argument
+<a href="#l512" class="line" id="l512">    512</a>         if (m_onlyPositionalArgumentsRemain || currArg.empty() || currArg[0] != APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR)
+<a href="#l513" class="line" id="l513">    513</a>         {
+<a href="#l514" class="line" id="l514">    514</a>             const CLI::Argument* nextPositional = NextPositional();
+<a href="#l515" class="line" id="l515">    515</a>             if (!nextPositional)
+<a href="#l516" class="line" id="l516">    516</a>             {
+<a href="#l517" class="line" id="l517">    517</a>                 return CommandException(Resource::String::ExtraPositionalError(currArg));
+<a href="#l518" class="line" id="l518">    518</a>             }
+<a href="#l519" class="line" id="l519">    519</a> 
+<a href="#l520" class="line" id="l520">    520</a>             m_executionArgs.AddArg(nextPositional-&gt;ExecArgType(), currArg);
+<a href="#l521" class="line" id="l521">    521</a>         }
+<a href="#l522" class="line" id="l522">    522</a>         // The currentArg must not be empty, and starts with a -
+<a href="#l523" class="line" id="l523">    523</a>         else if (currArg.length() == 1)
+<a href="#l524" class="line" id="l524">    524</a>         {
+<a href="#l525" class="line" id="l525">    525</a>             return CommandException(Resource::String::InvalidArgumentSpecifierError(currArg));
+<a href="#l526" class="line" id="l526">    526</a>         }
+<a href="#l527" class="line" id="l527">    527</a>         // Now it must be at least 2 chars
+<a href="#l528" class="line" id="l528">    528</a>         else if (currArg[1] != APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR)
+<a href="#l529" class="line" id="l529">    529</a>         {
+<a href="#l530" class="line" id="l530">    530</a>             // Parse the single character alias argument
+<a href="#l531" class="line" id="l531">    531</a>             char currChar = currArg[1];
+<a href="#l532" class="line" id="l532">    532</a> 
+<a href="#l533" class="line" id="l533">    533</a>             auto itr = std::find_if(m_arguments.begin(), m_arguments.end(), [&amp;](const Argument&amp; arg) { return (currChar == arg.Alias()); });
+<a href="#l534" class="line" id="l534">    534</a>             if (itr == m_arguments.end())
+<a href="#l535" class="line" id="l535">    535</a>             {
+<a href="#l536" class="line" id="l536">    536</a>                 return CommandException(Resource::String::InvalidAliasError(currArg));
+<a href="#l537" class="line" id="l537">    537</a>             }
+<a href="#l538" class="line" id="l538">    538</a> 
+<a href="#l539" class="line" id="l539">    539</a>             if (itr-&gt;Type() == ArgumentType::Flag)
+<a href="#l540" class="line" id="l540">    540</a>             {
+<a href="#l541" class="line" id="l541">    541</a>                 m_executionArgs.AddArg(itr-&gt;ExecArgType());
+<a href="#l542" class="line" id="l542">    542</a> 
+<a href="#l543" class="line" id="l543">    543</a>                 for (size_t i = 2; i &lt; currArg.length(); ++i)
+<a href="#l544" class="line" id="l544">    544</a>                 {
+<a href="#l545" class="line" id="l545">    545</a>                     currChar = currArg[i];
+<a href="#l546" class="line" id="l546">    546</a> 
+<a href="#l547" class="line" id="l547">    547</a>                     auto itr2 = std::find_if(m_arguments.begin(), m_arguments.end(), [&amp;](const Argument&amp; arg) { return (currChar == arg.Alias()); });
+<a href="#l548" class="line" id="l548">    548</a>                     if (itr2 == m_arguments.end())
+<a href="#l549" class="line" id="l549">    549</a>                     {
+<a href="#l550" class="line" id="l550">    550</a>                         return CommandException(Resource::String::AdjoinedNotFoundError(currArg));
+<a href="#l551" class="line" id="l551">    551</a>                     }
+<a href="#l552" class="line" id="l552">    552</a>                     else if (itr2-&gt;Type() != ArgumentType::Flag)
+<a href="#l553" class="line" id="l553">    553</a>                     {
+<a href="#l554" class="line" id="l554">    554</a>                         return CommandException(Resource::String::AdjoinedNotFlagError(currArg));
+<a href="#l555" class="line" id="l555">    555</a>                     }
+<a href="#l556" class="line" id="l556">    556</a>                     else
+<a href="#l557" class="line" id="l557">    557</a>                     {
+<a href="#l558" class="line" id="l558">    558</a>                         m_executionArgs.AddArg(itr2-&gt;ExecArgType());
+<a href="#l559" class="line" id="l559">    559</a>                     }
+<a href="#l560" class="line" id="l560">    560</a>                 }
+<a href="#l561" class="line" id="l561">    561</a>             }
+<a href="#l562" class="line" id="l562">    562</a>             else if (currArg.length() &gt; 2)
+<a href="#l563" class="line" id="l563">    563</a>             {
+<a href="#l564" class="line" id="l564">    564</a>                 if (currArg[2] == APPINSTALLER_CLI_ARGUMENT_SPLIT_CHAR)
+<a href="#l565" class="line" id="l565">    565</a>                 {
+<a href="#l566" class="line" id="l566">    566</a>                     ProcessAdjoinedValue(itr-&gt;ExecArgType(), currArg.substr(3));
+<a href="#l567" class="line" id="l567">    567</a>                 }
+<a href="#l568" class="line" id="l568">    568</a>                 else
+<a href="#l569" class="line" id="l569">    569</a>                 {
+<a href="#l570" class="line" id="l570">    570</a>                     return CommandException(Resource::String::SingleCharAfterDashError(currArg));
+<a href="#l571" class="line" id="l571">    571</a>                 }
+<a href="#l572" class="line" id="l572">    572</a>             }
+<a href="#l573" class="line" id="l573">    573</a>             else
+<a href="#l574" class="line" id="l574">    574</a>             {
+<a href="#l575" class="line" id="l575">    575</a>                 return { itr-&gt;ExecArgType(), currArg };
+<a href="#l576" class="line" id="l576">    576</a>             }
+<a href="#l577" class="line" id="l577">    577</a>         }
+<a href="#l578" class="line" id="l578">    578</a>         // The currentArg is at least 2 chars, both of which are --
+<a href="#l579" class="line" id="l579">    579</a>         else if (currArg.length() == 2)
+<a href="#l580" class="line" id="l580">    580</a>         {
+<a href="#l581" class="line" id="l581">    581</a>             m_onlyPositionalArgumentsRemain = true;
+<a href="#l582" class="line" id="l582">    582</a>         }
+<a href="#l583" class="line" id="l583">    583</a>         // The currentArg is more than 2 chars, both of which are --
+<a href="#l584" class="line" id="l584">    584</a>         else
+<a href="#l585" class="line" id="l585">    585</a>         {
+<a href="#l586" class="line" id="l586">    586</a>             // This is an arg name, find it and process its value if needed.
+<a href="#l587" class="line" id="l587">    587</a>             // Skip the double arg identifier chars.
+<a href="#l588" class="line" id="l588">    588</a>             size_t argStart = currArg.find_first_not_of(APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR);
+<a href="#l589" class="line" id="l589">    589</a>             std::string_view argName = currArg.substr(argStart);
+<a href="#l590" class="line" id="l590">    590</a>             bool argFound = false;
+<a href="#l591" class="line" id="l591">    591</a> 
+<a href="#l592" class="line" id="l592">    592</a>             bool hasValue = false;
+<a href="#l593" class="line" id="l593">    593</a>             std::string_view argValue;
+<a href="#l594" class="line" id="l594">    594</a>             size_t splitChar = argName.find_first_of(APPINSTALLER_CLI_ARGUMENT_SPLIT_CHAR);
+<a href="#l595" class="line" id="l595">    595</a>             if (splitChar != std::string::npos)
+<a href="#l596" class="line" id="l596">    596</a>             {
+<a href="#l597" class="line" id="l597">    597</a>                 hasValue = true;
+<a href="#l598" class="line" id="l598">    598</a>                 argValue = argName.substr(splitChar + 1);
+<a href="#l599" class="line" id="l599">    599</a>                 argName = argName.substr(0, splitChar);
+<a href="#l600" class="line" id="l600">    600</a>             }
+<a href="#l601" class="line" id="l601">    601</a> 
+<a href="#l602" class="line" id="l602">    602</a>             for (const auto&amp; arg : m_arguments)
+<a href="#l603" class="line" id="l603">    603</a>             {
+<a href="#l604" class="line" id="l604">    604</a>                 if (
+<a href="#l605" class="line" id="l605">    605</a>                     Utility::CaseInsensitiveEquals(argName, arg.Name()) ||
+<a href="#l606" class="line" id="l606">    606</a>                     Utility::CaseInsensitiveEquals(argName, arg.AlternateName())
+<a href="#l607" class="line" id="l607">    607</a>                    )
+<a href="#l608" class="line" id="l608">    608</a>                 {
+<a href="#l609" class="line" id="l609">    609</a>                     if (arg.Type() == ArgumentType::Flag)
+<a href="#l610" class="line" id="l610">    610</a>                     {
+<a href="#l611" class="line" id="l611">    611</a>                         if (hasValue)
+<a href="#l612" class="line" id="l612">    612</a>                         {
+<a href="#l613" class="line" id="l613">    613</a>                             return CommandException(Resource::String::FlagContainAdjoinedError(currArg));
+<a href="#l614" class="line" id="l614">    614</a>                         }
+<a href="#l615" class="line" id="l615">    615</a> 
+<a href="#l616" class="line" id="l616">    616</a>                         m_executionArgs.AddArg(arg.ExecArgType());
+<a href="#l617" class="line" id="l617">    617</a>                     }
+<a href="#l618" class="line" id="l618">    618</a>                     else if (hasValue)
+<a href="#l619" class="line" id="l619">    619</a>                     {
+<a href="#l620" class="line" id="l620">    620</a>                         ProcessAdjoinedValue(arg.ExecArgType(), argValue);
+<a href="#l621" class="line" id="l621">    621</a>                     }
+<a href="#l622" class="line" id="l622">    622</a>                     else
+<a href="#l623" class="line" id="l623">    623</a>                     {
+<a href="#l624" class="line" id="l624">    624</a>                         return { arg.ExecArgType(), currArg };
+<a href="#l625" class="line" id="l625">    625</a>                     }
+<a href="#l626" class="line" id="l626">    626</a>                     argFound = true;
+<a href="#l627" class="line" id="l627">    627</a>                     break;
+<a href="#l628" class="line" id="l628">    628</a>                 }
+<a href="#l629" class="line" id="l629">    629</a>             }
+<a href="#l630" class="line" id="l630">    630</a> 
+<a href="#l631" class="line" id="l631">    631</a>             if (!argFound)
+<a href="#l632" class="line" id="l632">    632</a>             {
+<a href="#l633" class="line" id="l633">    633</a>                 return CommandException(Resource::String::InvalidNameError(currArg));
+<a href="#l634" class="line" id="l634">    634</a>             }
+<a href="#l635" class="line" id="l635">    635</a>         }
+<a href="#l636" class="line" id="l636">    636</a> 
+<a href="#l637" class="line" id="l637">    637</a>         // If we get here, the next argument can be anything again.
+<a href="#l638" class="line" id="l638">    638</a>         return {};
+<a href="#l639" class="line" id="l639">    639</a>     }
+<a href="#l640" class="line" id="l640">    640</a> 
+<a href="#l641" class="line" id="l641">    641</a>     void ParseArgumentsStateMachine::ProcessAdjoinedValue(Execution::Args::Type type, std::string_view value)
+<a href="#l642" class="line" id="l642">    642</a>     {
+<a href="#l643" class="line" id="l643">    643</a>         // If the adjoined value is wrapped in quotes, strip them off.
+<a href="#l644" class="line" id="l644">    644</a>         if (value.length() &gt;= 2 &amp;&amp; value[0] == &#39;&quot;&#39; &amp;&amp; value[value.length() - 1] == &#39;&quot;&#39;)
+<a href="#l645" class="line" id="l645">    645</a>         {
+<a href="#l646" class="line" id="l646">    646</a>             value = value.substr(1, value.length() - 2);
+<a href="#l647" class="line" id="l647">    647</a>         }
+<a href="#l648" class="line" id="l648">    648</a> 
+<a href="#l649" class="line" id="l649">    649</a>         m_executionArgs.AddArg(type, std::string{ value });
+<a href="#l650" class="line" id="l650">    650</a>     }
+<a href="#l651" class="line" id="l651">    651</a> 
+<a href="#l652" class="line" id="l652">    652</a>     void Command::ParseArguments(Invocation&amp; inv, Execution::Args&amp; execArgs) const
+<a href="#l653" class="line" id="l653">    653</a>     {
+<a href="#l654" class="line" id="l654">    654</a>         auto definedArgs = GetArguments();
+<a href="#l655" class="line" id="l655">    655</a>         Argument::GetCommon(definedArgs);
+<a href="#l656" class="line" id="l656">    656</a> 
+<a href="#l657" class="line" id="l657">    657</a>         ParseArgumentsStateMachine stateMachine{ inv, execArgs, std::move(definedArgs) };
+<a href="#l658" class="line" id="l658">    658</a> 
+<a href="#l659" class="line" id="l659">    659</a>         while (stateMachine.Step())
+<a href="#l660" class="line" id="l660">    660</a>         {
+<a href="#l661" class="line" id="l661">    661</a>             stateMachine.ThrowIfError();
+<a href="#l662" class="line" id="l662">    662</a>         }
+<a href="#l663" class="line" id="l663">    663</a> 
+<a href="#l664" class="line" id="l664">    664</a>         // Special handling for multi-query arguments:
+<a href="#l665" class="line" id="l665">    665</a>         execArgs.MakeMultiQueryContainUniqueValues();
+<a href="#l666" class="line" id="l666">    666</a>         execArgs.MoveMultiQueryToSingleQueryIfNeeded();
+<a href="#l667" class="line" id="l667">    667</a>     }
+<a href="#l668" class="line" id="l668">    668</a> 
+<a href="#l669" class="line" id="l669">    669</a>     void Command::ValidateArguments(Execution::Args&amp; execArgs) const
+<a href="#l670" class="line" id="l670">    670</a>     {
+<a href="#l671" class="line" id="l671">    671</a>         // If help is asked for, don&#39;t bother validating anything else
+<a href="#l672" class="line" id="l672">    672</a>         if (execArgs.Contains(Execution::Args::Type::Help))
+<a href="#l673" class="line" id="l673">    673</a>         {
+<a href="#l674" class="line" id="l674">    674</a>             return;
+<a href="#l675" class="line" id="l675">    675</a>         }
+<a href="#l676" class="line" id="l676">    676</a> 
+<a href="#l677" class="line" id="l677">    677</a>         // Common arguments need to be validated with command arguments, as there may be common arguments blocked by Experimental Feature or Group Policy
+<a href="#l678" class="line" id="l678">    678</a>         auto allArgs = GetArguments();
+<a href="#l679" class="line" id="l679">    679</a>         Argument::GetCommon(allArgs);
+<a href="#l680" class="line" id="l680">    680</a> 
+<a href="#l681" class="line" id="l681">    681</a>         for (const auto&amp; arg : allArgs)
+<a href="#l682" class="line" id="l682">    682</a>         {
+<a href="#l683" class="line" id="l683">    683</a>             if (!Settings::GroupPolicies().IsEnabled(arg.GroupPolicy()) &amp;&amp; execArgs.Contains(arg.ExecArgType()))
+<a href="#l684" class="line" id="l684">    684</a>             {
+<a href="#l685" class="line" id="l685">    685</a>                 auto policy = TogglePolicy::GetPolicy(arg.GroupPolicy());
+<a href="#l686" class="line" id="l686">    686</a>                 AICLI_LOG(CLI, Error, &lt;&lt; &quot;Trying to use argument: &quot; &lt;&lt; arg.Name() &lt;&lt; &quot; disabled by group policy &quot; &lt;&lt; policy.RegValueName());
+<a href="#l687" class="line" id="l687">    687</a>                 throw GroupPolicyException(arg.GroupPolicy());
+<a href="#l688" class="line" id="l688">    688</a>             }
+<a href="#l689" class="line" id="l689">    689</a> 
+<a href="#l690" class="line" id="l690">    690</a>             if (arg.AdminSetting() != BoolAdminSetting::Unknown &amp;&amp; !Settings::IsAdminSettingEnabled(arg.AdminSetting()) &amp;&amp; execArgs.Contains(arg.ExecArgType()))
+<a href="#l691" class="line" id="l691">    691</a>             {
+<a href="#l692" class="line" id="l692">    692</a>                 auto setting = Settings::AdminSettingToString(arg.AdminSetting());
+<a href="#l693" class="line" id="l693">    693</a>                 AICLI_LOG(CLI, Error, &lt;&lt; &quot;Trying to use argument: &quot; &lt;&lt; arg.Name() &lt;&lt; &quot; disabled by admin setting &quot; &lt;&lt; setting);
+<a href="#l694" class="line" id="l694">    694</a>                 throw CommandException(Resource::String::FeatureDisabledByAdminSettingMessage(setting));
+<a href="#l695" class="line" id="l695">    695</a>             }
+<a href="#l696" class="line" id="l696">    696</a> 
+<a href="#l697" class="line" id="l697">    697</a>             if (!ExperimentalFeature::IsEnabled(arg.Feature()) &amp;&amp; execArgs.Contains(arg.ExecArgType()))
+<a href="#l698" class="line" id="l698">    698</a>             {
+<a href="#l699" class="line" id="l699">    699</a>                 auto feature = ExperimentalFeature::GetFeature(arg.Feature());
+<a href="#l700" class="line" id="l700">    700</a>                 AICLI_LOG(CLI, Error, &lt;&lt; &quot;Trying to use argument: &quot; &lt;&lt; arg.Name() &lt;&lt; &quot; without enabling feature &quot; &lt;&lt; feature.JsonName());
+<a href="#l701" class="line" id="l701">    701</a>                 throw CommandException(Resource::String::FeatureDisabledMessage(feature.JsonName()));
+<a href="#l702" class="line" id="l702">    702</a>             }
+<a href="#l703" class="line" id="l703">    703</a> 
+<a href="#l704" class="line" id="l704">    704</a>             if (arg.Required() &amp;&amp; !execArgs.Contains(arg.ExecArgType()))
+<a href="#l705" class="line" id="l705">    705</a>             {
+<a href="#l706" class="line" id="l706">    706</a>                 throw CommandException(Resource::String::RequiredArgError(arg.Name()));
+<a href="#l707" class="line" id="l707">    707</a>             }
+<a href="#l708" class="line" id="l708">    708</a> 
+<a href="#l709" class="line" id="l709">    709</a>             if (arg.Limit() &lt; execArgs.GetCount(arg.ExecArgType()))
+<a href="#l710" class="line" id="l710">    710</a>             {
+<a href="#l711" class="line" id="l711">    711</a>                 throw CommandException(Resource::String::TooManyArgError(arg.Name()));
+<a href="#l712" class="line" id="l712">    712</a>             }
+<a href="#l713" class="line" id="l713">    713</a>         }
+<a href="#l714" class="line" id="l714">    714</a> 
+<a href="#l715" class="line" id="l715">    715</a>         if (execArgs.Contains(Execution::Args::Type::Silent) &amp;&amp; execArgs.Contains(Execution::Args::Type::Interactive))
+<a href="#l716" class="line" id="l716">    716</a>         {
+<a href="#l717" class="line" id="l717">    717</a>             throw CommandException(Resource::String::TooManyBehaviorsError(s_Command_ArgName_SilentAndInteractive));
+<a href="#l718" class="line" id="l718">    718</a>         }
+<a href="#l719" class="line" id="l719">    719</a> 
+<a href="#l720" class="line" id="l720">    720</a>         if (execArgs.Contains(Execution::Args::Type::CustomHeader) &amp;&amp; !execArgs.Contains(Execution::Args::Type::Source) &amp;&amp;
+<a href="#l721" class="line" id="l721">    721</a>            !execArgs.Contains(Execution::Args::Type::SourceName))
+<a href="#l722" class="line" id="l722">    722</a>         {
+<a href="#l723" class="line" id="l723">    723</a>             throw CommandException(Resource::String::HeaderArgumentNotApplicableWithoutSource(Argument::ForType(Execution::Args::Type::CustomHeader).Name()));
+<a href="#l724" class="line" id="l724">    724</a>         }
+<a href="#l725" class="line" id="l725">    725</a> 
+<a href="#l726" class="line" id="l726">    726</a>         if (execArgs.Contains(Execution::Args::Type::Count))
+<a href="#l727" class="line" id="l727">    727</a>         {
+<a href="#l728" class="line" id="l728">    728</a>             try
+<a href="#l729" class="line" id="l729">    729</a>             {
+<a href="#l730" class="line" id="l730">    730</a>                 int countRequested = std::stoi(std::string(execArgs.GetArg(Execution::Args::Type::Count)));
+<a href="#l731" class="line" id="l731">    731</a>                 if (countRequested &lt; 1 || countRequested &gt; 1000)
+<a href="#l732" class="line" id="l732">    732</a>                 {
+<a href="#l733" class="line" id="l733">    733</a>                     throw CommandException(Resource::String::CountOutOfBoundsError);
+<a href="#l734" class="line" id="l734">    734</a>                 }
+<a href="#l735" class="line" id="l735">    735</a>             }
+<a href="#l736" class="line" id="l736">    736</a>             catch (...)
+<a href="#l737" class="line" id="l737">    737</a>             {
+<a href="#l738" class="line" id="l738">    738</a>                 throw CommandException(Resource::String::CountOutOfBoundsError);
+<a href="#l739" class="line" id="l739">    739</a>             }
+<a href="#l740" class="line" id="l740">    740</a>         }
+<a href="#l741" class="line" id="l741">    741</a> 
+<a href="#l742" class="line" id="l742">    742</a>         if (execArgs.Contains(Execution::Args::Type::InstallArchitecture))
+<a href="#l743" class="line" id="l743">    743</a>         {
+<a href="#l744" class="line" id="l744">    744</a>             Utility::Architecture selectedArch = Utility::ConvertToArchitectureEnum(std::string(execArgs.GetArg(Execution::Args::Type::InstallArchitecture)));
+<a href="#l745" class="line" id="l745">    745</a>             if ((selectedArch == Utility::Architecture::Unknown) || (Utility::IsApplicableArchitecture(selectedArch) == Utility::InapplicableArchitecture))
+<a href="#l746" class="line" id="l746">    746</a>             {
+<a href="#l747" class="line" id="l747">    747</a>                 std::vector&lt;Utility::LocIndString&gt; applicableArchitectures;
+<a href="#l748" class="line" id="l748">    748</a>                 for (Utility::Architecture i : Utility::GetApplicableArchitectures())
+<a href="#l749" class="line" id="l749">    749</a>                 {
+<a href="#l750" class="line" id="l750">    750</a>                     applicableArchitectures.emplace_back(Utility::ToString(i));
+<a href="#l751" class="line" id="l751">    751</a>                 }
+<a href="#l752" class="line" id="l752">    752</a> 
+<a href="#l753" class="line" id="l753">    753</a>                 auto validOptions = Utility::Join(&quot;, &quot;_liv, applicableArchitectures);
+<a href="#l754" class="line" id="l754">    754</a>                 throw CommandException(Resource::String::InvalidArgumentValueError(Argument::ForType(Execution::Args::Type::InstallArchitecture).Name(), validOptions));
+<a href="#l755" class="line" id="l755">    755</a>             }
+<a href="#l756" class="line" id="l756">    756</a>         }
+<a href="#l757" class="line" id="l757">    757</a> 
+<a href="#l758" class="line" id="l758">    758</a>         if (execArgs.Contains(Execution::Args::Type::InstallerArchitecture))
+<a href="#l759" class="line" id="l759">    759</a>         {
+<a href="#l760" class="line" id="l760">    760</a>             Utility::Architecture selectedArch = Utility::ConvertToArchitectureEnum(std::string(execArgs.GetArg(Execution::Args::Type::InstallerArchitecture)));
+<a href="#l761" class="line" id="l761">    761</a>             if (selectedArch == Utility::Architecture::Unknown)
+<a href="#l762" class="line" id="l762">    762</a>             {
+<a href="#l763" class="line" id="l763">    763</a>                 std::vector&lt;Utility::LocIndString&gt; applicableArchitectures;
+<a href="#l764" class="line" id="l764">    764</a>                 for (Utility::Architecture i : Utility::GetAllArchitectures())
+<a href="#l765" class="line" id="l765">    765</a>                 {
+<a href="#l766" class="line" id="l766">    766</a>                     applicableArchitectures.emplace_back(Utility::ToString(i));
+<a href="#l767" class="line" id="l767">    767</a>                 }
+<a href="#l768" class="line" id="l768">    768</a> 
+<a href="#l769" class="line" id="l769">    769</a>                 auto validOptions = Utility::Join(&quot;, &quot;_liv, applicableArchitectures);
+<a href="#l770" class="line" id="l770">    770</a>                 throw CommandException(Resource::String::InvalidArgumentValueError(Argument::ForType(Execution::Args::Type::InstallerArchitecture).Name(), validOptions));
+<a href="#l771" class="line" id="l771">    771</a>             }
+<a href="#l772" class="line" id="l772">    772</a>         }
+<a href="#l773" class="line" id="l773">    773</a> 
+<a href="#l774" class="line" id="l774">    774</a>         if (execArgs.Contains(Execution::Args::Type::Locale))
+<a href="#l775" class="line" id="l775">    775</a>         {
+<a href="#l776" class="line" id="l776">    776</a>             if (!Locale::IsWellFormedBcp47Tag(execArgs.GetArg(Execution::Args::Type::Locale)))
+<a href="#l777" class="line" id="l777">    777</a>             {
+<a href="#l778" class="line" id="l778">    778</a>                 throw CommandException(Resource::String::InvalidArgumentValueErrorWithoutValidValues(Argument::ForType(Execution::Args::Type::Locale).Name()));
+<a href="#l779" class="line" id="l779">    779</a>             }
+<a href="#l780" class="line" id="l780">    780</a>         }
+<a href="#l781" class="line" id="l781">    781</a> 
+<a href="#l782" class="line" id="l782">    782</a>         if (execArgs.Contains(Execution::Args::Type::InstallScope))
+<a href="#l783" class="line" id="l783">    783</a>         {
+<a href="#l784" class="line" id="l784">    784</a>             if (Manifest::ConvertToScopeEnum(execArgs.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Unknown)
+<a href="#l785" class="line" id="l785">    785</a>             {
+<a href="#l786" class="line" id="l786">    786</a>                 auto validOptions = Utility::Join(&quot;, &quot;_liv, std::vector&lt;Utility::LocIndString&gt;{ &quot;user&quot;_lis, &quot;machine&quot;_lis });
+<a href="#l787" class="line" id="l787">    787</a>                 throw CommandException(Resource::String::InvalidArgumentValueError(ArgumentCommon::ForType(Execution::Args::Type::InstallScope).Name, validOptions));
+<a href="#l788" class="line" id="l788">    788</a>             }
+<a href="#l789" class="line" id="l789">    789</a>         }
+<a href="#l790" class="line" id="l790">    790</a> 
+<a href="#l791" class="line" id="l791">    791</a>         if (execArgs.Contains(Execution::Args::Type::InstallerType))
+<a href="#l792" class="line" id="l792">    792</a>         {
+<a href="#l793" class="line" id="l793">    793</a>             Manifest::InstallerTypeEnum selectedInstallerType = Manifest::ConvertToInstallerTypeEnum(std::string(execArgs.GetArg(Execution::Args::Type::InstallerType)));
+<a href="#l794" class="line" id="l794">    794</a>             if (selectedInstallerType == Manifest::InstallerTypeEnum::Unknown)
+<a href="#l795" class="line" id="l795">    795</a>             {
+<a href="#l796" class="line" id="l796">    796</a>                 throw CommandException(Resource::String::InvalidArgumentValueErrorWithoutValidValues(Argument::ForType(Execution::Args::Type::InstallerType).Name()));
+<a href="#l797" class="line" id="l797">    797</a>             }
+<a href="#l798" class="line" id="l798">    798</a>         }
+<a href="#l799" class="line" id="l799">    799</a> 
+<a href="#l800" class="line" id="l800">    800</a>         if (execArgs.Contains(Execution::Args::Type::AuthenticationMode))
+<a href="#l801" class="line" id="l801">    801</a>         {
+<a href="#l802" class="line" id="l802">    802</a>             if (Authentication::ConvertToAuthenticationMode(execArgs.GetArg(Execution::Args::Type::AuthenticationMode)) == Authentication::AuthenticationMode::Unknown)
+<a href="#l803" class="line" id="l803">    803</a>             {
+<a href="#l804" class="line" id="l804">    804</a>                 auto validOptions = Utility::Join(&quot;, &quot;_liv, std::vector&lt;Utility::LocIndString&gt;{ &quot;interactive&quot;_lis, &quot;silentPreferred&quot;_lis, &quot;silent&quot;_lis });
+<a href="#l805" class="line" id="l805">    805</a>                 throw CommandException(Resource::String::InvalidArgumentValueError(ArgumentCommon::ForType(Execution::Args::Type::AuthenticationMode).Name, validOptions));
+<a href="#l806" class="line" id="l806">    806</a>             }
+<a href="#l807" class="line" id="l807">    807</a>         }
+<a href="#l808" class="line" id="l808">    808</a> 
+<a href="#l809" class="line" id="l809">    809</a>         Argument::ValidateExclusiveArguments(execArgs);
+<a href="#l810" class="line" id="l810">    810</a> 
+<a href="#l811" class="line" id="l811">    811</a>         ValidateArgumentsInternal(execArgs);
+<a href="#l812" class="line" id="l812">    812</a>     }
+<a href="#l813" class="line" id="l813">    813</a> 
+<a href="#l814" class="line" id="l814">    814</a>     // Completion can produce one of several things if the completion context is appropriate:
+<a href="#l815" class="line" id="l815">    815</a>     //  1. Sub commands, if the context is immediately after this command.
+<a href="#l816" class="line" id="l816">    816</a>     //  2. Argument names, if a value is not expected.
+<a href="#l817" class="line" id="l817">    817</a>     //  3. Argument values, if one is expected.
+<a href="#l818" class="line" id="l818">    818</a>     void Command::Complete(Execution::Context&amp; context) const
+<a href="#l819" class="line" id="l819">    819</a>     {
+<a href="#l820" class="line" id="l820">    820</a>         CompletionData&amp; data = context.Get&lt;Execution::Data::CompletionData&gt;();
+<a href="#l821" class="line" id="l821">    821</a>         const std::string&amp; word = data.Word();
+<a href="#l822" class="line" id="l822">    822</a> 
+<a href="#l823" class="line" id="l823">    823</a>         // The word we are to complete is directly after the command, thus it&#39;s sub-commands are potentials.
+<a href="#l824" class="line" id="l824">    824</a>         if (data.BeforeWord().begin() == data.BeforeWord().end())
+<a href="#l825" class="line" id="l825">    825</a>         {
+<a href="#l826" class="line" id="l826">    826</a>             for (const auto&amp; command : GetCommands())
+<a href="#l827" class="line" id="l827">    827</a>             {
+<a href="#l828" class="line" id="l828">    828</a>                 if (word.empty() || Utility::CaseInsensitiveStartsWith(command-&gt;Name(), word))
+<a href="#l829" class="line" id="l829">    829</a>                 {
+<a href="#l830" class="line" id="l830">    830</a>                     context.Reporter.Completion() &lt;&lt; command-&gt;Name() &lt;&lt; std::endl;
+<a href="#l831" class="line" id="l831">    831</a>                 }
+<a href="#l832" class="line" id="l832">    832</a>                 // Allow for command aliases to be auto-completed
+<a href="#l833" class="line" id="l833">    833</a>                 if (!(command-&gt;Aliases()).empty() &amp;&amp; !word.empty())
+<a href="#l834" class="line" id="l834">    834</a>                 {
+<a href="#l835" class="line" id="l835">    835</a>                     for (const auto&amp; commandAlias : command-&gt;Aliases())
+<a href="#l836" class="line" id="l836">    836</a>                     {
+<a href="#l837" class="line" id="l837">    837</a>                         if (Utility::CaseInsensitiveStartsWith(commandAlias, word))
+<a href="#l838" class="line" id="l838">    838</a>                         {
+<a href="#l839" class="line" id="l839">    839</a>                             context.Reporter.Completion() &lt;&lt; commandAlias &lt;&lt; std::endl;
+<a href="#l840" class="line" id="l840">    840</a>                         }
+<a href="#l841" class="line" id="l841">    841</a>                     }
+<a href="#l842" class="line" id="l842">    842</a>                 }
+<a href="#l843" class="line" id="l843">    843</a>             }
+<a href="#l844" class="line" id="l844">    844</a>         }
+<a href="#l845" class="line" id="l845">    845</a> 
+<a href="#l846" class="line" id="l846">    846</a>         // Consume what remains, if any, of the preceding values to determine what type the word is.
+<a href="#l847" class="line" id="l847">    847</a>         auto definedArgs = GetArguments();
+<a href="#l848" class="line" id="l848">    848</a>         Argument::GetCommon(definedArgs);
+<a href="#l849" class="line" id="l849">    849</a> 
+<a href="#l850" class="line" id="l850">    850</a>         ParseArgumentsStateMachine stateMachine{ data.BeforeWord(), context.Args, std::move(definedArgs) };
+<a href="#l851" class="line" id="l851">    851</a> 
+<a href="#l852" class="line" id="l852">    852</a>         // We don&#39;t care if there are errors along the way, just do the best that can be done and try to
+<a href="#l853" class="line" id="l853">    853</a>         // complete whatever would be next if the bad strings were simply ignored. To do that we just spin
+<a href="#l854" class="line" id="l854">    854</a>         // through the state until we reach our word.
+<a href="#l855" class="line" id="l855">    855</a>         while (stateMachine.Step());
+<a href="#l856" class="line" id="l856">    856</a> 
+<a href="#l857" class="line" id="l857">    857</a>         const auto&amp; state = stateMachine.GetState();
+<a href="#l858" class="line" id="l858">    858</a> 
+<a href="#l859" class="line" id="l859">    859</a>         // This means that anything is possible, so argument names are on the table.
+<a href="#l860" class="line" id="l860">    860</a>         if (!state.Type() &amp;&amp; !stateMachine.OnlyPositionalRemain())
+<a href="#l861" class="line" id="l861">    861</a>         {
+<a href="#l862" class="line" id="l862">    862</a>             // Use argument names if:
+<a href="#l863" class="line" id="l863">    863</a>             //  1. word is empty
+<a href="#l864" class="line" id="l864">    864</a>             //  2. word is just &quot;-&quot;
+<a href="#l865" class="line" id="l865">    865</a>             //  3. word starts with &quot;--&quot;
+<a href="#l866" class="line" id="l866">    866</a>             if (word.empty() ||
+<a href="#l867" class="line" id="l867">    867</a>                 word == APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_STRING ||
+<a href="#l868" class="line" id="l868">    868</a>                 Utility::CaseInsensitiveStartsWith(word, APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_STRING APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_STRING))
+<a href="#l869" class="line" id="l869">    869</a>             {
+<a href="#l870" class="line" id="l870">    870</a>                 for (const auto&amp; arg : stateMachine.Arguments())
+<a href="#l871" class="line" id="l871">    871</a>                 {
+<a href="#l872" class="line" id="l872">    872</a>                     if (word.length() &lt;= 2 || Utility::CaseInsensitiveStartsWith(arg.Name(), word.substr(2)))
+<a href="#l873" class="line" id="l873">    873</a>                     {
+<a href="#l874" class="line" id="l874">    874</a>                         context.Reporter.Completion() &lt;&lt; APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR &lt;&lt; APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR &lt;&lt; arg.Name() &lt;&lt; std::endl;
+<a href="#l875" class="line" id="l875">    875</a>                     }
+<a href="#l876" class="line" id="l876">    876</a>                 }
+<a href="#l877" class="line" id="l877">    877</a>             }
+<a href="#l878" class="line" id="l878">    878</a>             // Use argument aliases if the word is already one; allow cycling through them.
+<a href="#l879" class="line" id="l879">    879</a>             else if (Utility::CaseInsensitiveStartsWith(word, APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_STRING) &amp;&amp; word.length() == 2)
+<a href="#l880" class="line" id="l880">    880</a>             {
+<a href="#l881" class="line" id="l881">    881</a>                 for (const auto&amp; arg : stateMachine.Arguments())
+<a href="#l882" class="line" id="l882">    882</a>                 {
+<a href="#l883" class="line" id="l883">    883</a>                     if (arg.Alias() != ArgumentCommon::NoAlias)
+<a href="#l884" class="line" id="l884">    884</a>                     {
+<a href="#l885" class="line" id="l885">    885</a>                         context.Reporter.Completion() &lt;&lt; APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR &lt;&lt; arg.Alias() &lt;&lt; std::endl;
+<a href="#l886" class="line" id="l886">    886</a>                     }
+<a href="#l887" class="line" id="l887">    887</a>                 }
+<a href="#l888" class="line" id="l888">    888</a>             }
+<a href="#l889" class="line" id="l889">    889</a>         }
+<a href="#l890" class="line" id="l890">    890</a> 
+<a href="#l891" class="line" id="l891">    891</a>         std::optional&lt;Execution::Args::Type&gt; typeToComplete = state.Type();
+<a href="#l892" class="line" id="l892">    892</a> 
+<a href="#l893" class="line" id="l893">    893</a>         // We are not waiting on an argument value, so the next could be a positional if the incoming word is not an argument name.
+<a href="#l894" class="line" id="l894">    894</a>         // If there is one, offer to complete it.
+<a href="#l895" class="line" id="l895">    895</a>         if (!typeToComplete &amp;&amp; (word.empty() || word[0] != APPINSTALLER_CLI_ARGUMENT_IDENTIFIER_CHAR))
+<a href="#l896" class="line" id="l896">    896</a>         {
+<a href="#l897" class="line" id="l897">    897</a>             const auto* nextPositional = stateMachine.NextPositional();
+<a href="#l898" class="line" id="l898">    898</a>             if (nextPositional)
+<a href="#l899" class="line" id="l899">    899</a>             {
+<a href="#l900" class="line" id="l900">    900</a>                 typeToComplete = nextPositional-&gt;ExecArgType();
+<a href="#l901" class="line" id="l901">    901</a>             }
+<a href="#l902" class="line" id="l902">    902</a>         }
+<a href="#l903" class="line" id="l903">    903</a> 
+<a href="#l904" class="line" id="l904">    904</a>         // To enable more complete scenarios, also attempt to parse any arguments after the word to complete.
+<a href="#l905" class="line" id="l905">    905</a>         // This will allow these later values to affect the result of the completion (for instance, if a specific source is listed).
+<a href="#l906" class="line" id="l906">    906</a>         {
+<a href="#l907" class="line" id="l907">    907</a>             ParseArgumentsStateMachine afterWordStateMachine{ data.AfterWord(), context.Args, stateMachine.Arguments() };
+<a href="#l908" class="line" id="l908">    908</a>             while (afterWordStateMachine.Step());
+<a href="#l909" class="line" id="l909">    909</a>         }
+<a href="#l910" class="line" id="l910">    910</a> 
+<a href="#l911" class="line" id="l911">    911</a>         // Let the derived command take over supplying context sensitive argument value.
+<a href="#l912" class="line" id="l912">    912</a>         if (typeToComplete)
+<a href="#l913" class="line" id="l913">    913</a>         {
+<a href="#l914" class="line" id="l914">    914</a>             Complete(context, typeToComplete.value());
+<a href="#l915" class="line" id="l915">    915</a>         }
+<a href="#l916" class="line" id="l916">    916</a>     }
+<a href="#l917" class="line" id="l917">    917</a> 
+<a href="#l918" class="line" id="l918">    918</a>     void Command::Complete(Execution::Context&amp;, Execution::Args::Type) const
+<a href="#l919" class="line" id="l919">    919</a>     {
+<a href="#l920" class="line" id="l920">    920</a>         // Derived commands must supply context sensitive argument values.
+<a href="#l921" class="line" id="l921">    921</a>     }
+<a href="#l922" class="line" id="l922">    922</a> 
+<a href="#l923" class="line" id="l923">    923</a>     void Command::Execute(Execution::Context&amp; context) const
+<a href="#l924" class="line" id="l924">    924</a>     {
+<a href="#l925" class="line" id="l925">    925</a>         // Block any execution if winget is disabled by policy.
+<a href="#l926" class="line" id="l926">    926</a>         // Override the function to bypass this.
+<a href="#l927" class="line" id="l927">    927</a>         if (!Settings::GroupPolicies().IsEnabled(Settings::TogglePolicy::Policy::WinGet))
+<a href="#l928" class="line" id="l928">    928</a>         {
+<a href="#l929" class="line" id="l929">    929</a>             AICLI_LOG(CLI, Error, &lt;&lt; &quot;WinGet is disabled by group policy&quot;);
+<a href="#l930" class="line" id="l930">    930</a>             throw Settings::GroupPolicyException::GroupPolicyException(Settings::TogglePolicy::Policy::WinGet);
+<a href="#l931" class="line" id="l931">    931</a>         }
+<a href="#l932" class="line" id="l932">    932</a> 
+<a href="#l933" class="line" id="l933">    933</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Executing command: &quot; &lt;&lt; Name());
+<a href="#l934" class="line" id="l934">    934</a>         if (context.Args.Contains(Execution::Args::Type::Help))
+<a href="#l935" class="line" id="l935">    935</a>         {
+<a href="#l936" class="line" id="l936">    936</a>             OutputHelp(context.Reporter);
+<a href="#l937" class="line" id="l937">    937</a>         }
+<a href="#l938" class="line" id="l938">    938</a>         else
+<a href="#l939" class="line" id="l939">    939</a>         {
+<a href="#l940" class="line" id="l940">    940</a>             ExecuteInternal(context);
+<a href="#l941" class="line" id="l941">    941</a>         }
+<a href="#l942" class="line" id="l942">    942</a> 
+<a href="#l943" class="line" id="l943">    943</a>         // NOTE: Reboot logic will still run even if the context is terminated (not including unhandled exceptions).
+<a href="#l944" class="line" id="l944">    944</a>         if (context.Args.Contains(Execution::Args::Type::AllowReboot) &amp;&amp;
+<a href="#l945" class="line" id="l945">    945</a>             WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::RebootRequired))
+<a href="#l946" class="line" id="l946">    946</a>         {
+<a href="#l947" class="line" id="l947">    947</a>             context.Reporter.Warn() &lt;&lt; Resource::String::InitiatingReboot &lt;&lt; std::endl;
+<a href="#l948" class="line" id="l948">    948</a> 
+<a href="#l949" class="line" id="l949">    949</a>             if (context.Args.Contains(Execution::Args::Type::Wait))
+<a href="#l950" class="line" id="l950">    950</a>             {
+<a href="#l951" class="line" id="l951">    951</a>                 context.Reporter.PromptForEnter();
+<a href="#l952" class="line" id="l952">    952</a>             }
+<a href="#l953" class="line" id="l953">    953</a> 
+<a href="#l954" class="line" id="l954">    954</a>             if (WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::RegisterResume))
+<a href="#l955" class="line" id="l955">    955</a>             {
+<a href="#l956" class="line" id="l956">    956</a>                 // RegisterResume context flag assumes we already wrote to the RunOnce registry.
+<a href="#l957" class="line" id="l957">    957</a>                 // Since we are about to initiate a restart, this is no longer needed as a safety net.
+<a href="#l958" class="line" id="l958">    958</a>                 Reboot::UnregisterRestartForWER();
+<a href="#l959" class="line" id="l959">    959</a> 
+<a href="#l960" class="line" id="l960">    960</a>                 context.ClearFlags(Execution::ContextFlag::RegisterResume);
+<a href="#l961" class="line" id="l961">    961</a>             }
+<a href="#l962" class="line" id="l962">    962</a> 
+<a href="#l963" class="line" id="l963">    963</a>             context.ClearFlags(Execution::ContextFlag::RebootRequired);
+<a href="#l964" class="line" id="l964">    964</a> 
+<a href="#l965" class="line" id="l965">    965</a>             if (!Reboot::InitiateReboot())
+<a href="#l966" class="line" id="l966">    966</a>             {
+<a href="#l967" class="line" id="l967">    967</a>                 context.Reporter.Error() &lt;&lt; Resource::String::FailedToInitiateReboot &lt;&lt; std::endl;
+<a href="#l968" class="line" id="l968">    968</a>             }
+<a href="#l969" class="line" id="l969">    969</a>         }
+<a href="#l970" class="line" id="l970">    970</a>         else
+<a href="#l971" class="line" id="l971">    971</a>         {
+<a href="#l972" class="line" id="l972">    972</a>             LaunchLogsIfRequested(context);
+<a href="#l973" class="line" id="l973">    973</a> 
+<a href="#l974" class="line" id="l974">    974</a>             if (context.Args.Contains(Execution::Args::Type::Wait))
+<a href="#l975" class="line" id="l975">    975</a>             {
+<a href="#l976" class="line" id="l976">    976</a>                 context.Reporter.PromptForEnter();
+<a href="#l977" class="line" id="l977">    977</a>             }
+<a href="#l978" class="line" id="l978">    978</a>         }
+<a href="#l979" class="line" id="l979">    979</a>     }
+<a href="#l980" class="line" id="l980">    980</a> 
+<a href="#l981" class="line" id="l981">    981</a>     void Command::Resume(Execution::Context&amp; context) const
+<a href="#l982" class="line" id="l982">    982</a>     {
+<a href="#l983" class="line" id="l983">    983</a>         context.Reporter.Error() &lt;&lt; Resource::String::CommandDoesNotSupportResumeMessage &lt;&lt; std::endl;
+<a href="#l984" class="line" id="l984">    984</a>         AICLI_TERMINATE_CONTEXT(E_NOTIMPL);
+<a href="#l985" class="line" id="l985">    985</a>     }
+<a href="#l986" class="line" id="l986">    986</a>     
+<a href="#l987" class="line" id="l987">    987</a>     void Command::SelectCurrentCommandIfUnrecognizedSubcommandFound(bool value)
+<a href="#l988" class="line" id="l988">    988</a>     {
+<a href="#l989" class="line" id="l989">    989</a>         m_selectCurrentCommandIfUnrecognizedSubcommandFound = value;
+<a href="#l990" class="line" id="l990">    990</a>     }
+<a href="#l991" class="line" id="l991">    991</a> 
+<a href="#l992" class="line" id="l992">    992</a>     void Command::ValidateArgumentsInternal(Execution::Args&amp;) const
+<a href="#l993" class="line" id="l993">    993</a>     {
+<a href="#l994" class="line" id="l994">    994</a>         // Do nothing by default.
+<a href="#l995" class="line" id="l995">    995</a>         // Commands may not need any extra validation.
+<a href="#l996" class="line" id="l996">    996</a>     }
+<a href="#l997" class="line" id="l997">    997</a> 
+<a href="#l998" class="line" id="l998">    998</a>     void Command::ExecuteInternal(Execution::Context&amp; context) const
+<a href="#l999" class="line" id="l999">    999</a>     {
+<a href="#l1000" class="line" id="l1000">   1000</a>         context.Reporter.Error() &lt;&lt; Resource::String::PendingWorkError &lt;&lt; std::endl;
+<a href="#l1001" class="line" id="l1001">   1001</a>         THROW_HR(E_NOTIMPL);
+<a href="#l1002" class="line" id="l1002">   1002</a>     }
+<a href="#l1003" class="line" id="l1003">   1003</a> 
+<a href="#l1004" class="line" id="l1004">   1004</a>     Command::Visibility Command::GetVisibility() const
+<a href="#l1005" class="line" id="l1005">   1005</a>     {
+<a href="#l1006" class="line" id="l1006">   1006</a>         if (!ExperimentalFeature::IsEnabled(m_feature))
+<a href="#l1007" class="line" id="l1007">   1007</a>         {
+<a href="#l1008" class="line" id="l1008">   1008</a>             return Command::Visibility::Hidden;
+<a href="#l1009" class="line" id="l1009">   1009</a>         }
+<a href="#l1010" class="line" id="l1010">   1010</a> 
+<a href="#l1011" class="line" id="l1011">   1011</a>         if (!Settings::GroupPolicies().IsEnabled(m_groupPolicy))
+<a href="#l1012" class="line" id="l1012">   1012</a>         {
+<a href="#l1013" class="line" id="l1013">   1013</a>             return Command::Visibility::Hidden;
+<a href="#l1014" class="line" id="l1014">   1014</a>         }
+<a href="#l1015" class="line" id="l1015">   1015</a> 
+<a href="#l1016" class="line" id="l1016">   1016</a>         return m_visibility;
+<a href="#l1017" class="line" id="l1017">   1017</a>     }
+<a href="#l1018" class="line" id="l1018">   1018</a> 
+<a href="#l1019" class="line" id="l1019">   1019</a>     std::vector&lt;std::unique_ptr&lt;Command&gt;&gt; Command::GetVisibleCommands() const
+<a href="#l1020" class="line" id="l1020">   1020</a>     {
+<a href="#l1021" class="line" id="l1021">   1021</a>         auto commands = GetCommands();
+<a href="#l1022" class="line" id="l1022">   1022</a> 
+<a href="#l1023" class="line" id="l1023">   1023</a>         commands.erase(
+<a href="#l1024" class="line" id="l1024">   1024</a>             std::remove_if(
+<a href="#l1025" class="line" id="l1025">   1025</a>                 commands.begin(), commands.end(),
+<a href="#l1026" class="line" id="l1026">   1026</a>                 [](const std::unique_ptr&lt;Command&gt;&amp; command) { return command-&gt;GetVisibility() == Command::Visibility::Hidden; }),
+<a href="#l1027" class="line" id="l1027">   1027</a>             commands.end());
+<a href="#l1028" class="line" id="l1028">   1028</a> 
+<a href="#l1029" class="line" id="l1029">   1029</a>         return commands;
+<a href="#l1030" class="line" id="l1030">   1030</a>     }
+<a href="#l1031" class="line" id="l1031">   1031</a> 
+<a href="#l1032" class="line" id="l1032">   1032</a>     std::vector&lt;Argument&gt; Command::GetVisibleArguments() const
+<a href="#l1033" class="line" id="l1033">   1033</a>     {
+<a href="#l1034" class="line" id="l1034">   1034</a>         auto arguments = GetArguments();
+<a href="#l1035" class="line" id="l1035">   1035</a>         Argument::GetCommon(arguments);
+<a href="#l1036" class="line" id="l1036">   1036</a> 
+<a href="#l1037" class="line" id="l1037">   1037</a>         arguments.erase(
+<a href="#l1038" class="line" id="l1038">   1038</a>             std::remove_if(
+<a href="#l1039" class="line" id="l1039">   1039</a>                 arguments.begin(), arguments.end(),
+<a href="#l1040" class="line" id="l1040">   1040</a>                 [](const Argument&amp; arg) { return arg.GetVisibility() == Argument::Visibility::Hidden; }),
+<a href="#l1041" class="line" id="l1041">   1041</a>             arguments.end());
+<a href="#l1042" class="line" id="l1042">   1042</a> 
+<a href="#l1043" class="line" id="l1043">   1043</a>         return arguments;
+<a href="#l1044" class="line" id="l1044">   1044</a>     }
+<a href="#l1045" class="line" id="l1045">   1045</a> 
+<a href="#l1046" class="line" id="l1046">   1046</a>     void ExecuteWithoutLoggingSuccess(Execution::Context&amp; context, Command* command)
+<a href="#l1047" class="line" id="l1047">   1047</a>     {
+<a href="#l1048" class="line" id="l1048">   1048</a>         try
+<a href="#l1049" class="line" id="l1049">   1049</a>         {
+<a href="#l1050" class="line" id="l1050">   1050</a>             if (!Settings::User().GetWarnings().empty() &amp;&amp;
+<a href="#l1051" class="line" id="l1051">   1051</a>                 !WI_IsFlagSet(command-&gt;GetOutputFlags(), CommandOutputFlags::IgnoreSettingsWarnings))
+<a href="#l1052" class="line" id="l1052">   1052</a>             {
+<a href="#l1053" class="line" id="l1053">   1053</a>                 context.Reporter.Warn() &lt;&lt; Resource::String::SettingsWarnings &lt;&lt; std::endl;
+<a href="#l1054" class="line" id="l1054">   1054</a>             }
+<a href="#l1055" class="line" id="l1055">   1055</a> 
+<a href="#l1056" class="line" id="l1056">   1056</a>             command-&gt;Execute(context);
+<a href="#l1057" class="line" id="l1057">   1057</a>         }
+<a href="#l1058" class="line" id="l1058">   1058</a>         catch (...)
+<a href="#l1059" class="line" id="l1059">   1059</a>         {
+<a href="#l1060" class="line" id="l1060">   1060</a>             context.SetTerminationHR(Workflow::HandleException(context, std::current_exception()));
+<a href="#l1061" class="line" id="l1061">   1061</a> 
+<a href="#l1062" class="line" id="l1062">   1062</a>             LaunchLogsIfRequested(context);
+<a href="#l1063" class="line" id="l1063">   1063</a>         }
+<a href="#l1064" class="line" id="l1064">   1064</a>     }
+<a href="#l1065" class="line" id="l1065">   1065</a> 
+<a href="#l1066" class="line" id="l1066">   1066</a>     int Execute(Execution::Context&amp; context, std::unique_ptr&lt;Command&gt;&amp; command)
+<a href="#l1067" class="line" id="l1067">   1067</a>     {
+<a href="#l1068" class="line" id="l1068">   1068</a>         ExecuteWithoutLoggingSuccess(context, command.get());
+<a href="#l1069" class="line" id="l1069">   1069</a> 
+<a href="#l1070" class="line" id="l1070">   1070</a>         if (SUCCEEDED(context.GetTerminationHR()))
+<a href="#l1071" class="line" id="l1071">   1071</a>         {
+<a href="#l1072" class="line" id="l1072">   1072</a>             Logging::Telemetry().LogCommandSuccess(command-&gt;FullName());
+<a href="#l1073" class="line" id="l1073">   1073</a>         }
+<a href="#l1074" class="line" id="l1074">   1074</a> 
+<a href="#l1075" class="line" id="l1075">   1075</a>         return context.GetTerminationHR();
+<a href="#l1076" class="line" id="l1076">   1076</a>     }
+<a href="#l1077" class="line" id="l1077">   1077</a> }
+</pre>
+</div>
+</body>
+</html>

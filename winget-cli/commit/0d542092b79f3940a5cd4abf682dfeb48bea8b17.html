@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Processor improvements (#3101) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/0d542092b79f3940a5cd4abf682dfeb48bea8b17.html">0d542092b79f3940a5cd4abf682dfeb48bea8b17</a>
+<b>parent</b> <a href="../commit/cda7a08e1480417cdb83f724829c1f5e4d663192.html">cda7a08e1480417cdb83f724829c1f5e4d663192</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 23 Mar 2023 15:59:50 -0700
+
+Processor improvements (#3101)
+
+Relax restrictions for Write-Error.
+Log PowerShell&#39;s error stream with verbose level.
+Create new exception for the case when the same module version exists in different module paths.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/Microsoft.Management.Configuration.Processor/DscModules/DscModuleV2.cs</a></td><td> | </td><td class="num">91</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Configuration.Processor/DscModules/IDscModule.cs</a></td><td> | </td><td class="num">26</td><td><span class="i">+++++++++++++</span><span class="d">-------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h4">src/Microsoft.Management.Configuration.Processor/Exceptions/GetDscResourceModuleConflict.cs</a></td><td> | </td><td class="num">43</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs</a></td><td> | </td><td class="num">90</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/ProcessorEnvironmentFactory.cs</a></td><td> | </td><td class="num">13</td><td><span class="i">++++++</span><span class="d">-------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs</a></td><td> | </td><td class="num">58</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationProcessorFactory.cs</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2SimpleFileResourceTests.cs</a></td><td> | </td><td class="num">23</td><td><span class="i">++++++++++++++++</span><span class="d">-------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2Tests.cs</a></td><td> | </td><td class="num">188</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------------------</span></td></tr>
+</table></pre><pre>12 files changed, 364 insertions(+), 179 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerSharedLib/Public/AppInstallerErrors.h.html">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/AppInstallerErrors.h.html">src/AppInstallerSharedLib/Public/AppInstallerErrors.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -172,7 +172,7 @@
+</a> #define WINGET_CONFIG_ERROR_UNIT_INVOKE_GET           ((HRESULT)0x8A15C104)
+ #define WINGET_CONFIG_ERROR_UNIT_INVOKE_TEST          ((HRESULT)0x8A15C105)
+ #define WINGET_CONFIG_ERROR_UNIT_INVOKE_SET           ((HRESULT)0x8A15C106)
+<a href="#h0-0-3" id="h0-0-3" class="d">-
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+#define WINGET_CONFIG_ERROR_UNIT_MODULE_CONFLICT      ((HRESULT)0x8A15C107)
+</a> 
+ namespace AppInstaller
+ {
+<b>diff --git a/<a id="h1" href="../file/src/Microsoft.Management.Configuration.Processor/DscModules/DscModuleV2.cs.html">src/Microsoft.Management.Configuration.Processor/DscModules/DscModuleV2.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/DscModules/DscModuleV2.cs.html">src/Microsoft.Management.Configuration.Processor/DscModules/DscModuleV2.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -11,10 +11,8 @@ namespace Microsoft.Management.Configuration.Processor.DscModule
+</a>     using System.Collections.ObjectModel;
+     using System.Linq;
+     using System.Management.Automation;
+<a href="#h1-0-3" id="h1-0-3" class="d">-    using System.Management.Automation.Runspaces;
+</a>     using Microsoft.Management.Configuration.Processor.DscResourcesInfo;
+     using Microsoft.Management.Configuration.Processor.Exceptions;
+<a href="#h1-0-6" id="h1-0-6" class="d">-    using Microsoft.Management.Configuration.Processor.Extensions;
+</a>     using Microsoft.Management.Configuration.Processor.Helpers;
+     using Microsoft.PowerShell.Commands;
+     using Windows.Foundation.Collections;
+<a href="#h1-1" id="h1-1" class="h">@@ -54,51 +52,26 @@ namespace Microsoft.Management.Configuration.Processor.DscModule
+</a>         public string InvokeDscResourceCmd { get; } = Commands.InvokeDscResource;
+ 
+         /// &lt;inheritdoc/&gt;
+<a href="#h1-1-3" id="h1-1-3" class="d">-        public IReadOnlyList&lt;DscResourceInfoInternal&gt; GetAllDscResources(Runspace runspace)
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        public IReadOnlyList&lt;DscResourceInfoInternal&gt; GetAllDscResources(PowerShell pwsh)
+</a>         {
+<a href="#h1-1-6" id="h1-1-6" class="d">-            var result = new List&lt;DscResourceInfoInternal&gt;();
+</a><a href="#h1-1-7" id="h1-1-7" class="d">-
+</a><a href="#h1-1-8" id="h1-1-8" class="d">-            using PowerShell pwsh = PowerShell.Create(runspace);
+</a><a href="#h1-1-9" id="h1-1-9" class="d">-            var resources = pwsh.AddCommand(this.GetDscResourceCmd)
+</a><a href="#h1-1-10" id="h1-1-10" class="d">-                                .InvokeAndStopOnError();
+</a><a href="#h1-1-11" id="h1-1-11" class="d">-
+</a><a href="#h1-1-12" id="h1-1-12" class="d">-            return this.ConvertToDscResourceInfoInternal(resources);
+</a><a href="#h1-1-13" id="h1-1-13" class="i">+            return this.GetDscResources(pwsh, null, null);
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+         public IReadOnlyList&lt;DscResourceInfoInternal&gt; GetDscResourcesInModule(
+<a href="#h1-1-18" id="h1-1-18" class="d">-            Runspace runspace,
+</a><a href="#h1-1-19" id="h1-1-19" class="i">+            PowerShell pwsh,
+</a>             ModuleSpecification moduleSpecification)
+         {
+<a href="#h1-1-22" id="h1-1-22" class="d">-            var result = new List&lt;DscResourceInfoInternal&gt;();
+</a><a href="#h1-1-23" id="h1-1-23" class="d">-
+</a><a href="#h1-1-24" id="h1-1-24" class="d">-            using PowerShell pwsh = PowerShell.Create(runspace);
+</a><a href="#h1-1-25" id="h1-1-25" class="d">-
+</a><a href="#h1-1-26" id="h1-1-26" class="d">-            var resources = pwsh.AddCommand(this.GetDscResourceCmd)
+</a><a href="#h1-1-27" id="h1-1-27" class="d">-                                .AddParameter(Parameters.Module, moduleSpecification)
+</a><a href="#h1-1-28" id="h1-1-28" class="d">-                                .InvokeAndStopOnError();
+</a><a href="#h1-1-29" id="h1-1-29" class="d">-
+</a><a href="#h1-1-30" id="h1-1-30" class="d">-            return this.ConvertToDscResourceInfoInternal(resources);
+</a><a href="#h1-1-31" id="h1-1-31" class="i">+            return this.GetDscResources(pwsh, null, moduleSpecification);
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+         public DscResourceInfoInternal? GetDscResource(
+<a href="#h1-1-36" id="h1-1-36" class="d">-            Runspace runspace,
+</a><a href="#h1-1-37" id="h1-1-37" class="i">+            PowerShell pwsh,
+</a>             string name,
+             ModuleSpecification? moduleSpecification)
+         {
+<a href="#h1-1-41" id="h1-1-41" class="d">-            using PowerShell pwsh = PowerShell.Create(runspace);
+</a><a href="#h1-1-42" id="h1-1-42" class="d">-            pwsh.AddCommand(this.GetDscResourceCmd)
+</a><a href="#h1-1-43" id="h1-1-43" class="d">-                .AddParameter(Parameters.Name, name);
+</a><a href="#h1-1-44" id="h1-1-44" class="d">-
+</a><a href="#h1-1-45" id="h1-1-45" class="d">-            if (moduleSpecification is not null)
+</a><a href="#h1-1-46" id="h1-1-46" class="d">-            {
+</a><a href="#h1-1-47" id="h1-1-47" class="d">-                pwsh.AddParameter(Parameters.Module, moduleSpecification);
+</a><a href="#h1-1-48" id="h1-1-48" class="d">-            }
+</a><a href="#h1-1-49" id="h1-1-49" class="d">-
+</a><a href="#h1-1-50" id="h1-1-50" class="d">-            var resources = pwsh.InvokeAndStopOnError();
+</a><a href="#h1-1-51" id="h1-1-51" class="d">-
+</a><a href="#h1-1-52" id="h1-1-52" class="d">-            var dscResourceInfos = this.ConvertToDscResourceInfoInternal(resources);
+</a><a href="#h1-1-53" id="h1-1-53" class="i">+            var dscResourceInfos = this.GetDscResources(pwsh, name, moduleSpecification);
+</a> 
+             if (dscResourceInfos.Count == 0)
+             {
+<a href="#h1-2" id="h1-2" class="h">@@ -114,17 +87,15 @@ namespace Microsoft.Management.Configuration.Processor.DscModule
+</a> 
+         /// &lt;inheritdoc/&gt;
+         public ValueSet InvokeGetResource(
+<a href="#h1-2-3" id="h1-2-3" class="d">-            Runspace runspace,
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+            PowerShell pwsh,
+</a>             ValueSet settings,
+             string name,
+             ModuleSpecification? moduleSpecification)
+         {
+<a href="#h1-2-9" id="h1-2-9" class="d">-            using PowerShell pwsh = PowerShell.Create(runspace);
+</a><a href="#h1-2-10" id="h1-2-10" class="d">-
+</a>             var getResult = pwsh.AddCommand(this.InvokeDscResourceCmd)
+                                 .AddParameters(PrepareInvokeParameters(name, settings, moduleSpecification))
+                                 .AddParameter(Parameters.Method, DscMethods.Get)
+<a href="#h1-2-14" id="h1-2-14" class="d">-                                .InvokeAndStopOnError()
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+                                .Invoke()
+</a>                                 .FirstOrDefault();
+ 
+             if (getResult is null)
+<a href="#h1-3" id="h1-3" class="h">@@ -151,19 +122,17 @@ namespace Microsoft.Management.Configuration.Processor.DscModule
+</a> 
+         /// &lt;inheritdoc/&gt;
+         public bool InvokeTestResource(
+<a href="#h1-3-3" id="h1-3-3" class="d">-            Runspace runspace,
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+            PowerShell pwsh,
+</a>             ValueSet settings,
+             string name,
+             ModuleSpecification? moduleSpecification)
+         {
+<a href="#h1-3-9" id="h1-3-9" class="d">-            using PowerShell pwsh = PowerShell.Create(runspace);
+</a><a href="#h1-3-10" id="h1-3-10" class="d">-
+</a>             // Returned type is InvokeDscResourceTestResult which is a PowerShell classed defined
+             // in PSDesiredStateConfiguration.psm1.
+             dynamic? testResult = pwsh.AddCommand(this.InvokeDscResourceCmd)
+                                       .AddParameters(PrepareInvokeParameters(name, settings, moduleSpecification))
+                                       .AddParameter(Parameters.Method, DscMethods.Test)
+<a href="#h1-3-16" id="h1-3-16" class="d">-                                      .InvokeAndStopOnError()
+</a><a href="#h1-3-17" id="h1-3-17" class="i">+                                      .Invoke()
+</a>                                       .FirstOrDefault();
+ 
+             if (testResult is null ||
+<a href="#h1-4" id="h1-4" class="h">@@ -177,19 +146,17 @@ namespace Microsoft.Management.Configuration.Processor.DscModule
+</a> 
+         /// &lt;inheritdoc/&gt;
+         public bool InvokeSetResource(
+<a href="#h1-4-3" id="h1-4-3" class="d">-            Runspace runspace,
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+            PowerShell pwsh,
+</a>             ValueSet settings,
+             string name,
+             ModuleSpecification? moduleSpecification)
+         {
+<a href="#h1-4-9" id="h1-4-9" class="d">-            using PowerShell pwsh = PowerShell.Create(runspace);
+</a><a href="#h1-4-10" id="h1-4-10" class="d">-
+</a>             // Returned type is InvokeDscResourceSetResult which is a PowerShell classed defined
+             // in PSDesiredStateConfiguration.psm1.
+             dynamic? setResult = pwsh.AddCommand(this.InvokeDscResourceCmd)
+                                      .AddParameters(PrepareInvokeParameters(name, settings, moduleSpecification))
+                                      .AddParameter(Parameters.Method, DscMethods.Set)
+<a href="#h1-4-16" id="h1-4-16" class="d">-                                     .InvokeAndStopOnError()
+</a><a href="#h1-4-17" id="h1-4-17" class="i">+                                     .Invoke()
+</a>                                      .FirstOrDefault();
+ 
+             if (setResult is null ||
+<a href="#h1-5" id="h1-5" class="h">@@ -226,6 +193,40 @@ namespace Microsoft.Management.Configuration.Processor.DscModule
+</a>             return parameters;
+         }
+ 
+<a href="#h1-5-3" id="h1-5-3" class="i">+        private IReadOnlyList&lt;DscResourceInfoInternal&gt; GetDscResources(
+</a><a href="#h1-5-4" id="h1-5-4" class="i">+            PowerShell pwsh,
+</a><a href="#h1-5-5" id="h1-5-5" class="i">+            string? name,
+</a><a href="#h1-5-6" id="h1-5-6" class="i">+            ModuleSpecification? moduleSpecification)
+</a><a href="#h1-5-7" id="h1-5-7" class="i">+        {
+</a><a href="#h1-5-8" id="h1-5-8" class="i">+            pwsh.AddCommand(this.GetDscResourceCmd);
+</a><a href="#h1-5-9" id="h1-5-9" class="i">+
+</a><a href="#h1-5-10" id="h1-5-10" class="i">+            if (name is not null)
+</a><a href="#h1-5-11" id="h1-5-11" class="i">+            {
+</a><a href="#h1-5-12" id="h1-5-12" class="i">+                pwsh.AddParameter(Parameters.Name, name);
+</a><a href="#h1-5-13" id="h1-5-13" class="i">+            }
+</a><a href="#h1-5-14" id="h1-5-14" class="i">+
+</a><a href="#h1-5-15" id="h1-5-15" class="i">+            if (moduleSpecification is not null)
+</a><a href="#h1-5-16" id="h1-5-16" class="i">+            {
+</a><a href="#h1-5-17" id="h1-5-17" class="i">+                pwsh.AddParameter(Parameters.Module, moduleSpecification);
+</a><a href="#h1-5-18" id="h1-5-18" class="i">+            }
+</a><a href="#h1-5-19" id="h1-5-19" class="i">+
+</a><a href="#h1-5-20" id="h1-5-20" class="i">+            try
+</a><a href="#h1-5-21" id="h1-5-21" class="i">+            {
+</a><a href="#h1-5-22" id="h1-5-22" class="i">+                var resources = pwsh.Invoke();
+</a><a href="#h1-5-23" id="h1-5-23" class="i">+                return this.ConvertToDscResourceInfoInternal(resources);
+</a><a href="#h1-5-24" id="h1-5-24" class="i">+            }
+</a><a href="#h1-5-25" id="h1-5-25" class="i">+            catch (RuntimeException e)
+</a><a href="#h1-5-26" id="h1-5-26" class="i">+            {
+</a><a href="#h1-5-27" id="h1-5-27" class="i">+                // Detect easily this.
+</a><a href="#h1-5-28" id="h1-5-28" class="i">+                if (e.ErrorRecord.FullyQualifiedErrorId == &quot;ExceptionWhenSetting,GetResourceFromKeyword&quot;)
+</a><a href="#h1-5-29" id="h1-5-29" class="i">+                {
+</a><a href="#h1-5-30" id="h1-5-30" class="i">+                    throw new GetDscResourceModuleConflict(name, moduleSpecification, e);
+</a><a href="#h1-5-31" id="h1-5-31" class="i">+                }
+</a><a href="#h1-5-32" id="h1-5-32" class="i">+
+</a><a href="#h1-5-33" id="h1-5-33" class="i">+                throw;
+</a><a href="#h1-5-34" id="h1-5-34" class="i">+            }
+</a><a href="#h1-5-35" id="h1-5-35" class="i">+        }
+</a><a href="#h1-5-36" id="h1-5-36" class="i">+
+</a>         private List&lt;DscResourceInfoInternal&gt; ConvertToDscResourceInfoInternal(Collection&lt;PSObject&gt; psObjects)
+         {
+             var result = new List&lt;DscResourceInfoInternal&gt;();
+<b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Configuration.Processor/DscModules/IDscModule.cs.html">src/Microsoft.Management.Configuration.Processor/DscModules/IDscModule.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/DscModules/IDscModule.cs.html">src/Microsoft.Management.Configuration.Processor/DscModules/IDscModule.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -7,7 +7,7 @@
+</a> namespace Microsoft.Management.Configuration.Processor.DscModule
+ {
+     using System.Collections.Generic;
+<a href="#h2-0-3" id="h2-0-3" class="d">-    using System.Management.Automation.Runspaces;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    using System.Management.Automation;
+</a>     using Microsoft.Management.Configuration.Processor.DscResourcesInfo;
+     using Microsoft.PowerShell.Commands;
+     using Windows.Foundation.Collections;
+<a href="#h2-1" id="h2-1" class="h">@@ -35,55 +35,55 @@ namespace Microsoft.Management.Configuration.Processor.DscModule
+</a>         /// &lt;summary&gt;
+         /// Gets all DSC resource.
+         /// &lt;/summary&gt;
+<a href="#h2-1-3" id="h2-1-3" class="d">-        /// &lt;param name=&quot;runspace&quot;&gt;PowerShell Runspace.&lt;/param&gt;
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        /// &lt;param name=&quot;pwsh&quot;&gt;PowerShell.&lt;/param&gt;
+</a>         /// &lt;returns&gt;A list with the DSC resource.&lt;/returns&gt;
+<a href="#h2-1-6" id="h2-1-6" class="d">-        IReadOnlyList&lt;DscResourceInfoInternal&gt; GetAllDscResources(Runspace runspace);
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+        IReadOnlyList&lt;DscResourceInfoInternal&gt; GetAllDscResources(PowerShell pwsh);
+</a> 
+         /// &lt;summary&gt;
+         /// Gets all resources in a module.
+         /// &lt;/summary&gt;
+<a href="#h2-1-12" id="h2-1-12" class="d">-        /// &lt;param name=&quot;runspace&quot;&gt;PowerShell Runspace.&lt;/param&gt;
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+        /// &lt;param name=&quot;pwsh&quot;&gt;PowerShell.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;moduleSpecification&quot;&gt;Module specification.&lt;/param&gt;
+         /// &lt;returns&gt;List of resources of that module and version.&lt;/returns&gt;
+<a href="#h2-1-16" id="h2-1-16" class="d">-        IReadOnlyList&lt;DscResourceInfoInternal&gt; GetDscResourcesInModule(Runspace runspace, ModuleSpecification moduleSpecification);
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+        IReadOnlyList&lt;DscResourceInfoInternal&gt; GetDscResourcesInModule(PowerShell pwsh, ModuleSpecification moduleSpecification);
+</a> 
+         /// &lt;summary&gt;
+         /// Gets a DSC Resource.
+         /// &lt;/summary&gt;
+<a href="#h2-1-22" id="h2-1-22" class="d">-        /// &lt;param name=&quot;runspace&quot;&gt;PowerShell Runspace.&lt;/param&gt;
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+        /// &lt;param name=&quot;pwsh&quot;&gt;PowerShell.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;name&quot;&gt;Name.&lt;/param&gt;
+         /// &lt;param name=&quot;moduleSpecification&quot;&gt;Module specification.&lt;/param&gt;
+         /// &lt;returns&gt;DSC Resource from that module and version.&lt;/returns&gt;
+<a href="#h2-1-27" id="h2-1-27" class="d">-        DscResourceInfoInternal? GetDscResource(Runspace runspace, string name, ModuleSpecification? moduleSpecification);
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+        DscResourceInfoInternal? GetDscResource(PowerShell pwsh, string name, ModuleSpecification? moduleSpecification);
+</a> 
+         /// &lt;summary&gt;
+         /// Calls Invoke-DscResource -Method Get from this module.
+         /// &lt;/summary&gt;
+<a href="#h2-1-33" id="h2-1-33" class="d">-        /// &lt;param name=&quot;runspace&quot;&gt;PowerShell Runspace.&lt;/param&gt;
+</a><a href="#h2-1-34" id="h2-1-34" class="i">+        /// &lt;param name=&quot;pwsh&quot;&gt;PowerShell.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;settings&quot;&gt;Settings.&lt;/param&gt;
+         /// &lt;param name=&quot;name&quot;&gt;Name.&lt;/param&gt;
+         /// &lt;param name=&quot;moduleSpecification&quot;&gt;Module specification.&lt;/param&gt;
+         /// &lt;returns&gt;Properties of resource.&lt;/returns&gt;
+<a href="#h2-1-39" id="h2-1-39" class="d">-        ValueSet InvokeGetResource(Runspace runspace, ValueSet settings, string name, ModuleSpecification? moduleSpecification);
+</a><a href="#h2-1-40" id="h2-1-40" class="i">+        ValueSet InvokeGetResource(PowerShell pwsh, ValueSet settings, string name, ModuleSpecification? moduleSpecification);
+</a> 
+         /// &lt;summary&gt;
+         /// Calls Invoke-DscResource -Method Test from this module.
+         /// &lt;/summary&gt;
+<a href="#h2-1-45" id="h2-1-45" class="d">-        /// &lt;param name=&quot;runspace&quot;&gt;PowerShell Runspace.&lt;/param&gt;
+</a><a href="#h2-1-46" id="h2-1-46" class="i">+        /// &lt;param name=&quot;pwsh&quot;&gt;PowerShell.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;settings&quot;&gt;Settings.&lt;/param&gt;
+         /// &lt;param name=&quot;name&quot;&gt;Name.&lt;/param&gt;
+         /// &lt;param name=&quot;moduleSpecification&quot;&gt;Module specification.&lt;/param&gt;
+         /// &lt;returns&gt;Is in desired state.&lt;/returns&gt;
+<a href="#h2-1-51" id="h2-1-51" class="d">-        bool InvokeTestResource(Runspace runspace, ValueSet settings, string name, ModuleSpecification? moduleSpecification);
+</a><a href="#h2-1-52" id="h2-1-52" class="i">+        bool InvokeTestResource(PowerShell pwsh, ValueSet settings, string name, ModuleSpecification? moduleSpecification);
+</a> 
+         /// &lt;summary&gt;
+         /// Calls Invoke-DscResource -Method Set from this module.
+         /// &lt;/summary&gt;
+<a href="#h2-1-57" id="h2-1-57" class="d">-        /// &lt;param name=&quot;runspace&quot;&gt;PowerShell Runspace.&lt;/param&gt;
+</a><a href="#h2-1-58" id="h2-1-58" class="i">+        /// &lt;param name=&quot;pwsh&quot;&gt;PowerShell.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;settings&quot;&gt;Settings.&lt;/param&gt;
+         /// &lt;param name=&quot;name&quot;&gt;Name.&lt;/param&gt;
+         /// &lt;param name=&quot;moduleSpecification&quot;&gt;Module specification.&lt;/param&gt;
+         /// &lt;returns&gt;If a reboot is required.&lt;/returns&gt;
+<a href="#h2-1-63" id="h2-1-63" class="d">-        bool InvokeSetResource(Runspace runspace, ValueSet settings, string name, ModuleSpecification? moduleSpecification);
+</a><a href="#h2-1-64" id="h2-1-64" class="i">+        bool InvokeSetResource(PowerShell pwsh, ValueSet settings, string name, ModuleSpecification? moduleSpecification);
+</a>     }
+ }
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/ErrorCodes.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -40,5 +40,10 @@ namespace Microsoft.Management.Configuration.Processor.Exceptions
+</a>         /// Internal error calling Invoke-DscResource Set.
+         /// &lt;/summary&gt;
+         internal const int WinGetConfigUnitInvokeSet = unchecked((int)0x8A15C106);
+<a href="#h3-0-3" id="h3-0-3" class="i">+
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        /// &lt;summary&gt;
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        /// Internal error calling Get-DscResource. More than one module found with the same version.
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+        internal const int WinGetConfigUnitModuleConflict = unchecked((int)0x8A15C107);
+</a>     }
+ }
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/GetDscResourceModuleConflict.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/GetDscResourceModuleConflict.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/Exceptions/GetDscResourceModuleConflict.cs.html">src/Microsoft.Management.Configuration.Processor/Exceptions/GetDscResourceModuleConflict.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -0,0 +1,43 @@
+</a><a href="#h4-0-0" id="h4-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h4-0-1" id="h4-0-1" class="i">+// &lt;copyright file=&quot;GetDscResourceModuleConflict.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h4-0-2" id="h4-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h4-0-3" id="h4-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+namespace Microsoft.Management.Configuration.Processor.Exceptions
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+{
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+    using System;
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+    using System.Management.Automation;
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+    using Microsoft.PowerShell.Commands;
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+    /// &lt;summary&gt;
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+    /// A call to Get-DscResource failed because at least two modules with the same version where found in the module path.
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+    /// If you are getting this verify the module path.
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+    internal class GetDscResourceModuleConflict : Exception
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+    {
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;GetDscResourceModuleConflict&quot;/&gt; class.
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+        /// &lt;param name=&quot;resourceName&quot;&gt;Resource name.&lt;/param&gt;
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+        /// &lt;param name=&quot;module&quot;&gt;Optional module.&lt;/param&gt;
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+        /// &lt;param name=&quot;inner&quot;&gt;The original runtime exception thrown.&lt;/param&gt;
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+        public GetDscResourceModuleConflict(string? resourceName, ModuleSpecification? module, RuntimeException inner)
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+            : base($&quot;Multiple modules with same version in module path: {resourceName?.ToString() ?? &quot;&lt;no resource&gt;&quot;} [{module?.ToString() ?? &quot;&lt;no module&gt;&quot;}]&quot;, inner)
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+        {
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+            this.HResult = ErrorCodes.WinGetConfigUnitModuleConflict;
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+            this.ResourceName = resourceName;
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+            this.Module = module;
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+        }
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-33" id="h4-0-33" class="i">+        /// Gets the resource name.
+</a><a href="#h4-0-34" id="h4-0-34" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-35" id="h4-0-35" class="i">+        public string? ResourceName { get; }
+</a><a href="#h4-0-36" id="h4-0-36" class="i">+
+</a><a href="#h4-0-37" id="h4-0-37" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+        /// Gets the module, if any.
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+        public ModuleSpecification? Module { get; }
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+    }
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+}
+</a><b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/HostedEnvironment.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -15,8 +15,6 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>     using Microsoft.Management.Configuration.Processor.Constants;
+     using Microsoft.Management.Configuration.Processor.DscModule;
+     using Microsoft.Management.Configuration.Processor.DscResourcesInfo;
+<a href="#h5-0-3" id="h5-0-3" class="d">-    using Microsoft.Management.Configuration.Processor.Exceptions;
+</a><a href="#h5-0-4" id="h5-0-4" class="d">-    using Microsoft.Management.Configuration.Processor.Extensions;
+</a>     using Microsoft.Management.Configuration.Processor.Helpers;
+     using Microsoft.Management.Configuration.Processor.ProcessorEnvironments;
+     using Microsoft.PowerShell.Commands;
+<a href="#h5-1" id="h5-1" class="h">@@ -51,7 +49,12 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>         /// &lt;summary&gt;
+         /// Gets the DscModule.
+         /// &lt;/summary&gt;
+<a href="#h5-1-3" id="h5-1-3" class="d">-        protected IDscModule DscModule { get; }
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+        internal IDscModule DscModule { get; }
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+
+</a><a href="#h5-1-6" id="h5-1-6" class="i">+        /// &lt;summary&gt;
+</a><a href="#h5-1-7" id="h5-1-7" class="i">+        /// Gets or initializes the set processor factory.
+</a><a href="#h5-1-8" id="h5-1-8" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h5-1-9" id="h5-1-9" class="i">+        internal ConfigurationSetProcessorFactory? SetProcessorFactory { get; init; }
+</a> 
+         /// &lt;inheritdoc/&gt;
+         public void ValidateRunspace()
+<a href="#h5-2" id="h5-2" class="h">@@ -84,28 +87,58 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-2-3" id="h5-2-3" class="d">-        public IReadOnlyList&lt;DscResourceInfoInternal&gt; GetAllDscResources() =&gt;
+</a><a href="#h5-2-4" id="h5-2-4" class="d">-            this.DscModule.GetAllDscResources(this.Runspace);
+</a><a href="#h5-2-5" id="h5-2-5" class="i">+        public IReadOnlyList&lt;DscResourceInfoInternal&gt; GetAllDscResources()
+</a><a href="#h5-2-6" id="h5-2-6" class="i">+        {
+</a><a href="#h5-2-7" id="h5-2-7" class="i">+            using PowerShell pwsh = PowerShell.Create(this.Runspace);
+</a><a href="#h5-2-8" id="h5-2-8" class="i">+            var results = this.DscModule.GetAllDscResources(pwsh);
+</a><a href="#h5-2-9" id="h5-2-9" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a><a href="#h5-2-10" id="h5-2-10" class="i">+            return results;
+</a><a href="#h5-2-11" id="h5-2-11" class="i">+        }
+</a> 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-2-14" id="h5-2-14" class="d">-        public IReadOnlyList&lt;DscResourceInfoInternal&gt; GetDscResourcesInModule(ModuleSpecification moduleSpecification) =&gt;
+</a><a href="#h5-2-15" id="h5-2-15" class="d">-            this.DscModule.GetDscResourcesInModule(this.Runspace, moduleSpecification);
+</a><a href="#h5-2-16" id="h5-2-16" class="i">+        public IReadOnlyList&lt;DscResourceInfoInternal&gt; GetDscResourcesInModule(ModuleSpecification moduleSpecification)
+</a><a href="#h5-2-17" id="h5-2-17" class="i">+        {
+</a><a href="#h5-2-18" id="h5-2-18" class="i">+            using PowerShell pwsh = PowerShell.Create(this.Runspace);
+</a><a href="#h5-2-19" id="h5-2-19" class="i">+            var results = this.DscModule.GetDscResourcesInModule(pwsh, moduleSpecification);
+</a><a href="#h5-2-20" id="h5-2-20" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a><a href="#h5-2-21" id="h5-2-21" class="i">+            return results;
+</a><a href="#h5-2-22" id="h5-2-22" class="i">+        }
+</a> 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-2-25" id="h5-2-25" class="d">-        public DscResourceInfoInternal? GetDscResource(ConfigurationUnitInternal unitInternal) =&gt;
+</a><a href="#h5-2-26" id="h5-2-26" class="d">-            this.DscModule.GetDscResource(this.Runspace, unitInternal.Unit.UnitName, unitInternal.Module);
+</a><a href="#h5-2-27" id="h5-2-27" class="i">+        public DscResourceInfoInternal? GetDscResource(ConfigurationUnitInternal unitInternal)
+</a><a href="#h5-2-28" id="h5-2-28" class="i">+        {
+</a><a href="#h5-2-29" id="h5-2-29" class="i">+            using PowerShell pwsh = PowerShell.Create(this.Runspace);
+</a><a href="#h5-2-30" id="h5-2-30" class="i">+            var result = this.DscModule.GetDscResource(pwsh, unitInternal.Unit.UnitName, unitInternal.Module);
+</a><a href="#h5-2-31" id="h5-2-31" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a><a href="#h5-2-32" id="h5-2-32" class="i">+            return result;
+</a><a href="#h5-2-33" id="h5-2-33" class="i">+        }
+</a> 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-2-36" id="h5-2-36" class="d">-        public ValueSet InvokeGetResource(ValueSet settings, string name, ModuleSpecification? moduleSpecification) =&gt;
+</a><a href="#h5-2-37" id="h5-2-37" class="d">-            this.DscModule.InvokeGetResource(this.Runspace, settings, name, moduleSpecification);
+</a><a href="#h5-2-38" id="h5-2-38" class="i">+        public ValueSet InvokeGetResource(ValueSet settings, string name, ModuleSpecification? moduleSpecification)
+</a><a href="#h5-2-39" id="h5-2-39" class="i">+        {
+</a><a href="#h5-2-40" id="h5-2-40" class="i">+            using PowerShell pwsh = PowerShell.Create(this.Runspace);
+</a><a href="#h5-2-41" id="h5-2-41" class="i">+            var result = this.DscModule.InvokeGetResource(pwsh, settings, name, moduleSpecification);
+</a><a href="#h5-2-42" id="h5-2-42" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a><a href="#h5-2-43" id="h5-2-43" class="i">+            return result;
+</a><a href="#h5-2-44" id="h5-2-44" class="i">+        }
+</a> 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-2-47" id="h5-2-47" class="d">-        public bool InvokeTestResource(ValueSet settings, string name, ModuleSpecification? moduleSpecification) =&gt;
+</a><a href="#h5-2-48" id="h5-2-48" class="d">-            this.DscModule.InvokeTestResource(this.Runspace, settings, name, moduleSpecification);
+</a><a href="#h5-2-49" id="h5-2-49" class="i">+        public bool InvokeTestResource(ValueSet settings, string name, ModuleSpecification? moduleSpecification)
+</a><a href="#h5-2-50" id="h5-2-50" class="i">+        {
+</a><a href="#h5-2-51" id="h5-2-51" class="i">+            using PowerShell pwsh = PowerShell.Create(this.Runspace);
+</a><a href="#h5-2-52" id="h5-2-52" class="i">+            var result = this.DscModule.InvokeTestResource(pwsh, settings, name, moduleSpecification);
+</a><a href="#h5-2-53" id="h5-2-53" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a><a href="#h5-2-54" id="h5-2-54" class="i">+            return result;
+</a><a href="#h5-2-55" id="h5-2-55" class="i">+        }
+</a> 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-2-58" id="h5-2-58" class="d">-        public bool InvokeSetResource(ValueSet settings, string name, ModuleSpecification? moduleSpecification) =&gt;
+</a><a href="#h5-2-59" id="h5-2-59" class="d">-            this.DscModule.InvokeSetResource(this.Runspace, settings, name, moduleSpecification);
+</a><a href="#h5-2-60" id="h5-2-60" class="i">+        public bool InvokeSetResource(ValueSet settings, string name, ModuleSpecification? moduleSpecification)
+</a><a href="#h5-2-61" id="h5-2-61" class="i">+        {
+</a><a href="#h5-2-62" id="h5-2-62" class="i">+            using PowerShell pwsh = PowerShell.Create(this.Runspace);
+</a><a href="#h5-2-63" id="h5-2-63" class="i">+            var result = this.DscModule.InvokeSetResource(pwsh, settings, name, moduleSpecification);
+</a><a href="#h5-2-64" id="h5-2-64" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a><a href="#h5-2-65" id="h5-2-65" class="i">+            return result;
+</a><a href="#h5-2-66" id="h5-2-66" class="i">+        }
+</a> 
+         /// &lt;inheritdoc/&gt;
+         public PSModuleInfo? GetImportedModule(ModuleSpecification moduleSpecification)
+<a href="#h5-3" id="h5-3" class="h">@@ -117,6 +150,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>                                  .Invoke&lt;PSModuleInfo&gt;()
+                                  .FirstOrDefault();
+ 
+<a href="#h5-3-3" id="h5-3-3" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>             return moduleInfo;
+         }
+ 
+<a href="#h5-4" id="h5-4" class="h">@@ -131,6 +165,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>                                  .Invoke&lt;PSModuleInfo&gt;()
+                                  .FirstOrDefault();
+ 
+<a href="#h5-4-3" id="h5-4-3" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>             return moduleInfo;
+         }
+ 
+<a href="#h5-5" id="h5-5" class="h">@@ -145,6 +180,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>                                  .Invoke&lt;PSModuleInfo&gt;()
+                                  .FirstOrDefault();
+ 
+<a href="#h5-5-3" id="h5-5-3" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>             return moduleInfo;
+         }
+ 
+<a href="#h5-6" id="h5-6" class="h">@@ -156,6 +192,8 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>             _ = pwsh.AddCommand(Commands.ImportModule)
+                     .AddParameter(Parameters.FullyQualifiedName, moduleSpecification)
+                     .Invoke();
+<a href="#h5-6-3" id="h5-6-3" class="i">+
+</a><a href="#h5-6-4" id="h5-6-4" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-7" id="h5-7" class="h">@@ -188,6 +226,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>                              .Invoke()
+                              .FirstOrDefault();
+ 
+<a href="#h5-7-3" id="h5-7-3" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>             return result;
+         }
+ 
+<a href="#h5-8" id="h5-8" class="h">@@ -236,6 +275,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>                              .Invoke()
+                              .FirstOrDefault();
+ 
+<a href="#h5-8-3" id="h5-8-3" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>             return result;
+         }
+ 
+<a href="#h5-9" id="h5-9" class="h">@@ -247,7 +287,9 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>             _ = pwsh.AddCommand(Commands.SaveModule)
+                     .AddParameter(Parameters.Path, location)
+                     .AddParameter(Parameters.InputObject, inputObject)
+<a href="#h5-9-3" id="h5-9-3" class="d">-                    .InvokeAndStopOnError();
+</a><a href="#h5-9-4" id="h5-9-4" class="i">+                    .Invoke();
+</a><a href="#h5-9-5" id="h5-9-5" class="i">+
+</a><a href="#h5-9-6" id="h5-9-6" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-10" id="h5-10" class="h">@@ -265,7 +307,9 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>             _ = pwsh.AddCommand(Commands.InstallModule)
+                     .AddParameter(Parameters.InputObject, inputObject)
+                     .AddParameter(Parameters.Force)
+<a href="#h5-10-3" id="h5-10-3" class="d">-                    .InvokeAndStopOnError();
+</a><a href="#h5-10-4" id="h5-10-4" class="i">+                    .Invoke();
+</a><a href="#h5-10-5" id="h5-10-5" class="i">+
+</a><a href="#h5-10-6" id="h5-10-6" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>         }
+ 
+         /// &lt;inheritdoc/&gt;
+<a href="#h5-11" id="h5-11" class="h">@@ -298,7 +342,9 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>                 _ = pwsh.AddCommand(Commands.InstallModule)
+                         .AddParameters(parameters)
+                         .AddParameter(Parameters.Force)
+<a href="#h5-11-3" id="h5-11-3" class="d">-                        .InvokeAndStopOnError();
+</a><a href="#h5-11-4" id="h5-11-4" class="i">+                        .Invoke();
+</a><a href="#h5-11-5" id="h5-11-5" class="i">+
+</a><a href="#h5-11-6" id="h5-11-6" class="i">+                this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>             }
+         }
+ 
+<a href="#h5-12" id="h5-12" class="h">@@ -310,7 +356,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>             var signatures = pwsh.AddCommand(Commands.GetChildItem)
+                                  .AddParameter(Parameters.Path, paths)
+                                  .AddCommand(Commands.GetAuthenticodeSignature)
+<a href="#h5-12-3" id="h5-12-3" class="d">-                                 .InvokeAndStopOnError&lt;Signature&gt;();
+</a><a href="#h5-12-4" id="h5-12-4" class="i">+                                 .Invoke&lt;Signature&gt;();
+</a> 
+             var thumbprint = new HashSet&lt;string&gt;();
+             var certificates = new List&lt;Certificate&gt;();
+<a href="#h5-13" id="h5-13" class="h">@@ -326,6 +372,7 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a>                 }
+             }
+ 
+<a href="#h5-13-3" id="h5-13-3" class="i">+            this.OnDiagnostics(DiagnosticLevel.Verbose, pwsh);
+</a>             return certificates;
+         }
+ 
+<a href="#h5-14" id="h5-14" class="h">@@ -408,5 +455,10 @@ namespace Microsoft.Management.Configuration.Processor.Runspaces
+</a> 
+             return false;
+         }
+<a href="#h5-14-3" id="h5-14-3" class="i">+
+</a><a href="#h5-14-4" id="h5-14-4" class="i">+        private void OnDiagnostics(DiagnosticLevel level, PowerShell pwsh)
+</a><a href="#h5-14-5" id="h5-14-5" class="i">+        {
+</a><a href="#h5-14-6" id="h5-14-6" class="i">+            this.SetProcessorFactory?.OnDiagnostics(level, pwsh);
+</a><a href="#h5-14-7" id="h5-14-7" class="i">+        }
+</a>     }
+ }
+<b>diff --git a/<a id="h6" href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/ProcessorEnvironmentFactory.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/ProcessorEnvironmentFactory.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/ProcessorEnvironmentFactory.cs.html">src/Microsoft.Management.Configuration.Processor/ProcessorEnvironments/ProcessorEnvironmentFactory.cs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -33,13 +33,9 @@ namespace Microsoft.Management.Configuration.Processor.ProcessorEnvironments
+</a>         /// &lt;summary&gt;
+         /// Create process environment.
+         /// &lt;/summary&gt;
+<a href="#h6-0-3" id="h6-0-3" class="i">+        /// &lt;param name=&quot;setProcessorFactory&quot;&gt;Optional processor factory.&lt;/param&gt;
+</a>         /// &lt;returns&gt;IProcessorEnvironment.&lt;/returns&gt;
+<a href="#h6-0-5" id="h6-0-5" class="d">-        public IProcessorEnvironment CreateEnvironment()
+</a><a href="#h6-0-6" id="h6-0-6" class="d">-        {
+</a><a href="#h6-0-7" id="h6-0-7" class="d">-            return this.CreateProcessorEnvironment();
+</a><a href="#h6-0-8" id="h6-0-8" class="d">-        }
+</a><a href="#h6-0-9" id="h6-0-9" class="d">-
+</a><a href="#h6-0-10" id="h6-0-10" class="d">-        private IProcessorEnvironment CreateProcessorEnvironment()
+</a><a href="#h6-0-11" id="h6-0-11" class="i">+        public IProcessorEnvironment CreateEnvironment(ConfigurationSetProcessorFactory? setProcessorFactory)
+</a>         {
+             IDscModule dscModule = new DscModuleV2();
+ 
+<a href="#h6-1" id="h6-1" class="h">@@ -67,7 +63,10 @@ namespace Microsoft.Management.Configuration.Processor.ProcessorEnvironments
+</a>                 var runspace = RunspaceFactory.CreateRunspace(initialSessionState);
+                 runspace.Open();
+ 
+<a href="#h6-1-3" id="h6-1-3" class="d">-                return new HostedEnvironment(runspace, this.type, dscModule);
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+                return new HostedEnvironment(runspace, this.type, dscModule)
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+                {
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+                    SetProcessorFactory = setProcessorFactory,
+</a><a href="#h6-1-7" id="h6-1-7" class="i">+                };
+</a>             }
+ 
+             throw new ArgumentException(this.type.ToString());
+<b>diff --git a/<a id="h7" href="../file/src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs.html">src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs.html">src/Microsoft.Management.Configuration.Processor/Public/ConfigurationSetProcessorFactory.cs</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -7,6 +7,8 @@
+</a> namespace Microsoft.Management.Configuration.Processor
+ {
+     using System;
+<a href="#h7-0-3" id="h7-0-3" class="i">+    using System.Management.Automation;
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+    using System.Text;
+</a>     using Microsoft.Management.Configuration;
+     using Microsoft.Management.Configuration.Processor.ProcessorEnvironments;
+     using Microsoft.Management.Configuration.Processor.Set;
+<a href="#h7-1" id="h7-1" class="h">@@ -52,7 +54,7 @@ namespace Microsoft.Management.Configuration.Processor
+</a>                 this.OnDiagnostics(DiagnosticLevel.Verbose, $&quot;Creating set processor for `{set.Name}`...&quot;);
+ 
+                 var envFactory = new ProcessorEnvironmentFactory(this.type);
+<a href="#h7-1-3" id="h7-1-3" class="d">-                var processorEnvironment = envFactory.CreateEnvironment();
+</a><a href="#h7-1-4" id="h7-1-4" class="i">+                var processorEnvironment = envFactory.CreateEnvironment(this);
+</a>                 processorEnvironment.ValidateRunspace();
+ 
+                 if (this.properties is not null)
+<a href="#h7-2" id="h7-2" class="h">@@ -85,11 +87,57 @@ namespace Microsoft.Management.Configuration.Processor
+</a>             EventHandler&lt;DiagnosticInformation&gt;? diagnostics = this.Diagnostics;
+             if (diagnostics != null &amp;&amp; level &gt;= this.MinimumLevel)
+             {
+<a href="#h7-2-3" id="h7-2-3" class="d">-                DiagnosticInformation information = new DiagnosticInformation();
+</a><a href="#h7-2-4" id="h7-2-4" class="d">-                information.Level = level;
+</a><a href="#h7-2-5" id="h7-2-5" class="d">-                information.Message = message;
+</a><a href="#h7-2-6" id="h7-2-6" class="d">-                diagnostics.Invoke(this, information);
+</a><a href="#h7-2-7" id="h7-2-7" class="i">+                this.InvokeDiagnostics(diagnostics, level, message);
+</a>             }
+         }
+<a href="#h7-2-10" id="h7-2-10" class="i">+
+</a><a href="#h7-2-11" id="h7-2-11" class="i">+        /// &lt;summary&gt;
+</a><a href="#h7-2-12" id="h7-2-12" class="i">+        /// Sends diagnostic if appropriate for PowerShell streams.
+</a><a href="#h7-2-13" id="h7-2-13" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h7-2-14" id="h7-2-14" class="i">+        /// &lt;param name=&quot;level&quot;&gt;The level of this diagnostic message.&lt;/param&gt;
+</a><a href="#h7-2-15" id="h7-2-15" class="i">+        /// &lt;param name=&quot;pwsh&quot;&gt;The PowerShell object.&lt;/param&gt;
+</a><a href="#h7-2-16" id="h7-2-16" class="i">+        internal void OnDiagnostics(DiagnosticLevel level, PowerShell pwsh)
+</a><a href="#h7-2-17" id="h7-2-17" class="i">+        {
+</a><a href="#h7-2-18" id="h7-2-18" class="i">+            EventHandler&lt;DiagnosticInformation&gt;? diagnostics = this.Diagnostics;
+</a><a href="#h7-2-19" id="h7-2-19" class="i">+            if (diagnostics != null &amp;&amp; level &gt;= this.MinimumLevel &amp;&amp; pwsh.HadErrors)
+</a><a href="#h7-2-20" id="h7-2-20" class="i">+            {
+</a><a href="#h7-2-21" id="h7-2-21" class="i">+                var builder = new StringBuilder();
+</a><a href="#h7-2-22" id="h7-2-22" class="i">+
+</a><a href="#h7-2-23" id="h7-2-23" class="i">+                // There are the last commands ran by that PowerShell obj, not all in our session.
+</a><a href="#h7-2-24" id="h7-2-24" class="i">+                builder.Append(&quot;PowerShellCommands: &quot;);
+</a><a href="#h7-2-25" id="h7-2-25" class="i">+                foreach (var c in pwsh.Commands.Commands)
+</a><a href="#h7-2-26" id="h7-2-26" class="i">+                {
+</a><a href="#h7-2-27" id="h7-2-27" class="i">+                    builder.Append($&quot;[&#39;{c.CommandText}&#39;&quot;);
+</a><a href="#h7-2-28" id="h7-2-28" class="i">+                    if (c.Parameters.Count &gt; 0)
+</a><a href="#h7-2-29" id="h7-2-29" class="i">+                    {
+</a><a href="#h7-2-30" id="h7-2-30" class="i">+                        builder.Append(&quot; Parameters: &quot;);
+</a><a href="#h7-2-31" id="h7-2-31" class="i">+                        foreach (var p in c.Parameters)
+</a><a href="#h7-2-32" id="h7-2-32" class="i">+                        {
+</a><a href="#h7-2-33" id="h7-2-33" class="i">+                            builder.Append($&quot;{p.Name} = &#39;{p.Value}&#39; &quot;);
+</a><a href="#h7-2-34" id="h7-2-34" class="i">+                        }
+</a><a href="#h7-2-35" id="h7-2-35" class="i">+                        builder.Append(&quot;]&quot;);
+</a><a href="#h7-2-36" id="h7-2-36" class="i">+                    }
+</a><a href="#h7-2-37" id="h7-2-37" class="i">+
+</a><a href="#h7-2-38" id="h7-2-38" class="i">+                    builder.AppendLine();
+</a><a href="#h7-2-39" id="h7-2-39" class="i">+                }
+</a><a href="#h7-2-40" id="h7-2-40" class="i">+
+</a><a href="#h7-2-41" id="h7-2-41" class="i">+                foreach (var error in pwsh.Streams.Error)
+</a><a href="#h7-2-42" id="h7-2-42" class="i">+                {
+</a><a href="#h7-2-43" id="h7-2-43" class="i">+                    builder.AppendLine($&quot;[WriteError] {error}&quot;);
+</a><a href="#h7-2-44" id="h7-2-44" class="i">+                }
+</a><a href="#h7-2-45" id="h7-2-45" class="i">+
+</a><a href="#h7-2-46" id="h7-2-46" class="i">+                this.InvokeDiagnostics(diagnostics, level, builder.ToString());
+</a><a href="#h7-2-47" id="h7-2-47" class="i">+            }
+</a><a href="#h7-2-48" id="h7-2-48" class="i">+        }
+</a><a href="#h7-2-49" id="h7-2-49" class="i">+
+</a><a href="#h7-2-50" id="h7-2-50" class="i">+        private void InvokeDiagnostics(EventHandler&lt;DiagnosticInformation&gt; diagnostics, DiagnosticLevel level, string message)
+</a><a href="#h7-2-51" id="h7-2-51" class="i">+        {
+</a><a href="#h7-2-52" id="h7-2-52" class="i">+            DiagnosticInformation information = new ()
+</a><a href="#h7-2-53" id="h7-2-53" class="i">+            {
+</a><a href="#h7-2-54" id="h7-2-54" class="i">+                Level = level,
+</a><a href="#h7-2-55" id="h7-2-55" class="i">+                Message = message,
+</a><a href="#h7-2-56" id="h7-2-56" class="i">+            };
+</a><a href="#h7-2-57" id="h7-2-57" class="i">+            diagnostics.Invoke(this, information);
+</a><a href="#h7-2-58" id="h7-2-58" class="i">+        }
+</a>     }
+ } 
+\ No newline at end of file
+<b>diff --git a/<a id="h8" href="../file/src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs.html">src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs.html">src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -57,7 +57,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Fixtures
+</a>         /// &lt;returns&gt;PowerShellRunspace.&lt;/returns&gt;
+         internal IProcessorEnvironment PrepareTestProcessorEnvironment(bool validate = false)
+         {
+<a href="#h8-0-3" id="h8-0-3" class="d">-            var processorEnv = new ProcessorEnvironmentFactory(ConfigurationProcessorType.Hosted).CreateEnvironment();
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+            var processorEnv = new ProcessorEnvironmentFactory(ConfigurationProcessorType.Hosted).CreateEnvironment(null);
+</a>             processorEnv.PrependPSModulePath(this.TestModulesPath);
+ 
+             if (validate)
+<b>diff --git a/<a id="h9" href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationProcessorFactory.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationProcessorFactory.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationProcessorFactory.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/TestConfigurationProcessorFactory.cs</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -25,7 +25,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a>         /// &lt;summary&gt;
+         /// Diagnostics event; useful for logging and/or verbose output.
+         /// &lt;/summary&gt;
+<a href="#h9-0-3" id="h9-0-3" class="i">+#pragma warning disable CS0067 // The event is never used
+</a>         public event EventHandler&lt;DiagnosticInformation&gt;? Diagnostics;
+<a href="#h9-0-5" id="h9-0-5" class="i">+#pragma warning restore CS0067 // The event is never used
+</a> 
+         /// &lt;summary&gt;
+         /// Gets or sets the minimum diagnostic level to send.
+<b>diff --git a/<a id="h10" href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2SimpleFileResourceTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2SimpleFileResourceTests.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2SimpleFileResourceTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2SimpleFileResourceTests.cs</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -7,6 +7,7 @@
+</a> namespace Microsoft.Management.Configuration.UnitTests.Tests
+ {
+     using System.IO;
+<a href="#h10-0-3" id="h10-0-3" class="i">+    using System.Management.Automation;
+</a>     using Microsoft.Management.Configuration.Processor.DscModule;
+     using Microsoft.Management.Configuration.Processor.Helpers;
+     using Microsoft.Management.Configuration.UnitTests.Fixtures;
+<a href="#h10-1" id="h10-1" class="h">@@ -58,10 +59,12 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             };
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h10-1-3" id="h10-1-3" class="i">+
+</a><a href="#h10-1-4" id="h10-1-4" class="i">+            using PowerShell pwsh = PowerShell.Create(processorEnv.Runspace);
+</a>             Assert.Equal(
+                 expectedResult,
+                 dscModule.InvokeTestResource(
+<a href="#h10-1-8" id="h10-1-8" class="d">-                    processorEnv.Runspace,
+</a><a href="#h10-1-9" id="h10-1-9" class="i">+                    pwsh,
+</a>                     settings,
+                     TestModule.SimpleFileResourceName,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h10-2" id="h10-2" class="h">@@ -86,8 +89,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             };
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h10-2-3" id="h10-2-3" class="i">+            using PowerShell pwsh = PowerShell.Create(processorEnv.Runspace);
+</a>             Assert.True(dscModule.InvokeTestResource(
+<a href="#h10-2-5" id="h10-2-5" class="d">-                processorEnv.Runspace,
+</a><a href="#h10-2-6" id="h10-2-6" class="i">+                pwsh,
+</a>                 settings,
+                 TestModule.SimpleFileResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h10-3" id="h10-3" class="h">@@ -112,8 +116,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             };
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h10-3-3" id="h10-3-3" class="i">+            using PowerShell pwsh = PowerShell.Create(processorEnv.Runspace);
+</a>             Assert.False(dscModule.InvokeTestResource(
+<a href="#h10-3-5" id="h10-3-5" class="d">-                processorEnv.Runspace,
+</a><a href="#h10-3-6" id="h10-3-6" class="i">+                pwsh,
+</a>                 settings,
+                 TestModule.SimpleFileResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h10-4" id="h10-4" class="h">@@ -139,8 +144,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             };
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h10-4-3" id="h10-4-3" class="i">+            using PowerShell pwsh = PowerShell.Create(processorEnv.Runspace);
+</a>             Assert.True(dscModule.InvokeTestResource(
+<a href="#h10-4-5" id="h10-4-5" class="d">-                processorEnv.Runspace,
+</a><a href="#h10-4-6" id="h10-4-6" class="i">+                pwsh,
+</a>                 settings,
+                 TestModule.SimpleFileResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h10-5" id="h10-5" class="h">@@ -181,8 +187,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>                 File.Exists(tmpFile.FullFileName));
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h10-5-3" id="h10-5-3" class="i">+            using PowerShell pwsh = PowerShell.Create(processorEnv.Runspace);
+</a>             dscModule.InvokeSetResource(
+<a href="#h10-5-5" id="h10-5-5" class="d">-                processorEnv.Runspace,
+</a><a href="#h10-5-6" id="h10-5-6" class="i">+                pwsh,
+</a>                 settings,
+                 TestModule.SimpleFileResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h10-6" id="h10-6" class="h">@@ -221,8 +228,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             };
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h10-6-3" id="h10-6-3" class="i">+            using PowerShell pwsh = PowerShell.Create(processorEnv.Runspace);
+</a>             dscModule.InvokeSetResource(
+<a href="#h10-6-5" id="h10-6-5" class="d">-                processorEnv.Runspace,
+</a><a href="#h10-6-6" id="h10-6-6" class="i">+                pwsh,
+</a>                 settings,
+                 TestModule.SimpleFileResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h10-7" id="h10-7" class="h">@@ -250,8 +258,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             };
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h10-7-3" id="h10-7-3" class="i">+            using PowerShell pwsh = PowerShell.Create(processorEnv.Runspace);
+</a>             var properties = dscModule.InvokeGetResource(
+<a href="#h10-7-5" id="h10-7-5" class="d">-                                processorEnv.Runspace,
+</a><a href="#h10-7-6" id="h10-7-6" class="i">+                                pwsh,
+</a>                                 settings,
+                                 TestModule.SimpleFileResourceName,
+                                 PowerShellHelpers.CreateModuleSpecification(
+<b>diff --git a/<a id="h11" href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2Tests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2Tests.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2Tests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/DscModuleV2Tests.cs</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -6,10 +6,10 @@
+</a> 
+ namespace Microsoft.Management.Configuration.UnitTests.Tests
+ {
+<a href="#h11-0-3" id="h11-0-3" class="d">-    using System;
+</a>     using System.IO;
+     using System.Management.Automation;
+     using Microsoft.Management.Configuration.Processor.DscModule;
+<a href="#h11-0-7" id="h11-0-7" class="i">+    using Microsoft.Management.Configuration.Processor.Exceptions;
+</a>     using Microsoft.Management.Configuration.Processor.Helpers;
+     using Microsoft.Management.Configuration.UnitTests.Fixtures;
+     using Microsoft.Management.Configuration.UnitTests.Helpers;
+<a href="#h11-1" id="h11-1" class="h">@@ -48,7 +48,8 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-1-3" id="h11-1-3" class="d">-            var resources = dscModule.GetAllDscResources(testEnvironment.Runspace);
+</a><a href="#h11-1-4" id="h11-1-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-1-5" id="h11-1-5" class="i">+            var resources = dscModule.GetAllDscResources(pwsh);
+</a> 
+             Assert.True(resources.Count &gt; 0);
+             Assert.Contains(resources, r =&gt; r.Name == TestModule.SimpleFileResourceName);
+<a href="#h11-2" id="h11-2" class="h">@@ -67,8 +68,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-2-3" id="h11-2-3" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var resources = dscModule.GetDscResourcesInModule(
+<a href="#h11-2-5" id="h11-2-5" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-2-6" id="h11-2-6" class="i">+                pwsh,
+</a>                 PowerShellHelpers.CreateModuleSpecification(module));
+             Assert.Equal(expectedResources, resources.Count);
+         }
+<a href="#h11-3" id="h11-3" class="h">@@ -102,27 +104,35 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             ////    testEnvironment.Runspace,
+             ////    PowerShellHelpers.CreateModuleSpecification(TestModule.SimpleTestResourceModuleName));
+             ////Assert.Equal(8, allResources.Count);
+<a href="#h11-3-3" id="h11-3-3" class="d">-
+</a><a href="#h11-3-4" id="h11-3-4" class="d">-            var ogResources = dscModule.GetDscResourcesInModule(
+</a><a href="#h11-3-5" id="h11-3-5" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-3-6" id="h11-3-6" class="i">+            {
+</a><a href="#h11-3-7" id="h11-3-7" class="i">+                using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-3-8" id="h11-3-8" class="i">+                var ogResources = dscModule.GetDscResourcesInModule(
+</a><a href="#h11-3-9" id="h11-3-9" class="i">+                pwsh,
+</a>                 PowerShellHelpers.CreateModuleSpecification(
+                     TestModule.SimpleTestResourceModuleName,
+                     version: TestModule.SimpleTestResourceVersion));
+<a href="#h11-3-13" id="h11-3-13" class="d">-            Assert.Equal(4, ogResources.Count);
+</a><a href="#h11-3-14" id="h11-3-14" class="i">+                Assert.Equal(4, ogResources.Count);
+</a><a href="#h11-3-15" id="h11-3-15" class="i">+            }
+</a> 
+<a href="#h11-3-17" id="h11-3-17" class="d">-            var newVersionResources = dscModule.GetDscResourcesInModule(
+</a><a href="#h11-3-18" id="h11-3-18" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-3-19" id="h11-3-19" class="d">-                PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-3-20" id="h11-3-20" class="d">-                    TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-3-21" id="h11-3-21" class="d">-                    version: newVersion));
+</a><a href="#h11-3-22" id="h11-3-22" class="d">-            Assert.Equal(4, ogResources.Count);
+</a><a href="#h11-3-23" id="h11-3-23" class="i">+            {
+</a><a href="#h11-3-24" id="h11-3-24" class="i">+                using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-3-25" id="h11-3-25" class="i">+                var newVersionResources = dscModule.GetDscResourcesInModule(
+</a><a href="#h11-3-26" id="h11-3-26" class="i">+                    pwsh,
+</a><a href="#h11-3-27" id="h11-3-27" class="i">+                    PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-3-28" id="h11-3-28" class="i">+                        TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-3-29" id="h11-3-29" class="i">+                        version: newVersion));
+</a><a href="#h11-3-30" id="h11-3-30" class="i">+                Assert.Equal(4, newVersionResources.Count);
+</a><a href="#h11-3-31" id="h11-3-31" class="i">+            }
+</a> 
+<a href="#h11-3-33" id="h11-3-33" class="d">-            var badVersionResources = dscModule.GetDscResourcesInModule(
+</a><a href="#h11-3-34" id="h11-3-34" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-3-35" id="h11-3-35" class="d">-                PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-3-36" id="h11-3-36" class="d">-                    TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-3-37" id="h11-3-37" class="d">-                    version: &quot;1.2.3.4&quot;));
+</a><a href="#h11-3-38" id="h11-3-38" class="d">-            Assert.Equal(0, badVersionResources.Count);
+</a><a href="#h11-3-39" id="h11-3-39" class="i">+            {
+</a><a href="#h11-3-40" id="h11-3-40" class="i">+                using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-3-41" id="h11-3-41" class="i">+                var badVersionResources = dscModule.GetDscResourcesInModule(
+</a><a href="#h11-3-42" id="h11-3-42" class="i">+                    pwsh,
+</a><a href="#h11-3-43" id="h11-3-43" class="i">+                    PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-3-44" id="h11-3-44" class="i">+                        TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-3-45" id="h11-3-45" class="i">+                        version: &quot;1.2.3.4&quot;));
+</a><a href="#h11-3-46" id="h11-3-46" class="i">+                Assert.Equal(0, badVersionResources.Count);
+</a><a href="#h11-3-47" id="h11-3-47" class="i">+            }
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h11-4" id="h11-4" class="h">@@ -134,8 +144,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-4-3" id="h11-4-3" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var resource = dscModule.GetDscResource(
+<a href="#h11-4-5" id="h11-4-5" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-4-6" id="h11-4-6" class="i">+                pwsh,
+</a>                 TestModule.SimpleTestResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(TestModule.SimpleTestResourceModuleName));
+ 
+<a href="#h11-5" id="h11-5" class="h">@@ -151,12 +162,13 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-5-3" id="h11-5-3" class="d">-            Assert.Throws&lt;WriteErrorException&gt;(
+</a><a href="#h11-5-4" id="h11-5-4" class="d">-                () =&gt; dscModule.GetDscResource(
+</a><a href="#h11-5-5" id="h11-5-5" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-5-6" id="h11-5-6" class="d">-                    &quot;FakeResourceName&quot;,
+</a><a href="#h11-5-7" id="h11-5-7" class="d">-                    PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-5-8" id="h11-5-8" class="d">-                        TestModule.SimpleTestResourceModuleName)));
+</a><a href="#h11-5-9" id="h11-5-9" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-5-10" id="h11-5-10" class="i">+            var resource = dscModule.GetDscResource(
+</a><a href="#h11-5-11" id="h11-5-11" class="i">+                pwsh,
+</a><a href="#h11-5-12" id="h11-5-12" class="i">+                &quot;FakeResourceName&quot;,
+</a><a href="#h11-5-13" id="h11-5-13" class="i">+                PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-5-14" id="h11-5-14" class="i">+                    TestModule.SimpleTestResourceModuleName));
+</a><a href="#h11-5-15" id="h11-5-15" class="i">+            Assert.Null(resource);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h11-6" id="h11-6" class="h">@@ -174,10 +186,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             testEnvironment.AppendPSModulePath(tmpDir.FullDirectoryPath);
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-6-3" id="h11-6-3" class="d">-
+</a><a href="#h11-6-4" id="h11-6-4" class="d">-            Assert.Throws&lt;RuntimeException&gt;(
+</a><a href="#h11-6-5" id="h11-6-5" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-6-6" id="h11-6-6" class="i">+            Assert.Throws&lt;GetDscResourceModuleConflict&gt;(
+</a>                 () =&gt; dscModule.GetDscResource(
+<a href="#h11-6-8" id="h11-6-8" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-6-9" id="h11-6-9" class="i">+                    pwsh,
+</a>                     TestModule.SimpleTestResourceName,
+                     PowerShellHelpers.CreateModuleSpecification(
+                         TestModule.SimpleTestResourceModuleName)));
+<a href="#h11-7" id="h11-7" class="h">@@ -208,24 +220,30 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var dscModule = new DscModuleV2();
+ 
+             // specific version.
+<a href="#h11-7-3" id="h11-7-3" class="d">-            var resource = dscModule.GetDscResource(
+</a><a href="#h11-7-4" id="h11-7-4" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-7-5" id="h11-7-5" class="d">-                TestModule.SimpleTestResourceName,
+</a><a href="#h11-7-6" id="h11-7-6" class="d">-                PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-7-7" id="h11-7-7" class="d">-                    TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-7-8" id="h11-7-8" class="d">-                    TestModule.SimpleTestResourceVersion));
+</a><a href="#h11-7-9" id="h11-7-9" class="d">-            Assert.NotNull(resource);
+</a><a href="#h11-7-10" id="h11-7-10" class="i">+            {
+</a><a href="#h11-7-11" id="h11-7-11" class="i">+                using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-7-12" id="h11-7-12" class="i">+                var resource = dscModule.GetDscResource(
+</a><a href="#h11-7-13" id="h11-7-13" class="i">+                    pwsh,
+</a><a href="#h11-7-14" id="h11-7-14" class="i">+                    TestModule.SimpleTestResourceName,
+</a><a href="#h11-7-15" id="h11-7-15" class="i">+                    PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-7-16" id="h11-7-16" class="i">+                        TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-7-17" id="h11-7-17" class="i">+                        TestModule.SimpleTestResourceVersion));
+</a><a href="#h11-7-18" id="h11-7-18" class="i">+                Assert.NotNull(resource);
+</a><a href="#h11-7-19" id="h11-7-19" class="i">+            }
+</a> 
+<a href="#h11-7-21" id="h11-7-21" class="d">-            var dsc = dscModule.GetDscResource(
+</a><a href="#h11-7-22" id="h11-7-22" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-7-23" id="h11-7-23" class="d">-                TestModule.SimpleTestResourceName,
+</a><a href="#h11-7-24" id="h11-7-24" class="d">-                PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-7-25" id="h11-7-25" class="d">-                    TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-7-26" id="h11-7-26" class="d">-                    version: newVersion));
+</a><a href="#h11-7-27" id="h11-7-27" class="i">+            {
+</a><a href="#h11-7-28" id="h11-7-28" class="i">+                using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-7-29" id="h11-7-29" class="i">+                var dsc = dscModule.GetDscResource(
+</a><a href="#h11-7-30" id="h11-7-30" class="i">+                    pwsh,
+</a><a href="#h11-7-31" id="h11-7-31" class="i">+                    TestModule.SimpleTestResourceName,
+</a><a href="#h11-7-32" id="h11-7-32" class="i">+                    PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-7-33" id="h11-7-33" class="i">+                        TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-7-34" id="h11-7-34" class="i">+                        version: newVersion));
+</a> 
+<a href="#h11-7-36" id="h11-7-36" class="d">-            Assert.NotNull(dsc);
+</a><a href="#h11-7-37" id="h11-7-37" class="d">-            Assert.NotNull(dsc.Version);
+</a><a href="#h11-7-38" id="h11-7-38" class="d">-            Assert.Equal(newVersion, dsc.Version.ToString());
+</a><a href="#h11-7-39" id="h11-7-39" class="i">+                Assert.NotNull(dsc);
+</a><a href="#h11-7-40" id="h11-7-40" class="i">+                Assert.NotNull(dsc.Version);
+</a><a href="#h11-7-41" id="h11-7-41" class="i">+                Assert.Equal(newVersion, dsc.Version.ToString());
+</a><a href="#h11-7-42" id="h11-7-42" class="i">+            }
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h11-8" id="h11-8" class="h">@@ -237,9 +255,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-8-3" id="h11-8-3" class="d">-
+</a><a href="#h11-8-4" id="h11-8-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var getResult = dscModule.InvokeGetResource(
+<a href="#h11-8-6" id="h11-8-6" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-8-7" id="h11-8-7" class="i">+                pwsh,
+</a>                 new ValueSet(),
+                 TestModule.SimpleTestResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-9" id="h11-9" class="h">@@ -260,9 +278,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a> 
+             var dscModule = new DscModuleV2();
+ 
+<a href="#h11-9-3" id="h11-9-3" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var exception = Assert.Throws&lt;RuntimeException&gt;(() =&gt;
+                 dscModule.InvokeGetResource(
+<a href="#h11-9-6" id="h11-9-6" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-9-7" id="h11-9-7" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     TestModule.SimpleTestResourceThrowsName,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-10" id="h11-10" class="h">@@ -280,10 +299,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-10-3" id="h11-10-3" class="d">-
+</a><a href="#h11-10-4" id="h11-10-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             Assert.Throws&lt;WriteErrorException&gt;(() =&gt;
+                 dscModule.InvokeGetResource(
+<a href="#h11-10-7" id="h11-10-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-10-8" id="h11-10-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     TestModule.SimpleTestResourceErrorName,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-11" id="h11-11" class="h">@@ -299,10 +318,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-11-3" id="h11-11-3" class="d">-
+</a><a href="#h11-11-4" id="h11-11-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var exception = Assert.Throws&lt;RuntimeException&gt;(
+                 () =&gt; dscModule.InvokeGetResource(
+<a href="#h11-11-7" id="h11-11-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-11-8" id="h11-11-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     &quot;FakeResourceName&quot;,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-12" id="h11-12" class="h">@@ -330,8 +349,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>                 { &quot;secretCode&quot;, value },
+             };
+ 
+<a href="#h11-12-3" id="h11-12-3" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var testResult = dscModule.InvokeTestResource(
+<a href="#h11-12-5" id="h11-12-5" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-12-6" id="h11-12-6" class="i">+                pwsh,
+</a>                 settings,
+                 TestModule.SimpleTestResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-13" id="h11-13" class="h">@@ -349,10 +369,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-13-3" id="h11-13-3" class="d">-
+</a><a href="#h11-13-4" id="h11-13-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var exception = Assert.Throws&lt;RuntimeException&gt;(() =&gt;
+                 dscModule.InvokeTestResource(
+<a href="#h11-13-7" id="h11-13-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-13-8" id="h11-13-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     TestModule.SimpleTestResourceThrowsName,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-14" id="h11-14" class="h">@@ -370,10 +390,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-14-3" id="h11-14-3" class="d">-
+</a><a href="#h11-14-4" id="h11-14-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             Assert.Throws&lt;WriteErrorException&gt;(() =&gt;
+                 dscModule.InvokeTestResource(
+<a href="#h11-14-7" id="h11-14-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-14-8" id="h11-14-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     TestModule.SimpleTestResourceErrorName,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-15" id="h11-15" class="h">@@ -389,10 +409,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-15-3" id="h11-15-3" class="d">-
+</a><a href="#h11-15-4" id="h11-15-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var exception = Assert.Throws&lt;RuntimeException&gt;(() =&gt;
+                 _ = dscModule.InvokeTestResource(
+<a href="#h11-15-7" id="h11-15-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-15-8" id="h11-15-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     &quot;FakeResourceName&quot;,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-16" id="h11-16" class="h">@@ -418,8 +438,9 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>                 { &quot;secretCode&quot;, &quot;4815162342&quot; },
+             };
+ 
+<a href="#h11-16-3" id="h11-16-3" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var testResult = dscModule.InvokeSetResource(
+<a href="#h11-16-5" id="h11-16-5" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-16-6" id="h11-16-6" class="i">+                pwsh,
+</a>                 settings,
+                 TestModule.SimpleTestResourceName,
+                 PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-17" id="h11-17" class="h">@@ -438,10 +459,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-17-3" id="h11-17-3" class="d">-
+</a><a href="#h11-17-4" id="h11-17-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var exception = Assert.Throws&lt;RuntimeException&gt;(() =&gt;
+                 dscModule.InvokeSetResource(
+<a href="#h11-17-7" id="h11-17-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-17-8" id="h11-17-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     TestModule.SimpleTestResourceThrowsName,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-18" id="h11-18" class="h">@@ -459,10 +480,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-18-3" id="h11-18-3" class="d">-
+</a><a href="#h11-18-4" id="h11-18-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             Assert.Throws&lt;WriteErrorException&gt;(() =&gt;
+                 dscModule.InvokeSetResource(
+<a href="#h11-18-7" id="h11-18-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-18-8" id="h11-18-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     TestModule.SimpleTestResourceErrorName,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-19" id="h11-19" class="h">@@ -478,10 +499,10 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             var testEnvironment = this.fixture.PrepareTestProcessorEnvironment();
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-19-3" id="h11-19-3" class="d">-
+</a><a href="#h11-19-4" id="h11-19-4" class="i">+            using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a>             var exception = Assert.Throws&lt;RuntimeException&gt;(() =&gt;
+                 dscModule.InvokeSetResource(
+<a href="#h11-19-7" id="h11-19-7" class="d">-                    testEnvironment.Runspace,
+</a><a href="#h11-19-8" id="h11-19-8" class="i">+                    pwsh,
+</a>                     new ValueSet(),
+                     &quot;FakeResourceName&quot;,
+                     PowerShellHelpers.CreateModuleSpecification(
+<a href="#h11-20" id="h11-20" class="h">@@ -513,22 +534,27 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             testEnvironment.AppendPSModulePath(tmpDir.FullDirectoryPath);
+ 
+             var dscModule = new DscModuleV2();
+<a href="#h11-20-3" id="h11-20-3" class="i">+            {
+</a><a href="#h11-20-4" id="h11-20-4" class="i">+                using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-20-5" id="h11-20-5" class="i">+                dscModule.InvokeSetResource(
+</a><a href="#h11-20-6" id="h11-20-6" class="i">+                    pwsh,
+</a><a href="#h11-20-7" id="h11-20-7" class="i">+                    new ValueSet(),
+</a><a href="#h11-20-8" id="h11-20-8" class="i">+                    TestModule.SimpleTestResourceName,
+</a><a href="#h11-20-9" id="h11-20-9" class="i">+                    PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-20-10" id="h11-20-10" class="i">+                        TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-20-11" id="h11-20-11" class="i">+                        TestModule.SimpleTestResourceVersion));
+</a><a href="#h11-20-12" id="h11-20-12" class="i">+            }
+</a> 
+<a href="#h11-20-14" id="h11-20-14" class="d">-            dscModule.InvokeSetResource(
+</a><a href="#h11-20-15" id="h11-20-15" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-20-16" id="h11-20-16" class="d">-                new ValueSet(),
+</a><a href="#h11-20-17" id="h11-20-17" class="d">-                TestModule.SimpleTestResourceName,
+</a><a href="#h11-20-18" id="h11-20-18" class="d">-                PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-20-19" id="h11-20-19" class="d">-                    TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-20-20" id="h11-20-20" class="d">-                    TestModule.SimpleTestResourceVersion));
+</a><a href="#h11-20-21" id="h11-20-21" class="d">-
+</a><a href="#h11-20-22" id="h11-20-22" class="d">-            dscModule.InvokeSetResource(
+</a><a href="#h11-20-23" id="h11-20-23" class="d">-                testEnvironment.Runspace,
+</a><a href="#h11-20-24" id="h11-20-24" class="d">-                new ValueSet(),
+</a><a href="#h11-20-25" id="h11-20-25" class="d">-                TestModule.SimpleTestResourceName,
+</a><a href="#h11-20-26" id="h11-20-26" class="d">-                PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-20-27" id="h11-20-27" class="d">-                    TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-20-28" id="h11-20-28" class="d">-                    version: newVersion));
+</a><a href="#h11-20-29" id="h11-20-29" class="i">+            {
+</a><a href="#h11-20-30" id="h11-20-30" class="i">+                using PowerShell pwsh = PowerShell.Create(testEnvironment.Runspace);
+</a><a href="#h11-20-31" id="h11-20-31" class="i">+                dscModule.InvokeSetResource(
+</a><a href="#h11-20-32" id="h11-20-32" class="i">+                    pwsh,
+</a><a href="#h11-20-33" id="h11-20-33" class="i">+                    new ValueSet(),
+</a><a href="#h11-20-34" id="h11-20-34" class="i">+                    TestModule.SimpleTestResourceName,
+</a><a href="#h11-20-35" id="h11-20-35" class="i">+                    PowerShellHelpers.CreateModuleSpecification(
+</a><a href="#h11-20-36" id="h11-20-36" class="i">+                        TestModule.SimpleTestResourceModuleName,
+</a><a href="#h11-20-37" id="h11-20-37" class="i">+                        version: newVersion));
+</a><a href="#h11-20-38" id="h11-20-38" class="i">+            }
+</a>         }
+     }
+ }
+</pre>
+</div>
+</body>
+</html>

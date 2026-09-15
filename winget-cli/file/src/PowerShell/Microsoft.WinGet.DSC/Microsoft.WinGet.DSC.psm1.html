@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Microsoft.WinGet.DSC.psm1 - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../"><img src="../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../log.html">Log</a> | <a href="../../../../files.html">Files</a> | <a href="../../../../refs.html">Refs</a> | <a href="../../../../file/README.md.html">README</a> | <a href="../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> Microsoft.WinGet.DSC.psm1 (17746B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> # Copyright (c) Microsoft Corporation. All rights reserved.
+<a href="#l2" class="line" id="l2">      2</a> # Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> 
+<a href="#l4" class="line" id="l4">      4</a> using namespace System.Collections.Generic
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> # Check that we are running as an administrator
+<a href="#l7" class="line" id="l7">      7</a> function Assert-IsAdministrator
+<a href="#l8" class="line" id="l8">      8</a> {
+<a href="#l9" class="line" id="l9">      9</a>     $windowsIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+<a href="#l10" class="line" id="l10">     10</a>     $windowsPrincipal = New-Object -TypeName &#39;System.Security.Principal.WindowsPrincipal&#39; -ArgumentList @( $windowsIdentity )
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a>     $adminRole = [System.Security.Principal.WindowsBuiltInRole]::Administrator
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a>     if (-not $windowsPrincipal.IsInRole($adminRole))
+<a href="#l15" class="line" id="l15">     15</a>     {
+<a href="#l16" class="line" id="l16">     16</a>         New-InvalidOperationException -Message &quot;This resource must run as an Administrator.&quot;
+<a href="#l17" class="line" id="l17">     17</a>     }
+<a href="#l18" class="line" id="l18">     18</a> }
+<a href="#l19" class="line" id="l19">     19</a> 
+<a href="#l20" class="line" id="l20">     20</a> #region enums
+<a href="#l21" class="line" id="l21">     21</a> enum WinGetAction
+<a href="#l22" class="line" id="l22">     22</a> {
+<a href="#l23" class="line" id="l23">     23</a>     Partial
+<a href="#l24" class="line" id="l24">     24</a>     Full
+<a href="#l25" class="line" id="l25">     25</a> }
+<a href="#l26" class="line" id="l26">     26</a> 
+<a href="#l27" class="line" id="l27">     27</a> enum WinGetEnsure
+<a href="#l28" class="line" id="l28">     28</a> {
+<a href="#l29" class="line" id="l29">     29</a>     Absent
+<a href="#l30" class="line" id="l30">     30</a>     Present
+<a href="#l31" class="line" id="l31">     31</a> }
+<a href="#l32" class="line" id="l32">     32</a> 
+<a href="#l33" class="line" id="l33">     33</a> enum WinGetMatchOption
+<a href="#l34" class="line" id="l34">     34</a> {
+<a href="#l35" class="line" id="l35">     35</a>     Equals
+<a href="#l36" class="line" id="l36">     36</a>     EqualsCaseInsensitive
+<a href="#l37" class="line" id="l37">     37</a>     StartsWithCaseInsensitive
+<a href="#l38" class="line" id="l38">     38</a>     ContainsCaseInsensitive
+<a href="#l39" class="line" id="l39">     39</a> }
+<a href="#l40" class="line" id="l40">     40</a> 
+<a href="#l41" class="line" id="l41">     41</a> enum WinGetInstallMode
+<a href="#l42" class="line" id="l42">     42</a> {
+<a href="#l43" class="line" id="l43">     43</a>     Default
+<a href="#l44" class="line" id="l44">     44</a>     Silent
+<a href="#l45" class="line" id="l45">     45</a>     Interactive
+<a href="#l46" class="line" id="l46">     46</a> }
+<a href="#l47" class="line" id="l47">     47</a> 
+<a href="#l48" class="line" id="l48">     48</a> enum WinGetTrustLevel
+<a href="#l49" class="line" id="l49">     49</a> {
+<a href="#l50" class="line" id="l50">     50</a>     Undefined
+<a href="#l51" class="line" id="l51">     51</a>     None
+<a href="#l52" class="line" id="l52">     52</a>     Trusted
+<a href="#l53" class="line" id="l53">     53</a> }
+<a href="#l54" class="line" id="l54">     54</a> 
+<a href="#l55" class="line" id="l55">     55</a> #endregion enums
+<a href="#l56" class="line" id="l56">     56</a> 
+<a href="#l57" class="line" id="l57">     57</a> #region DscResources
+<a href="#l58" class="line" id="l58">     58</a> # Author here all DSC Resources.
+<a href="#l59" class="line" id="l59">     59</a> # DSC Powershell doesn&#39;t support binary DSC resources without the MOF schema.
+<a href="#l60" class="line" id="l60">     60</a> # DSC Powershell classes aren&#39;t discoverable if placed outside of the psm1.
+<a href="#l61" class="line" id="l61">     61</a> 
+<a href="#l62" class="line" id="l62">     62</a> # This resource is in charge of managing the settings.json file of winget.
+<a href="#l63" class="line" id="l63">     63</a> [DSCResource()]
+<a href="#l64" class="line" id="l64">     64</a> class WinGetUserSettings
+<a href="#l65" class="line" id="l65">     65</a> {
+<a href="#l66" class="line" id="l66">     66</a>     # We need a key. Do not set.
+<a href="#l67" class="line" id="l67">     67</a>     [DscProperty(Key)]
+<a href="#l68" class="line" id="l68">     68</a>     [string]$SID
+<a href="#l69" class="line" id="l69">     69</a> 
+<a href="#l70" class="line" id="l70">     70</a>     # A hash table with the desired settings.
+<a href="#l71" class="line" id="l71">     71</a>     [DscProperty(Mandatory)]
+<a href="#l72" class="line" id="l72">     72</a>     [Hashtable]$Settings
+<a href="#l73" class="line" id="l73">     73</a> 
+<a href="#l74" class="line" id="l74">     74</a>     [DscProperty()]
+<a href="#l75" class="line" id="l75">     75</a>     [WinGetAction]$Action = [WinGetAction]::Full
+<a href="#l76" class="line" id="l76">     76</a> 
+<a href="#l77" class="line" id="l77">     77</a>     # Gets the current UserSettings by looking at the settings.json file for the current user.
+<a href="#l78" class="line" id="l78">     78</a>     [WinGetUserSettings] Get()
+<a href="#l79" class="line" id="l79">     79</a>     {
+<a href="#l80" class="line" id="l80">     80</a>         $userSettings = Get-WinGetUserSetting
+<a href="#l81" class="line" id="l81">     81</a>         $result = @{
+<a href="#l82" class="line" id="l82">     82</a>             SID = &#39;&#39;
+<a href="#l83" class="line" id="l83">     83</a>             Settings = $userSettings
+<a href="#l84" class="line" id="l84">     84</a>         }
+<a href="#l85" class="line" id="l85">     85</a>         return $result
+<a href="#l86" class="line" id="l86">     86</a>     }
+<a href="#l87" class="line" id="l87">     87</a> 
+<a href="#l88" class="line" id="l88">     88</a>     # Tests if desired properties match.
+<a href="#l89" class="line" id="l89">     89</a>     [bool] Test()
+<a href="#l90" class="line" id="l90">     90</a>     {
+<a href="#l91" class="line" id="l91">     91</a>         $hashArgs = @{
+<a href="#l92" class="line" id="l92">     92</a>             UserSettings = $this.Settings
+<a href="#l93" class="line" id="l93">     93</a>         }
+<a href="#l94" class="line" id="l94">     94</a> 
+<a href="#l95" class="line" id="l95">     95</a>         if ($this.Action -eq [WinGetAction]::Partial)
+<a href="#l96" class="line" id="l96">     96</a>         {
+<a href="#l97" class="line" id="l97">     97</a>             $hashArgs.Add(&#39;IgnoreNotSet&#39;, $true)
+<a href="#l98" class="line" id="l98">     98</a>         }
+<a href="#l99" class="line" id="l99">     99</a> 
+<a href="#l100" class="line" id="l100">    100</a>         return Test-WinGetUserSetting @hashArgs
+<a href="#l101" class="line" id="l101">    101</a>     }
+<a href="#l102" class="line" id="l102">    102</a> 
+<a href="#l103" class="line" id="l103">    103</a>     # Sets the desired properties.
+<a href="#l104" class="line" id="l104">    104</a>     [void] Set()
+<a href="#l105" class="line" id="l105">    105</a>     {
+<a href="#l106" class="line" id="l106">    106</a>         $hashArgs = @{
+<a href="#l107" class="line" id="l107">    107</a>             UserSettings = $this.Settings
+<a href="#l108" class="line" id="l108">    108</a>         }
+<a href="#l109" class="line" id="l109">    109</a> 
+<a href="#l110" class="line" id="l110">    110</a>         if ($this.Action -eq [WinGetAction]::Partial)
+<a href="#l111" class="line" id="l111">    111</a>         {
+<a href="#l112" class="line" id="l112">    112</a>             $hashArgs.Add(&#39;Merge&#39;, $true)
+<a href="#l113" class="line" id="l113">    113</a>         }
+<a href="#l114" class="line" id="l114">    114</a> 
+<a href="#l115" class="line" id="l115">    115</a>         Set-WinGetUserSetting @hashArgs
+<a href="#l116" class="line" id="l116">    116</a>     }
+<a href="#l117" class="line" id="l117">    117</a> }
+<a href="#l118" class="line" id="l118">    118</a> 
+<a href="#l119" class="line" id="l119">    119</a> # Handles configuration of administrator settings.
+<a href="#l120" class="line" id="l120">    120</a> [DSCResource()]
+<a href="#l121" class="line" id="l121">    121</a> class WinGetAdminSettings
+<a href="#l122" class="line" id="l122">    122</a> {
+<a href="#l123" class="line" id="l123">    123</a>     # We need a key. Do not set.
+<a href="#l124" class="line" id="l124">    124</a>     [DscProperty(Key)]
+<a href="#l125" class="line" id="l125">    125</a>     [string]$SID
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a>     # A hash table with the desired admin settings.
+<a href="#l128" class="line" id="l128">    128</a>     [DscProperty(Mandatory)]
+<a href="#l129" class="line" id="l129">    129</a>     [Hashtable]$Settings
+<a href="#l130" class="line" id="l130">    130</a> 
+<a href="#l131" class="line" id="l131">    131</a>     # Gets the administrator settings.
+<a href="#l132" class="line" id="l132">    132</a>     [WinGetAdminSettings] Get()
+<a href="#l133" class="line" id="l133">    133</a>     {
+<a href="#l134" class="line" id="l134">    134</a>         $settingsJson = Get-WinGetSetting
+<a href="#l135" class="line" id="l135">    135</a>         # Get admin setting values.
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>         $result = @{
+<a href="#l138" class="line" id="l138">    138</a>             SID = &#39;&#39;
+<a href="#l139" class="line" id="l139">    139</a>             Settings = $settingsJson.adminSettings
+<a href="#l140" class="line" id="l140">    140</a>         }
+<a href="#l141" class="line" id="l141">    141</a>         return $result
+<a href="#l142" class="line" id="l142">    142</a>     }
+<a href="#l143" class="line" id="l143">    143</a> 
+<a href="#l144" class="line" id="l144">    144</a>     # Tests if administrator settings given are set as expected.
+<a href="#l145" class="line" id="l145">    145</a>     # This doesn&#39;t do a full comparison to allow users to don&#39;t have to update
+<a href="#l146" class="line" id="l146">    146</a>     # their resource every time a new admin setting is added on winget.
+<a href="#l147" class="line" id="l147">    147</a>     [bool] Test()
+<a href="#l148" class="line" id="l148">    148</a>     {
+<a href="#l149" class="line" id="l149">    149</a>         $adminSettings = $this.Get().Settings
+<a href="#l150" class="line" id="l150">    150</a>         foreach ($adminSetting in $adminSettings.GetEnumerator())
+<a href="#l151" class="line" id="l151">    151</a>         {
+<a href="#l152" class="line" id="l152">    152</a>             if ($this.Settings.ContainsKey($adminSetting.Name))
+<a href="#l153" class="line" id="l153">    153</a>             {
+<a href="#l154" class="line" id="l154">    154</a>                 if ($this.Settings[$adminSetting.Name] -ne $adminSetting.Value)
+<a href="#l155" class="line" id="l155">    155</a>                 {
+<a href="#l156" class="line" id="l156">    156</a>                     return $false
+<a href="#l157" class="line" id="l157">    157</a>                 }
+<a href="#l158" class="line" id="l158">    158</a>             }
+<a href="#l159" class="line" id="l159">    159</a>         }
+<a href="#l160" class="line" id="l160">    160</a> 
+<a href="#l161" class="line" id="l161">    161</a>         return $true
+<a href="#l162" class="line" id="l162">    162</a>     }
+<a href="#l163" class="line" id="l163">    163</a> 
+<a href="#l164" class="line" id="l164">    164</a>     # Sets the desired properties.
+<a href="#l165" class="line" id="l165">    165</a>     [void] Set()
+<a href="#l166" class="line" id="l166">    166</a>     {
+<a href="#l167" class="line" id="l167">    167</a>         Assert-IsAdministrator
+<a href="#l168" class="line" id="l168">    168</a> 
+<a href="#l169" class="line" id="l169">    169</a>         # It might be better to implement an internal Test with one value, or
+<a href="#l170" class="line" id="l170">    170</a>         # create a new instances with only one setting than calling Enable/Disable
+<a href="#l171" class="line" id="l171">    171</a>         # for all of them even if only one is different.
+<a href="#l172" class="line" id="l172">    172</a>         if (-not $this.Test())
+<a href="#l173" class="line" id="l173">    173</a>         {
+<a href="#l174" class="line" id="l174">    174</a>             foreach ($adminSetting in $this.Settings.GetEnumerator())
+<a href="#l175" class="line" id="l175">    175</a>             {
+<a href="#l176" class="line" id="l176">    176</a>                 if ($adminSetting.Value)
+<a href="#l177" class="line" id="l177">    177</a>                 {
+<a href="#l178" class="line" id="l178">    178</a>                     Enable-WinGetSetting -Name $adminSetting.Name
+<a href="#l179" class="line" id="l179">    179</a>                 }
+<a href="#l180" class="line" id="l180">    180</a>                 else
+<a href="#l181" class="line" id="l181">    181</a>                 {
+<a href="#l182" class="line" id="l182">    182</a>                     Disable-WinGetSetting -Name $adminSetting.Name
+<a href="#l183" class="line" id="l183">    183</a>                 }
+<a href="#l184" class="line" id="l184">    184</a>             }
+<a href="#l185" class="line" id="l185">    185</a>         }
+<a href="#l186" class="line" id="l186">    186</a>     }
+<a href="#l187" class="line" id="l187">    187</a> }
+<a href="#l188" class="line" id="l188">    188</a> 
+<a href="#l189" class="line" id="l189">    189</a> [DSCResource()]
+<a href="#l190" class="line" id="l190">    190</a> class WinGetSource
+<a href="#l191" class="line" id="l191">    191</a> {
+<a href="#l192" class="line" id="l192">    192</a>     [DscProperty(Key, Mandatory)]
+<a href="#l193" class="line" id="l193">    193</a>     [string]$Name
+<a href="#l194" class="line" id="l194">    194</a>     
+<a href="#l195" class="line" id="l195">    195</a>     [DscProperty(Mandatory)]
+<a href="#l196" class="line" id="l196">    196</a>     [string]$Argument
+<a href="#l197" class="line" id="l197">    197</a>     
+<a href="#l198" class="line" id="l198">    198</a>     [DscProperty()]
+<a href="#l199" class="line" id="l199">    199</a>     [string]$Type
+<a href="#l200" class="line" id="l200">    200</a>     
+<a href="#l201" class="line" id="l201">    201</a>     [DscProperty()]
+<a href="#l202" class="line" id="l202">    202</a>     [WinGetTrustLevel]$TrustLevel = [WinGetTrustLevel]::Undefined
+<a href="#l203" class="line" id="l203">    203</a>     
+<a href="#l204" class="line" id="l204">    204</a>     [DscProperty()]
+<a href="#l205" class="line" id="l205">    205</a>     [nullable[bool]]$Explicit = $null
+<a href="#l206" class="line" id="l206">    206</a> 
+<a href="#l207" class="line" id="l207">    207</a>     [DscProperty()]
+<a href="#l208" class="line" id="l208">    208</a>     [WinGetEnsure]$Ensure = [WinGetEnsure]::Present
+<a href="#l209" class="line" id="l209">    209</a> 
+<a href="#l210" class="line" id="l210">    210</a>     [WinGetSource] Get()
+<a href="#l211" class="line" id="l211">    211</a>     {
+<a href="#l212" class="line" id="l212">    212</a>         if ([String]::IsNullOrWhiteSpace($this.Name))
+<a href="#l213" class="line" id="l213">    213</a>         {
+<a href="#l214" class="line" id="l214">    214</a>             throw &quot;A value must be provided for WinGetSource::Name&quot;
+<a href="#l215" class="line" id="l215">    215</a>         }
+<a href="#l216" class="line" id="l216">    216</a> 
+<a href="#l217" class="line" id="l217">    217</a>         $currentSource = $null
+<a href="#l218" class="line" id="l218">    218</a> 
+<a href="#l219" class="line" id="l219">    219</a>         try {
+<a href="#l220" class="line" id="l220">    220</a>             $currentSource = Get-WinGetSource -Name $this.Name
+<a href="#l221" class="line" id="l221">    221</a>         }
+<a href="#l222" class="line" id="l222">    222</a>         catch {
+<a href="#l223" class="line" id="l223">    223</a>         }
+<a href="#l224" class="line" id="l224">    224</a> 
+<a href="#l225" class="line" id="l225">    225</a>         $result = [WinGetSource]::new()
+<a href="#l226" class="line" id="l226">    226</a> 
+<a href="#l227" class="line" id="l227">    227</a>         if ($currentSource)
+<a href="#l228" class="line" id="l228">    228</a>         {
+<a href="#l229" class="line" id="l229">    229</a>             $result.Ensure = [WinGetEnsure]::Present
+<a href="#l230" class="line" id="l230">    230</a>             $result.Name = $currentSource.Name
+<a href="#l231" class="line" id="l231">    231</a>             $result.Argument = $currentSource.Argument
+<a href="#l232" class="line" id="l232">    232</a>             $result.Type = $currentSource.Type
+<a href="#l233" class="line" id="l233">    233</a>             $result.TrustLevel = $currentSource.TrustLevel
+<a href="#l234" class="line" id="l234">    234</a>             $result.Explicit = $currentSource.Explicit
+<a href="#l235" class="line" id="l235">    235</a>         }
+<a href="#l236" class="line" id="l236">    236</a>         else
+<a href="#l237" class="line" id="l237">    237</a>         {
+<a href="#l238" class="line" id="l238">    238</a>             $result.Ensure = [WinGetEnsure]::Absent
+<a href="#l239" class="line" id="l239">    239</a>             $result.Name = $this.Name
+<a href="#l240" class="line" id="l240">    240</a>         }
+<a href="#l241" class="line" id="l241">    241</a> 
+<a href="#l242" class="line" id="l242">    242</a>         return $result
+<a href="#l243" class="line" id="l243">    243</a>     }
+<a href="#l244" class="line" id="l244">    244</a> 
+<a href="#l245" class="line" id="l245">    245</a>     [bool] Test()
+<a href="#l246" class="line" id="l246">    246</a>     {
+<a href="#l247" class="line" id="l247">    247</a>         return $this.TestAgainstCurrent($this.Get())
+<a href="#l248" class="line" id="l248">    248</a>     }
+<a href="#l249" class="line" id="l249">    249</a> 
+<a href="#l250" class="line" id="l250">    250</a>     [void] Set()
+<a href="#l251" class="line" id="l251">    251</a>     {
+<a href="#l252" class="line" id="l252">    252</a>         Assert-IsAdministrator
+<a href="#l253" class="line" id="l253">    253</a> 
+<a href="#l254" class="line" id="l254">    254</a>         $currentSource = $this.Get()
+<a href="#l255" class="line" id="l255">    255</a> 
+<a href="#l256" class="line" id="l256">    256</a>         $removeSource = $false
+<a href="#l257" class="line" id="l257">    257</a>         $resetSource = $false
+<a href="#l258" class="line" id="l258">    258</a>         $addSource = $false
+<a href="#l259" class="line" id="l259">    259</a> 
+<a href="#l260" class="line" id="l260">    260</a>         if ($this.Ensure -eq [WinGetEnsure]::Present)
+<a href="#l261" class="line" id="l261">    261</a>         {
+<a href="#l262" class="line" id="l262">    262</a>             if ($currentSource.Ensure -eq [WinGetEnsure]::Present)
+<a href="#l263" class="line" id="l263">    263</a>             {
+<a href="#l264" class="line" id="l264">    264</a>                 if (-not $this.TestAgainstCurrent($currentSource))
+<a href="#l265" class="line" id="l265">    265</a>                 {
+<a href="#l266" class="line" id="l266">    266</a>                     $resetSource = $true
+<a href="#l267" class="line" id="l267">    267</a>                     $addSource = $true
+<a href="#l268" class="line" id="l268">    268</a>                 }
+<a href="#l269" class="line" id="l269">    269</a>                 # else in desired state
+<a href="#l270" class="line" id="l270">    270</a>             }
+<a href="#l271" class="line" id="l271">    271</a>             else
+<a href="#l272" class="line" id="l272">    272</a>             {
+<a href="#l273" class="line" id="l273">    273</a>                 $addSource = $true
+<a href="#l274" class="line" id="l274">    274</a>             }
+<a href="#l275" class="line" id="l275">    275</a>         }
+<a href="#l276" class="line" id="l276">    276</a>         else
+<a href="#l277" class="line" id="l277">    277</a>         {
+<a href="#l278" class="line" id="l278">    278</a>             if ($currentSource.Ensure -eq [WinGetEnsure]::Present)
+<a href="#l279" class="line" id="l279">    279</a>             {
+<a href="#l280" class="line" id="l280">    280</a>                 $removeSource = $true
+<a href="#l281" class="line" id="l281">    281</a>             }
+<a href="#l282" class="line" id="l282">    282</a>             # else in desired state (Absent)
+<a href="#l283" class="line" id="l283">    283</a>         }
+<a href="#l284" class="line" id="l284">    284</a> 
+<a href="#l285" class="line" id="l285">    285</a>         if ($removeSource)
+<a href="#l286" class="line" id="l286">    286</a>         {
+<a href="#l287" class="line" id="l287">    287</a>             Remove-WinGetSource -Name $this.Name
+<a href="#l288" class="line" id="l288">    288</a>         }
+<a href="#l289" class="line" id="l289">    289</a>         # Only remove OR reset should be true, not both
+<a href="#l290" class="line" id="l290">    290</a>         elseif ($resetSource)
+<a href="#l291" class="line" id="l291">    291</a>         {
+<a href="#l292" class="line" id="l292">    292</a>             Reset-WinGetSource -Name $this.Name
+<a href="#l293" class="line" id="l293">    293</a>         }
+<a href="#l294" class="line" id="l294">    294</a> 
+<a href="#l295" class="line" id="l295">    295</a>         if ($addSource)
+<a href="#l296" class="line" id="l296">    296</a>         {
+<a href="#l297" class="line" id="l297">    297</a>             $hashArgs = @{
+<a href="#l298" class="line" id="l298">    298</a>                 Name = $this.Name
+<a href="#l299" class="line" id="l299">    299</a>                 Argument = $this.Argument
+<a href="#l300" class="line" id="l300">    300</a>             }
+<a href="#l301" class="line" id="l301">    301</a> 
+<a href="#l302" class="line" id="l302">    302</a>             if (-not [string]::IsNullOrWhiteSpace($this.Type))
+<a href="#l303" class="line" id="l303">    303</a>             {
+<a href="#l304" class="line" id="l304">    304</a>                 $hashArgs.Add(&quot;Type&quot;, $this.Type)
+<a href="#l305" class="line" id="l305">    305</a>             }
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>             if ($this.TrustLevel -ne [WinGetTrustLevel]::Undefined)
+<a href="#l308" class="line" id="l308">    308</a>             {
+<a href="#l309" class="line" id="l309">    309</a>                 $hashArgs.Add(&quot;TrustLevel&quot;, $this.TrustLevel)
+<a href="#l310" class="line" id="l310">    310</a>             }
+<a href="#l311" class="line" id="l311">    311</a> 
+<a href="#l312" class="line" id="l312">    312</a>             if ($null -ne $this.Explicit)
+<a href="#l313" class="line" id="l313">    313</a>             {
+<a href="#l314" class="line" id="l314">    314</a>                 $hashArgs.Add(&quot;Explicit&quot;, $this.Explicit)
+<a href="#l315" class="line" id="l315">    315</a>             }
+<a href="#l316" class="line" id="l316">    316</a> 
+<a href="#l317" class="line" id="l317">    317</a>             Add-WinGetSource @hashArgs
+<a href="#l318" class="line" id="l318">    318</a>         }
+<a href="#l319" class="line" id="l319">    319</a>     }
+<a href="#l320" class="line" id="l320">    320</a>     
+<a href="#l321" class="line" id="l321">    321</a>     # Test $this against a value retrieved from Get
+<a href="#l322" class="line" id="l322">    322</a>     # We don&#39;t need to check Name because it is the Key for Get
+<a href="#l323" class="line" id="l323">    323</a>     [bool] hidden TestAgainstCurrent([WinGetSource]$currentSource)
+<a href="#l324" class="line" id="l324">    324</a>     {
+<a href="#l325" class="line" id="l325">    325</a>         if ($this.Ensure -eq [WinGetEnsure]::Absent -and
+<a href="#l326" class="line" id="l326">    326</a>             $currentSource.Ensure -eq [WinGetEnsure]::Absent)
+<a href="#l327" class="line" id="l327">    327</a>         {
+<a href="#l328" class="line" id="l328">    328</a>             return $true
+<a href="#l329" class="line" id="l329">    329</a>         }
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>         if ($this.Ensure -ne $currentSource.Ensure -or
+<a href="#l332" class="line" id="l332">    332</a>             $this.Argument -ne $currentSource.Argument)
+<a href="#l333" class="line" id="l333">    333</a>         {
+<a href="#l334" class="line" id="l334">    334</a>             return $false
+<a href="#l335" class="line" id="l335">    335</a>         }
+<a href="#l336" class="line" id="l336">    336</a> 
+<a href="#l337" class="line" id="l337">    337</a>         if (-not([string]::IsNullOrWhiteSpace($this.Type)) -and
+<a href="#l338" class="line" id="l338">    338</a>             $this.Type -ne $currentSource.Type)
+<a href="#l339" class="line" id="l339">    339</a>         {
+<a href="#l340" class="line" id="l340">    340</a>             return $false
+<a href="#l341" class="line" id="l341">    341</a>         }
+<a href="#l342" class="line" id="l342">    342</a> 
+<a href="#l343" class="line" id="l343">    343</a>         if ($this.TrustLevel -ne [WinGetTrustLevel]::Undefined -and
+<a href="#l344" class="line" id="l344">    344</a>             $this.TrustLevel -ne $currentSource.TrustLevel)
+<a href="#l345" class="line" id="l345">    345</a>         {
+<a href="#l346" class="line" id="l346">    346</a>             return $false
+<a href="#l347" class="line" id="l347">    347</a>         }
+<a href="#l348" class="line" id="l348">    348</a> 
+<a href="#l349" class="line" id="l349">    349</a>         if ($null -ne $this.Explicit -and
+<a href="#l350" class="line" id="l350">    350</a>             $this.Explicit -ne $currentSource.Explicit)
+<a href="#l351" class="line" id="l351">    351</a>         {
+<a href="#l352" class="line" id="l352">    352</a>             return $false
+<a href="#l353" class="line" id="l353">    353</a>         }
+<a href="#l354" class="line" id="l354">    354</a> 
+<a href="#l355" class="line" id="l355">    355</a>         return $true
+<a href="#l356" class="line" id="l356">    356</a>     }
+<a href="#l357" class="line" id="l357">    357</a> }
+<a href="#l358" class="line" id="l358">    358</a> 
+<a href="#l359" class="line" id="l359">    359</a> # TODO: It would be nice if these resource has a non configurable property that has extra information that comes from
+<a href="#l360" class="line" id="l360">    360</a> # GitHub. We could implement it here or add more cmdlets in Microsoft.WinGet.Client.
+<a href="#l361" class="line" id="l361">    361</a> [DSCResource()]
+<a href="#l362" class="line" id="l362">    362</a> class WinGetPackageManager
+<a href="#l363" class="line" id="l363">    363</a> {
+<a href="#l364" class="line" id="l364">    364</a>     # We need a key. Do not set.
+<a href="#l365" class="line" id="l365">    365</a>     [DscProperty(Key)]
+<a href="#l366" class="line" id="l366">    366</a>     [string]$SID
+<a href="#l367" class="line" id="l367">    367</a> 
+<a href="#l368" class="line" id="l368">    368</a>     [DscProperty()]
+<a href="#l369" class="line" id="l369">    369</a>     [string]$Version = &quot;&quot;
+<a href="#l370" class="line" id="l370">    370</a> 
+<a href="#l371" class="line" id="l371">    371</a>     [DscProperty()]
+<a href="#l372" class="line" id="l372">    372</a>     [bool]$UseLatest
+<a href="#l373" class="line" id="l373">    373</a> 
+<a href="#l374" class="line" id="l374">    374</a>     [DscProperty()]
+<a href="#l375" class="line" id="l375">    375</a>     [bool]$UseLatestPreRelease
+<a href="#l376" class="line" id="l376">    376</a> 
+<a href="#l377" class="line" id="l377">    377</a>     # If winget is not installed the version will be empty.
+<a href="#l378" class="line" id="l378">    378</a>     [WinGetPackageManager] Get()
+<a href="#l379" class="line" id="l379">    379</a>     {
+<a href="#l380" class="line" id="l380">    380</a>         $integrityResource = [WinGetPackageManager]::new()
+<a href="#l381" class="line" id="l381">    381</a>         if ($integrityResource.Test())
+<a href="#l382" class="line" id="l382">    382</a>         {
+<a href="#l383" class="line" id="l383">    383</a>             $integrityResource.Version = Get-WinGetVersion
+<a href="#l384" class="line" id="l384">    384</a>         }
+<a href="#l385" class="line" id="l385">    385</a> 
+<a href="#l386" class="line" id="l386">    386</a>         return $integrityResource
+<a href="#l387" class="line" id="l387">    387</a>     }
+<a href="#l388" class="line" id="l388">    388</a> 
+<a href="#l389" class="line" id="l389">    389</a>     # Tests winget is installed.
+<a href="#l390" class="line" id="l390">    390</a>     [bool] Test()
+<a href="#l391" class="line" id="l391">    391</a>     {
+<a href="#l392" class="line" id="l392">    392</a>         try
+<a href="#l393" class="line" id="l393">    393</a>         {
+<a href="#l394" class="line" id="l394">    394</a>             $hashArgs = @{}
+<a href="#l395" class="line" id="l395">    395</a> 
+<a href="#l396" class="line" id="l396">    396</a>             if ($this.UseLatest)
+<a href="#l397" class="line" id="l397">    397</a>             {
+<a href="#l398" class="line" id="l398">    398</a>                 $hashArgs.Add(&quot;Latest&quot;, $true)
+<a href="#l399" class="line" id="l399">    399</a>             } elseif ($this.UseLatestPreRelease)
+<a href="#l400" class="line" id="l400">    400</a>             {
+<a href="#l401" class="line" id="l401">    401</a>                 $hashArgs.Add(&quot;Latest&quot;, $true)
+<a href="#l402" class="line" id="l402">    402</a>                 $hashArgs.Add(&quot;IncludePrerelease&quot;, $true)
+<a href="#l403" class="line" id="l403">    403</a>             } elseif (-not [string]::IsNullOrWhiteSpace($this.Version))
+<a href="#l404" class="line" id="l404">    404</a>             {
+<a href="#l405" class="line" id="l405">    405</a>                 $hashArgs.Add(&quot;Version&quot;, $this.Version)
+<a href="#l406" class="line" id="l406">    406</a>             }
+<a href="#l407" class="line" id="l407">    407</a> 
+<a href="#l408" class="line" id="l408">    408</a>             Assert-WinGetPackageManager @hashArgs
+<a href="#l409" class="line" id="l409">    409</a>         }
+<a href="#l410" class="line" id="l410">    410</a>         catch
+<a href="#l411" class="line" id="l411">    411</a>         {
+<a href="#l412" class="line" id="l412">    412</a>             return $false
+<a href="#l413" class="line" id="l413">    413</a>         }
+<a href="#l414" class="line" id="l414">    414</a> 
+<a href="#l415" class="line" id="l415">    415</a>         return $true
+<a href="#l416" class="line" id="l416">    416</a>     }
+<a href="#l417" class="line" id="l417">    417</a> 
+<a href="#l418" class="line" id="l418">    418</a>     # Repairs Winget.
+<a href="#l419" class="line" id="l419">    419</a>     [void] Set()
+<a href="#l420" class="line" id="l420">    420</a>     {
+<a href="#l421" class="line" id="l421">    421</a>         if (-not $this.Test())
+<a href="#l422" class="line" id="l422">    422</a>         {
+<a href="#l423" class="line" id="l423">    423</a>             $result = -1
+<a href="#l424" class="line" id="l424">    424</a>             $hashArgs = @{}
+<a href="#l425" class="line" id="l425">    425</a> 
+<a href="#l426" class="line" id="l426">    426</a>             if ($this.UseLatest)
+<a href="#l427" class="line" id="l427">    427</a>             {
+<a href="#l428" class="line" id="l428">    428</a>                 $hashArgs.Add(&quot;Latest&quot;, $true)
+<a href="#l429" class="line" id="l429">    429</a>             } elseif ($this.UseLatestPreRelease)
+<a href="#l430" class="line" id="l430">    430</a>             {
+<a href="#l431" class="line" id="l431">    431</a>                 $hashArgs.Add(&quot;Latest&quot;, $true)
+<a href="#l432" class="line" id="l432">    432</a>                 $hashArgs.Add(&quot;IncludePrerelease&quot;, $true)
+<a href="#l433" class="line" id="l433">    433</a>             } elseif (-not [string]::IsNullOrWhiteSpace($this.Version))
+<a href="#l434" class="line" id="l434">    434</a>             {
+<a href="#l435" class="line" id="l435">    435</a>                 $hashArgs.Add(&quot;Version&quot;, $this.Version)
+<a href="#l436" class="line" id="l436">    436</a>             }
+<a href="#l437" class="line" id="l437">    437</a> 
+<a href="#l438" class="line" id="l438">    438</a>             $result = Repair-WinGetPackageManager @hashArgs
+<a href="#l439" class="line" id="l439">    439</a> 
+<a href="#l440" class="line" id="l440">    440</a>             if ($result -ne 0)
+<a href="#l441" class="line" id="l441">    441</a>             {
+<a href="#l442" class="line" id="l442">    442</a>                 # TODO: Localize.
+<a href="#l443" class="line" id="l443">    443</a>                 throw &quot;Failed to repair winget. Result $result&quot;
+<a href="#l444" class="line" id="l444">    444</a>             }
+<a href="#l445" class="line" id="l445">    445</a>         }
+<a href="#l446" class="line" id="l446">    446</a>     }
+<a href="#l447" class="line" id="l447">    447</a> }
+<a href="#l448" class="line" id="l448">    448</a> 
+<a href="#l449" class="line" id="l449">    449</a> [DSCResource()]
+<a href="#l450" class="line" id="l450">    450</a> class WinGetPackage
+<a href="#l451" class="line" id="l451">    451</a> {
+<a href="#l452" class="line" id="l452">    452</a>     [DscProperty(Key, Mandatory)]
+<a href="#l453" class="line" id="l453">    453</a>     [string]$Id
+<a href="#l454" class="line" id="l454">    454</a> 
+<a href="#l455" class="line" id="l455">    455</a>     [DscProperty(Key)]
+<a href="#l456" class="line" id="l456">    456</a>     [string]$Source
+<a href="#l457" class="line" id="l457">    457</a> 
+<a href="#l458" class="line" id="l458">    458</a>     [DscProperty()]
+<a href="#l459" class="line" id="l459">    459</a>     [string]$Version
+<a href="#l460" class="line" id="l460">    460</a> 
+<a href="#l461" class="line" id="l461">    461</a>     [DscProperty()]
+<a href="#l462" class="line" id="l462">    462</a>     [WinGetEnsure]$Ensure = [WinGetEnsure]::Present
+<a href="#l463" class="line" id="l463">    463</a> 
+<a href="#l464" class="line" id="l464">    464</a>     [DscProperty()]
+<a href="#l465" class="line" id="l465">    465</a>     [WinGetMatchOption]$MatchOption = [WinGetMatchOption]::EqualsCaseInsensitive
+<a href="#l466" class="line" id="l466">    466</a> 
+<a href="#l467" class="line" id="l467">    467</a>     [DscProperty()]
+<a href="#l468" class="line" id="l468">    468</a>     [bool]$UseLatest = $false
+<a href="#l469" class="line" id="l469">    469</a> 
+<a href="#l470" class="line" id="l470">    470</a>     [DSCProperty()]
+<a href="#l471" class="line" id="l471">    471</a>     [WinGetInstallMode]$InstallMode = [WinGetInstallMode]::Silent
+<a href="#l472" class="line" id="l472">    472</a> 
+<a href="#l473" class="line" id="l473">    473</a>     [PSObject] hidden $CatalogPackage = $null
+<a href="#l474" class="line" id="l474">    474</a> 
+<a href="#l475" class="line" id="l475">    475</a>     [WinGetPackage] Get()
+<a href="#l476" class="line" id="l476">    476</a>     {
+<a href="#l477" class="line" id="l477">    477</a>         if ([String]::IsNullOrWhiteSpace($this.Id))
+<a href="#l478" class="line" id="l478">    478</a>         {
+<a href="#l479" class="line" id="l479">    479</a>             throw &quot;A value must be provided for WinGetPackage::Id&quot;
+<a href="#l480" class="line" id="l480">    480</a>         }
+<a href="#l481" class="line" id="l481">    481</a> 
+<a href="#l482" class="line" id="l482">    482</a>         $result = [WinGetPackage]::new()
+<a href="#l483" class="line" id="l483">    483</a> 
+<a href="#l484" class="line" id="l484">    484</a>         $hashArgs = @{
+<a href="#l485" class="line" id="l485">    485</a>             Id = $this.Id
+<a href="#l486" class="line" id="l486">    486</a>             MatchOption = $this.MatchOption
+<a href="#l487" class="line" id="l487">    487</a>         }
+<a href="#l488" class="line" id="l488">    488</a> 
+<a href="#l489" class="line" id="l489">    489</a>         if (-not([string]::IsNullOrWhiteSpace($this.Source)))
+<a href="#l490" class="line" id="l490">    490</a>         {
+<a href="#l491" class="line" id="l491">    491</a>             $hashArgs.Add(&quot;Source&quot;, $this.Source)
+<a href="#l492" class="line" id="l492">    492</a>         }
+<a href="#l493" class="line" id="l493">    493</a> 
+<a href="#l494" class="line" id="l494">    494</a>         $result.CatalogPackage = Get-WinGetPackage @hashArgs
+<a href="#l495" class="line" id="l495">    495</a>         if ($null -ne $result.CatalogPackage)
+<a href="#l496" class="line" id="l496">    496</a>         {
+<a href="#l497" class="line" id="l497">    497</a>             $result.Ensure = [WinGetEnsure]::Present
+<a href="#l498" class="line" id="l498">    498</a>             $result.Id = $result.CatalogPackage.Id
+<a href="#l499" class="line" id="l499">    499</a>             $result.Source = $result.CatalogPackage.Source
+<a href="#l500" class="line" id="l500">    500</a>             $result.Version = $result.CatalogPackage.InstalledVersion
+<a href="#l501" class="line" id="l501">    501</a>             $result.UseLatest = -not $result.CatalogPackage.IsUpdateAvailable
+<a href="#l502" class="line" id="l502">    502</a>         }
+<a href="#l503" class="line" id="l503">    503</a>         else
+<a href="#l504" class="line" id="l504">    504</a>         {
+<a href="#l505" class="line" id="l505">    505</a>             $result.Ensure = [WinGetEnsure]::Absent
+<a href="#l506" class="line" id="l506">    506</a>             $result.Id = $this.Id
+<a href="#l507" class="line" id="l507">    507</a>             $result.MatchOption = $this.MatchOption
+<a href="#l508" class="line" id="l508">    508</a>             $result.Source = $this.Source
+<a href="#l509" class="line" id="l509">    509</a>         }
+<a href="#l510" class="line" id="l510">    510</a> 
+<a href="#l511" class="line" id="l511">    511</a>         return $result
+<a href="#l512" class="line" id="l512">    512</a>     }
+<a href="#l513" class="line" id="l513">    513</a> 
+<a href="#l514" class="line" id="l514">    514</a>     [bool] Test()
+<a href="#l515" class="line" id="l515">    515</a>     {
+<a href="#l516" class="line" id="l516">    516</a>         return $this.TestAgainstCurrent($this.Get())
+<a href="#l517" class="line" id="l517">    517</a>     }
+<a href="#l518" class="line" id="l518">    518</a> 
+<a href="#l519" class="line" id="l519">    519</a>     [void] Set()
+<a href="#l520" class="line" id="l520">    520</a>     {
+<a href="#l521" class="line" id="l521">    521</a>         $currentPackage = $this.Get()
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>         if (-not $this.TestAgainstCurrent($currentPackage))
+<a href="#l524" class="line" id="l524">    524</a>         {
+<a href="#l525" class="line" id="l525">    525</a>             $hashArgs = @{
+<a href="#l526" class="line" id="l526">    526</a>                 Id = $this.Id
+<a href="#l527" class="line" id="l527">    527</a>                 MatchOption = $this.MatchOption
+<a href="#l528" class="line" id="l528">    528</a>                 Mode = $this.InstallMode
+<a href="#l529" class="line" id="l529">    529</a>             }
+<a href="#l530" class="line" id="l530">    530</a>             
+<a href="#l531" class="line" id="l531">    531</a>             if ($this.Ensure -eq [WinGetEnsure]::Present)
+<a href="#l532" class="line" id="l532">    532</a>             {
+<a href="#l533" class="line" id="l533">    533</a>                 if (-not([string]::IsNullOrWhiteSpace($this.Source)))
+<a href="#l534" class="line" id="l534">    534</a>                 {
+<a href="#l535" class="line" id="l535">    535</a>                     $hashArgs.Add(&quot;Source&quot;, $this.Source)
+<a href="#l536" class="line" id="l536">    536</a>                 }
+<a href="#l537" class="line" id="l537">    537</a> 
+<a href="#l538" class="line" id="l538">    538</a>                 if ($currentPackage.Ensure -eq [WinGetEnsure]::Present)
+<a href="#l539" class="line" id="l539">    539</a>                 {
+<a href="#l540" class="line" id="l540">    540</a>                     if ($this.UseLatest)
+<a href="#l541" class="line" id="l541">    541</a>                     {
+<a href="#l542" class="line" id="l542">    542</a>                         $this.TryUpdate($hashArgs)
+<a href="#l543" class="line" id="l543">    543</a>                     }
+<a href="#l544" class="line" id="l544">    544</a>                     elseif (-not([string]::IsNullOrWhiteSpace($this.Version)))
+<a href="#l545" class="line" id="l545">    545</a>                     {
+<a href="#l546" class="line" id="l546">    546</a>                         $hashArgs.Add(&quot;Version&quot;, $this.Version)
+<a href="#l547" class="line" id="l547">    547</a> 
+<a href="#l548" class="line" id="l548">    548</a>                         $compareResult = $currentPackage.CatalogPackage.CompareToVersion($this.Version)
+<a href="#l549" class="line" id="l549">    549</a>                         switch ($compareResult)
+<a href="#l550" class="line" id="l550">    550</a>                         {
+<a href="#l551" class="line" id="l551">    551</a>                             &#39;Lesser&#39;
+<a href="#l552" class="line" id="l552">    552</a>                             {
+<a href="#l553" class="line" id="l553">    553</a>                                 $this.TryUpdate($hashArgs)
+<a href="#l554" class="line" id="l554">    554</a>                                 break
+<a href="#l555" class="line" id="l555">    555</a>                             }
+<a href="#l556" class="line" id="l556">    556</a>                             {&#39;Greater&#39; -or &#39;Unknown&#39;}
+<a href="#l557" class="line" id="l557">    557</a>                             {
+<a href="#l558" class="line" id="l558">    558</a>                                 # The installed package has a greater version or unknown. Uninstall and install.
+<a href="#l559" class="line" id="l559">    559</a>                                 $this.Uninstall()
+<a href="#l560" class="line" id="l560">    560</a>                                 $this.Install($hashArgs)
+<a href="#l561" class="line" id="l561">    561</a>                                 break
+<a href="#l562" class="line" id="l562">    562</a>                             }
+<a href="#l563" class="line" id="l563">    563</a>                         }
+<a href="#l564" class="line" id="l564">    564</a>                     }
+<a href="#l565" class="line" id="l565">    565</a>                 }
+<a href="#l566" class="line" id="l566">    566</a>                 else
+<a href="#l567" class="line" id="l567">    567</a>                 {
+<a href="#l568" class="line" id="l568">    568</a>                     if (-not([string]::IsNullOrWhiteSpace($this.Version)))
+<a href="#l569" class="line" id="l569">    569</a>                     {
+<a href="#l570" class="line" id="l570">    570</a>                         $hashArgs.Add(&quot;Version&quot;, $this.Version)
+<a href="#l571" class="line" id="l571">    571</a>                     }
+<a href="#l572" class="line" id="l572">    572</a> 
+<a href="#l573" class="line" id="l573">    573</a>                     $this.Install($hashArgs)
+<a href="#l574" class="line" id="l574">    574</a>                 }
+<a href="#l575" class="line" id="l575">    575</a>             }
+<a href="#l576" class="line" id="l576">    576</a>             else
+<a href="#l577" class="line" id="l577">    577</a>             {
+<a href="#l578" class="line" id="l578">    578</a>                 $this.Uninstall()
+<a href="#l579" class="line" id="l579">    579</a>             }
+<a href="#l580" class="line" id="l580">    580</a>         }
+<a href="#l581" class="line" id="l581">    581</a>     }
+<a href="#l582" class="line" id="l582">    582</a>     
+<a href="#l583" class="line" id="l583">    583</a>     [bool] hidden TestAgainstCurrent([WinGetPackage]$currentPackage)
+<a href="#l584" class="line" id="l584">    584</a>     {
+<a href="#l585" class="line" id="l585">    585</a>         if ($this.Ensure -eq [WinGetEnsure]::Absent -and
+<a href="#l586" class="line" id="l586">    586</a>             $currentPackage.Ensure -eq [WinGetEnsure]::Absent)
+<a href="#l587" class="line" id="l587">    587</a>         {
+<a href="#l588" class="line" id="l588">    588</a>             return $true
+<a href="#l589" class="line" id="l589">    589</a>         }
+<a href="#l590" class="line" id="l590">    590</a> 
+<a href="#l591" class="line" id="l591">    591</a>         $this.CatalogPackage = $currentPackage.CatalogPackage
+<a href="#l592" class="line" id="l592">    592</a> 
+<a href="#l593" class="line" id="l593">    593</a>         if ($this.Ensure -ne $currentPackage.Ensure)
+<a href="#l594" class="line" id="l594">    594</a>         {
+<a href="#l595" class="line" id="l595">    595</a>             return $false
+<a href="#l596" class="line" id="l596">    596</a>         }
+<a href="#l597" class="line" id="l597">    597</a> 
+<a href="#l598" class="line" id="l598">    598</a>         # At this point we know is installed.
+<a href="#l599" class="line" id="l599">    599</a>         # If asked for latest, but there are updates available.
+<a href="#l600" class="line" id="l600">    600</a>         if ($this.UseLatest)
+<a href="#l601" class="line" id="l601">    601</a>         {
+<a href="#l602" class="line" id="l602">    602</a>             if (-not $currentPackage.UseLatest)
+<a href="#l603" class="line" id="l603">    603</a>             {
+<a href="#l604" class="line" id="l604">    604</a>                 return $false
+<a href="#l605" class="line" id="l605">    605</a>             }
+<a href="#l606" class="line" id="l606">    606</a>         }
+<a href="#l607" class="line" id="l607">    607</a>         # If there is an specific version, compare with the current installed version.
+<a href="#l608" class="line" id="l608">    608</a>         elseif (-not ([string]::IsNullOrWhiteSpace($this.Version)))
+<a href="#l609" class="line" id="l609">    609</a>         {
+<a href="#l610" class="line" id="l610">    610</a>             $compareResult = $currentPackage.CatalogPackage.CompareToVersion($this.Version)
+<a href="#l611" class="line" id="l611">    611</a>             if ($compareResult -ne &#39;Equal&#39;)
+<a href="#l612" class="line" id="l612">    612</a>             {
+<a href="#l613" class="line" id="l613">    613</a>                 return $false
+<a href="#l614" class="line" id="l614">    614</a>             }
+<a href="#l615" class="line" id="l615">    615</a>         }
+<a href="#l616" class="line" id="l616">    616</a> 
+<a href="#l617" class="line" id="l617">    617</a>         return $true
+<a href="#l618" class="line" id="l618">    618</a>     }
+<a href="#l619" class="line" id="l619">    619</a> 
+<a href="#l620" class="line" id="l620">    620</a>     hidden Install([Hashtable]$hashArgs)
+<a href="#l621" class="line" id="l621">    621</a>     {
+<a href="#l622" class="line" id="l622">    622</a>         $installResult = Install-WinGetPackage @hashArgs
+<a href="#l623" class="line" id="l623">    623</a>         if (-not $installResult.Succeeded())
+<a href="#l624" class="line" id="l624">    624</a>         {
+<a href="#l625" class="line" id="l625">    625</a>             # TODO: Localize.
+<a href="#l626" class="line" id="l626">    626</a>             throw &quot;WinGetPackage Failed installing $($this.Id). $($installResult.ErrorMessage())&quot;
+<a href="#l627" class="line" id="l627">    627</a>         }
+<a href="#l628" class="line" id="l628">    628</a>     }
+<a href="#l629" class="line" id="l629">    629</a> 
+<a href="#l630" class="line" id="l630">    630</a>     hidden Uninstall()
+<a href="#l631" class="line" id="l631">    631</a>     {
+<a href="#l632" class="line" id="l632">    632</a>         $uninstallResult = Uninstall-WinGetPackage -PSCatalogPackage $this.CatalogPackage
+<a href="#l633" class="line" id="l633">    633</a>         if (-not $uninstallResult.Succeeded())
+<a href="#l634" class="line" id="l634">    634</a>         {
+<a href="#l635" class="line" id="l635">    635</a>             # TODO: Localize.
+<a href="#l636" class="line" id="l636">    636</a>             throw &quot;WinGetPackage Failed uninstalling $($this.Id). $($uninstallResult.ErrorMessage())&quot;
+<a href="#l637" class="line" id="l637">    637</a>         }
+<a href="#l638" class="line" id="l638">    638</a>     }
+<a href="#l639" class="line" id="l639">    639</a> 
+<a href="#l640" class="line" id="l640">    640</a>     hidden Update([Hashtable]$hashArgs)
+<a href="#l641" class="line" id="l641">    641</a>     {
+<a href="#l642" class="line" id="l642">    642</a>         $updateResult = Update-WinGetPackage @hashArgs
+<a href="#l643" class="line" id="l643">    643</a>         if (-not $updateResult.Succeeded())
+<a href="#l644" class="line" id="l644">    644</a>         {
+<a href="#l645" class="line" id="l645">    645</a>             # TODO: Localize.
+<a href="#l646" class="line" id="l646">    646</a>             throw &quot;WinGetPackage Failed updating $($this.Id). $($updateResult.ErrorMessage())&quot;
+<a href="#l647" class="line" id="l647">    647</a>         }
+<a href="#l648" class="line" id="l648">    648</a>     }
+<a href="#l649" class="line" id="l649">    649</a> 
+<a href="#l650" class="line" id="l650">    650</a>     # Tries to update, if not, uninstall and install.
+<a href="#l651" class="line" id="l651">    651</a>     hidden TryUpdate([Hashtable]$hashArgs)
+<a href="#l652" class="line" id="l652">    652</a>     {
+<a href="#l653" class="line" id="l653">    653</a>         try
+<a href="#l654" class="line" id="l654">    654</a>         {
+<a href="#l655" class="line" id="l655">    655</a>             $this.Update($hashArgs)
+<a href="#l656" class="line" id="l656">    656</a>         }
+<a href="#l657" class="line" id="l657">    657</a>         catch
+<a href="#l658" class="line" id="l658">    658</a>         {
+<a href="#l659" class="line" id="l659">    659</a>             $this.Uninstall()
+<a href="#l660" class="line" id="l660">    660</a>             $this.Install($hashArgs)
+<a href="#l661" class="line" id="l661">    661</a>         }
+<a href="#l662" class="line" id="l662">    662</a>     }
+<a href="#l663" class="line" id="l663">    663</a> }
+<a href="#l664" class="line" id="l664">    664</a> 
+<a href="#l665" class="line" id="l665">    665</a> #endregion DscResources
+</pre>
+</div>
+</body>
+</html>

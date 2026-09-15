@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Improve MSStore installation success rate by trying Restart or Cancel when applicable (#4356) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/91ee267ccd1bb6d9f976153e195572a5ee9746d8.html">91ee267ccd1bb6d9f976153e195572a5ee9746d8</a>
+<b>parent</b> <a href="../commit/596b1b0497c74fac3d743b7600113e3f73170b6a.html">596b1b0497c74fac3d743b7600113e3f73170b6a</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue,  9 Apr 2024 10:31:47 -0700
+
+Improve MSStore installation success rate by trying Restart or Cancel when applicable (#4356)
+
+After calling to InstallProductAsync, try to check status of existing
+install items and call Restart or Cancel if applicable.
+After our operation failed, clean up the installation queue by calling
+cancel.
+
+I manually validated by opening Store app, install a test app and pause
+the installation. Then use winget to install the same app. App
+installation failed before the change and succeeded after the change.
+
+###### Microsoft Reviewers: [Open in
+CodeFlow](https://microsoft.github.io/open-pr/?codeflow=https://github.com/microsoft/winget-cli/pull/4356)
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCommonCore/MSStore.cpp</a></td><td> | </td><td class="num">148</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerSharedLib/AppInstallerStrings.cpp</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerSharedLib/Public/AppInstallerStrings.h</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+</table></pre><pre>3 files changed, 154 insertions(+), 3 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCommonCore/MSStore.cpp.html">src/AppInstallerCommonCore/MSStore.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/MSStore.cpp.html">src/AppInstallerCommonCore/MSStore.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -95,6 +95,87 @@ namespace AppInstaller::MSStore
+</a> 
+             return result;
+         }
+<a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        enum class CheckExistingItemResult
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        {
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+            None,
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+            Restart,
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+            Cancel,
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+        };
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+        CheckExistingItemResult CheckRestartOrCancelForPossibleExistingOperation(const IVectorView&lt;AppInstallItem&gt;&amp; installItems)
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+        {
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+            CheckExistingItemResult result = CheckExistingItemResult::None;
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+            for (auto const&amp; installItem : installItems)
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+            {
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+                const auto&amp; status = installItem.GetCurrentStatus();
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+                switch (status.InstallState())
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+                {
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+                case AppInstallState::Canceled:
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+                case AppInstallState::Error:
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+                    // For these states, always do a cancel;
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+                    result = CheckExistingItemResult::Cancel;
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+                    return result;
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+                case AppInstallState::Paused:
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+                case AppInstallState::PausedLowBattery:
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+                case AppInstallState::PausedWiFiRecommended:
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+                case AppInstallState::PausedWiFiRequired:
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+                case AppInstallState::ReadyToDownload:
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+                    // For these states, set result to restart and continue the loop to see if future items need cancel.
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+                    result = CheckExistingItemResult::Restart;
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+                    break;
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+                }
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+            }
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+            return result;
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+        }
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+        bool DoesInstallItemsContainProduct(const IVectorView&lt;AppInstallItem&gt;&amp; installItems, std::wstring_view productId)
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+        {
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+            for (auto const&amp; installItem : installItems)
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+            {
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+                if (Utility::CaseInsensitiveEquals(installItem.ProductId(), productId))
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+                {
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+                    return true;
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+                }
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+            }
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+            return false;
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+        }
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+        // Returns true if Restart or Cancel happened. False otherwise.
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+        HRESULT RestartOrCancelExistingOperationIfNecessary(const IVectorView&lt;AppInstallItem&gt;&amp; installItems, AppInstallManager&amp; installManager, std::wstring_view productId)
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+        {
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+            auto existingItemResult = CheckRestartOrCancelForPossibleExistingOperation(installItems);
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+            if (existingItemResult == CheckExistingItemResult::Cancel || existingItemResult == CheckExistingItemResult::Restart)
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+            {
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+                if (existingItemResult == CheckExistingItemResult::Cancel)
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+                {
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+                    installManager.Cancel(productId);
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+                    // Wait for at most 10 seconds for install item to be removed from queue.
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+                    for (int i = 0; i &lt; 50; ++i)
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+                    {
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+                        Sleep(200);
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+                        if (!DoesInstallItemsContainProduct(installManager.AppInstallItems(), productId))
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+                        {
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+                            return S_OK;
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+                        }
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+                    }
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+                    RETURN_HR(HRESULT_FROM_WIN32(ERROR_TIMEOUT));
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+                }
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+                else
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+                {
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+                    installManager.Restart(productId);
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+                    return S_OK;
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+                }
+</a><a href="#h0-0-80" id="h0-0-80" class="i">+            }
+</a><a href="#h0-0-81" id="h0-0-81" class="i">+
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+            return S_FALSE;
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+        }
+</a>     }
+ 
+     HRESULT MSStoreOperation::StartAndWaitForOperation(IProgressCallback&amp; progress)
+<a href="#h0-1" id="h0-1" class="h">@@ -102,12 +183,14 @@ namespace AppInstaller::MSStore
+</a>         // Best effort verifying/acquiring product ownership.
+         std::ignore = EnsureFreeEntitlement(m_productId, m_scope);
+ 
+<a href="#h0-1-3" id="h0-1-3" class="d">-        if (m_type == MSStoreOperationType::Install || m_type == MSStoreOperationType::Repair)
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        if (m_type == MSStoreOperationType::Update)
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+        {
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+            return UpdatePackage(progress);
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+        }
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+        else
+</a>         {
+             return InstallPackage(progress);
+         }
+<a href="#h0-1-12" id="h0-1-12" class="d">-
+</a><a href="#h0-1-13" id="h0-1-13" class="d">-        return UpdatePackage(progress);
+</a>     }
+ 
+     HRESULT MSStoreOperation::InstallPackage(IProgressCallback&amp; progress)
+<a href="#h0-2" id="h0-2" class="h">@@ -149,6 +232,22 @@ namespace AppInstaller::MSStore
+</a>             winrt::hstring(),
+             installOptions).get();
+ 
+<a href="#h0-2-3" id="h0-2-3" class="i">+        // Check if we need to restart or cancel existing items.
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+        auto restartOrCancelResult = RestartOrCancelExistingOperationIfNecessary(installItems, installManager, m_productId);
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+        RETURN_IF_FAILED(restartOrCancelResult);
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+        // If restart or cancel happened, try again.
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+        if (restartOrCancelResult == S_OK)
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+        {
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+            // Try again
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+            installItems = installManager.StartProductInstallAsync(
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+                m_productId,            // ProductId
+</a><a href="#h0-2-13" id="h0-2-13" class="i">+                winrt::hstring(),       // FlightId
+</a><a href="#h0-2-14" id="h0-2-14" class="i">+                L&quot;WinGetCli&quot;,           // ClientId
+</a><a href="#h0-2-15" id="h0-2-15" class="i">+                winrt::hstring(),
+</a><a href="#h0-2-16" id="h0-2-16" class="i">+                installOptions).get();
+</a><a href="#h0-2-17" id="h0-2-17" class="i">+        }
+</a><a href="#h0-2-18" id="h0-2-18" class="i">+
+</a>         return WaitForOperation(installItems, progress);
+     }
+ 
+<a href="#h0-3" id="h0-3" class="h">@@ -175,11 +274,48 @@ namespace AppInstaller::MSStore
+</a>         std::vector&lt;AppInstallItem&gt; installItemVector{ installItem };
+         IVectorView&lt;AppInstallItem&gt; installItems = winrt::single_threaded_vector(std::move(installItemVector)).GetView();
+ 
+<a href="#h0-3-3" id="h0-3-3" class="i">+        // Check if we need to restart or cancel existing items.
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+        auto restartOrCancelResult = RestartOrCancelExistingOperationIfNecessary(installItems, installManager, m_productId);
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+        RETURN_IF_FAILED(restartOrCancelResult);
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+        // If restart or cancel happened, try again.
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+        if (restartOrCancelResult == S_OK)
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+        {
+</a><a href="#h0-3-10" id="h0-3-10" class="i">+            // Try again
+</a><a href="#h0-3-11" id="h0-3-11" class="i">+            installItem = installManager.SearchForUpdatesAsync(
+</a><a href="#h0-3-12" id="h0-3-12" class="i">+                m_productId,          // ProductId
+</a><a href="#h0-3-13" id="h0-3-13" class="i">+                winrt::hstring(),   // SkuId
+</a><a href="#h0-3-14" id="h0-3-14" class="i">+                winrt::hstring(),
+</a><a href="#h0-3-15" id="h0-3-15" class="i">+                winrt::hstring(),   // ClientId
+</a><a href="#h0-3-16" id="h0-3-16" class="i">+                updateOptions
+</a><a href="#h0-3-17" id="h0-3-17" class="i">+            ).get();
+</a><a href="#h0-3-18" id="h0-3-18" class="i">+
+</a><a href="#h0-3-19" id="h0-3-19" class="i">+            if (!installItem)
+</a><a href="#h0-3-20" id="h0-3-20" class="i">+            {
+</a><a href="#h0-3-21" id="h0-3-21" class="i">+                return APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE;
+</a><a href="#h0-3-22" id="h0-3-22" class="i">+            }
+</a><a href="#h0-3-23" id="h0-3-23" class="i">+
+</a><a href="#h0-3-24" id="h0-3-24" class="i">+            installItemVector.clear();
+</a><a href="#h0-3-25" id="h0-3-25" class="i">+            installItemVector.emplace_back(installItem);
+</a><a href="#h0-3-26" id="h0-3-26" class="i">+            installItems = winrt::single_threaded_vector(std::move(installItemVector)).GetView();
+</a><a href="#h0-3-27" id="h0-3-27" class="i">+        }
+</a><a href="#h0-3-28" id="h0-3-28" class="i">+
+</a>         return WaitForOperation(installItems, progress);
+     }
+ 
+     HRESULT MSStoreOperation::WaitForOperation(IVectorView&lt;AppInstallItem&gt;&amp; installItems, IProgressCallback&amp; progress)
+     {
+<a href="#h0-3-34" id="h0-3-34" class="i">+        auto cancelIfOperationFailed = wil::scope_exit(
+</a><a href="#h0-3-35" id="h0-3-35" class="i">+            [&amp;]()
+</a><a href="#h0-3-36" id="h0-3-36" class="i">+            {
+</a><a href="#h0-3-37" id="h0-3-37" class="i">+                try
+</a><a href="#h0-3-38" id="h0-3-38" class="i">+                {
+</a><a href="#h0-3-39" id="h0-3-39" class="i">+                    AppInstallManager installManager;
+</a><a href="#h0-3-40" id="h0-3-40" class="i">+                    installManager.Cancel(m_productId);
+</a><a href="#h0-3-41" id="h0-3-41" class="i">+                }
+</a><a href="#h0-3-42" id="h0-3-42" class="i">+                CATCH_LOG();
+</a><a href="#h0-3-43" id="h0-3-43" class="i">+            });
+</a><a href="#h0-3-44" id="h0-3-44" class="i">+
+</a>         for (auto const&amp; installItem : installItems)
+         {
+             AICLI_LOG(Core, Info, &lt;&lt;
+<a href="#h0-4" id="h0-4" class="h">@@ -242,6 +378,7 @@ namespace AppInstaller::MSStore
+</a>                     {
+                         AICLI_LOG(Core, Info, &lt;&lt; &quot;Asked to shutdown while installing AppInstaller.&quot;);
+                         progress.OnProgress(overallProgressMax, overallProgressMax, ProgressType::Percent);
+<a href="#h0-4-3" id="h0-4-3" class="i">+                        cancelIfOperationFailed.release();
+</a>                         return S_OK;
+                     }
+                 }
+<a href="#h0-5" id="h0-5" class="h">@@ -250,6 +387,11 @@ namespace AppInstaller::MSStore
+</a>             Sleep(100);
+         }
+ 
+<a href="#h0-5-3" id="h0-5-3" class="i">+        if (SUCCEEDED(errorCode))
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+        {
+</a><a href="#h0-5-5" id="h0-5-5" class="i">+            cancelIfOperationFailed.release();
+</a><a href="#h0-5-6" id="h0-5-6" class="i">+        }
+</a><a href="#h0-5-7" id="h0-5-7" class="i">+
+</a>         return errorCode;
+     }
+ }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerSharedLib/AppInstallerStrings.cpp.html">src/AppInstallerSharedLib/AppInstallerStrings.cpp</a> b/<a href="../file/src/AppInstallerSharedLib/AppInstallerStrings.cpp.html">src/AppInstallerSharedLib/AppInstallerStrings.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -104,6 +104,11 @@ namespace AppInstaller::Utility
+</a>         return ToLower(a) == ToLower(b);
+     }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+    bool CaseInsensitiveEquals(std::wstring_view a, std::wstring_view b)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    {
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        return ToLower(a) == ToLower(b);
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    }
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+
+</a>     bool CaseInsensitiveContains(const std::vector&lt;std::string_view&gt;&amp; a, std::string_view b)
+     {
+         auto B = ToLower(b);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerSharedLib/Public/AppInstallerStrings.h.html">src/AppInstallerSharedLib/Public/AppInstallerStrings.h</a> b/<a href="../file/src/AppInstallerSharedLib/Public/AppInstallerStrings.h.html">src/AppInstallerSharedLib/Public/AppInstallerStrings.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -108,6 +108,10 @@ namespace AppInstaller::Utility
+</a>     // Use this if one of the values is a known value, and thus ToLower is sufficient.
+     bool CaseInsensitiveEquals(std::string_view a, std::string_view b);
+ 
+<a href="#h2-0-3" id="h2-0-3" class="i">+    // Compares the two UTF16 strings in a case insensitive manner.
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    // Use this if one of the values is a known value, and thus ToLower is sufficient.
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    bool CaseInsensitiveEquals(std::wstring_view a, std::wstring_view b);
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+
+</a>     // Returns if a UTF8 string is contained within a vector in a case insensitive manner.
+     bool CaseInsensitiveContains(const std::vector&lt;std::string_view&gt;&amp; a, std::string_view b);
+ 
+</pre>
+</div>
+</body>
+</html>

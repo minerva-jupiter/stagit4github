@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>AppInstallerTelemetry.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> AppInstallerTelemetry.cpp (41684B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;Public/AppInstallerTelemetry.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;Public/AppInstallerLogging.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Public/AppInstallerRuntime.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Public/AppInstallerSHA256.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;Public/AppInstallerStrings.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;Public/winget/ThreadGlobals.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> #include &quot;winget/UserSettings.h&quot;
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> #define AICLI_TraceLoggingStringView(_sv_,_name_) TraceLoggingCountedUtf8String(_sv_.data(), static_cast&lt;ULONG&gt;(_sv_.size()), _name_)
+<a href="#l13" class="line" id="l13">     13</a> #define AICLI_TraceLoggingWStringView(_sv_,_name_) TraceLoggingCountedWideString(_sv_.data(), static_cast&lt;ULONG&gt;(_sv_.size()), _name_)
+<a href="#l14" class="line" id="l14">     14</a> 
+<a href="#l15" class="line" id="l15">     15</a> #define AICLI_TraceLoggingWriteActivity(_eventName_,...) TraceLoggingWriteActivity(\
+<a href="#l16" class="line" id="l16">     16</a> g_hTraceProvider,\
+<a href="#l17" class="line" id="l17">     17</a> _eventName_,\
+<a href="#l18" class="line" id="l18">     18</a> s_useGlobalTelemetryActivityId ? &amp;s_globalTelemetryLoggerActivityId : GetActivityId(),\
+<a href="#l19" class="line" id="l19">     19</a> s_useGlobalTelemetryActivityId ? nullptr : GetParentActivityId(),\
+<a href="#l20" class="line" id="l20">     20</a> TraceLoggingCountedUtf8String(m_caller.c_str(),  static_cast&lt;ULONG&gt;(m_caller.size()), &quot;Caller&quot;),\
+<a href="#l21" class="line" id="l21">     21</a> TraceLoggingPackedFieldEx(m_telemetryCorrelationJsonW.c_str(), static_cast&lt;ULONG&gt;((m_telemetryCorrelationJsonW.size() + 1) * sizeof(wchar_t)), TlgInUNICODESTRING, TlgOutJSON, &quot;CvJson&quot;),\
+<a href="#l22" class="line" id="l22">     22</a> __VA_ARGS__)
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a> namespace AppInstaller::Logging
+<a href="#l25" class="line" id="l25">     25</a> {
+<a href="#l26" class="line" id="l26">     26</a>     using namespace Utility;
+<a href="#l27" class="line" id="l27">     27</a> 
+<a href="#l28" class="line" id="l28">     28</a>     namespace
+<a href="#l29" class="line" id="l29">     29</a>     {
+<a href="#l30" class="line" id="l30">     30</a>         // TODO: This and all usages should be removed after transition to summary event in back end.
+<a href="#l31" class="line" id="l31">     31</a>         static const uint32_t s_RootExecutionId = 0;
+<a href="#l32" class="line" id="l32">     32</a>         static std::atomic_uint32_t s_subExecutionId{ s_RootExecutionId };
+<a href="#l33" class="line" id="l33">     33</a> 
+<a href="#l34" class="line" id="l34">     34</a>         // Data that is needed by AnonymizeString
+<a href="#l35" class="line" id="l35">     35</a>         constexpr std::wstring_view s_UserProfileReplacement = L&quot;%USERPROFILE%&quot;sv;
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a>         // TODO: Temporary code to keep existing telemetry behavior
+<a href="#l38" class="line" id="l38">     38</a>         static bool s_useGlobalTelemetryActivityId = false;
+<a href="#l39" class="line" id="l39">     39</a>         static GUID s_globalTelemetryLoggerActivityId = GUID_NULL;
+<a href="#l40" class="line" id="l40">     40</a> 
+<a href="#l41" class="line" id="l41">     41</a>         void __stdcall wilResultLoggingCallback(const wil::FailureInfo&amp; info) noexcept
+<a href="#l42" class="line" id="l42">     42</a>         {
+<a href="#l43" class="line" id="l43">     43</a>             Telemetry().LogFailure(info);
+<a href="#l44" class="line" id="l44">     44</a>         }
+<a href="#l45" class="line" id="l45">     45</a> 
+<a href="#l46" class="line" id="l46">     46</a>         FailureTypeEnum ConvertWilFailureTypeToFailureType(wil::FailureType failureType)
+<a href="#l47" class="line" id="l47">     47</a>         {
+<a href="#l48" class="line" id="l48">     48</a>             switch (failureType)
+<a href="#l49" class="line" id="l49">     49</a>             {
+<a href="#l50" class="line" id="l50">     50</a>             case wil::FailureType::Exception:
+<a href="#l51" class="line" id="l51">     51</a>                 return FailureTypeEnum::ResultException;
+<a href="#l52" class="line" id="l52">     52</a>             case wil::FailureType::Return:
+<a href="#l53" class="line" id="l53">     53</a>                 return FailureTypeEnum::ResultReturn;
+<a href="#l54" class="line" id="l54">     54</a>             case wil::FailureType::Log:
+<a href="#l55" class="line" id="l55">     55</a>                 return FailureTypeEnum::ResultLog;
+<a href="#l56" class="line" id="l56">     56</a>             case wil::FailureType::FailFast:
+<a href="#l57" class="line" id="l57">     57</a>                 return FailureTypeEnum::ResultFailFast;
+<a href="#l58" class="line" id="l58">     58</a>             default:
+<a href="#l59" class="line" id="l59">     59</a>                 return FailureTypeEnum::Unknown;
+<a href="#l60" class="line" id="l60">     60</a>             }
+<a href="#l61" class="line" id="l61">     61</a>         }
+<a href="#l62" class="line" id="l62">     62</a> 
+<a href="#l63" class="line" id="l63">     63</a>         std::string_view LogExceptionTypeToString(FailureTypeEnum exceptionType)
+<a href="#l64" class="line" id="l64">     64</a>         {
+<a href="#l65" class="line" id="l65">     65</a>             switch (exceptionType)
+<a href="#l66" class="line" id="l66">     66</a>             {
+<a href="#l67" class="line" id="l67">     67</a>             case FailureTypeEnum::ResultException:
+<a href="#l68" class="line" id="l68">     68</a>                 return &quot;wil::ResultException&quot;sv;
+<a href="#l69" class="line" id="l69">     69</a>             case FailureTypeEnum::WinrtHResultError:
+<a href="#l70" class="line" id="l70">     70</a>                 return &quot;winrt::hresult_error&quot;sv;
+<a href="#l71" class="line" id="l71">     71</a>             case FailureTypeEnum::ResourceOpen:
+<a href="#l72" class="line" id="l72">     72</a>                 return &quot;ResourceOpenException&quot;sv;
+<a href="#l73" class="line" id="l73">     73</a>             case FailureTypeEnum::StdException:
+<a href="#l74" class="line" id="l74">     74</a>                 return &quot;std::exception&quot;sv;
+<a href="#l75" class="line" id="l75">     75</a>             case FailureTypeEnum::Unknown:
+<a href="#l76" class="line" id="l76">     76</a>             default:
+<a href="#l77" class="line" id="l77">     77</a>                 return &quot;unknown&quot;sv;
+<a href="#l78" class="line" id="l78">     78</a>             }
+<a href="#l79" class="line" id="l79">     79</a>         }
+<a href="#l80" class="line" id="l80">     80</a>     }
+<a href="#l81" class="line" id="l81">     81</a> 
+<a href="#l82" class="line" id="l82">     82</a>     TelemetrySummary::TelemetrySummary(const TelemetrySummary&amp; other)
+<a href="#l83" class="line" id="l83">     83</a>     {
+<a href="#l84" class="line" id="l84">     84</a>         this-&gt;IsCOMCall = other.IsCOMCall;
+<a href="#l85" class="line" id="l85">     85</a>     }
+<a href="#l86" class="line" id="l86">     86</a> 
+<a href="#l87" class="line" id="l87">     87</a>     TelemetryTraceLogger::TelemetryTraceLogger(bool useSummary) : m_useSummary(useSummary)
+<a href="#l88" class="line" id="l88">     88</a>     {
+<a href="#l89" class="line" id="l89">     89</a>         std::ignore = CoCreateGuid(&amp;m_activityId);
+<a href="#l90" class="line" id="l90">     90</a>         m_subExecutionId = s_RootExecutionId;
+<a href="#l91" class="line" id="l91">     91</a>     }
+<a href="#l92" class="line" id="l92">     92</a> 
+<a href="#l93" class="line" id="l93">     93</a>     const GUID* TelemetryTraceLogger::GetActivityId() const
+<a href="#l94" class="line" id="l94">     94</a>     {
+<a href="#l95" class="line" id="l95">     95</a>         return &amp;m_activityId;
+<a href="#l96" class="line" id="l96">     96</a>     }
+<a href="#l97" class="line" id="l97">     97</a> 
+<a href="#l98" class="line" id="l98">     98</a>     const GUID* TelemetryTraceLogger::GetParentActivityId() const
+<a href="#l99" class="line" id="l99">     99</a>     {
+<a href="#l100" class="line" id="l100">    100</a>         return &amp;m_parentActivityId;
+<a href="#l101" class="line" id="l101">    101</a>     }
+<a href="#l102" class="line" id="l102">    102</a> 
+<a href="#l103" class="line" id="l103">    103</a>     bool TelemetryTraceLogger::DisableRuntime()
+<a href="#l104" class="line" id="l104">    104</a>     {
+<a href="#l105" class="line" id="l105">    105</a>         return m_isRuntimeEnabled.exchange(false);
+<a href="#l106" class="line" id="l106">    106</a>     }
+<a href="#l107" class="line" id="l107">    107</a> 
+<a href="#l108" class="line" id="l108">    108</a>     void TelemetryTraceLogger::EnableRuntime()
+<a href="#l109" class="line" id="l109">    109</a>     {
+<a href="#l110" class="line" id="l110">    110</a>         m_isRuntimeEnabled = true;
+<a href="#l111" class="line" id="l111">    111</a>     }
+<a href="#l112" class="line" id="l112">    112</a> 
+<a href="#l113" class="line" id="l113">    113</a>     void TelemetryTraceLogger::Initialize()
+<a href="#l114" class="line" id="l114">    114</a>     {
+<a href="#l115" class="line" id="l115">    115</a>         if (!m_isInitialized)
+<a href="#l116" class="line" id="l116">    116</a>         {
+<a href="#l117" class="line" id="l117">    117</a>             InitializeInternal(Settings::User());
+<a href="#l118" class="line" id="l118">    118</a>         }
+<a href="#l119" class="line" id="l119">    119</a>     }
+<a href="#l120" class="line" id="l120">    120</a> 
+<a href="#l121" class="line" id="l121">    121</a>     bool TelemetryTraceLogger::TryInitialize()
+<a href="#l122" class="line" id="l122">    122</a>     {
+<a href="#l123" class="line" id="l123">    123</a>         if (!m_isInitialized)
+<a href="#l124" class="line" id="l124">    124</a>         {
+<a href="#l125" class="line" id="l125">    125</a>             // Only initialize if we already have the user settings, so that we can respect the telemetry setting.
+<a href="#l126" class="line" id="l126">    126</a>             // We may not yet have the user settings if we are trying to report an error while reading them.
+<a href="#l127" class="line" id="l127">    127</a>             auto userSettings = Settings::TryGetUser();
+<a href="#l128" class="line" id="l128">    128</a>             if (userSettings)
+<a href="#l129" class="line" id="l129">    129</a>             {
+<a href="#l130" class="line" id="l130">    130</a>                 InitializeInternal(*userSettings);
+<a href="#l131" class="line" id="l131">    131</a>             }
+<a href="#l132" class="line" id="l132">    132</a>         }
+<a href="#l133" class="line" id="l133">    133</a> 
+<a href="#l134" class="line" id="l134">    134</a>         return m_isInitialized;
+<a href="#l135" class="line" id="l135">    135</a>     }
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>     void TelemetryTraceLogger::SetTelemetryCorrelationJson(const std::wstring_view jsonStr_view) noexcept
+<a href="#l138" class="line" id="l138">    138</a>     {
+<a href="#l139" class="line" id="l139">    139</a>         // Check if passed in string is a valid Json formatted before returning the value
+<a href="#l140" class="line" id="l140">    140</a>         // If invalid, return empty Json
+<a href="#l141" class="line" id="l141">    141</a>         Json::CharReaderBuilder jsonBuilder;
+<a href="#l142" class="line" id="l142">    142</a>         std::unique_ptr&lt;Json::CharReader&gt; jsonReader(jsonBuilder.newCharReader());
+<a href="#l143" class="line" id="l143">    143</a>         std::unique_ptr&lt;Json::Value&gt; pJsonValue = std::make_unique&lt;Json::Value&gt;();
+<a href="#l144" class="line" id="l144">    144</a>         std::string errors;
+<a href="#l145" class="line" id="l145">    145</a>         std::wstring jsonStrW{ jsonStr_view };
+<a href="#l146" class="line" id="l146">    146</a>         std::string jsonStr = ConvertToUTF8(jsonStrW.c_str());
+<a href="#l147" class="line" id="l147">    147</a> 
+<a href="#l148" class="line" id="l148">    148</a>         bool result = jsonReader-&gt;parse(jsonStr.c_str(),
+<a href="#l149" class="line" id="l149">    149</a>             jsonStr.c_str() + jsonStr.size(),
+<a href="#l150" class="line" id="l150">    150</a>             pJsonValue.get(),
+<a href="#l151" class="line" id="l151">    151</a>             &amp;errors);
+<a href="#l152" class="line" id="l152">    152</a> 
+<a href="#l153" class="line" id="l153">    153</a>         if (result)
+<a href="#l154" class="line" id="l154">    154</a>         {
+<a href="#l155" class="line" id="l155">    155</a>             m_telemetryCorrelationJsonW = jsonStrW;
+<a href="#l156" class="line" id="l156">    156</a>             AICLI_LOG(Core, Info, &lt;&lt; &quot;Passed in Correlation Vector Json is valid: &quot; &lt;&lt; jsonStr);
+<a href="#l157" class="line" id="l157">    157</a>         }
+<a href="#l158" class="line" id="l158">    158</a>         else
+<a href="#l159" class="line" id="l159">    159</a>         {
+<a href="#l160" class="line" id="l160">    160</a>             AICLI_LOG(Core, Error, &lt;&lt; &quot;Passed in Correlation Vector Json is invalid: &quot; &lt;&lt; jsonStr &lt;&lt; &quot;; Error: &quot; &lt;&lt; errors);
+<a href="#l161" class="line" id="l161">    161</a>         }
+<a href="#l162" class="line" id="l162">    162</a>     }
+<a href="#l163" class="line" id="l163">    163</a> 
+<a href="#l164" class="line" id="l164">    164</a>     void TelemetryTraceLogger::SetCaller(const std::string&amp; caller)
+<a href="#l165" class="line" id="l165">    165</a>     {
+<a href="#l166" class="line" id="l166">    166</a>         auto callerUTF16 = Utility::ConvertToUTF16(caller);
+<a href="#l167" class="line" id="l167">    167</a>         auto anonCaller = AnonymizeString(callerUTF16);
+<a href="#l168" class="line" id="l168">    168</a>         m_caller = Utility::ConvertToUTF8(anonCaller);
+<a href="#l169" class="line" id="l169">    169</a>     }
+<a href="#l170" class="line" id="l170">    170</a> 
+<a href="#l171" class="line" id="l171">    171</a>     void TelemetryTraceLogger::SetExecutionStage(uint32_t stage) noexcept
+<a href="#l172" class="line" id="l172">    172</a>     {
+<a href="#l173" class="line" id="l173">    173</a>         m_executionStage = stage;
+<a href="#l174" class="line" id="l174">    174</a>     }
+<a href="#l175" class="line" id="l175">    175</a> 
+<a href="#l176" class="line" id="l176">    176</a>     std::unique_ptr&lt;TelemetryTraceLogger&gt; TelemetryTraceLogger::CreateSubTraceLogger() const
+<a href="#l177" class="line" id="l177">    177</a>     {
+<a href="#l178" class="line" id="l178">    178</a>         THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_INVALID_STATE), !this-&gt;m_isInitialized);
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>         auto subTraceLogger = std::make_unique&lt;TelemetryTraceLogger&gt;(*this);
+<a href="#l181" class="line" id="l181">    181</a> 
+<a href="#l182" class="line" id="l182">    182</a>         std::ignore = CoCreateGuid(&amp;subTraceLogger-&gt;m_activityId);
+<a href="#l183" class="line" id="l183">    183</a>         subTraceLogger-&gt;m_parentActivityId = this-&gt;m_activityId;
+<a href="#l184" class="line" id="l184">    184</a>         subTraceLogger-&gt;m_subExecutionId = s_subExecutionId++;
+<a href="#l185" class="line" id="l185">    185</a> 
+<a href="#l186" class="line" id="l186">    186</a>         return subTraceLogger;
+<a href="#l187" class="line" id="l187">    187</a>     }
+<a href="#l188" class="line" id="l188">    188</a> 
+<a href="#l189" class="line" id="l189">    189</a>     void TelemetryTraceLogger::LogFailure(const wil::FailureInfo&amp; failure) const noexcept
+<a href="#l190" class="line" id="l190">    190</a>     {
+<a href="#l191" class="line" id="l191">    191</a>         if (IsTelemetryEnabled())
+<a href="#l192" class="line" id="l192">    192</a>         {
+<a href="#l193" class="line" id="l193">    193</a>             auto anonMessage = AnonymizeString(failure.pszMessage);
+<a href="#l194" class="line" id="l194">    194</a> 
+<a href="#l195" class="line" id="l195">    195</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l196" class="line" id="l196">    196</a>                 &quot;FailureInfo&quot;,
+<a href="#l197" class="line" id="l197">    197</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l198" class="line" id="l198">    198</a>                 TraceLoggingHResult(failure.hr, &quot;HResult&quot;),
+<a href="#l199" class="line" id="l199">    199</a>                 AICLI_TraceLoggingWStringView(anonMessage, &quot;Message&quot;),
+<a href="#l200" class="line" id="l200">    200</a>                 TraceLoggingString(failure.pszModule, &quot;Module&quot;),
+<a href="#l201" class="line" id="l201">    201</a>                 TraceLoggingUInt32(failure.threadId, &quot;ThreadId&quot;),
+<a href="#l202" class="line" id="l202">    202</a>                 TraceLoggingUInt32(static_cast&lt;uint32_t&gt;(failure.type), &quot;Type&quot;),
+<a href="#l203" class="line" id="l203">    203</a>                 TraceLoggingString(failure.pszFile, &quot;File&quot;),
+<a href="#l204" class="line" id="l204">    204</a>                 TraceLoggingUInt32(failure.uLineNumber, &quot;Line&quot;),
+<a href="#l205" class="line" id="l205">    205</a>                 TraceLoggingUInt32(m_executionStage, &quot;ExecutionStage&quot;),
+<a href="#l206" class="line" id="l206">    206</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l207" class="line" id="l207">    207</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l208" class="line" id="l208">    208</a> 
+<a href="#l209" class="line" id="l209">    209</a>             if (m_useSummary)
+<a href="#l210" class="line" id="l210">    210</a>             {
+<a href="#l211" class="line" id="l211">    211</a>                 m_summary.FailureHResult = failure.hr;
+<a href="#l212" class="line" id="l212">    212</a>                 m_summary.FailureMessage = anonMessage;
+<a href="#l213" class="line" id="l213">    213</a>                 m_summary.FailureModule = StringOrEmptyIfNull(failure.pszModule);
+<a href="#l214" class="line" id="l214">    214</a>                 m_summary.FailureThreadId = failure.threadId;
+<a href="#l215" class="line" id="l215">    215</a>                 m_summary.FailureType = ConvertWilFailureTypeToFailureType(failure.type);
+<a href="#l216" class="line" id="l216">    216</a>                 m_summary.FailureFile = StringOrEmptyIfNull(failure.pszFile);
+<a href="#l217" class="line" id="l217">    217</a>                 m_summary.FailureLine = failure.uLineNumber;
+<a href="#l218" class="line" id="l218">    218</a>             }
+<a href="#l219" class="line" id="l219">    219</a>         }
+<a href="#l220" class="line" id="l220">    220</a> 
+<a href="#l221" class="line" id="l221">    221</a>         // Also send failure to the log
+<a href="#l222" class="line" id="l222">    222</a>         AICLI_LOG(Fail, Error, &lt;&lt; [&amp;]() {
+<a href="#l223" class="line" id="l223">    223</a>             wchar_t message[2048];
+<a href="#l224" class="line" id="l224">    224</a>             GetFailureLogString(message, ARRAYSIZE(message), failure);
+<a href="#l225" class="line" id="l225">    225</a>             return Utility::ConvertToUTF8(message);
+<a href="#l226" class="line" id="l226">    226</a>             }());
+<a href="#l227" class="line" id="l227">    227</a>     }
+<a href="#l228" class="line" id="l228">    228</a> 
+<a href="#l229" class="line" id="l229">    229</a>     void TelemetryTraceLogger::LogStartup(bool isCOMCall) const noexcept
+<a href="#l230" class="line" id="l230">    230</a>     {
+<a href="#l231" class="line" id="l231">    231</a>         LocIndString version = Runtime::GetClientVersion();
+<a href="#l232" class="line" id="l232">    232</a>         LocIndString packageVersion;
+<a href="#l233" class="line" id="l233">    233</a>         if (Runtime::IsRunningInPackagedContext())
+<a href="#l234" class="line" id="l234">    234</a>         {
+<a href="#l235" class="line" id="l235">    235</a>             packageVersion = Runtime::GetPackageVersion();
+<a href="#l236" class="line" id="l236">    236</a>         }
+<a href="#l237" class="line" id="l237">    237</a> 
+<a href="#l238" class="line" id="l238">    238</a>         if (IsTelemetryEnabled())
+<a href="#l239" class="line" id="l239">    239</a>         {
+<a href="#l240" class="line" id="l240">    240</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l241" class="line" id="l241">    241</a>                 &quot;ClientVersion&quot;,
+<a href="#l242" class="line" id="l242">    242</a>                 TraceLoggingBool(isCOMCall, &quot;IsCOMCall&quot;),
+<a href="#l243" class="line" id="l243">    243</a>                 TraceLoggingCountedString(version-&gt;c_str(), static_cast&lt;ULONG&gt;(version-&gt;size()), &quot;Version&quot;),
+<a href="#l244" class="line" id="l244">    244</a>                 TraceLoggingCountedString(packageVersion-&gt;c_str(), static_cast&lt;ULONG&gt;(packageVersion-&gt;size()), &quot;PackageVersion&quot;),
+<a href="#l245" class="line" id="l245">    245</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l246" class="line" id="l246">    246</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l247" class="line" id="l247">    247</a> 
+<a href="#l248" class="line" id="l248">    248</a>             if (m_useSummary)
+<a href="#l249" class="line" id="l249">    249</a>             {
+<a href="#l250" class="line" id="l250">    250</a>                 m_summary.IsCOMCall = isCOMCall;
+<a href="#l251" class="line" id="l251">    251</a>             }
+<a href="#l252" class="line" id="l252">    252</a>         }
+<a href="#l253" class="line" id="l253">    253</a> 
+<a href="#l254" class="line" id="l254">    254</a>         AICLI_LOG(Core, Info, &lt;&lt; &quot;WinGet, version [&quot; &lt;&lt; version &lt;&lt; &quot;], activity [&quot; &lt;&lt; *GetActivityId() &lt;&lt; &#39;]&#39;);
+<a href="#l255" class="line" id="l255">    255</a>         AICLI_LOG(Core, Info, &lt;&lt; &quot;OS: &quot; &lt;&lt; Runtime::GetOSVersion());
+<a href="#l256" class="line" id="l256">    256</a>         AICLI_LOG(Core, Info, &lt;&lt; &quot;Command line Args: &quot; &lt;&lt; Utility::ConvertToUTF8(GetCommandLineW()));
+<a href="#l257" class="line" id="l257">    257</a>         if (Runtime::IsRunningInPackagedContext())
+<a href="#l258" class="line" id="l258">    258</a>         {
+<a href="#l259" class="line" id="l259">    259</a>             AICLI_LOG(Core, Info, &lt;&lt; &quot;Package: &quot; &lt;&lt; packageVersion);
+<a href="#l260" class="line" id="l260">    260</a>         }
+<a href="#l261" class="line" id="l261">    261</a>         AICLI_LOG(Core, Info, &lt;&lt; &quot;IsCOMCall:&quot; &lt;&lt; isCOMCall &lt;&lt; &quot;; Caller: &quot; &lt;&lt; m_caller);
+<a href="#l262" class="line" id="l262">    262</a>     }
+<a href="#l263" class="line" id="l263">    263</a> 
+<a href="#l264" class="line" id="l264">    264</a>     void TelemetryTraceLogger::LogCommand(std::string_view commandName) const noexcept
+<a href="#l265" class="line" id="l265">    265</a>     {
+<a href="#l266" class="line" id="l266">    266</a>         if (IsTelemetryEnabled())
+<a href="#l267" class="line" id="l267">    267</a>         {
+<a href="#l268" class="line" id="l268">    268</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l269" class="line" id="l269">    269</a>                 &quot;CommandFound&quot;,
+<a href="#l270" class="line" id="l270">    270</a>                 AICLI_TraceLoggingStringView(commandName, &quot;Command&quot;),
+<a href="#l271" class="line" id="l271">    271</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance | PDT_ProductAndServiceUsage),
+<a href="#l272" class="line" id="l272">    272</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l273" class="line" id="l273">    273</a> 
+<a href="#l274" class="line" id="l274">    274</a>             if (m_useSummary)
+<a href="#l275" class="line" id="l275">    275</a>             {
+<a href="#l276" class="line" id="l276">    276</a>                 m_summary.Command = commandName;
+<a href="#l277" class="line" id="l277">    277</a>             }
+<a href="#l278" class="line" id="l278">    278</a>         }
+<a href="#l279" class="line" id="l279">    279</a> 
+<a href="#l280" class="line" id="l280">    280</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Leaf command to execute: &quot; &lt;&lt; commandName);
+<a href="#l281" class="line" id="l281">    281</a>     }
+<a href="#l282" class="line" id="l282">    282</a> 
+<a href="#l283" class="line" id="l283">    283</a>     void TelemetryTraceLogger::LogCommandSuccess(std::string_view commandName) const noexcept
+<a href="#l284" class="line" id="l284">    284</a>     {
+<a href="#l285" class="line" id="l285">    285</a>         if (IsTelemetryEnabled())
+<a href="#l286" class="line" id="l286">    286</a>         {
+<a href="#l287" class="line" id="l287">    287</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l288" class="line" id="l288">    288</a>                 &quot;CommandSuccess&quot;,
+<a href="#l289" class="line" id="l289">    289</a>                 AICLI_TraceLoggingStringView(commandName, &quot;Command&quot;),
+<a href="#l290" class="line" id="l290">    290</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l291" class="line" id="l291">    291</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l292" class="line" id="l292">    292</a> 
+<a href="#l293" class="line" id="l293">    293</a>             if (m_useSummary)
+<a href="#l294" class="line" id="l294">    294</a>             {
+<a href="#l295" class="line" id="l295">    295</a>                 m_summary.CommandSuccess = true;
+<a href="#l296" class="line" id="l296">    296</a>             }
+<a href="#l297" class="line" id="l297">    297</a>         }
+<a href="#l298" class="line" id="l298">    298</a> 
+<a href="#l299" class="line" id="l299">    299</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Leaf command succeeded: &quot; &lt;&lt; commandName);
+<a href="#l300" class="line" id="l300">    300</a>     }
+<a href="#l301" class="line" id="l301">    301</a> 
+<a href="#l302" class="line" id="l302">    302</a>     void TelemetryTraceLogger::LogCommandTermination(HRESULT hr, std::string_view file, size_t line) const noexcept
+<a href="#l303" class="line" id="l303">    303</a>     {
+<a href="#l304" class="line" id="l304">    304</a>         if (IsTelemetryEnabled())
+<a href="#l305" class="line" id="l305">    305</a>         {
+<a href="#l306" class="line" id="l306">    306</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l307" class="line" id="l307">    307</a>                 &quot;CommandTermination&quot;,
+<a href="#l308" class="line" id="l308">    308</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l309" class="line" id="l309">    309</a>                 TraceLoggingHResult(hr, &quot;HResult&quot;),
+<a href="#l310" class="line" id="l310">    310</a>                 AICLI_TraceLoggingStringView(file, &quot;File&quot;),
+<a href="#l311" class="line" id="l311">    311</a>                 TraceLoggingUInt64(static_cast&lt;UINT64&gt;(line), &quot;Line&quot;),
+<a href="#l312" class="line" id="l312">    312</a>                 TraceLoggingUInt32(m_executionStage, &quot;ExecutionStage&quot;),
+<a href="#l313" class="line" id="l313">    313</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l314" class="line" id="l314">    314</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l315" class="line" id="l315">    315</a> 
+<a href="#l316" class="line" id="l316">    316</a>             if (m_useSummary)
+<a href="#l317" class="line" id="l317">    317</a>             {
+<a href="#l318" class="line" id="l318">    318</a>                 m_summary.FailureHResult = hr;
+<a href="#l319" class="line" id="l319">    319</a>                 m_summary.FailureType = FailureTypeEnum::CommandTermination;
+<a href="#l320" class="line" id="l320">    320</a>                 m_summary.FailureFile = file;
+<a href="#l321" class="line" id="l321">    321</a>                 m_summary.FailureLine = static_cast&lt;UINT32&gt;(line);
+<a href="#l322" class="line" id="l322">    322</a>             }
+<a href="#l323" class="line" id="l323">    323</a>         }
+<a href="#l324" class="line" id="l324">    324</a> 
+<a href="#l325" class="line" id="l325">    325</a>         AICLI_LOG(CLI, Error, &lt;&lt; &quot;Terminating context: 0x&quot; &lt;&lt; SetHRFormat &lt;&lt; hr &lt;&lt; &quot; at &quot; &lt;&lt; file &lt;&lt; &quot;:&quot; &lt;&lt; line);
+<a href="#l326" class="line" id="l326">    326</a>     }
+<a href="#l327" class="line" id="l327">    327</a> 
+<a href="#l328" class="line" id="l328">    328</a>     void TelemetryTraceLogger::LogException(FailureTypeEnum type, std::string_view message) const noexcept
+<a href="#l329" class="line" id="l329">    329</a>     {
+<a href="#l330" class="line" id="l330">    330</a>         auto exceptionTypeString = LogExceptionTypeToString(type);
+<a href="#l331" class="line" id="l331">    331</a> 
+<a href="#l332" class="line" id="l332">    332</a>         if (IsTelemetryEnabled())
+<a href="#l333" class="line" id="l333">    333</a>         {
+<a href="#l334" class="line" id="l334">    334</a>             auto anonMessage = AnonymizeString(Utility::ConvertToUTF16(message));
+<a href="#l335" class="line" id="l335">    335</a> 
+<a href="#l336" class="line" id="l336">    336</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l337" class="line" id="l337">    337</a>                 &quot;Exception&quot;,
+<a href="#l338" class="line" id="l338">    338</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l339" class="line" id="l339">    339</a>                 AICLI_TraceLoggingStringView(exceptionTypeString, &quot;Type&quot;),
+<a href="#l340" class="line" id="l340">    340</a>                 AICLI_TraceLoggingWStringView(anonMessage, &quot;Message&quot;),
+<a href="#l341" class="line" id="l341">    341</a>                 TraceLoggingUInt32(m_executionStage, &quot;ExecutionStage&quot;),
+<a href="#l342" class="line" id="l342">    342</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l343" class="line" id="l343">    343</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l344" class="line" id="l344">    344</a> 
+<a href="#l345" class="line" id="l345">    345</a>             if (m_useSummary)
+<a href="#l346" class="line" id="l346">    346</a>             {
+<a href="#l347" class="line" id="l347">    347</a>                 m_summary.FailureType = type;
+<a href="#l348" class="line" id="l348">    348</a>                 m_summary.FailureMessage = anonMessage;
+<a href="#l349" class="line" id="l349">    349</a>             }
+<a href="#l350" class="line" id="l350">    350</a>         }
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>         AICLI_LOG(CLI, Error, &lt;&lt; &quot;Caught &quot; &lt;&lt; exceptionTypeString &lt;&lt; &quot;: &quot; &lt;&lt; message);
+<a href="#l353" class="line" id="l353">    353</a>     }
+<a href="#l354" class="line" id="l354">    354</a> 
+<a href="#l355" class="line" id="l355">    355</a>     void TelemetryTraceLogger::LogIsManifestLocal(bool isLocalManifest) const noexcept
+<a href="#l356" class="line" id="l356">    356</a>     {
+<a href="#l357" class="line" id="l357">    357</a>         if (IsTelemetryEnabled())
+<a href="#l358" class="line" id="l358">    358</a>         {
+<a href="#l359" class="line" id="l359">    359</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l360" class="line" id="l360">    360</a>                 &quot;GetManifest&quot;,
+<a href="#l361" class="line" id="l361">    361</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l362" class="line" id="l362">    362</a>                 TraceLoggingBool(isLocalManifest, &quot;IsManifestLocal&quot;),
+<a href="#l363" class="line" id="l363">    363</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l364" class="line" id="l364">    364</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>             if (m_useSummary)
+<a href="#l367" class="line" id="l367">    367</a>             {
+<a href="#l368" class="line" id="l368">    368</a>                 m_summary.IsManifestLocal = isLocalManifest;
+<a href="#l369" class="line" id="l369">    369</a>             }
+<a href="#l370" class="line" id="l370">    370</a>         }
+<a href="#l371" class="line" id="l371">    371</a>     }
+<a href="#l372" class="line" id="l372">    372</a> 
+<a href="#l373" class="line" id="l373">    373</a>     void TelemetryTraceLogger::LogManifestFields(std::string_view id, std::string_view name, std::string_view version) const noexcept
+<a href="#l374" class="line" id="l374">    374</a>     {
+<a href="#l375" class="line" id="l375">    375</a>         if (IsTelemetryEnabled())
+<a href="#l376" class="line" id="l376">    376</a>         {
+<a href="#l377" class="line" id="l377">    377</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l378" class="line" id="l378">    378</a>                 &quot;ManifestFields&quot;,
+<a href="#l379" class="line" id="l379">    379</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l380" class="line" id="l380">    380</a>                 AICLI_TraceLoggingStringView(id, &quot;Id&quot;),
+<a href="#l381" class="line" id="l381">    381</a>                 AICLI_TraceLoggingStringView(name, &quot;Name&quot;),
+<a href="#l382" class="line" id="l382">    382</a>                 AICLI_TraceLoggingStringView(version, &quot;Version&quot;),
+<a href="#l383" class="line" id="l383">    383</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l384" class="line" id="l384">    384</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l385" class="line" id="l385">    385</a> 
+<a href="#l386" class="line" id="l386">    386</a>             if (m_useSummary)
+<a href="#l387" class="line" id="l387">    387</a>             {
+<a href="#l388" class="line" id="l388">    388</a>                 m_summary.PackageIdentifier = id;
+<a href="#l389" class="line" id="l389">    389</a>                 m_summary.PackageName = name;
+<a href="#l390" class="line" id="l390">    390</a>                 m_summary.PackageVersion = version;
+<a href="#l391" class="line" id="l391">    391</a>             }
+<a href="#l392" class="line" id="l392">    392</a>         }
+<a href="#l393" class="line" id="l393">    393</a> 
+<a href="#l394" class="line" id="l394">    394</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Manifest fields: Name [&quot; &lt;&lt; name &lt;&lt; &quot;], Version [&quot; &lt;&lt; version &lt;&lt; &#39;]&#39;);
+<a href="#l395" class="line" id="l395">    395</a>     }
+<a href="#l396" class="line" id="l396">    396</a> 
+<a href="#l397" class="line" id="l397">    397</a>     void TelemetryTraceLogger::LogNoAppMatch() const noexcept
+<a href="#l398" class="line" id="l398">    398</a>     {
+<a href="#l399" class="line" id="l399">    399</a>         if (IsTelemetryEnabled())
+<a href="#l400" class="line" id="l400">    400</a>         {
+<a href="#l401" class="line" id="l401">    401</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l402" class="line" id="l402">    402</a>                 &quot;NoAppMatch&quot;,
+<a href="#l403" class="line" id="l403">    403</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l404" class="line" id="l404">    404</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l405" class="line" id="l405">    405</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l406" class="line" id="l406">    406</a>         }
+<a href="#l407" class="line" id="l407">    407</a> 
+<a href="#l408" class="line" id="l408">    408</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;No app found matching input criteria&quot;);
+<a href="#l409" class="line" id="l409">    409</a>     }
+<a href="#l410" class="line" id="l410">    410</a> 
+<a href="#l411" class="line" id="l411">    411</a>     void TelemetryTraceLogger::LogMultiAppMatch() const noexcept
+<a href="#l412" class="line" id="l412">    412</a>     {
+<a href="#l413" class="line" id="l413">    413</a>         if (IsTelemetryEnabled())
+<a href="#l414" class="line" id="l414">    414</a>         {
+<a href="#l415" class="line" id="l415">    415</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l416" class="line" id="l416">    416</a>                 &quot;MultiAppMatch&quot;,
+<a href="#l417" class="line" id="l417">    417</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l418" class="line" id="l418">    418</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l419" class="line" id="l419">    419</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l420" class="line" id="l420">    420</a>         }
+<a href="#l421" class="line" id="l421">    421</a> 
+<a href="#l422" class="line" id="l422">    422</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Multiple apps found matching input criteria&quot;);
+<a href="#l423" class="line" id="l423">    423</a>     }
+<a href="#l424" class="line" id="l424">    424</a> 
+<a href="#l425" class="line" id="l425">    425</a>     void TelemetryTraceLogger::LogAppFound(std::string_view name, std::string_view id) const noexcept
+<a href="#l426" class="line" id="l426">    426</a>     {
+<a href="#l427" class="line" id="l427">    427</a>         if (IsTelemetryEnabled())
+<a href="#l428" class="line" id="l428">    428</a>         {
+<a href="#l429" class="line" id="l429">    429</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l430" class="line" id="l430">    430</a>                 &quot;AppFound&quot;,
+<a href="#l431" class="line" id="l431">    431</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l432" class="line" id="l432">    432</a>                 AICLI_TraceLoggingStringView(name, &quot;Name&quot;),
+<a href="#l433" class="line" id="l433">    433</a>                 AICLI_TraceLoggingStringView(id, &quot;Id&quot;),
+<a href="#l434" class="line" id="l434">    434</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l435" class="line" id="l435">    435</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l436" class="line" id="l436">    436</a> 
+<a href="#l437" class="line" id="l437">    437</a>             if (m_useSummary)
+<a href="#l438" class="line" id="l438">    438</a>             {
+<a href="#l439" class="line" id="l439">    439</a>                 m_summary.PackageIdentifier = id;
+<a href="#l440" class="line" id="l440">    440</a>                 m_summary.PackageName = name;
+<a href="#l441" class="line" id="l441">    441</a>             }
+<a href="#l442" class="line" id="l442">    442</a>         }
+<a href="#l443" class="line" id="l443">    443</a> 
+<a href="#l444" class="line" id="l444">    444</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Found one app. App id: &quot; &lt;&lt; id &lt;&lt; &quot; App name: &quot; &lt;&lt; name);
+<a href="#l445" class="line" id="l445">    445</a>     }
+<a href="#l446" class="line" id="l446">    446</a> 
+<a href="#l447" class="line" id="l447">    447</a>     void TelemetryTraceLogger::LogSelectedInstaller(int arch, std::string_view url, std::string_view installerType, std::string_view scope, std::string_view language) const noexcept
+<a href="#l448" class="line" id="l448">    448</a>     {
+<a href="#l449" class="line" id="l449">    449</a>         if (IsTelemetryEnabled())
+<a href="#l450" class="line" id="l450">    450</a>         {
+<a href="#l451" class="line" id="l451">    451</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l452" class="line" id="l452">    452</a>                 &quot;SelectedInstaller&quot;,
+<a href="#l453" class="line" id="l453">    453</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l454" class="line" id="l454">    454</a>                 TraceLoggingInt32(arch, &quot;Arch&quot;),
+<a href="#l455" class="line" id="l455">    455</a>                 AICLI_TraceLoggingStringView(url, &quot;Url&quot;),
+<a href="#l456" class="line" id="l456">    456</a>                 AICLI_TraceLoggingStringView(installerType, &quot;InstallerType&quot;),
+<a href="#l457" class="line" id="l457">    457</a>                 AICLI_TraceLoggingStringView(scope, &quot;Scope&quot;),
+<a href="#l458" class="line" id="l458">    458</a>                 AICLI_TraceLoggingStringView(language, &quot;Language&quot;),
+<a href="#l459" class="line" id="l459">    459</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l460" class="line" id="l460">    460</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l461" class="line" id="l461">    461</a> 
+<a href="#l462" class="line" id="l462">    462</a>             if (m_useSummary)
+<a href="#l463" class="line" id="l463">    463</a>             {
+<a href="#l464" class="line" id="l464">    464</a>                 m_summary.InstallerArchitecture = arch;
+<a href="#l465" class="line" id="l465">    465</a>                 m_summary.InstallerUrl = url;
+<a href="#l466" class="line" id="l466">    466</a>                 m_summary.InstallerType = installerType;
+<a href="#l467" class="line" id="l467">    467</a>                 m_summary.InstallerScope = scope;
+<a href="#l468" class="line" id="l468">    468</a>                 m_summary.InstallerLocale = language;
+<a href="#l469" class="line" id="l469">    469</a>             }
+<a href="#l470" class="line" id="l470">    470</a>         }
+<a href="#l471" class="line" id="l471">    471</a> 
+<a href="#l472" class="line" id="l472">    472</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Completed installer selection.&quot;);
+<a href="#l473" class="line" id="l473">    473</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer Architecture: &quot; &lt;&lt; arch);
+<a href="#l474" class="line" id="l474">    474</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer URL: &quot; &lt;&lt; url);
+<a href="#l475" class="line" id="l475">    475</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer InstallerType: &quot; &lt;&lt; installerType);
+<a href="#l476" class="line" id="l476">    476</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer Scope: &quot; &lt;&lt; scope);
+<a href="#l477" class="line" id="l477">    477</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Selected installer Language: &quot; &lt;&lt; language);
+<a href="#l478" class="line" id="l478">    478</a>     }
+<a href="#l479" class="line" id="l479">    479</a> 
+<a href="#l480" class="line" id="l480">    480</a>     void TelemetryTraceLogger::LogSearchRequest(
+<a href="#l481" class="line" id="l481">    481</a>         std::string_view type,
+<a href="#l482" class="line" id="l482">    482</a>         std::string_view query,
+<a href="#l483" class="line" id="l483">    483</a>         std::string_view id,
+<a href="#l484" class="line" id="l484">    484</a>         std::string_view name,
+<a href="#l485" class="line" id="l485">    485</a>         std::string_view moniker,
+<a href="#l486" class="line" id="l486">    486</a>         std::string_view tag,
+<a href="#l487" class="line" id="l487">    487</a>         std::string_view command,
+<a href="#l488" class="line" id="l488">    488</a>         size_t maximum,
+<a href="#l489" class="line" id="l489">    489</a>         std::string_view request) const noexcept
+<a href="#l490" class="line" id="l490">    490</a>     {
+<a href="#l491" class="line" id="l491">    491</a>         if (IsTelemetryEnabled())
+<a href="#l492" class="line" id="l492">    492</a>         {
+<a href="#l493" class="line" id="l493">    493</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l494" class="line" id="l494">    494</a>                 &quot;SearchRequest&quot;,
+<a href="#l495" class="line" id="l495">    495</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l496" class="line" id="l496">    496</a>                 AICLI_TraceLoggingStringView(type, &quot;Type&quot;),
+<a href="#l497" class="line" id="l497">    497</a>                 AICLI_TraceLoggingStringView(query, &quot;Query&quot;),
+<a href="#l498" class="line" id="l498">    498</a>                 AICLI_TraceLoggingStringView(id, &quot;Id&quot;),
+<a href="#l499" class="line" id="l499">    499</a>                 AICLI_TraceLoggingStringView(name, &quot;Name&quot;),
+<a href="#l500" class="line" id="l500">    500</a>                 AICLI_TraceLoggingStringView(moniker, &quot;Moniker&quot;),
+<a href="#l501" class="line" id="l501">    501</a>                 AICLI_TraceLoggingStringView(tag, &quot;Tag&quot;),
+<a href="#l502" class="line" id="l502">    502</a>                 AICLI_TraceLoggingStringView(command, &quot;Command&quot;),
+<a href="#l503" class="line" id="l503">    503</a>                 TraceLoggingUInt64(static_cast&lt;UINT64&gt;(maximum), &quot;Maximum&quot;),
+<a href="#l504" class="line" id="l504">    504</a>                 AICLI_TraceLoggingStringView(request, &quot;Request&quot;),
+<a href="#l505" class="line" id="l505">    505</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l506" class="line" id="l506">    506</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l507" class="line" id="l507">    507</a> 
+<a href="#l508" class="line" id="l508">    508</a>             if (m_useSummary)
+<a href="#l509" class="line" id="l509">    509</a>             {
+<a href="#l510" class="line" id="l510">    510</a>                 m_summary.SearchType = type;
+<a href="#l511" class="line" id="l511">    511</a>                 m_summary.SearchQuery = query;
+<a href="#l512" class="line" id="l512">    512</a>                 m_summary.SearchId = id;
+<a href="#l513" class="line" id="l513">    513</a>                 m_summary.SearchName = name;
+<a href="#l514" class="line" id="l514">    514</a>                 m_summary.SearchMoniker = moniker;
+<a href="#l515" class="line" id="l515">    515</a>                 m_summary.SearchTag = tag;
+<a href="#l516" class="line" id="l516">    516</a>                 m_summary.SearchCommand = command;
+<a href="#l517" class="line" id="l517">    517</a>                 m_summary.SearchMaximum = static_cast&lt;UINT64&gt;(maximum);
+<a href="#l518" class="line" id="l518">    518</a>                 m_summary.SearchRequest = request;
+<a href="#l519" class="line" id="l519">    519</a>             }
+<a href="#l520" class="line" id="l520">    520</a>         }
+<a href="#l521" class="line" id="l521">    521</a>     }
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>     void TelemetryTraceLogger::LogSearchResultCount(uint64_t resultCount) const noexcept
+<a href="#l524" class="line" id="l524">    524</a>     {
+<a href="#l525" class="line" id="l525">    525</a>         if (IsTelemetryEnabled())
+<a href="#l526" class="line" id="l526">    526</a>         {
+<a href="#l527" class="line" id="l527">    527</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l528" class="line" id="l528">    528</a>                 &quot;SearchResultCount&quot;,
+<a href="#l529" class="line" id="l529">    529</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l530" class="line" id="l530">    530</a>                 TraceLoggingUInt64(resultCount, &quot;ResultCount&quot;),
+<a href="#l531" class="line" id="l531">    531</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l532" class="line" id="l532">    532</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l533" class="line" id="l533">    533</a> 
+<a href="#l534" class="line" id="l534">    534</a>             if (m_useSummary)
+<a href="#l535" class="line" id="l535">    535</a>             {
+<a href="#l536" class="line" id="l536">    536</a>                 m_summary.SearchResultCount = resultCount;
+<a href="#l537" class="line" id="l537">    537</a>             }
+<a href="#l538" class="line" id="l538">    538</a>         }
+<a href="#l539" class="line" id="l539">    539</a> 
+<a href="#l540" class="line" id="l540">    540</a>         AICLI_LOG(CLI, Verbose, &lt;&lt; &quot;Search result size: &quot; &lt;&lt; resultCount);
+<a href="#l541" class="line" id="l541">    541</a>     }
+<a href="#l542" class="line" id="l542">    542</a> 
+<a href="#l543" class="line" id="l543">    543</a>     void TelemetryTraceLogger::LogInstallerHashMismatch(
+<a href="#l544" class="line" id="l544">    544</a>         std::string_view id,
+<a href="#l545" class="line" id="l545">    545</a>         std::string_view version,
+<a href="#l546" class="line" id="l546">    546</a>         std::string_view channel,
+<a href="#l547" class="line" id="l547">    547</a>         const std::vector&lt;uint8_t&gt;&amp; expected,
+<a href="#l548" class="line" id="l548">    548</a>         const std::vector&lt;uint8_t&gt;&amp; actual,
+<a href="#l549" class="line" id="l549">    549</a>         bool overrideHashMismatch,
+<a href="#l550" class="line" id="l550">    550</a>         uint64_t downloadSizeInBytes,
+<a href="#l551" class="line" id="l551">    551</a>         const std::optional&lt;std::string&gt;&amp; contentType) const noexcept
+<a href="#l552" class="line" id="l552">    552</a>     {
+<a href="#l553" class="line" id="l553">    553</a>         std::string actualContentType = contentType.value_or(std::string{});
+<a href="#l554" class="line" id="l554">    554</a> 
+<a href="#l555" class="line" id="l555">    555</a>         if (IsTelemetryEnabled())
+<a href="#l556" class="line" id="l556">    556</a>         {
+<a href="#l557" class="line" id="l557">    557</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l558" class="line" id="l558">    558</a>                 &quot;HashMismatch&quot;,
+<a href="#l559" class="line" id="l559">    559</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l560" class="line" id="l560">    560</a>                 AICLI_TraceLoggingStringView(id, &quot;Id&quot;),
+<a href="#l561" class="line" id="l561">    561</a>                 AICLI_TraceLoggingStringView(version, &quot;Version&quot;),
+<a href="#l562" class="line" id="l562">    562</a>                 AICLI_TraceLoggingStringView(channel, &quot;Channel&quot;),
+<a href="#l563" class="line" id="l563">    563</a>                 TraceLoggingBinary(expected.data(), static_cast&lt;ULONG&gt;(expected.size()), &quot;Expected&quot;),
+<a href="#l564" class="line" id="l564">    564</a>                 TraceLoggingBinary(actual.data(), static_cast&lt;ULONG&gt;(actual.size()), &quot;Actual&quot;),
+<a href="#l565" class="line" id="l565">    565</a>                 TraceLoggingBool(overrideHashMismatch, &quot;Override&quot;),
+<a href="#l566" class="line" id="l566">    566</a>                 TraceLoggingUInt64(downloadSizeInBytes, &quot;ActualSize&quot;),
+<a href="#l567" class="line" id="l567">    567</a>                 AICLI_TraceLoggingStringView(actualContentType, &quot;ContentType&quot;),
+<a href="#l568" class="line" id="l568">    568</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l569" class="line" id="l569">    569</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l570" class="line" id="l570">    570</a> 
+<a href="#l571" class="line" id="l571">    571</a>             if (m_useSummary)
+<a href="#l572" class="line" id="l572">    572</a>             {
+<a href="#l573" class="line" id="l573">    573</a>                 m_summary.PackageIdentifier = id;
+<a href="#l574" class="line" id="l574">    574</a>                 m_summary.PackageVersion = version;
+<a href="#l575" class="line" id="l575">    575</a>                 m_summary.Channel = channel;
+<a href="#l576" class="line" id="l576">    576</a>                 m_summary.HashMismatchExpected = expected;
+<a href="#l577" class="line" id="l577">    577</a>                 m_summary.HashMismatchActual = actual;
+<a href="#l578" class="line" id="l578">    578</a>                 m_summary.HashMismatchOverride = overrideHashMismatch;
+<a href="#l579" class="line" id="l579">    579</a>                 m_summary.HashMismatchActualSize = downloadSizeInBytes;
+<a href="#l580" class="line" id="l580">    580</a>                 m_summary.HashMismatchContentType = actualContentType;
+<a href="#l581" class="line" id="l581">    581</a>             }
+<a href="#l582" class="line" id="l582">    582</a>         }
+<a href="#l583" class="line" id="l583">    583</a> 
+<a href="#l584" class="line" id="l584">    584</a>         AICLI_LOG(CLI, Error,
+<a href="#l585" class="line" id="l585">    585</a>             &lt;&lt; &quot;Package hash verification failed. SHA256 in manifest [&quot;
+<a href="#l586" class="line" id="l586">    586</a>             &lt;&lt; Utility::SHA256::ConvertToString(expected)
+<a href="#l587" class="line" id="l587">    587</a>             &lt;&lt; &quot;] does not match download [&quot;
+<a href="#l588" class="line" id="l588">    588</a>             &lt;&lt; Utility::SHA256::ConvertToString(actual)
+<a href="#l589" class="line" id="l589">    589</a>             &lt;&lt; &quot;] with file size [&quot; &lt;&lt; downloadSizeInBytes &lt;&lt; &quot;] and content type [&quot; &lt;&lt; actualContentType &lt;&lt; &quot;]&quot;);
+<a href="#l590" class="line" id="l590">    590</a>     }
+<a href="#l591" class="line" id="l591">    591</a> 
+<a href="#l592" class="line" id="l592">    592</a>     void TelemetryTraceLogger::LogInstallerFailure(std::string_view id, std::string_view version, std::string_view channel, std::string_view type, uint32_t errorCode) const noexcept
+<a href="#l593" class="line" id="l593">    593</a>     {
+<a href="#l594" class="line" id="l594">    594</a>         if (IsTelemetryEnabled())
+<a href="#l595" class="line" id="l595">    595</a>         {
+<a href="#l596" class="line" id="l596">    596</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l597" class="line" id="l597">    597</a>                 &quot;InstallerFailure&quot;,
+<a href="#l598" class="line" id="l598">    598</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l599" class="line" id="l599">    599</a>                 AICLI_TraceLoggingStringView(id, &quot;Id&quot;),
+<a href="#l600" class="line" id="l600">    600</a>                 AICLI_TraceLoggingStringView(version, &quot;Version&quot;),
+<a href="#l601" class="line" id="l601">    601</a>                 AICLI_TraceLoggingStringView(channel, &quot;Channel&quot;),
+<a href="#l602" class="line" id="l602">    602</a>                 AICLI_TraceLoggingStringView(type, &quot;Type&quot;),
+<a href="#l603" class="line" id="l603">    603</a>                 TraceLoggingUInt32(errorCode, &quot;ErrorCode&quot;),
+<a href="#l604" class="line" id="l604">    604</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l605" class="line" id="l605">    605</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l606" class="line" id="l606">    606</a> 
+<a href="#l607" class="line" id="l607">    607</a>             if (m_useSummary)
+<a href="#l608" class="line" id="l608">    608</a>             {
+<a href="#l609" class="line" id="l609">    609</a>                 m_summary.PackageIdentifier = id;
+<a href="#l610" class="line" id="l610">    610</a>                 m_summary.PackageVersion = version;
+<a href="#l611" class="line" id="l611">    611</a>                 m_summary.Channel = channel;
+<a href="#l612" class="line" id="l612">    612</a>                 m_summary.InstallerExecutionType = type;
+<a href="#l613" class="line" id="l613">    613</a>                 m_summary.InstallerErrorCode = errorCode;
+<a href="#l614" class="line" id="l614">    614</a>             }
+<a href="#l615" class="line" id="l615">    615</a>         }
+<a href="#l616" class="line" id="l616">    616</a> 
+<a href="#l617" class="line" id="l617">    617</a>         AICLI_LOG(CLI, Error, &lt;&lt; type &lt;&lt; &quot; installer failed: &quot; &lt;&lt; errorCode);
+<a href="#l618" class="line" id="l618">    618</a>     }
+<a href="#l619" class="line" id="l619">    619</a> 
+<a href="#l620" class="line" id="l620">    620</a>     void TelemetryTraceLogger::LogUninstallerFailure(std::string_view id, std::string_view version, std::string_view type, uint32_t errorCode) const noexcept
+<a href="#l621" class="line" id="l621">    621</a>     {
+<a href="#l622" class="line" id="l622">    622</a>         if (IsTelemetryEnabled())
+<a href="#l623" class="line" id="l623">    623</a>         {
+<a href="#l624" class="line" id="l624">    624</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l625" class="line" id="l625">    625</a>                 &quot;UninstallerFailure&quot;,
+<a href="#l626" class="line" id="l626">    626</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l627" class="line" id="l627">    627</a>                 AICLI_TraceLoggingStringView(id, &quot;Id&quot;),
+<a href="#l628" class="line" id="l628">    628</a>                 AICLI_TraceLoggingStringView(version, &quot;Version&quot;),
+<a href="#l629" class="line" id="l629">    629</a>                 AICLI_TraceLoggingStringView(type, &quot;Type&quot;),
+<a href="#l630" class="line" id="l630">    630</a>                 TraceLoggingUInt32(errorCode, &quot;ErrorCode&quot;),
+<a href="#l631" class="line" id="l631">    631</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l632" class="line" id="l632">    632</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l633" class="line" id="l633">    633</a> 
+<a href="#l634" class="line" id="l634">    634</a>             if (m_useSummary)
+<a href="#l635" class="line" id="l635">    635</a>             {
+<a href="#l636" class="line" id="l636">    636</a>                 m_summary.PackageIdentifier = id;
+<a href="#l637" class="line" id="l637">    637</a>                 m_summary.PackageVersion = version;
+<a href="#l638" class="line" id="l638">    638</a>                 m_summary.UninstallerExecutionType = type;
+<a href="#l639" class="line" id="l639">    639</a>                 m_summary.UninstallerErrorCode = errorCode;
+<a href="#l640" class="line" id="l640">    640</a>             }
+<a href="#l641" class="line" id="l641">    641</a>         }
+<a href="#l642" class="line" id="l642">    642</a> 
+<a href="#l643" class="line" id="l643">    643</a>         AICLI_LOG(CLI, Error, &lt;&lt; type &lt;&lt; &quot; uninstaller failed: &quot; &lt;&lt; errorCode);
+<a href="#l644" class="line" id="l644">    644</a>     }
+<a href="#l645" class="line" id="l645">    645</a> 
+<a href="#l646" class="line" id="l646">    646</a>     void TelemetryTraceLogger::LogSuccessfulInstallARPChange(
+<a href="#l647" class="line" id="l647">    647</a>         std::string_view sourceIdentifier,
+<a href="#l648" class="line" id="l648">    648</a>         std::string_view packageIdentifier,
+<a href="#l649" class="line" id="l649">    649</a>         std::string_view packageVersion,
+<a href="#l650" class="line" id="l650">    650</a>         std::string_view packageChannel,
+<a href="#l651" class="line" id="l651">    651</a>         size_t changesToARP,
+<a href="#l652" class="line" id="l652">    652</a>         size_t matchesInARP,
+<a href="#l653" class="line" id="l653">    653</a>         size_t countOfIntersectionOfChangesAndMatches,
+<a href="#l654" class="line" id="l654">    654</a>         std::string_view arpName,
+<a href="#l655" class="line" id="l655">    655</a>         std::string_view arpVersion,
+<a href="#l656" class="line" id="l656">    656</a>         std::string_view arpPublisher,
+<a href="#l657" class="line" id="l657">    657</a>         std::string_view arpLanguage) const noexcept
+<a href="#l658" class="line" id="l658">    658</a>     {
+<a href="#l659" class="line" id="l659">    659</a>         if (IsTelemetryEnabled())
+<a href="#l660" class="line" id="l660">    660</a>         {
+<a href="#l661" class="line" id="l661">    661</a>             size_t languageNumber = 0xFFFF;
+<a href="#l662" class="line" id="l662">    662</a> 
+<a href="#l663" class="line" id="l663">    663</a>             try
+<a href="#l664" class="line" id="l664">    664</a>             {
+<a href="#l665" class="line" id="l665">    665</a>                 std::istringstream languageConversion{ std::string{ arpLanguage } };
+<a href="#l666" class="line" id="l666">    666</a>                 languageConversion &gt;&gt; languageNumber;
+<a href="#l667" class="line" id="l667">    667</a>             }
+<a href="#l668" class="line" id="l668">    668</a>             catch (...) {}
+<a href="#l669" class="line" id="l669">    669</a> 
+<a href="#l670" class="line" id="l670">    670</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l671" class="line" id="l671">    671</a>                 &quot;InstallARPChange&quot;,
+<a href="#l672" class="line" id="l672">    672</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l673" class="line" id="l673">    673</a>                 AICLI_TraceLoggingStringView(sourceIdentifier, &quot;SourceIdentifier&quot;),
+<a href="#l674" class="line" id="l674">    674</a>                 AICLI_TraceLoggingStringView(packageIdentifier, &quot;PackageIdentifier&quot;),
+<a href="#l675" class="line" id="l675">    675</a>                 AICLI_TraceLoggingStringView(packageVersion, &quot;PackageVersion&quot;),
+<a href="#l676" class="line" id="l676">    676</a>                 AICLI_TraceLoggingStringView(packageChannel, &quot;PackageChannel&quot;),
+<a href="#l677" class="line" id="l677">    677</a>                 TraceLoggingUInt64(static_cast&lt;UINT64&gt;(changesToARP), &quot;ChangesToARP&quot;),
+<a href="#l678" class="line" id="l678">    678</a>                 TraceLoggingUInt64(static_cast&lt;UINT64&gt;(matchesInARP), &quot;MatchesInARP&quot;),
+<a href="#l679" class="line" id="l679">    679</a>                 TraceLoggingUInt64(static_cast&lt;UINT64&gt;(countOfIntersectionOfChangesAndMatches), &quot;ChangesThatMatch&quot;),
+<a href="#l680" class="line" id="l680">    680</a>                 AICLI_TraceLoggingStringView(arpName, &quot;ARPName&quot;),
+<a href="#l681" class="line" id="l681">    681</a>                 AICLI_TraceLoggingStringView(arpVersion, &quot;ARPVersion&quot;),
+<a href="#l682" class="line" id="l682">    682</a>                 AICLI_TraceLoggingStringView(arpPublisher, &quot;ARPPublisher&quot;),
+<a href="#l683" class="line" id="l683">    683</a>                 TraceLoggingUInt64(static_cast&lt;UINT64&gt;(languageNumber), &quot;ARPLanguage&quot;),
+<a href="#l684" class="line" id="l684">    684</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance | PDT_ProductAndServiceUsage | PDT_SoftwareSetupAndInventory),
+<a href="#l685" class="line" id="l685">    685</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_CRITICAL_DATA));
+<a href="#l686" class="line" id="l686">    686</a> 
+<a href="#l687" class="line" id="l687">    687</a>             if (m_useSummary)
+<a href="#l688" class="line" id="l688">    688</a>             {
+<a href="#l689" class="line" id="l689">    689</a>                 m_summary.SourceIdentifier = sourceIdentifier;
+<a href="#l690" class="line" id="l690">    690</a>                 m_summary.PackageIdentifier = packageIdentifier;
+<a href="#l691" class="line" id="l691">    691</a>                 m_summary.PackageVersion = packageVersion;
+<a href="#l692" class="line" id="l692">    692</a>                 m_summary.Channel = packageChannel;
+<a href="#l693" class="line" id="l693">    693</a>                 m_summary.ChangesToARP = static_cast&lt;UINT64&gt;(changesToARP);
+<a href="#l694" class="line" id="l694">    694</a>                 m_summary.MatchesInARP = static_cast&lt;UINT64&gt;(matchesInARP);
+<a href="#l695" class="line" id="l695">    695</a>                 m_summary.ChangesThatMatch = static_cast&lt;UINT64&gt;(countOfIntersectionOfChangesAndMatches);
+<a href="#l696" class="line" id="l696">    696</a>                 m_summary.ARPName = arpName;
+<a href="#l697" class="line" id="l697">    697</a>                 m_summary.ARPVersion = arpVersion;
+<a href="#l698" class="line" id="l698">    698</a>                 m_summary.ARPPublisher = arpPublisher;
+<a href="#l699" class="line" id="l699">    699</a>                 m_summary.ARPLanguage = static_cast&lt;UINT64&gt;(languageNumber);
+<a href="#l700" class="line" id="l700">    700</a>             }
+<a href="#l701" class="line" id="l701">    701</a>         }
+<a href="#l702" class="line" id="l702">    702</a> 
+<a href="#l703" class="line" id="l703">    703</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;During package install, &quot; &lt;&lt; changesToARP &lt;&lt; &quot; changes to ARP were observed, &quot;
+<a href="#l704" class="line" id="l704">    704</a>             &lt;&lt; matchesInARP &lt;&lt; &quot; matches were found for the package, and &quot; &lt;&lt; countOfIntersectionOfChangesAndMatches &lt;&lt; &quot; packages were in both&quot;);
+<a href="#l705" class="line" id="l705">    705</a> 
+<a href="#l706" class="line" id="l706">    706</a>         if (arpName.empty())
+<a href="#l707" class="line" id="l707">    707</a>         {
+<a href="#l708" class="line" id="l708">    708</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;No single entry was determined to be associated with the package&quot;);
+<a href="#l709" class="line" id="l709">    709</a>         }
+<a href="#l710" class="line" id="l710">    710</a>         else
+<a href="#l711" class="line" id="l711">    711</a>         {
+<a href="#l712" class="line" id="l712">    712</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;The entry determined to be associated with the package is &#39;&quot; &lt;&lt; arpName &lt;&lt; &quot;&#39;, with publisher &#39;&quot; &lt;&lt; arpPublisher &lt;&lt; &quot;&#39;&quot;);
+<a href="#l713" class="line" id="l713">    713</a>         }
+<a href="#l714" class="line" id="l714">    714</a>     }
+<a href="#l715" class="line" id="l715">    715</a> 
+<a href="#l716" class="line" id="l716">    716</a>     void TelemetryTraceLogger::LogNonFatalDOError(std::string_view url, HRESULT hr) const noexcept
+<a href="#l717" class="line" id="l717">    717</a>     {
+<a href="#l718" class="line" id="l718">    718</a>         if (IsTelemetryEnabled())
+<a href="#l719" class="line" id="l719">    719</a>         {
+<a href="#l720" class="line" id="l720">    720</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l721" class="line" id="l721">    721</a>                 &quot;NonFatalDOError&quot;,
+<a href="#l722" class="line" id="l722">    722</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l723" class="line" id="l723">    723</a>                 AICLI_TraceLoggingStringView(url, &quot;Url&quot;),
+<a href="#l724" class="line" id="l724">    724</a>                 TraceLoggingHResult(hr, &quot;HResult&quot;),
+<a href="#l725" class="line" id="l725">    725</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l726" class="line" id="l726">    726</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_MEASURES));
+<a href="#l727" class="line" id="l727">    727</a> 
+<a href="#l728" class="line" id="l728">    728</a>             if (m_useSummary)
+<a href="#l729" class="line" id="l729">    729</a>             {
+<a href="#l730" class="line" id="l730">    730</a>                 m_summary.DOUrl = url;
+<a href="#l731" class="line" id="l731">    731</a>                 m_summary.DOHResult = hr;
+<a href="#l732" class="line" id="l732">    732</a>             }
+<a href="#l733" class="line" id="l733">    733</a>         }
+<a href="#l734" class="line" id="l734">    734</a>     }
+<a href="#l735" class="line" id="l735">    735</a> 
+<a href="#l736" class="line" id="l736">    736</a>     void TelemetryTraceLogger::LogRepairFailure(std::string_view id, std::string_view version, std::string_view type, uint32_t errorCode) const noexcept
+<a href="#l737" class="line" id="l737">    737</a>     {
+<a href="#l738" class="line" id="l738">    738</a>         if (IsTelemetryEnabled())
+<a href="#l739" class="line" id="l739">    739</a>         {
+<a href="#l740" class="line" id="l740">    740</a>             AICLI_TraceLoggingWriteActivity(
+<a href="#l741" class="line" id="l741">    741</a>                 &quot;RepairFailure&quot;,
+<a href="#l742" class="line" id="l742">    742</a>                 TraceLoggingUInt32(m_subExecutionId, &quot;SubExecutionId&quot;),
+<a href="#l743" class="line" id="l743">    743</a>                 AICLI_TraceLoggingStringView(id, &quot;Id&quot;),
+<a href="#l744" class="line" id="l744">    744</a>                 AICLI_TraceLoggingStringView(version, &quot;Version&quot;),
+<a href="#l745" class="line" id="l745">    745</a>                 AICLI_TraceLoggingStringView(type, &quot;Type&quot;),
+<a href="#l746" class="line" id="l746">    746</a>                 TraceLoggingUInt32(errorCode, &quot;ErrorCode&quot;),
+<a href="#l747" class="line" id="l747">    747</a>                 TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance),
+<a href="#l748" class="line" id="l748">    748</a>                 TraceLoggingKeyword(MICROSOFT_KEYWORD_MEASURES));
+<a href="#l749" class="line" id="l749">    749</a> 
+<a href="#l750" class="line" id="l750">    750</a>             if (m_useSummary)
+<a href="#l751" class="line" id="l751">    751</a>             {
+<a href="#l752" class="line" id="l752">    752</a>                 m_summary.PackageIdentifier = id;
+<a href="#l753" class="line" id="l753">    753</a>                 m_summary.PackageVersion = version;
+<a href="#l754" class="line" id="l754">    754</a>                 m_summary.RepairExecutionType = type;
+<a href="#l755" class="line" id="l755">    755</a>                 m_summary.RepairErrorCode = errorCode;
+<a href="#l756" class="line" id="l756">    756</a>             
+<a href="#l757" class="line" id="l757">    757</a>             }
+<a href="#l758" class="line" id="l758">    758</a>         }
+<a href="#l759" class="line" id="l759">    759</a> 
+<a href="#l760" class="line" id="l760">    760</a>         AICLI_LOG(CLI, Error, &lt;&lt; type &lt;&lt; &quot; repair failed: &quot; &lt;&lt; errorCode);
+<a href="#l761" class="line" id="l761">    761</a>     }
+<a href="#l762" class="line" id="l762">    762</a> 
+<a href="#l763" class="line" id="l763">    763</a>     TelemetryTraceLogger::~TelemetryTraceLogger()
+<a href="#l764" class="line" id="l764">    764</a>     {
+<a href="#l765" class="line" id="l765">    765</a>         if (IsTelemetryEnabled())
+<a href="#l766" class="line" id="l766">    766</a>         {
+<a href="#l767" class="line" id="l767">    767</a>             LocIndString version = Runtime::GetClientVersion();
+<a href="#l768" class="line" id="l768">    768</a>             LocIndString packageVersion;
+<a href="#l769" class="line" id="l769">    769</a>             if (Runtime::IsRunningInPackagedContext())
+<a href="#l770" class="line" id="l770">    770</a>             {
+<a href="#l771" class="line" id="l771">    771</a>                 packageVersion = Runtime::GetPackageVersion();
+<a href="#l772" class="line" id="l772">    772</a>             }
+<a href="#l773" class="line" id="l773">    773</a> 
+<a href="#l774" class="line" id="l774">    774</a>             if (m_useSummary)
+<a href="#l775" class="line" id="l775">    775</a>             {
+<a href="#l776" class="line" id="l776">    776</a>                 TraceLoggingWriteActivity(
+<a href="#l777" class="line" id="l777">    777</a>                     g_hTraceProvider,
+<a href="#l778" class="line" id="l778">    778</a>                     &quot;SummaryV2&quot;,
+<a href="#l779" class="line" id="l779">    779</a>                     GetActivityId(),
+<a href="#l780" class="line" id="l780">    780</a>                     GetParentActivityId(),
+<a href="#l781" class="line" id="l781">    781</a>                     // From member fields or program info.
+<a href="#l782" class="line" id="l782">    782</a>                     AICLI_TraceLoggingStringView(m_caller, &quot;Caller&quot;),
+<a href="#l783" class="line" id="l783">    783</a>                     TraceLoggingPackedFieldEx(m_telemetryCorrelationJsonW.c_str(), static_cast&lt;ULONG&gt;((m_telemetryCorrelationJsonW.size() + 1) * sizeof(wchar_t)), TlgInUNICODESTRING, TlgOutJSON, &quot;CvJson&quot;),
+<a href="#l784" class="line" id="l784">    784</a>                     TraceLoggingCountedString(version-&gt;c_str(), static_cast&lt;ULONG&gt;(version-&gt;size()), &quot;ClientVersion&quot;),
+<a href="#l785" class="line" id="l785">    785</a>                     TraceLoggingCountedString(packageVersion-&gt;c_str(), static_cast&lt;ULONG&gt;(packageVersion-&gt;size()), &quot;ClientPackageVersion&quot;),
+<a href="#l786" class="line" id="l786">    786</a>                     TraceLoggingBool(Runtime::IsReleaseBuild(), &quot;IsReleaseBuild&quot;),
+<a href="#l787" class="line" id="l787">    787</a>                     TraceLoggingUInt32(m_executionStage, &quot;ExecutionStage&quot;),
+<a href="#l788" class="line" id="l788">    788</a>                     // From TelemetrySummary
+<a href="#l789" class="line" id="l789">    789</a>                     TraceLoggingHResult(m_summary.FailureHResult, &quot;FailureHResult&quot;),
+<a href="#l790" class="line" id="l790">    790</a>                     AICLI_TraceLoggingWStringView(m_summary.FailureMessage, &quot;FailureMessage&quot;),
+<a href="#l791" class="line" id="l791">    791</a>                     AICLI_TraceLoggingStringView(m_summary.FailureModule, &quot;FailureModule&quot;),
+<a href="#l792" class="line" id="l792">    792</a>                     TraceLoggingUInt32(m_summary.FailureThreadId, &quot;FailureThreadId&quot;),
+<a href="#l793" class="line" id="l793">    793</a>                     TraceLoggingUInt32(static_cast&lt;UINT32&gt;(m_summary.FailureType), &quot;FailureType&quot;),
+<a href="#l794" class="line" id="l794">    794</a>                     AICLI_TraceLoggingStringView(m_summary.FailureFile, &quot;FailureFile&quot;),
+<a href="#l795" class="line" id="l795">    795</a>                     TraceLoggingUInt32(m_summary.FailureLine, &quot;FailureLine&quot;),
+<a href="#l796" class="line" id="l796">    796</a>                     TraceLoggingBool(m_summary.IsCOMCall, &quot;IsCOMCall&quot;),
+<a href="#l797" class="line" id="l797">    797</a>                     AICLI_TraceLoggingStringView(m_summary.Command, &quot;Command&quot;),
+<a href="#l798" class="line" id="l798">    798</a>                     TraceLoggingBool(m_summary.CommandSuccess, &quot;CommandSuccess&quot;),
+<a href="#l799" class="line" id="l799">    799</a>                     TraceLoggingBool(m_summary.IsManifestLocal, &quot;IsManifestLocal&quot;),
+<a href="#l800" class="line" id="l800">    800</a>                     AICLI_TraceLoggingStringView(m_summary.PackageIdentifier, &quot;PackageIdentifier&quot;),
+<a href="#l801" class="line" id="l801">    801</a>                     AICLI_TraceLoggingStringView(m_summary.PackageName, &quot;PackageName&quot;),
+<a href="#l802" class="line" id="l802">    802</a>                     AICLI_TraceLoggingStringView(m_summary.PackageVersion, &quot;PackageVersion&quot;),
+<a href="#l803" class="line" id="l803">    803</a>                     AICLI_TraceLoggingStringView(m_summary.Channel, &quot;Channel&quot;),
+<a href="#l804" class="line" id="l804">    804</a>                     AICLI_TraceLoggingStringView(m_summary.SourceIdentifier, &quot;SourceIdentifier&quot;),
+<a href="#l805" class="line" id="l805">    805</a>                     TraceLoggingInt32(m_summary.InstallerArchitecture, &quot;InstallerArchitecture&quot;),
+<a href="#l806" class="line" id="l806">    806</a>                     AICLI_TraceLoggingStringView(m_summary.InstallerUrl, &quot;InstallerUrl&quot;),
+<a href="#l807" class="line" id="l807">    807</a>                     AICLI_TraceLoggingStringView(m_summary.InstallerType, &quot;InstallerType&quot;),
+<a href="#l808" class="line" id="l808">    808</a>                     AICLI_TraceLoggingStringView(m_summary.InstallerScope, &quot;InstallerScope&quot;),
+<a href="#l809" class="line" id="l809">    809</a>                     AICLI_TraceLoggingStringView(m_summary.InstallerLocale, &quot;InstallerLocale&quot;),
+<a href="#l810" class="line" id="l810">    810</a>                     AICLI_TraceLoggingStringView(m_summary.SearchType, &quot;SearchType&quot;),
+<a href="#l811" class="line" id="l811">    811</a>                     AICLI_TraceLoggingStringView(m_summary.SearchQuery, &quot;SearchQuery&quot;),
+<a href="#l812" class="line" id="l812">    812</a>                     AICLI_TraceLoggingStringView(m_summary.SearchId, &quot;SearchId&quot;),
+<a href="#l813" class="line" id="l813">    813</a>                     AICLI_TraceLoggingStringView(m_summary.SearchName, &quot;SearchName&quot;),
+<a href="#l814" class="line" id="l814">    814</a>                     AICLI_TraceLoggingStringView(m_summary.SearchMoniker, &quot;SearchMoniker&quot;),
+<a href="#l815" class="line" id="l815">    815</a>                     AICLI_TraceLoggingStringView(m_summary.SearchTag, &quot;SearchTag&quot;),
+<a href="#l816" class="line" id="l816">    816</a>                     AICLI_TraceLoggingStringView(m_summary.SearchCommand, &quot;SearchCommand&quot;),
+<a href="#l817" class="line" id="l817">    817</a>                     TraceLoggingUInt64(m_summary.SearchMaximum, &quot;SearchMaximum&quot;),
+<a href="#l818" class="line" id="l818">    818</a>                     AICLI_TraceLoggingStringView(m_summary.SearchRequest, &quot;SearchRequest&quot;),
+<a href="#l819" class="line" id="l819">    819</a>                     TraceLoggingUInt64(m_summary.SearchResultCount, &quot;SearchResultCount&quot;),
+<a href="#l820" class="line" id="l820">    820</a>                     TraceLoggingBinary(m_summary.HashMismatchExpected.data(), static_cast&lt;ULONG&gt;(m_summary.HashMismatchExpected.size()), &quot;HashMismatchExpected&quot;),
+<a href="#l821" class="line" id="l821">    821</a>                     TraceLoggingBinary(m_summary.HashMismatchActual.data(), static_cast&lt;ULONG&gt;(m_summary.HashMismatchActual.size()), &quot;HashMismatchActual&quot;),
+<a href="#l822" class="line" id="l822">    822</a>                     TraceLoggingBool(m_summary.HashMismatchOverride, &quot;HashMismatchOverride&quot;),
+<a href="#l823" class="line" id="l823">    823</a>                     TraceLoggingUInt64(m_summary.HashMismatchActualSize, &quot;HashMismatchActualSize&quot;),
+<a href="#l824" class="line" id="l824">    824</a>                     AICLI_TraceLoggingStringView(m_summary.HashMismatchContentType, &quot;HashMismatchContentType&quot;),
+<a href="#l825" class="line" id="l825">    825</a>                     AICLI_TraceLoggingStringView(m_summary.InstallerExecutionType, &quot;InstallerExecutionType&quot;),
+<a href="#l826" class="line" id="l826">    826</a>                     TraceLoggingUInt32(m_summary.InstallerErrorCode, &quot;InstallerErrorCode&quot;),
+<a href="#l827" class="line" id="l827">    827</a>                     AICLI_TraceLoggingStringView(m_summary.UninstallerExecutionType, &quot;UninstallerExecutionType&quot;),
+<a href="#l828" class="line" id="l828">    828</a>                     TraceLoggingUInt32(m_summary.UninstallerErrorCode, &quot;UninstallerErrorCode&quot;),
+<a href="#l829" class="line" id="l829">    829</a>                     TraceLoggingUInt64(m_summary.ChangesToARP, &quot;ChangesToARP&quot;),
+<a href="#l830" class="line" id="l830">    830</a>                     TraceLoggingUInt64(m_summary.MatchesInARP, &quot;MatchesInARP&quot;),
+<a href="#l831" class="line" id="l831">    831</a>                     TraceLoggingUInt64(m_summary.ChangesThatMatch, &quot;ChangesThatMatch&quot;),
+<a href="#l832" class="line" id="l832">    832</a>                     TraceLoggingUInt64(m_summary.ARPLanguage, &quot;ARPLanguage&quot;),
+<a href="#l833" class="line" id="l833">    833</a>                     AICLI_TraceLoggingStringView(m_summary.ARPName, &quot;ARPName&quot;),
+<a href="#l834" class="line" id="l834">    834</a>                     AICLI_TraceLoggingStringView(m_summary.ARPVersion, &quot;ARPVersion&quot;),
+<a href="#l835" class="line" id="l835">    835</a>                     AICLI_TraceLoggingStringView(m_summary.ARPPublisher, &quot;ARPPublisher&quot;),
+<a href="#l836" class="line" id="l836">    836</a>                     AICLI_TraceLoggingStringView(m_summary.DOUrl, &quot;DOUrl&quot;),
+<a href="#l837" class="line" id="l837">    837</a>                     TraceLoggingHResult(m_summary.DOHResult, &quot;DOHResult&quot;),
+<a href="#l838" class="line" id="l838">    838</a>                     AICLI_TraceLoggingStringView(m_summary.RepairExecutionType, &quot;RepairExecutionType&quot;),
+<a href="#l839" class="line" id="l839">    839</a>                     TraceLoggingUInt32(m_summary.RepairErrorCode, &quot;RepairErrorCode&quot;),
+<a href="#l840" class="line" id="l840">    840</a>                     TelemetryPrivacyDataTag(PDT_ProductAndServicePerformance | PDT_ProductAndServiceUsage | PDT_SoftwareSetupAndInventory),
+<a href="#l841" class="line" id="l841">    841</a>                     TraceLoggingKeyword(MICROSOFT_KEYWORD_MEASURES));
+<a href="#l842" class="line" id="l842">    842</a>             }
+<a href="#l843" class="line" id="l843">    843</a>         }
+<a href="#l844" class="line" id="l844">    844</a>     }
+<a href="#l845" class="line" id="l845">    845</a> 
+<a href="#l846" class="line" id="l846">    846</a>     bool TelemetryTraceLogger::IsTelemetryEnabled() const noexcept
+<a href="#l847" class="line" id="l847">    847</a>     {
+<a href="#l848" class="line" id="l848">    848</a>         return g_IsTelemetryProviderEnabled &amp;&amp; m_isInitialized &amp;&amp; m_isSettingEnabled &amp;&amp; m_isRuntimeEnabled;
+<a href="#l849" class="line" id="l849">    849</a>     }
+<a href="#l850" class="line" id="l850">    850</a> 
+<a href="#l851" class="line" id="l851">    851</a>     void TelemetryTraceLogger::InitializeInternal(const AppInstaller::Settings::UserSettings&amp; userSettings)
+<a href="#l852" class="line" id="l852">    852</a>     {
+<a href="#l853" class="line" id="l853">    853</a>         m_isSettingEnabled = !userSettings.Get&lt;Settings::Setting::TelemetryDisable&gt;();
+<a href="#l854" class="line" id="l854">    854</a>         m_isInitialized = true;
+<a href="#l855" class="line" id="l855">    855</a>     }
+<a href="#l856" class="line" id="l856">    856</a> 
+<a href="#l857" class="line" id="l857">    857</a>     std::wstring TelemetryTraceLogger::AnonymizeString(const wchar_t* input) const noexcept
+<a href="#l858" class="line" id="l858">    858</a>     {
+<a href="#l859" class="line" id="l859">    859</a>         return input ? AnonymizeString(std::wstring_view{ input }) : std::wstring{};
+<a href="#l860" class="line" id="l860">    860</a>     }
+<a href="#l861" class="line" id="l861">    861</a> 
+<a href="#l862" class="line" id="l862">    862</a>     std::wstring TelemetryTraceLogger::AnonymizeString(std::wstring_view input) const noexcept try
+<a href="#l863" class="line" id="l863">    863</a>     {
+<a href="#l864" class="line" id="l864">    864</a>         // GetPathTo() may need to read the settings, so this function should only be called after settings are initialized.
+<a href="#l865" class="line" id="l865">    865</a>         // To ensure that, this function is only called when emitting an event, and we disable the telemetry until settings are ready.
+<a href="#l866" class="line" id="l866">    866</a>         static const std::wstring s_UserProfile = Runtime::GetPathTo(Runtime::PathName::UserProfile).wstring();
+<a href="#l867" class="line" id="l867">    867</a> 
+<a href="#l868" class="line" id="l868">    868</a>         return Utility::ReplaceWhileCopying(input, s_UserProfile, s_UserProfileReplacement);
+<a href="#l869" class="line" id="l869">    869</a>     }
+<a href="#l870" class="line" id="l870">    870</a>     catch (...) { return std::wstring{ input }; }
+<a href="#l871" class="line" id="l871">    871</a> 
+<a href="#l872" class="line" id="l872">    872</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l873" class="line" id="l873">    873</a>     static std::shared_ptr&lt;TelemetryTraceLogger&gt; s_TelemetryTraceLogger_TestOverride;
+<a href="#l874" class="line" id="l874">    874</a> #endif
+<a href="#l875" class="line" id="l875">    875</a> 
+<a href="#l876" class="line" id="l876">    876</a>     TelemetryTraceLogger&amp; Telemetry()
+<a href="#l877" class="line" id="l877">    877</a>     {
+<a href="#l878" class="line" id="l878">    878</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l879" class="line" id="l879">    879</a>         if (s_TelemetryTraceLogger_TestOverride)
+<a href="#l880" class="line" id="l880">    880</a>         {
+<a href="#l881" class="line" id="l881">    881</a>             return *s_TelemetryTraceLogger_TestOverride.get();
+<a href="#l882" class="line" id="l882">    882</a>         }
+<a href="#l883" class="line" id="l883">    883</a> #endif
+<a href="#l884" class="line" id="l884">    884</a>         ThreadLocalStorage::ThreadGlobals* pThreadGlobals = ThreadLocalStorage::ThreadGlobals::GetForCurrentThread();
+<a href="#l885" class="line" id="l885">    885</a>         if (pThreadGlobals)
+<a href="#l886" class="line" id="l886">    886</a>         {
+<a href="#l887" class="line" id="l887">    887</a>             return *reinterpret_cast&lt;TelemetryTraceLogger*&gt;(pThreadGlobals-&gt;GetTelemetryObject());
+<a href="#l888" class="line" id="l888">    888</a>         }
+<a href="#l889" class="line" id="l889">    889</a>         else
+<a href="#l890" class="line" id="l890">    890</a>         {
+<a href="#l891" class="line" id="l891">    891</a>             // For the global telemetry object, we may not have yet read the settings file.
+<a href="#l892" class="line" id="l892">    892</a>             // In that case, we will not be able to initialize it, so we need to try it
+<a href="#l893" class="line" id="l893">    893</a>             // each time we get the object.
+<a href="#l894" class="line" id="l894">    894</a>             static TelemetryTraceLogger processGlobalTelemetry(/* useSummary */ false);
+<a href="#l895" class="line" id="l895">    895</a>             processGlobalTelemetry.TryInitialize();
+<a href="#l896" class="line" id="l896">    896</a>             return processGlobalTelemetry;
+<a href="#l897" class="line" id="l897">    897</a>         }
+<a href="#l898" class="line" id="l898">    898</a>     }
+<a href="#l899" class="line" id="l899">    899</a> 
+<a href="#l900" class="line" id="l900">    900</a>     void EnableWilFailureTelemetry()
+<a href="#l901" class="line" id="l901">    901</a>     {
+<a href="#l902" class="line" id="l902">    902</a>         wil::SetResultLoggingCallback(wilResultLoggingCallback);
+<a href="#l903" class="line" id="l903">    903</a>     }
+<a href="#l904" class="line" id="l904">    904</a> 
+<a href="#l905" class="line" id="l905">    905</a>     void UseGlobalTelemetryLoggerActivityIdOnly()
+<a href="#l906" class="line" id="l906">    906</a>     {
+<a href="#l907" class="line" id="l907">    907</a>         s_useGlobalTelemetryActivityId = true;
+<a href="#l908" class="line" id="l908">    908</a>         std::ignore = CoCreateGuid(&amp;s_globalTelemetryLoggerActivityId);
+<a href="#l909" class="line" id="l909">    909</a>     }
+<a href="#l910" class="line" id="l910">    910</a> 
+<a href="#l911" class="line" id="l911">    911</a>     DisableTelemetryScope::DisableTelemetryScope()
+<a href="#l912" class="line" id="l912">    912</a>     {
+<a href="#l913" class="line" id="l913">    913</a>         m_token = Telemetry().DisableRuntime();
+<a href="#l914" class="line" id="l914">    914</a>     }
+<a href="#l915" class="line" id="l915">    915</a> 
+<a href="#l916" class="line" id="l916">    916</a>     DisableTelemetryScope::~DisableTelemetryScope()
+<a href="#l917" class="line" id="l917">    917</a>     {
+<a href="#l918" class="line" id="l918">    918</a>         if (m_token)
+<a href="#l919" class="line" id="l919">    919</a>         {
+<a href="#l920" class="line" id="l920">    920</a>             Telemetry().EnableRuntime();
+<a href="#l921" class="line" id="l921">    921</a>         }
+<a href="#l922" class="line" id="l922">    922</a>     }
+<a href="#l923" class="line" id="l923">    923</a> 
+<a href="#l924" class="line" id="l924">    924</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l925" class="line" id="l925">    925</a>     // Replace this test hook with context telemetry when it gets moved over
+<a href="#l926" class="line" id="l926">    926</a>     void TestHook_SetTelemetryOverride(std::shared_ptr&lt;TelemetryTraceLogger&gt; ttl)
+<a href="#l927" class="line" id="l927">    927</a>     {
+<a href="#l928" class="line" id="l928">    928</a>         s_TelemetryTraceLogger_TestOverride = std::move(ttl);
+<a href="#l929" class="line" id="l929">    929</a>     }
+<a href="#l930" class="line" id="l930">    930</a> #endif
+<a href="#l931" class="line" id="l931">    931</a> }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Allow upgrades in packages that register a different installer type (#1796) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/9dcbf99b2831af395fc996917da7dfe8fc085ffc.html">9dcbf99b2831af395fc996917da7dfe8fc085ffc</a>
+<b>parent</b> <a href="../commit/8650938fa43524e009013f5d3255c52206732bad.html">8650938fa43524e009013f5d3255c52206732bad</a>
+<b>Author:</b> Chacón &lt;<a href="mailto:lechacon@users.noreply.github.com">lechacon@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Wed, 19 Jan 2022 18:32:45 -0800
+
+Allow upgrades in packages that register a different installer type (#1796)
+
+* Modified the applicability check in `InstalledTypeComparator` to also consider the installer types listed under `AppsAndFeaturesEntries`
+* Extended string returned from `ExplainInapplicable` to also mention the installed type and other types accepted by the manifest.
+
+Closes #1242. Validated that upgrading PowerToys (mentioned in that issue) worked correctly using a local manifest edited to include the `AppsAndFeaturesEntries` and installed type `msi`.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a></td><td> | </td><td class="num">26</td><td><span class="i">++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h3">src/AppInstallerCLITests/TestData/UpdateFlowTest_Exe_ARPInstallerType.yaml</a></td><td> | </td><td class="num">22</td><td><span class="i">++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLITests/WorkFlow.cpp</a></td><td> | </td><td class="num">36</td><td><span class="i">++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>5 files changed, 88 insertions(+), 2 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.cpp.html">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.cpp.html">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -210,18 +210,40 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+             InapplicabilityFlags IsApplicable(const Manifest::ManifestInstaller&amp; installer) override
+             {
+<a href="#h0-0-3" id="h0-0-3" class="i">+                // The installer is applicable if it&#39;s type or any of its ARP entries&#39; type matches the installed type
+</a>                 if (Manifest::IsInstallerTypeCompatible(installer.InstallerType, m_installedType))
+                 {
+                     return InapplicabilityFlags::None;
+                 }
+ 
+<a href="#h0-0-9" id="h0-0-9" class="i">+                auto itr = std::find_if(
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+                    installer.AppsAndFeaturesEntries.begin(),
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+                    installer.AppsAndFeaturesEntries.end(),
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+                    [=](AppsAndFeaturesEntry arpEntry) { return Manifest::IsInstallerTypeCompatible(arpEntry.InstallerType, m_installedType); });
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+                if (itr != installer.AppsAndFeaturesEntries.end())
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                {
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                    return InapplicabilityFlags::None;
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                }
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+
+</a>                 return InapplicabilityFlags::InstalledType;
+             }
+ 
+             std::string ExplainInapplicable(const Manifest::ManifestInstaller&amp; installer) override
+             {
+<a href="#h0-0-23" id="h0-0-23" class="d">-                std::string result = &quot;Installed package type is not compatible with &quot;;
+</a><a href="#h0-0-24" id="h0-0-24" class="d">-                result += Manifest::InstallerTypeToString(installer.InstallerType);
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+                std::string result = &quot;Installed package type &#39;&quot; + std::string{ Manifest::InstallerTypeToString(m_installedType) } +
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+                    &quot;&#39; is not compatible with installer type &quot; + std::string{ Manifest::InstallerTypeToString(installer.InstallerType) };
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+                std::string arpInstallerTypes;
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+                for (const auto&amp; entry : installer.AppsAndFeaturesEntries)
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+                {
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+                    arpInstallerTypes += &quot; &quot; + std::string{ Manifest::InstallerTypeToString(entry.InstallerType) };
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+                }
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+                if (!arpInstallerTypes.empty())
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+                {
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+                    result += &quot;, or with accepted type(s)&quot; + arpInstallerTypes;
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+                }
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+
+</a>                 return result;
+             }
+ 
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -515,6 +515,9 @@
+</a>     &lt;CopyFileToFolders Include=&quot;TestData\UpdateFlowTest_Exe.yaml&quot;&gt;
+       &lt;DeploymentContent&gt;true&lt;/DeploymentContent&gt;
+     &lt;/CopyFileToFolders&gt;
+<a href="#h1-0-3" id="h1-0-3" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\UpdateFlowTest_Exe_ARPInstallerType.yaml&quot;&gt;
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+      &lt;DeploymentContent&gt;true&lt;/DeploymentContent&gt;
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    &lt;/CopyFileToFolders&gt;
+</a>     &lt;CopyFileToFolders Include=&quot;TestData\UpdateFlowTest_Exe_2.yaml&quot;&gt;
+       &lt;DeploymentContent&gt;true&lt;/DeploymentContent&gt;
+     &lt;/CopyFileToFolders&gt;
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a> b/<a href="../file/src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters.html">src/AppInstallerCLITests/AppInstallerCLITests.vcxproj.filters</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -435,6 +435,9 @@
+</a>     &lt;CopyFileToFolders Include=&quot;TestData\UpdateFlowTest_Exe.yaml&quot;&gt;
+       &lt;Filter&gt;TestData&lt;/Filter&gt;
+     &lt;/CopyFileToFolders&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+    &lt;CopyFileToFolders Include=&quot;TestData\UpdateFlowTest_Exe_ARPInstallerType.yaml&quot;&gt;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+      &lt;Filter&gt;TestData&lt;/Filter&gt;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    &lt;/CopyFileToFolders&gt;
+</a>     &lt;CopyFileToFolders Include=&quot;TestData\UpdateFlowTest_Exe_2.yaml&quot;&gt;
+       &lt;Filter&gt;TestData&lt;/Filter&gt;
+     &lt;/CopyFileToFolders&gt;
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/TestData/UpdateFlowTest_Exe_ARPInstallerType.yaml.html">src/AppInstallerCLITests/TestData/UpdateFlowTest_Exe_ARPInstallerType.yaml</a> b/<a href="../file/src/AppInstallerCLITests/TestData/UpdateFlowTest_Exe_ARPInstallerType.yaml.html">src/AppInstallerCLITests/TestData/UpdateFlowTest_Exe_ARPInstallerType.yaml</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -0,0 +1,22 @@
+</a><a href="#h3-0-0" id="h3-0-0" class="i">+# Similar content to UpdateFlowTest_Exe.yaml, but with an AppsAndFeaturesEntry specifying installer type
+</a><a href="#h3-0-1" id="h3-0-1" class="i">+PackageIdentifier: AppInstallerCliTest.TestExeInstaller
+</a><a href="#h3-0-2" id="h3-0-2" class="i">+PackageVersion: 2.0.0.0
+</a><a href="#h3-0-3" id="h3-0-3" class="i">+PackageLocale: en-US
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+PackageName: AppInstaller Test Installer
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+Publisher: Microsoft Corporation
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+Moniker: AICLITestExe
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+License: Test
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+AppsAndFeaturesEntries:
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+  - InstallerType: msix
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+InstallerSwitches:
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+  Custom: /custom /ver2.0.0.0
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+  SilentWithProgress: /silentwithprogress
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+  Silent: /silence
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+  Update: /update
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+Installers:
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+  - Architecture: x86
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+    InstallerUrl: https://ThisIsNotUsed
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+    InstallerType: exe
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+    InstallerSha256: 65DB2F2AC2686C7F2FD69D4A4C6683B888DC55BFA20A0E32CA9F838B51689A3B
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+ManifestType: singleton
+</a><a href="#h3-0-21" id="h3-0-21" class="i">+ManifestVersion: 1.1.0
+</a><b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLITests/WorkFlow.cpp.html">src/AppInstallerCLITests/WorkFlow.cpp</a> b/<a href="../file/src/AppInstallerCLITests/WorkFlow.cpp.html">src/AppInstallerCLITests/WorkFlow.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -210,6 +210,21 @@ namespace
+</a>                         PackageMatchFilter(PackageMatchField::Id, MatchType::Exact, &quot;AppInstallerCliTest.TestExeInstaller&quot;)));
+             }
+ 
+<a href="#h4-0-3" id="h4-0-3" class="i">+            if (input == &quot;TestExeInstallerWithDifferentInstalledType&quot;)
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+            {
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+                auto manifest = YamlParser::CreateFromPath(TestDataFile(&quot;InstallFlowTest_Exe.yaml&quot;));
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+                auto manifest2 = YamlParser::CreateFromPath(TestDataFile(&quot;UpdateFlowTest_Exe_ARPInstallerType.yaml&quot;));
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+                result.Matches.emplace_back(
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+                    ResultMatch(
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+                        TestPackage::Make(
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+                            manifest,
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+                            TestPackage::MetadataMap{ { PackageVersionMetadata::InstalledType, &quot;Msix&quot; } },
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+                            std::vector&lt;Manifest&gt;{ manifest2, manifest },
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+                            shared_from_this()
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+                        ),
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+                        PackageMatchFilter(PackageMatchField::Id, MatchType::Exact, &quot;AppInstallerCliTest.TestExeInstaller&quot;)));
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+            }
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+
+</a>             if (input == &quot;TestExeInstallerWithNothingInstalled&quot;)
+             {
+                 auto manifest = YamlParser::CreateFromPath(TestDataFile(&quot;InstallFlowTest_Exe.yaml&quot;));
+<a href="#h4-1" id="h4-1" class="h">@@ -1495,6 +1510,27 @@ TEST_CASE(&quot;UpdateFlow_UpdateExeInstallerTypeNotApplicableSpecificVersion&quot;, &quot;[Upd
+</a>     REQUIRE(context.GetTerminationHR() == APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE);
+ }
+ 
+<a href="#h4-1-3" id="h4-1-3" class="i">+TEST_CASE(&quot;UpdateFlow_UpdateExeWithDifferentInstalledType&quot;, &quot;[UpdateFlow][workflow]&quot;)
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+{
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+    // Tests installer applicability when installed type is different but listed in the manifest
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+    TestCommon::TempFile updateResultPath(&quot;TestExeInstalled.txt&quot;);
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+    std::ostringstream updateOutput;
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+    TestContext context{ updateOutput, std::cin };
+</a><a href="#h4-1-10" id="h4-1-10" class="i">+    auto previousThreadGlobals = context.SetForCurrentThread();
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+    OverrideForCompositeInstalledSource(context);
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+    OverrideForShellExecute(context);
+</a><a href="#h4-1-13" id="h4-1-13" class="i">+    context.Args.AddArg(Execution::Args::Type::Query, &quot;TestExeInstallerWithDifferentInstalledType&quot;sv);
+</a><a href="#h4-1-14" id="h4-1-14" class="i">+
+</a><a href="#h4-1-15" id="h4-1-15" class="i">+    UpgradeCommand update({});
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+    update.Execute(context);
+</a><a href="#h4-1-17" id="h4-1-17" class="i">+    INFO(updateOutput.str());
+</a><a href="#h4-1-18" id="h4-1-18" class="i">+
+</a><a href="#h4-1-19" id="h4-1-19" class="i">+    // Verify Installer is called.
+</a><a href="#h4-1-20" id="h4-1-20" class="i">+    REQUIRE(context.GetTerminationHR() == S_OK);
+</a><a href="#h4-1-21" id="h4-1-21" class="i">+    REQUIRE(std::filesystem::exists(updateResultPath.GetPath()));
+</a><a href="#h4-1-22" id="h4-1-22" class="i">+}
+</a><a href="#h4-1-23" id="h4-1-23" class="i">+
+</a> TEST_CASE(&quot;UpdateFlow_UpdateExeSpecificVersionNotFound&quot;, &quot;[UpdateFlow][workflow]&quot;)
+ {
+     TestCommon::TempFile updateResultPath(&quot;TestExeInstalled.txt&quot;);
+</pre>
+</div>
+</body>
+</html>

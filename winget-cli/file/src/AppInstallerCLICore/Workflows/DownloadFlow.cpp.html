@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>DownloadFlow.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../"><img src="../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../log.html">Log</a> | <a href="../../../../files.html">Files</a> | <a href="../../../../refs.html">Refs</a> | <a href="../../../../file/README.md.html">README</a> | <a href="../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> DownloadFlow.cpp (34718B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;DownloadFlow.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;MSStoreInstallerHandler.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;winget/Filesystem.h&gt;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;AppInstallerDeployment.h&gt;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;AppInstallerDownloader.h&gt;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;AppInstallerRuntime.h&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;AppInstallerMsixInfo.h&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;winget/AdminSettings.h&gt;
+<a href="#l12" class="line" id="l12">     12</a> #include &lt;winget/GroupPolicy.h&gt;
+<a href="#l13" class="line" id="l13">     13</a> #include &lt;winget/ManifestYamlWriter.h&gt;
+<a href="#l14" class="line" id="l14">     14</a> #include &lt;winget/NetworkSettings.h&gt;
+<a href="#l15" class="line" id="l15">     15</a> 
+<a href="#l16" class="line" id="l16">     16</a> namespace AppInstaller::CLI::Workflow
+<a href="#l17" class="line" id="l17">     17</a> {
+<a href="#l18" class="line" id="l18">     18</a>     using namespace AppInstaller::Manifest;
+<a href="#l19" class="line" id="l19">     19</a>     using namespace AppInstaller::Repository;
+<a href="#l20" class="line" id="l20">     20</a>     using namespace AppInstaller::Utility;
+<a href="#l21" class="line" id="l21">     21</a>     using namespace AppInstaller::Settings;
+<a href="#l22" class="line" id="l22">     22</a>     using namespace std::string_view_literals;
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a>     namespace
+<a href="#l25" class="line" id="l25">     25</a>     {
+<a href="#l26" class="line" id="l26">     26</a>         constexpr std::string_view s_MicrosoftEntraIdAuthorizationHeader = &quot;Authorization&quot;sv;
+<a href="#l27" class="line" id="l27">     27</a>         // By default Azure blob storage does not accept Microsoft Entra Id authentication.
+<a href="#l28" class="line" id="l28">     28</a>         // https://learn.microsoft.com/en-us/rest/api/storageservices/versioning-for-the-azure-storage-services#authorize-requests-by-using-microsoft-entra-id-shared-key-or-shared-key-lite
+<a href="#l29" class="line" id="l29">     29</a>         constexpr std::string_view s_AzureBlobStorageApiVersionHeader = &quot;x-ms-version&quot;sv;
+<a href="#l30" class="line" id="l30">     30</a>         constexpr std::string_view s_AzureBlobStorageApiVersionValue = &quot;2020-04-08&quot;sv;
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a>         // Get the base download directory path for the installer.
+<a href="#l33" class="line" id="l33">     33</a>         // Also creates the directory as necessary.
+<a href="#l34" class="line" id="l34">     34</a>         std::filesystem::path GetInstallerBaseDownloadPath(Execution::Context&amp; context)
+<a href="#l35" class="line" id="l35">     35</a>         {
+<a href="#l36" class="line" id="l36">     36</a>             const auto&amp; manifest = context.Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l37" class="line" id="l37">     37</a> 
+<a href="#l38" class="line" id="l38">     38</a>             std::filesystem::path tempInstallerPath = Runtime::GetPathTo(Runtime::PathName::Temp);
+<a href="#l39" class="line" id="l39">     39</a>             tempInstallerPath /= Utility::ConvertToUTF16(manifest.Id + &#39;.&#39; + manifest.Version);
+<a href="#l40" class="line" id="l40">     40</a> 
+<a href="#l41" class="line" id="l41">     41</a>             std::filesystem::create_directories(tempInstallerPath);
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a>             return tempInstallerPath;
+<a href="#l44" class="line" id="l44">     44</a>         }
+<a href="#l45" class="line" id="l45">     45</a> 
+<a href="#l46" class="line" id="l46">     46</a>         // Get the file extension to be used for the installer file.
+<a href="#l47" class="line" id="l47">     47</a>         std::wstring_view GetInstallerFileExtension(Execution::Context&amp; context)
+<a href="#l48" class="line" id="l48">     48</a>         {
+<a href="#l49" class="line" id="l49">     49</a>             const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;();
+<a href="#l50" class="line" id="l50">     50</a>             switch (installer-&gt;BaseInstallerType)
+<a href="#l51" class="line" id="l51">     51</a>             {
+<a href="#l52" class="line" id="l52">     52</a>             case InstallerTypeEnum::Burn:
+<a href="#l53" class="line" id="l53">     53</a>             case InstallerTypeEnum::Exe:
+<a href="#l54" class="line" id="l54">     54</a>             case InstallerTypeEnum::Inno:
+<a href="#l55" class="line" id="l55">     55</a>             case InstallerTypeEnum::Nullsoft:
+<a href="#l56" class="line" id="l56">     56</a>             case InstallerTypeEnum::Portable:
+<a href="#l57" class="line" id="l57">     57</a>                 return L&quot;.exe&quot;sv;
+<a href="#l58" class="line" id="l58">     58</a>             case InstallerTypeEnum::Msi:
+<a href="#l59" class="line" id="l59">     59</a>             case InstallerTypeEnum::Wix:
+<a href="#l60" class="line" id="l60">     60</a>                 return L&quot;.msi&quot;sv;
+<a href="#l61" class="line" id="l61">     61</a>             case InstallerTypeEnum::Msix:
+<a href="#l62" class="line" id="l62">     62</a>                 // Note: We may need to distinguish between .msix and .msixbundle in the future.
+<a href="#l63" class="line" id="l63">     63</a>                 return L&quot;.msix&quot;sv;
+<a href="#l64" class="line" id="l64">     64</a>             case InstallerTypeEnum::Zip:
+<a href="#l65" class="line" id="l65">     65</a>                 return L&quot;.zip&quot;sv;
+<a href="#l66" class="line" id="l66">     66</a>             default:
+<a href="#l67" class="line" id="l67">     67</a>                 THROW_HR(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+<a href="#l68" class="line" id="l68">     68</a>             }
+<a href="#l69" class="line" id="l69">     69</a>         }
+<a href="#l70" class="line" id="l70">     70</a> 
+<a href="#l71" class="line" id="l71">     71</a>         // Gets a file name that should not be able to ShellExecute.
+<a href="#l72" class="line" id="l72">     72</a>         std::filesystem::path GetInstallerPreHashValidationFileName(Execution::Context&amp; context)
+<a href="#l73" class="line" id="l73">     73</a>         {
+<a href="#l74" class="line" id="l74">     74</a>             return { SHA256::ConvertToString(context.Get&lt;Execution::Data::Installer&gt;()-&gt;Sha256) };
+<a href="#l75" class="line" id="l75">     75</a>         }
+<a href="#l76" class="line" id="l76">     76</a> 
+<a href="#l77" class="line" id="l77">     77</a>         // Gets the file name that can be used to ShellExecute the file.
+<a href="#l78" class="line" id="l78">     78</a>         std::filesystem::path GetInstallerPostHashValidationFileName(Execution::Context&amp; context)
+<a href="#l79" class="line" id="l79">     79</a>         {
+<a href="#l80" class="line" id="l80">     80</a>             // Get file name from download URI
+<a href="#l81" class="line" id="l81">     81</a>             std::filesystem::path filename = GetFileNameFromURI(context.Get&lt;Execution::Data::Installer&gt;()-&gt;Url);
+<a href="#l82" class="line" id="l82">     82</a>             std::wstring_view installerExtension = GetInstallerFileExtension(context);
+<a href="#l83" class="line" id="l83">     83</a> 
+<a href="#l84" class="line" id="l84">     84</a>             // Assuming that we find a safe stem value in the URI, use it.
+<a href="#l85" class="line" id="l85">     85</a>             // This should be extremely common, but just in case fall back to the older name style.
+<a href="#l86" class="line" id="l86">     86</a>             if (filename.has_stem() &amp;&amp; ((filename.wstring().size() + installerExtension.size()) &lt; MAX_PATH))
+<a href="#l87" class="line" id="l87">     87</a>             {
+<a href="#l88" class="line" id="l88">     88</a>                 filename = filename.stem();
+<a href="#l89" class="line" id="l89">     89</a>             }
+<a href="#l90" class="line" id="l90">     90</a>             else
+<a href="#l91" class="line" id="l91">     91</a>             {
+<a href="#l92" class="line" id="l92">     92</a>                 const auto&amp; manifest = context.Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l93" class="line" id="l93">     93</a>                 filename = Utility::ConvertToUTF16(manifest.Id + &#39;.&#39; + manifest.Version);
+<a href="#l94" class="line" id="l94">     94</a>             }
+<a href="#l95" class="line" id="l95">     95</a> 
+<a href="#l96" class="line" id="l96">     96</a>             filename += installerExtension;
+<a href="#l97" class="line" id="l97">     97</a> 
+<a href="#l98" class="line" id="l98">     98</a>             // Make file name suitable for file system path
+<a href="#l99" class="line" id="l99">     99</a>             filename = Utility::ConvertToUTF16(Utility::MakeSuitablePathPart(filename.u8string()));
+<a href="#l100" class="line" id="l100">    100</a> 
+<a href="#l101" class="line" id="l101">    101</a>             return filename;
+<a href="#l102" class="line" id="l102">    102</a>         }
+<a href="#l103" class="line" id="l103">    103</a> 
+<a href="#l104" class="line" id="l104">    104</a>         // Gets the file name for the downloaded installer in the format of {id}_{version}_{architecture}_{scope}_{installerType}_{locale}.
+<a href="#l105" class="line" id="l105">    105</a>         std::filesystem::path GetInstallerDownloadOnlyFileName(Execution::Context&amp; context, const std::wstring_view&amp; extension = {})
+<a href="#l106" class="line" id="l106">    106</a>         {
+<a href="#l107" class="line" id="l107">    107</a>             const auto&amp; manifest = context.Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l108" class="line" id="l108">    108</a>             const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;().value();
+<a href="#l109" class="line" id="l109">    109</a> 
+<a href="#l110" class="line" id="l110">    110</a>             std::string packageName = manifest.CurrentLocalization.Get&lt;Localization::PackageName&gt;();
+<a href="#l111" class="line" id="l111">    111</a>             std::string architecture{ ToString(installer.Arch) };
+<a href="#l112" class="line" id="l112">    112</a>             std::string installerType{ InstallerTypeToString(installer.EffectiveInstallerType()) };
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>             std::string fileName = packageName;
+<a href="#l115" class="line" id="l115">    115</a> 
+<a href="#l116" class="line" id="l116">    116</a>             if (!Version(manifest.Version).IsUnknown())
+<a href="#l117" class="line" id="l117">    117</a>             {
+<a href="#l118" class="line" id="l118">    118</a>                 fileName += &#39;_&#39; + manifest.Version;
+<a href="#l119" class="line" id="l119">    119</a>             }
+<a href="#l120" class="line" id="l120">    120</a> 
+<a href="#l121" class="line" id="l121">    121</a>             if (installer.Scope != ScopeEnum::Unknown)
+<a href="#l122" class="line" id="l122">    122</a>             {
+<a href="#l123" class="line" id="l123">    123</a>                 fileName += &#39;_&#39; + std::string{ ScopeToString(installer.Scope) };
+<a href="#l124" class="line" id="l124">    124</a>             }
+<a href="#l125" class="line" id="l125">    125</a> 
+<a href="#l126" class="line" id="l126">    126</a>             fileName += &#39;_&#39; + architecture + &#39;_&#39; + installerType;
+<a href="#l127" class="line" id="l127">    127</a> 
+<a href="#l128" class="line" id="l128">    128</a>             std::string locale = !installer.Locale.empty() ? installer.Locale : manifest.CurrentLocalization.Locale;
+<a href="#l129" class="line" id="l129">    129</a>             if (!locale.empty())
+<a href="#l130" class="line" id="l130">    130</a>             {
+<a href="#l131" class="line" id="l131">    131</a>                 fileName += &#39;_&#39; + locale;
+<a href="#l132" class="line" id="l132">    132</a>             }
+<a href="#l133" class="line" id="l133">    133</a> 
+<a href="#l134" class="line" id="l134">    134</a>             std::filesystem::path fileNamePath = Utility::ConvertToUTF16(fileName);
+<a href="#l135" class="line" id="l135">    135</a> 
+<a href="#l136" class="line" id="l136">    136</a>             if (!extension.empty())
+<a href="#l137" class="line" id="l137">    137</a>             {
+<a href="#l138" class="line" id="l138">    138</a>                 fileNamePath += extension;
+<a href="#l139" class="line" id="l139">    139</a>             }
+<a href="#l140" class="line" id="l140">    140</a>             else
+<a href="#l141" class="line" id="l141">    141</a>             {
+<a href="#l142" class="line" id="l142">    142</a>                 fileNamePath += GetInstallerFileExtension(context);
+<a href="#l143" class="line" id="l143">    143</a>             }
+<a href="#l144" class="line" id="l144">    144</a> 
+<a href="#l145" class="line" id="l145">    145</a>             // Make file name suitable for file system path
+<a href="#l146" class="line" id="l146">    146</a>             fileNamePath = Utility::ConvertToUTF16(Utility::MakeSuitablePathPart(fileNamePath.u8string()));
+<a href="#l147" class="line" id="l147">    147</a>             return fileNamePath;
+<a href="#l148" class="line" id="l148">    148</a>         }
+<a href="#l149" class="line" id="l149">    149</a> 
+<a href="#l150" class="line" id="l150">    150</a>         // Try to remove the installer file, ignoring any errors.
+<a href="#l151" class="line" id="l151">    151</a>         void RemoveInstallerFile(const std::filesystem::path&amp; path)
+<a href="#l152" class="line" id="l152">    152</a>         {
+<a href="#l153" class="line" id="l153">    153</a>             try
+<a href="#l154" class="line" id="l154">    154</a>             {
+<a href="#l155" class="line" id="l155">    155</a>                 std::filesystem::remove(path);
+<a href="#l156" class="line" id="l156">    156</a> 
+<a href="#l157" class="line" id="l157">    157</a>                 // It is assumed that the parent of the installer path will always be a directory
+<a href="#l158" class="line" id="l158">    158</a>                 // If it isn&#39;t, then something went severely wrong. However, we will check that
+<a href="#l159" class="line" id="l159">    159</a>                 // it is a directory here just to be safe. If it is an empty directory, remove it.
+<a href="#l160" class="line" id="l160">    160</a> 
+<a href="#l161" class="line" id="l161">    161</a>                 if (std::filesystem::is_directory(path.parent_path()) &amp;&amp;
+<a href="#l162" class="line" id="l162">    162</a>                     std::filesystem::is_empty(path.parent_path()))
+<a href="#l163" class="line" id="l163">    163</a>                 {
+<a href="#l164" class="line" id="l164">    164</a>                     std::filesystem::remove(path.parent_path());
+<a href="#l165" class="line" id="l165">    165</a>                 }
+<a href="#l166" class="line" id="l166">    166</a>             }
+<a href="#l167" class="line" id="l167">    167</a>             catch (const std::exception&amp; e)
+<a href="#l168" class="line" id="l168">    168</a>             {
+<a href="#l169" class="line" id="l169">    169</a>                 AICLI_LOG(CLI, Warning, &lt;&lt; &quot;Failed to remove installer file. Reason: &quot; &lt;&lt; e.what());
+<a href="#l170" class="line" id="l170">    170</a>             }
+<a href="#l171" class="line" id="l171">    171</a>             catch (...)
+<a href="#l172" class="line" id="l172">    172</a>             {
+<a href="#l173" class="line" id="l173">    173</a>                 AICLI_LOG(CLI, Warning, &lt;&lt; &quot;Failed to remove installer file. Reason unknown.&quot;);
+<a href="#l174" class="line" id="l174">    174</a>             }
+<a href="#l175" class="line" id="l175">    175</a> 
+<a href="#l176" class="line" id="l176">    176</a>         }
+<a href="#l177" class="line" id="l177">    177</a> 
+<a href="#l178" class="line" id="l178">    178</a>         // Checks the file hash for an existing installer file.
+<a href="#l179" class="line" id="l179">    179</a>         // Returns true if the file exists and its hash matches, false otherwise.
+<a href="#l180" class="line" id="l180">    180</a>         // If the hash does not match, deletes the file.
+<a href="#l181" class="line" id="l181">    181</a>         bool ExistingInstallerFileHasHashMatch(const SHA256::HashBuffer&amp; expectedHash, const std::filesystem::path&amp; filePath, SHA256::HashDetails&amp; fileHashDetails)
+<a href="#l182" class="line" id="l182">    182</a>         {
+<a href="#l183" class="line" id="l183">    183</a>             if (std::filesystem::exists(filePath))
+<a href="#l184" class="line" id="l184">    184</a>             {
+<a href="#l185" class="line" id="l185">    185</a>                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Found existing installer file at &#39;&quot; &lt;&lt; filePath &lt;&lt; &quot;&#39;. Verifying file hash.&quot;);
+<a href="#l186" class="line" id="l186">    186</a>                 std::ifstream inStream{ filePath, std::ifstream::binary };
+<a href="#l187" class="line" id="l187">    187</a>                 fileHashDetails = SHA256::ComputeHashDetails(inStream);
+<a href="#l188" class="line" id="l188">    188</a> 
+<a href="#l189" class="line" id="l189">    189</a>                 if (SHA256::AreEqual(expectedHash, fileHashDetails.Hash))
+<a href="#l190" class="line" id="l190">    190</a>                 {
+<a href="#l191" class="line" id="l191">    191</a>                     return true;
+<a href="#l192" class="line" id="l192">    192</a>                 }
+<a href="#l193" class="line" id="l193">    193</a> 
+<a href="#l194" class="line" id="l194">    194</a>                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Hash does not match. Removing existing installer file &quot; &lt;&lt; filePath);
+<a href="#l195" class="line" id="l195">    195</a>                 RemoveInstallerFile(filePath);
+<a href="#l196" class="line" id="l196">    196</a>             }
+<a href="#l197" class="line" id="l197">    197</a> 
+<a href="#l198" class="line" id="l198">    198</a>             return false;
+<a href="#l199" class="line" id="l199">    199</a>         }
+<a href="#l200" class="line" id="l200">    200</a> 
+<a href="#l201" class="line" id="l201">    201</a>         std::string GetInstallerDownloadAuthenticationToken(const AppInstaller::Authentication::AuthenticationInfo&amp; authInfo, Execution::Context&amp; context)
+<a href="#l202" class="line" id="l202">    202</a>         {
+<a href="#l203" class="line" id="l203">    203</a>             // First check if authenticator is already created
+<a href="#l204" class="line" id="l204">    204</a>             auto&amp; authenticatorsMap = context.Get&lt;AppInstaller::CLI::Execution::Data::InstallerDownloadAuthenticators&gt;();
+<a href="#l205" class="line" id="l205">    205</a>             auto authenticatorItr = authenticatorsMap-&gt;find(authInfo);
+<a href="#l206" class="line" id="l206">    206</a>             if (authenticatorItr == authenticatorsMap-&gt;end())
+<a href="#l207" class="line" id="l207">    207</a>             {
+<a href="#l208" class="line" id="l208">    208</a>                 AppInstaller::Authentication::Authenticator authenticator{ authInfo, GetAuthenticationArguments(context) };
+<a href="#l209" class="line" id="l209">    209</a>                 authenticatorsMap-&gt;emplace(authInfo, std::move(authenticator));
+<a href="#l210" class="line" id="l210">    210</a>             }
+<a href="#l211" class="line" id="l211">    211</a> 
+<a href="#l212" class="line" id="l212">    212</a>             // Get the authenticator for auth.
+<a href="#l213" class="line" id="l213">    213</a>             authenticatorItr = authenticatorsMap-&gt;find(authInfo);
+<a href="#l214" class="line" id="l214">    214</a>             THROW_HR_IF(E_UNEXPECTED, authenticatorItr == authenticatorsMap-&gt;end());
+<a href="#l215" class="line" id="l215">    215</a> 
+<a href="#l216" class="line" id="l216">    216</a>             auto authResult = authenticatorItr-&gt;second.AuthenticateForToken();
+<a href="#l217" class="line" id="l217">    217</a>             if (FAILED(authResult.Status))
+<a href="#l218" class="line" id="l218">    218</a>             {
+<a href="#l219" class="line" id="l219">    219</a>                 AICLI_LOG(Repo, Error, &lt;&lt; &quot;Authentication failed for installer download. Result: &quot; &lt;&lt; authResult.Status);
+<a href="#l220" class="line" id="l220">    220</a>                 THROW_HR_MSG(authResult.Status, &quot;Failed to authenticate for installer download.&quot;);
+<a href="#l221" class="line" id="l221">    221</a>             }
+<a href="#l222" class="line" id="l222">    222</a> 
+<a href="#l223" class="line" id="l223">    223</a>             return authResult.Token;
+<a href="#l224" class="line" id="l224">    224</a>         }
+<a href="#l225" class="line" id="l225">    225</a> 
+<a href="#l226" class="line" id="l226">    226</a>         // Get additional headers for installer download request. Auth headers are acquired here.
+<a href="#l227" class="line" id="l227">    227</a>         std::vector&lt;DownloadRequestHeader&gt; GetInstallerDownloadAuthenticationHeaders(const AppInstaller::Manifest::ManifestInstaller&amp; installer, Execution::Context&amp; context)
+<a href="#l228" class="line" id="l228">    228</a>         {
+<a href="#l229" class="line" id="l229">    229</a>             std::vector&lt;DownloadRequestHeader&gt; result;
+<a href="#l230" class="line" id="l230">    230</a> 
+<a href="#l231" class="line" id="l231">    231</a>             switch (installer.AuthInfo.Type)
+<a href="#l232" class="line" id="l232">    232</a>             {
+<a href="#l233" class="line" id="l233">    233</a>             case AppInstaller::Authentication::AuthenticationType::None:
+<a href="#l234" class="line" id="l234">    234</a>                 // No auth needed
+<a href="#l235" class="line" id="l235">    235</a>                 break;
+<a href="#l236" class="line" id="l236">    236</a>             case AppInstaller::Authentication::AuthenticationType::MicrosoftEntraId:
+<a href="#l237" class="line" id="l237">    237</a>             case AppInstaller::Authentication::AuthenticationType::MicrosoftEntraIdForAzureBlobStorage:
+<a href="#l238" class="line" id="l238">    238</a>                 context.Reporter.Info() &lt;&lt; Execution::AuthenticationEmphasis &lt;&lt; Resource::String::InstallerDownloadRequiresAuthentication &lt;&lt; std::endl;
+<a href="#l239" class="line" id="l239">    239</a>                 result.push_back({ std::string{ s_MicrosoftEntraIdAuthorizationHeader }, Authentication::CreateBearerToken(GetInstallerDownloadAuthenticationToken(installer.AuthInfo, context)), true });
+<a href="#l240" class="line" id="l240">    240</a>                 if (installer.AuthInfo.Type == AppInstaller::Authentication::AuthenticationType::MicrosoftEntraIdForAzureBlobStorage)
+<a href="#l241" class="line" id="l241">    241</a>                 {
+<a href="#l242" class="line" id="l242">    242</a>                     result.push_back({ std::string{ s_AzureBlobStorageApiVersionHeader }, std::string{ s_AzureBlobStorageApiVersionValue }, false });
+<a href="#l243" class="line" id="l243">    243</a>                 }
+<a href="#l244" class="line" id="l244">    244</a>                 break;
+<a href="#l245" class="line" id="l245">    245</a>             case AppInstaller::Authentication::AuthenticationType::Unknown:
+<a href="#l246" class="line" id="l246">    246</a>             default:
+<a href="#l247" class="line" id="l247">    247</a>                 THROW_HR_MSG(APPINSTALLER_CLI_ERROR_AUTHENTICATION_TYPE_NOT_SUPPORTED, &quot;The package installer requires authentication that is not supported.&quot;);
+<a href="#l248" class="line" id="l248">    248</a>             }
+<a href="#l249" class="line" id="l249">    249</a> 
+<a href="#l250" class="line" id="l250">    250</a>             // Log result before return
+<a href="#l251" class="line" id="l251">    251</a>             std::string logMessage = &quot;Installer download headers: &quot;;
+<a href="#l252" class="line" id="l252">    252</a>             for (const auto&amp; header : result)
+<a href="#l253" class="line" id="l253">    253</a>             {
+<a href="#l254" class="line" id="l254">    254</a>                 logMessage += header.Name + &quot;: &quot; + (header.IsAuth ? &quot;&lt;Secret&gt;&quot; : header.Value) + &quot;; &quot;;
+<a href="#l255" class="line" id="l255">    255</a>             }
+<a href="#l256" class="line" id="l256">    256</a>             AICLI_LOG(CLI, Info, &lt;&lt; logMessage);
+<a href="#l257" class="line" id="l257">    257</a> 
+<a href="#l258" class="line" id="l258">    258</a>             return result;
+<a href="#l259" class="line" id="l259">    259</a>         }
+<a href="#l260" class="line" id="l260">    260</a>     }
+<a href="#l261" class="line" id="l261">    261</a> 
+<a href="#l262" class="line" id="l262">    262</a>     void DownloadInstaller(Execution::Context&amp; context)
+<a href="#l263" class="line" id="l263">    263</a>     {
+<a href="#l264" class="line" id="l264">    264</a>         // Check if file was already downloaded.
+<a href="#l265" class="line" id="l265">    265</a>         // This may happen after a failed installation or if the download was done
+<a href="#l266" class="line" id="l266">    266</a>         // separately before, e.g. on COM scenarios.
+<a href="#l267" class="line" id="l267">    267</a>         context &lt;&lt;
+<a href="#l268" class="line" id="l268">    268</a>             ReportExecutionStage(ExecutionStage::Download) &lt;&lt;
+<a href="#l269" class="line" id="l269">    269</a>             CheckForExistingInstaller;
+<a href="#l270" class="line" id="l270">    270</a> 
+<a href="#l271" class="line" id="l271">    271</a>         if (context.IsTerminated())
+<a href="#l272" class="line" id="l272">    272</a>         {
+<a href="#l273" class="line" id="l273">    273</a>             return;
+<a href="#l274" class="line" id="l274">    274</a>         }
+<a href="#l275" class="line" id="l275">    275</a> 
+<a href="#l276" class="line" id="l276">    276</a>         bool installerDownloadOnly = WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerDownloadOnly);
+<a href="#l277" class="line" id="l277">    277</a> 
+<a href="#l278" class="line" id="l278">    278</a>         // CheckForExistingInstaller will set the InstallerPath if found
+<a href="#l279" class="line" id="l279">    279</a>         if (!context.Contains(Execution::Data::InstallerPath))
+<a href="#l280" class="line" id="l280">    280</a>         {
+<a href="#l281" class="line" id="l281">    281</a>             const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;().value();
+<a href="#l282" class="line" id="l282">    282</a>             switch (installer.BaseInstallerType)
+<a href="#l283" class="line" id="l283">    283</a>             {
+<a href="#l284" class="line" id="l284">    284</a>             case InstallerTypeEnum::Exe:
+<a href="#l285" class="line" id="l285">    285</a>             case InstallerTypeEnum::Burn:
+<a href="#l286" class="line" id="l286">    286</a>             case InstallerTypeEnum::Inno:
+<a href="#l287" class="line" id="l287">    287</a>             case InstallerTypeEnum::Msi:
+<a href="#l288" class="line" id="l288">    288</a>             case InstallerTypeEnum::Nullsoft:
+<a href="#l289" class="line" id="l289">    289</a>             case InstallerTypeEnum::Portable: 
+<a href="#l290" class="line" id="l290">    290</a>             case InstallerTypeEnum::Wix:
+<a href="#l291" class="line" id="l291">    291</a>             case InstallerTypeEnum::Zip:
+<a href="#l292" class="line" id="l292">    292</a>                 context &lt;&lt; DownloadInstallerFile;
+<a href="#l293" class="line" id="l293">    293</a>                 break;
+<a href="#l294" class="line" id="l294">    294</a>             case InstallerTypeEnum::Msix:
+<a href="#l295" class="line" id="l295">    295</a>                 // If the signature hash is provided in the manifest and we are doing an install,
+<a href="#l296" class="line" id="l296">    296</a>                 // we can just verify signature hash without a full download and do a streaming install.
+<a href="#l297" class="line" id="l297">    297</a>                 // Even if we have the signature hash, we still do a full download if InstallerDownloadOnly
+<a href="#l298" class="line" id="l298">    298</a>                 // flag is set, or if we need to use a proxy (as deployment APIs won&#39;t use proxy for us).
+<a href="#l299" class="line" id="l299">    299</a>                 // Finally, we require the digest API for streaming install as well.
+<a href="#l300" class="line" id="l300">    300</a>                 if (installer.SignatureSha256.empty()
+<a href="#l301" class="line" id="l301">    301</a>                     || installerDownloadOnly
+<a href="#l302" class="line" id="l302">    302</a>                     || Network().GetProxyUri()
+<a href="#l303" class="line" id="l303">    303</a>                     || !Deployment::IsExpectedDigestsSupported())
+<a href="#l304" class="line" id="l304">    304</a>                 {
+<a href="#l305" class="line" id="l305">    305</a>                     context &lt;&lt; DownloadInstallerFile;
+<a href="#l306" class="line" id="l306">    306</a>                 }
+<a href="#l307" class="line" id="l307">    307</a>                 else
+<a href="#l308" class="line" id="l308">    308</a>                 {
+<a href="#l309" class="line" id="l309">    309</a>                     context &lt;&lt; GetMsixSignatureHash;
+<a href="#l310" class="line" id="l310">    310</a>                 }
+<a href="#l311" class="line" id="l311">    311</a>                 break;
+<a href="#l312" class="line" id="l312">    312</a>             case InstallerTypeEnum::MSStore:
+<a href="#l313" class="line" id="l313">    313</a>                 if (installerDownloadOnly)
+<a href="#l314" class="line" id="l314">    314</a>                 {
+<a href="#l315" class="line" id="l315">    315</a>                     context &lt;&lt;
+<a href="#l316" class="line" id="l316">    316</a>                         MSStoreDownload &lt;&lt;
+<a href="#l317" class="line" id="l317">    317</a>                         ExportManifest;
+<a href="#l318" class="line" id="l318">    318</a>                 }
+<a href="#l319" class="line" id="l319">    319</a> 
+<a href="#l320" class="line" id="l320">    320</a>                 return;
+<a href="#l321" class="line" id="l321">    321</a>             default:
+<a href="#l322" class="line" id="l322">    322</a>                 THROW_HR(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+<a href="#l323" class="line" id="l323">    323</a>             }
+<a href="#l324" class="line" id="l324">    324</a>         }
+<a href="#l325" class="line" id="l325">    325</a> 
+<a href="#l326" class="line" id="l326">    326</a>         context &lt;&lt;
+<a href="#l327" class="line" id="l327">    327</a>             VerifyInstallerHash &lt;&lt;
+<a href="#l328" class="line" id="l328">    328</a>             UpdateInstallerFileMotwIfApplicable &lt;&lt;
+<a href="#l329" class="line" id="l329">    329</a>             RenameDownloadedInstaller;
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>         if (installerDownloadOnly)
+<a href="#l332" class="line" id="l332">    332</a>         {
+<a href="#l333" class="line" id="l333">    333</a>             context &lt;&lt; ExportManifest;
+<a href="#l334" class="line" id="l334">    334</a>         }
+<a href="#l335" class="line" id="l335">    335</a>     }
+<a href="#l336" class="line" id="l336">    336</a> 
+<a href="#l337" class="line" id="l337">    337</a>     void CheckForExistingInstaller(Execution::Context&amp; context)
+<a href="#l338" class="line" id="l338">    338</a>     {
+<a href="#l339" class="line" id="l339">    339</a>         const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;().value();
+<a href="#l340" class="line" id="l340">    340</a>         if (installer.EffectiveInstallerType() == InstallerTypeEnum::MSStore)
+<a href="#l341" class="line" id="l341">    341</a>         {
+<a href="#l342" class="line" id="l342">    342</a>             // No installer is downloaded in this case
+<a href="#l343" class="line" id="l343">    343</a>             return;
+<a href="#l344" class="line" id="l344">    344</a>         }
+<a href="#l345" class="line" id="l345">    345</a> 
+<a href="#l346" class="line" id="l346">    346</a>         // Try looking for the file with and without extension.
+<a href="#l347" class="line" id="l347">    347</a>         auto installerPath = GetInstallerBaseDownloadPath(context);
+<a href="#l348" class="line" id="l348">    348</a>         auto installerFilename = GetInstallerPreHashValidationFileName(context);
+<a href="#l349" class="line" id="l349">    349</a>         SHA256::HashDetails fileHashDetails;
+<a href="#l350" class="line" id="l350">    350</a>         if (!ExistingInstallerFileHasHashMatch(installer.Sha256, installerPath / installerFilename, fileHashDetails))
+<a href="#l351" class="line" id="l351">    351</a>         {
+<a href="#l352" class="line" id="l352">    352</a>             installerFilename = GetInstallerPostHashValidationFileName(context);
+<a href="#l353" class="line" id="l353">    353</a>             if (!ExistingInstallerFileHasHashMatch(installer.Sha256, installerPath / installerFilename, fileHashDetails))
+<a href="#l354" class="line" id="l354">    354</a>             {
+<a href="#l355" class="line" id="l355">    355</a>                 // No match
+<a href="#l356" class="line" id="l356">    356</a>                 return;
+<a href="#l357" class="line" id="l357">    357</a>             }
+<a href="#l358" class="line" id="l358">    358</a>         }
+<a href="#l359" class="line" id="l359">    359</a> 
+<a href="#l360" class="line" id="l360">    360</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Existing installer file hash matches. Will use existing installer.&quot;);
+<a href="#l361" class="line" id="l361">    361</a>         context.Add&lt;Execution::Data::InstallerPath&gt;(installerPath / installerFilename);
+<a href="#l362" class="line" id="l362">    362</a>         context.Add&lt;Execution::Data::DownloadHashInfo&gt;(std::make_pair(installer.Sha256,
+<a href="#l363" class="line" id="l363">    363</a>             DownloadResult{ std::move(fileHashDetails.Hash), fileHashDetails.SizeInBytes }));
+<a href="#l364" class="line" id="l364">    364</a>     }
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>     void GetInstallerDownloadPath(Execution::Context&amp; context)
+<a href="#l367" class="line" id="l367">    367</a>     {
+<a href="#l368" class="line" id="l368">    368</a>         if (!context.Contains(Execution::Data::InstallerPath))
+<a href="#l369" class="line" id="l369">    369</a>         {
+<a href="#l370" class="line" id="l370">    370</a>             auto tempInstallerPath = GetInstallerBaseDownloadPath(context);
+<a href="#l371" class="line" id="l371">    371</a>             tempInstallerPath /= GetInstallerPreHashValidationFileName(context);
+<a href="#l372" class="line" id="l372">    372</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Generated temp download path: &quot; &lt;&lt; tempInstallerPath);
+<a href="#l373" class="line" id="l373">    373</a>             context.Add&lt;Execution::Data::InstallerPath&gt;(std::move(tempInstallerPath));
+<a href="#l374" class="line" id="l374">    374</a>         }
+<a href="#l375" class="line" id="l375">    375</a>     }
+<a href="#l376" class="line" id="l376">    376</a> 
+<a href="#l377" class="line" id="l377">    377</a>     void DownloadInstallerFile(Execution::Context&amp; context)
+<a href="#l378" class="line" id="l378">    378</a>     {
+<a href="#l379" class="line" id="l379">    379</a>         context &lt;&lt; GetInstallerDownloadPath;
+<a href="#l380" class="line" id="l380">    380</a>         if (context.IsTerminated())
+<a href="#l381" class="line" id="l381">    381</a>         {
+<a href="#l382" class="line" id="l382">    382</a>             return;
+<a href="#l383" class="line" id="l383">    383</a>         }
+<a href="#l384" class="line" id="l384">    384</a> 
+<a href="#l385" class="line" id="l385">    385</a>         const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;().value();
+<a href="#l386" class="line" id="l386">    386</a>         const auto&amp; installerPath = context.Get&lt;Execution::Data::InstallerPath&gt;();
+<a href="#l387" class="line" id="l387">    387</a> 
+<a href="#l388" class="line" id="l388">    388</a>         Utility::DownloadInfo downloadInfo{};
+<a href="#l389" class="line" id="l389">    389</a>         downloadInfo.DisplayName = Resource::GetFixedString(Resource::FixedString::ProductName);
+<a href="#l390" class="line" id="l390">    390</a>         // Use the SHA256 hash of the installer as the identifier for the download
+<a href="#l391" class="line" id="l391">    391</a>         downloadInfo.ContentId = SHA256::ConvertToString(installer.Sha256);
+<a href="#l392" class="line" id="l392">    392</a> 
+<a href="#l393" class="line" id="l393">    393</a>         try
+<a href="#l394" class="line" id="l394">    394</a>         {
+<a href="#l395" class="line" id="l395">    395</a>             downloadInfo.RequestHeaders = GetInstallerDownloadAuthenticationHeaders(installer, context);
+<a href="#l396" class="line" id="l396">    396</a>         }
+<a href="#l397" class="line" id="l397">    397</a>         catch (const wil::ResultException&amp; re)
+<a href="#l398" class="line" id="l398">    398</a>         {
+<a href="#l399" class="line" id="l399">    399</a>             AICLI_LOG(CLI, Error, &lt;&lt; &quot;Authentication failed for installer download. Error code: &quot; &lt;&lt; re.GetErrorCode());
+<a href="#l400" class="line" id="l400">    400</a> 
+<a href="#l401" class="line" id="l401">    401</a>             if (re.GetErrorCode() == APPINSTALLER_CLI_ERROR_AUTHENTICATION_TYPE_NOT_SUPPORTED)
+<a href="#l402" class="line" id="l402">    402</a>             {
+<a href="#l403" class="line" id="l403">    403</a>                 context.Reporter.Error() &lt;&lt; Resource::String::InstallerDownloadAuthenticationNotSupported &lt;&lt; std::endl;
+<a href="#l404" class="line" id="l404">    404</a>             }
+<a href="#l405" class="line" id="l405">    405</a>             else
+<a href="#l406" class="line" id="l406">    406</a>             {
+<a href="#l407" class="line" id="l407">    407</a>                 context.Reporter.Error() &lt;&lt; Resource::String::InstallerDownloadAuthenticationFailed &lt;&lt; std::endl;
+<a href="#l408" class="line" id="l408">    408</a>             }
+<a href="#l409" class="line" id="l409">    409</a> 
+<a href="#l410" class="line" id="l410">    410</a>             AICLI_TERMINATE_CONTEXT(re.GetErrorCode());
+<a href="#l411" class="line" id="l411">    411</a>         }
+<a href="#l412" class="line" id="l412">    412</a> 
+<a href="#l413" class="line" id="l413">    413</a>         context.Reporter.Info() &lt;&lt; Resource::String::Downloading &lt;&lt; &#39; &#39; &lt;&lt; Execution::UrlEmphasis &lt;&lt; installer.Url &lt;&lt; std::endl;
+<a href="#l414" class="line" id="l414">    414</a> 
+<a href="#l415" class="line" id="l415">    415</a>         DownloadResult downloadResult;
+<a href="#l416" class="line" id="l416">    416</a> 
+<a href="#l417" class="line" id="l417">    417</a>         constexpr int MaxRetryCount = 2;
+<a href="#l418" class="line" id="l418">    418</a>         constexpr std::chrono::seconds maximumWaitTimeAllowed = 60s;
+<a href="#l419" class="line" id="l419">    419</a>         for (int retryCount = 0; retryCount &lt; MaxRetryCount; ++retryCount)
+<a href="#l420" class="line" id="l420">    420</a>         {
+<a href="#l421" class="line" id="l421">    421</a>             bool success = false;
+<a href="#l422" class="line" id="l422">    422</a>             try
+<a href="#l423" class="line" id="l423">    423</a>             {
+<a href="#l424" class="line" id="l424">    424</a>                 downloadResult = context.Reporter.ExecuteWithProgress(std::bind(Utility::Download,
+<a href="#l425" class="line" id="l425">    425</a>                     installer.Url,
+<a href="#l426" class="line" id="l426">    426</a>                     installerPath,
+<a href="#l427" class="line" id="l427">    427</a>                     Utility::DownloadType::Installer,
+<a href="#l428" class="line" id="l428">    428</a>                     std::placeholders::_1,
+<a href="#l429" class="line" id="l429">    429</a>                     downloadInfo));
+<a href="#l430" class="line" id="l430">    430</a> 
+<a href="#l431" class="line" id="l431">    431</a>                 // User cancelled.
+<a href="#l432" class="line" id="l432">    432</a>                 if (downloadResult.Sha256Hash.empty())
+<a href="#l433" class="line" id="l433">    433</a>                 {
+<a href="#l434" class="line" id="l434">    434</a>                     context.Reporter.Info() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+<a href="#l435" class="line" id="l435">    435</a>                     AICLI_TERMINATE_CONTEXT(E_ABORT);
+<a href="#l436" class="line" id="l436">    436</a>                 }
+<a href="#l437" class="line" id="l437">    437</a> 
+<a href="#l438" class="line" id="l438">    438</a>                 if (downloadResult.SizeInBytes == 0)
+<a href="#l439" class="line" id="l439">    439</a>                 {
+<a href="#l440" class="line" id="l440">    440</a>                     AICLI_LOG(CLI, Info, &lt;&lt; &quot;Got zero byte file; retrying download after a short wait...&quot;);
+<a href="#l441" class="line" id="l441">    441</a>                     std::this_thread::sleep_for(5s);
+<a href="#l442" class="line" id="l442">    442</a>                 }
+<a href="#l443" class="line" id="l443">    443</a>                 else
+<a href="#l444" class="line" id="l444">    444</a>                 {
+<a href="#l445" class="line" id="l445">    445</a>                     success = true;
+<a href="#l446" class="line" id="l446">    446</a>                 }
+<a href="#l447" class="line" id="l447">    447</a>             }
+<a href="#l448" class="line" id="l448">    448</a>             catch (const ServiceUnavailableException&amp; sue)
+<a href="#l449" class="line" id="l449">    449</a>             {
+<a href="#l450" class="line" id="l450">    450</a>                 if (retryCount &lt; MaxRetryCount - 1)
+<a href="#l451" class="line" id="l451">    451</a>                 {
+<a href="#l452" class="line" id="l452">    452</a>                     auto waitSecondsForRetry = sue.RetryAfter();
+<a href="#l453" class="line" id="l453">    453</a>                     if (waitSecondsForRetry &gt; maximumWaitTimeAllowed)
+<a href="#l454" class="line" id="l454">    454</a>                     {
+<a href="#l455" class="line" id="l455">    455</a>                         throw;
+<a href="#l456" class="line" id="l456">    456</a>                     }
+<a href="#l457" class="line" id="l457">    457</a> 
+<a href="#l458" class="line" id="l458">    458</a>                     bool waitCompleted = context.Reporter.ExecuteWithProgress([&amp;waitSecondsForRetry](IProgressCallback&amp; progress)
+<a href="#l459" class="line" id="l459">    459</a>                         {
+<a href="#l460" class="line" id="l460">    460</a>                             return ProgressCallback::Wait(progress, waitSecondsForRetry);
+<a href="#l461" class="line" id="l461">    461</a>                         });
+<a href="#l462" class="line" id="l462">    462</a> 
+<a href="#l463" class="line" id="l463">    463</a>                     if (!waitCompleted)
+<a href="#l464" class="line" id="l464">    464</a>                     {
+<a href="#l465" class="line" id="l465">    465</a>                         break;
+<a href="#l466" class="line" id="l466">    466</a>                     }
+<a href="#l467" class="line" id="l467">    467</a>                 }
+<a href="#l468" class="line" id="l468">    468</a>                 else
+<a href="#l469" class="line" id="l469">    469</a>                 {
+<a href="#l470" class="line" id="l470">    470</a>                     throw;
+<a href="#l471" class="line" id="l471">    471</a>                 }
+<a href="#l472" class="line" id="l472">    472</a>             }
+<a href="#l473" class="line" id="l473">    473</a>             catch (...)
+<a href="#l474" class="line" id="l474">    474</a>             {
+<a href="#l475" class="line" id="l475">    475</a>                 if (retryCount &lt; MaxRetryCount - 1)
+<a href="#l476" class="line" id="l476">    476</a>                 {
+<a href="#l477" class="line" id="l477">    477</a>                     AICLI_LOG(CLI, Info, &lt;&lt; &quot;Failed to download, waiting a bit and retry. Url: &quot; &lt;&lt; installer.Url);
+<a href="#l478" class="line" id="l478">    478</a>                     Sleep(500);
+<a href="#l479" class="line" id="l479">    479</a>                 }
+<a href="#l480" class="line" id="l480">    480</a>                 else
+<a href="#l481" class="line" id="l481">    481</a>                 {
+<a href="#l482" class="line" id="l482">    482</a>                     throw;
+<a href="#l483" class="line" id="l483">    483</a>                 }
+<a href="#l484" class="line" id="l484">    484</a>             }
+<a href="#l485" class="line" id="l485">    485</a> 
+<a href="#l486" class="line" id="l486">    486</a>             if (success)
+<a href="#l487" class="line" id="l487">    487</a>             {
+<a href="#l488" class="line" id="l488">    488</a>                 break;
+<a href="#l489" class="line" id="l489">    489</a>             }
+<a href="#l490" class="line" id="l490">    490</a>         }
+<a href="#l491" class="line" id="l491">    491</a> 
+<a href="#l492" class="line" id="l492">    492</a>         context.Add&lt;Execution::Data::DownloadHashInfo&gt;(std::make_pair(installer.Sha256, downloadResult));
+<a href="#l493" class="line" id="l493">    493</a>     }
+<a href="#l494" class="line" id="l494">    494</a> 
+<a href="#l495" class="line" id="l495">    495</a>     void GetMsixSignatureHash(Execution::Context&amp; context)
+<a href="#l496" class="line" id="l496">    496</a>     {
+<a href="#l497" class="line" id="l497">    497</a>         // We use this when the server won&#39;t support streaming install to swap to download.
+<a href="#l498" class="line" id="l498">    498</a>         bool downloadInstead = false;
+<a href="#l499" class="line" id="l499">    499</a> 
+<a href="#l500" class="line" id="l500">    500</a>         try
+<a href="#l501" class="line" id="l501">    501</a>         {
+<a href="#l502" class="line" id="l502">    502</a>             const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;().value();
+<a href="#l503" class="line" id="l503">    503</a> 
+<a href="#l504" class="line" id="l504">    504</a>             // Signature hash is only used for streaming installs, which don&#39;t use proxy
+<a href="#l505" class="line" id="l505">    505</a>             Msix::MsixInfo msixInfo(installer.Url);
+<a href="#l506" class="line" id="l506">    506</a> 
+<a href="#l507" class="line" id="l507">    507</a>             DownloadResult hashInfo{ msixInfo.GetSignatureHash() };
+<a href="#l508" class="line" id="l508">    508</a>             // Value is ASCII for MSIXSTRM
+<a href="#l509" class="line" id="l509">    509</a>             // A sentinel value to indicate that this is a streaming hash rather than a download.
+<a href="#l510" class="line" id="l510">    510</a>             // The primary purpose is to prevent us from falling into the code path for zero byte files.
+<a href="#l511" class="line" id="l511">    511</a>             hashInfo.SizeInBytes = 0x4D5349585354524D;
+<a href="#l512" class="line" id="l512">    512</a> 
+<a href="#l513" class="line" id="l513">    513</a>             context.Add&lt;Execution::Data::DownloadHashInfo&gt;(std::make_pair(installer.SignatureSha256, hashInfo));
+<a href="#l514" class="line" id="l514">    514</a>             context.Add&lt;Execution::Data::MsixDigests&gt;({ std::make_pair(installer.Url, msixInfo.GetDigest()) });
+<a href="#l515" class="line" id="l515">    515</a>         }
+<a href="#l516" class="line" id="l516">    516</a>         catch (...)
+<a href="#l517" class="line" id="l517">    517</a>         {
+<a href="#l518" class="line" id="l518">    518</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Failed to get msix signature hash, fall back to direct download.&quot;);
+<a href="#l519" class="line" id="l519">    519</a>             downloadInstead = true;
+<a href="#l520" class="line" id="l520">    520</a>         }
+<a href="#l521" class="line" id="l521">    521</a> 
+<a href="#l522" class="line" id="l522">    522</a>         if (downloadInstead)
+<a href="#l523" class="line" id="l523">    523</a>         {
+<a href="#l524" class="line" id="l524">    524</a>             context &lt;&lt; DownloadInstallerFile;
+<a href="#l525" class="line" id="l525">    525</a>         }
+<a href="#l526" class="line" id="l526">    526</a>     }
+<a href="#l527" class="line" id="l527">    527</a> 
+<a href="#l528" class="line" id="l528">    528</a>     void VerifyInstallerHash(Execution::Context&amp; context)
+<a href="#l529" class="line" id="l529">    529</a>     {
+<a href="#l530" class="line" id="l530">    530</a>         const auto&amp; [expectedHash, downloadResult] = context.Get&lt;Execution::Data::DownloadHashInfo&gt;();
+<a href="#l531" class="line" id="l531">    531</a> 
+<a href="#l532" class="line" id="l532">    532</a>         if (!std::equal(
+<a href="#l533" class="line" id="l533">    533</a>             expectedHash.begin(),
+<a href="#l534" class="line" id="l534">    534</a>             expectedHash.end(),
+<a href="#l535" class="line" id="l535">    535</a>             downloadResult.Sha256Hash.begin()))
+<a href="#l536" class="line" id="l536">    536</a>         {
+<a href="#l537" class="line" id="l537">    537</a>             bool overrideHashMismatch = context.Args.Contains(Execution::Args::Type::HashOverride);
+<a href="#l538" class="line" id="l538">    538</a> 
+<a href="#l539" class="line" id="l539">    539</a>             const auto&amp; manifest = context.Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l540" class="line" id="l540">    540</a>             Logging::Telemetry().LogInstallerHashMismatch(manifest.Id, manifest.Version, manifest.Channel, expectedHash, downloadResult.Sha256Hash, overrideHashMismatch, downloadResult.SizeInBytes, downloadResult.ContentType);
+<a href="#l541" class="line" id="l541">    541</a> 
+<a href="#l542" class="line" id="l542">    542</a>             if (downloadResult.SizeInBytes == 0)
+<a href="#l543" class="line" id="l543">    543</a>             {
+<a href="#l544" class="line" id="l544">    544</a>                 context.Reporter.Error() &lt;&lt; Resource::String::InstallerZeroByteFile &lt;&lt; std::endl;
+<a href="#l545" class="line" id="l545">    545</a>                 AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALLER_ZERO_BYTE_FILE);
+<a href="#l546" class="line" id="l546">    546</a>             }
+<a href="#l547" class="line" id="l547">    547</a> 
+<a href="#l548" class="line" id="l548">    548</a>             // If running as admin, do not allow the user to override the hash failure.
+<a href="#l549" class="line" id="l549">    549</a>             if (Runtime::IsRunningAsAdmin())
+<a href="#l550" class="line" id="l550">    550</a>             {
+<a href="#l551" class="line" id="l551">    551</a>                 context.Reporter.Error() &lt;&lt; Resource::String::InstallerHashMismatchAdminBlock &lt;&lt; std::endl;
+<a href="#l552" class="line" id="l552">    552</a>             }
+<a href="#l553" class="line" id="l553">    553</a>             else if (!Settings::IsAdminSettingEnabled(Settings::BoolAdminSetting::InstallerHashOverride))
+<a href="#l554" class="line" id="l554">    554</a>             {
+<a href="#l555" class="line" id="l555">    555</a>                 context.Reporter.Error() &lt;&lt; Resource::String::InstallerHashMismatchError &lt;&lt; std::endl;
+<a href="#l556" class="line" id="l556">    556</a>             }
+<a href="#l557" class="line" id="l557">    557</a>             else if (overrideHashMismatch)
+<a href="#l558" class="line" id="l558">    558</a>             {
+<a href="#l559" class="line" id="l559">    559</a>                 context.Reporter.Warn() &lt;&lt; Resource::String::InstallerHashMismatchOverridden &lt;&lt; std::endl;
+<a href="#l560" class="line" id="l560">    560</a>                 return;
+<a href="#l561" class="line" id="l561">    561</a>             }
+<a href="#l562" class="line" id="l562">    562</a>             else
+<a href="#l563" class="line" id="l563">    563</a>             {
+<a href="#l564" class="line" id="l564">    564</a>                 context.Reporter.Error() &lt;&lt; Resource::String::InstallerHashMismatchOverrideRequired &lt;&lt; std::endl;
+<a href="#l565" class="line" id="l565">    565</a>             }
+<a href="#l566" class="line" id="l566">    566</a> 
+<a href="#l567" class="line" id="l567">    567</a>             AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALLER_HASH_MISMATCH);
+<a href="#l568" class="line" id="l568">    568</a>         }
+<a href="#l569" class="line" id="l569">    569</a>         else
+<a href="#l570" class="line" id="l570">    570</a>         {
+<a href="#l571" class="line" id="l571">    571</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Installer hash verified&quot;);
+<a href="#l572" class="line" id="l572">    572</a>             context.Reporter.Info() &lt;&lt; Resource::String::InstallerHashVerified &lt;&lt; std::endl;
+<a href="#l573" class="line" id="l573">    573</a> 
+<a href="#l574" class="line" id="l574">    574</a>             context.SetFlags(Execution::ContextFlag::InstallerHashMatched);
+<a href="#l575" class="line" id="l575">    575</a> 
+<a href="#l576" class="line" id="l576">    576</a>             if (context.Contains(Execution::Data::PackageVersion) &amp;&amp;
+<a href="#l577" class="line" id="l577">    577</a>                 context.Get&lt;Execution::Data::PackageVersion&gt;()-&gt;GetSource() &amp;&amp;
+<a href="#l578" class="line" id="l578">    578</a>                 WI_IsFlagSet(context.Get&lt;Execution::Data::PackageVersion&gt;()-&gt;GetSource().GetDetails().TrustLevel, SourceTrustLevel::Trusted))
+<a href="#l579" class="line" id="l579">    579</a>             {
+<a href="#l580" class="line" id="l580">    580</a>                 context.SetFlags(Execution::ContextFlag::InstallerTrusted);
+<a href="#l581" class="line" id="l581">    581</a>             }
+<a href="#l582" class="line" id="l582">    582</a>         }
+<a href="#l583" class="line" id="l583">    583</a>     }
+<a href="#l584" class="line" id="l584">    584</a> 
+<a href="#l585" class="line" id="l585">    585</a>     void UpdateInstallerFileMotwIfApplicable(Execution::Context&amp; context)
+<a href="#l586" class="line" id="l586">    586</a>     {
+<a href="#l587" class="line" id="l587">    587</a>         // An initial MotW is always set to URLZONE_INTERNET at the time the file is downloaded.
+<a href="#l588" class="line" id="l588">    588</a>         // This function may change that to URLZONE_TRUSTED if appropriate
+<a href="#l589" class="line" id="l589">    589</a>         if (context.Contains(Execution::Data::InstallerPath))
+<a href="#l590" class="line" id="l590">    590</a>         {
+<a href="#l591" class="line" id="l591">    591</a>             if (WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerTrusted))
+<a href="#l592" class="line" id="l592">    592</a>             {
+<a href="#l593" class="line" id="l593">    593</a>                 // We know the installer already went through multiple scans and we can trust it.
+<a href="#l594" class="line" id="l594">    594</a>                 Utility::ApplyMotwIfApplicable(context.Get&lt;Execution::Data::InstallerPath&gt;(), URLZONE_TRUSTED);
+<a href="#l595" class="line" id="l595">    595</a>             }
+<a href="#l596" class="line" id="l596">    596</a>             else if (WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerHashMatched))
+<a href="#l597" class="line" id="l597">    597</a>             {
+<a href="#l598" class="line" id="l598">    598</a>                 // IAttachmentExecute performs some additional scans before setting MotW, for example invoking anti-virus.
+<a href="#l599" class="line" id="l599">    599</a>                 // A policy can be set to always mark files from a given domain as trusted, so only do this
+<a href="#l600" class="line" id="l600">    600</a>                 // on installers with the right hash to prevent trusting unknown installers.
+<a href="#l601" class="line" id="l601">    601</a>                 const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;();
+<a href="#l602" class="line" id="l602">    602</a>                 HRESULT hr = Utility::ApplyMotwUsingIAttachmentExecuteIfApplicable(context.Get&lt;Execution::Data::InstallerPath&gt;(), installer.value().Url, URLZONE_INTERNET);
+<a href="#l603" class="line" id="l603">    603</a> 
+<a href="#l604" class="line" id="l604">    604</a>                 // Not using SUCCEEDED(hr) to check since there are cases file is missing after a successful scan
+<a href="#l605" class="line" id="l605">    605</a>                 if (hr != S_OK)
+<a href="#l606" class="line" id="l606">    606</a>                 {
+<a href="#l607" class="line" id="l607">    607</a>                     switch (hr)
+<a href="#l608" class="line" id="l608">    608</a>                     {
+<a href="#l609" class="line" id="l609">    609</a>                     case INET_E_SECURITY_PROBLEM:
+<a href="#l610" class="line" id="l610">    610</a>                         context.Reporter.Error() &lt;&lt; Resource::String::InstallerBlockedByPolicy &lt;&lt; std::endl;
+<a href="#l611" class="line" id="l611">    611</a>                         break;
+<a href="#l612" class="line" id="l612">    612</a>                     case E_FAIL:
+<a href="#l613" class="line" id="l613">    613</a>                         context.Reporter.Error() &lt;&lt; Resource::String::InstallerFailedVirusScan &lt;&lt; std::endl;
+<a href="#l614" class="line" id="l614">    614</a>                         break;
+<a href="#l615" class="line" id="l615">    615</a>                     default:
+<a href="#l616" class="line" id="l616">    616</a>                         context.Reporter.Error() &lt;&lt; Resource::String::InstallerFailedSecurityCheck &lt;&lt; std::endl;
+<a href="#l617" class="line" id="l617">    617</a>                     }
+<a href="#l618" class="line" id="l618">    618</a> 
+<a href="#l619" class="line" id="l619">    619</a>                     AICLI_LOG(Fail, Error, &lt;&lt; &quot;Installer failed security check. Url: &quot; &lt;&lt; installer.value().Url &lt;&lt; &quot; Result: &quot; &lt;&lt; WINGET_OSTREAM_FORMAT_HRESULT(hr));
+<a href="#l620" class="line" id="l620">    620</a>                     AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALLER_SECURITY_CHECK_FAILED);
+<a href="#l621" class="line" id="l621">    621</a>                 }
+<a href="#l622" class="line" id="l622">    622</a>             }
+<a href="#l623" class="line" id="l623">    623</a>         }
+<a href="#l624" class="line" id="l624">    624</a>     }
+<a href="#l625" class="line" id="l625">    625</a> 
+<a href="#l626" class="line" id="l626">    626</a>     void ReverifyInstallerHash(Execution::Context&amp; context)
+<a href="#l627" class="line" id="l627">    627</a>     {
+<a href="#l628" class="line" id="l628">    628</a>         const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;().value();
+<a href="#l629" class="line" id="l629">    629</a> 
+<a href="#l630" class="line" id="l630">    630</a>         if (context.Contains(Execution::Data::InstallerPath))
+<a href="#l631" class="line" id="l631">    631</a>         {
+<a href="#l632" class="line" id="l632">    632</a>             // Get the hash from the installer file
+<a href="#l633" class="line" id="l633">    633</a>             const auto&amp; installerPath = context.Get&lt;Execution::Data::InstallerPath&gt;();
+<a href="#l634" class="line" id="l634">    634</a>             std::ifstream inStream{ installerPath, std::ifstream::binary };
+<a href="#l635" class="line" id="l635">    635</a>             auto existingFileHashDetails = SHA256::ComputeHashDetails(inStream);
+<a href="#l636" class="line" id="l636">    636</a>             context.Add&lt;Execution::Data::DownloadHashInfo&gt;(std::make_pair(installer.Sha256,
+<a href="#l637" class="line" id="l637">    637</a>                 DownloadResult{ existingFileHashDetails.Hash, existingFileHashDetails.SizeInBytes }));
+<a href="#l638" class="line" id="l638">    638</a>         }
+<a href="#l639" class="line" id="l639">    639</a>         else if (installer.EffectiveInstallerType() == InstallerTypeEnum::MSStore)
+<a href="#l640" class="line" id="l640">    640</a>         {
+<a href="#l641" class="line" id="l641">    641</a>             // No installer file in this case
+<a href="#l642" class="line" id="l642">    642</a>             return;
+<a href="#l643" class="line" id="l643">    643</a>         }
+<a href="#l644" class="line" id="l644">    644</a>         else if (installer.EffectiveInstallerType() == InstallerTypeEnum::Msix &amp;&amp; !installer.SignatureSha256.empty())
+<a href="#l645" class="line" id="l645">    645</a>         {
+<a href="#l646" class="line" id="l646">    646</a>             // We didn&#39;t download the installer file before. Just verify the signature hash again.
+<a href="#l647" class="line" id="l647">    647</a>             context &lt;&lt; GetMsixSignatureHash;
+<a href="#l648" class="line" id="l648">    648</a>         }
+<a href="#l649" class="line" id="l649">    649</a>         else
+<a href="#l650" class="line" id="l650">    650</a>         {
+<a href="#l651" class="line" id="l651">    651</a>             // No installer downloaded
+<a href="#l652" class="line" id="l652">    652</a>             AICLI_LOG(CLI, Error, &lt;&lt; &quot;Installer file not found.&quot;);
+<a href="#l653" class="line" id="l653">    653</a>             AICLI_TERMINATE_CONTEXT(HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));
+<a href="#l654" class="line" id="l654">    654</a>         }
+<a href="#l655" class="line" id="l655">    655</a> 
+<a href="#l656" class="line" id="l656">    656</a>         context &lt;&lt; VerifyInstallerHash;
+<a href="#l657" class="line" id="l657">    657</a>     }
+<a href="#l658" class="line" id="l658">    658</a> 
+<a href="#l659" class="line" id="l659">    659</a>     void RenameDownloadedInstaller(Execution::Context&amp; context)
+<a href="#l660" class="line" id="l660">    660</a>     {
+<a href="#l661" class="line" id="l661">    661</a>         if (!context.Contains(Execution::Data::InstallerPath))
+<a href="#l662" class="line" id="l662">    662</a>         {
+<a href="#l663" class="line" id="l663">    663</a>             // No installer downloaded, no need to rename anything.
+<a href="#l664" class="line" id="l664">    664</a>             return;
+<a href="#l665" class="line" id="l665">    665</a>         }
+<a href="#l666" class="line" id="l666">    666</a> 
+<a href="#l667" class="line" id="l667">    667</a>         auto&amp; installerPath = context.Get&lt;Execution::Data::InstallerPath&gt;();
+<a href="#l668" class="line" id="l668">    668</a>         std::filesystem::path renamedDownloadedInstaller;
+<a href="#l669" class="line" id="l669">    669</a> 
+<a href="#l670" class="line" id="l670">    670</a>         if (WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerDownloadOnly))
+<a href="#l671" class="line" id="l671">    671</a>         {
+<a href="#l672" class="line" id="l672">    672</a>             THROW_HR_IF(E_UNEXPECTED, !context.Contains(Execution::Data::DownloadDirectory));
+<a href="#l673" class="line" id="l673">    673</a> 
+<a href="#l674" class="line" id="l674">    674</a>             std::filesystem::path downloadDirectory = context.Get&lt;Execution::Data::DownloadDirectory&gt;();
+<a href="#l675" class="line" id="l675">    675</a> 
+<a href="#l676" class="line" id="l676">    676</a>             if (!std::filesystem::exists(downloadDirectory))
+<a href="#l677" class="line" id="l677">    677</a>             {
+<a href="#l678" class="line" id="l678">    678</a>                 std::filesystem::create_directories(downloadDirectory);
+<a href="#l679" class="line" id="l679">    679</a>             }
+<a href="#l680" class="line" id="l680">    680</a>             else
+<a href="#l681" class="line" id="l681">    681</a>             {
+<a href="#l682" class="line" id="l682">    682</a>                 THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_CANNOT_MAKE), !std::filesystem::is_directory(downloadDirectory));
+<a href="#l683" class="line" id="l683">    683</a>             }
+<a href="#l684" class="line" id="l684">    684</a> 
+<a href="#l685" class="line" id="l685">    685</a>             renamedDownloadedInstaller = downloadDirectory / GetInstallerDownloadOnlyFileName(context);
+<a href="#l686" class="line" id="l686">    686</a>             Filesystem::RenameFile(installerPath, renamedDownloadedInstaller);
+<a href="#l687" class="line" id="l687">    687</a>             context.Reporter.Info() &lt;&lt; Resource::String::InstallerDownloaded(Utility::LocIndView{ renamedDownloadedInstaller.u8string() }) &lt;&lt; std::endl;
+<a href="#l688" class="line" id="l688">    688</a>         }
+<a href="#l689" class="line" id="l689">    689</a>         else
+<a href="#l690" class="line" id="l690">    690</a>         {
+<a href="#l691" class="line" id="l691">    691</a>             renamedDownloadedInstaller = installerPath;
+<a href="#l692" class="line" id="l692">    692</a>             renamedDownloadedInstaller.replace_filename(GetInstallerPostHashValidationFileName(context));
+<a href="#l693" class="line" id="l693">    693</a> 
+<a href="#l694" class="line" id="l694">    694</a>             if (installerPath == renamedDownloadedInstaller)
+<a href="#l695" class="line" id="l695">    695</a>             {
+<a href="#l696" class="line" id="l696">    696</a>                 // In case we are reusing an existing downloaded file
+<a href="#l697" class="line" id="l697">    697</a>                 return;
+<a href="#l698" class="line" id="l698">    698</a>             }
+<a href="#l699" class="line" id="l699">    699</a> 
+<a href="#l700" class="line" id="l700">    700</a>             Filesystem::RenameFile(installerPath, renamedDownloadedInstaller);
+<a href="#l701" class="line" id="l701">    701</a>         }
+<a href="#l702" class="line" id="l702">    702</a> 
+<a href="#l703" class="line" id="l703">    703</a>         installerPath.assign(renamedDownloadedInstaller);
+<a href="#l704" class="line" id="l704">    704</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Successfully renamed downloaded installer. Path: &quot; &lt;&lt; installerPath);
+<a href="#l705" class="line" id="l705">    705</a>     }
+<a href="#l706" class="line" id="l706">    706</a> 
+<a href="#l707" class="line" id="l707">    707</a>     void RemoveInstaller(Execution::Context&amp; context)
+<a href="#l708" class="line" id="l708">    708</a>     {
+<a href="#l709" class="line" id="l709">    709</a>         // Path may not be present if installed from a URL for MSIX
+<a href="#l710" class="line" id="l710">    710</a>         if (context.Contains(Execution::Data::InstallerPath))
+<a href="#l711" class="line" id="l711">    711</a>         {
+<a href="#l712" class="line" id="l712">    712</a>             const auto&amp; path = context.Get&lt;Execution::Data::InstallerPath&gt;();
+<a href="#l713" class="line" id="l713">    713</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Removing installer: &quot; &lt;&lt; path);
+<a href="#l714" class="line" id="l714">    714</a>             RemoveInstallerFile(path);
+<a href="#l715" class="line" id="l715">    715</a>         }
+<a href="#l716" class="line" id="l716">    716</a>     }
+<a href="#l717" class="line" id="l717">    717</a> 
+<a href="#l718" class="line" id="l718">    718</a>     void SetDownloadDirectory(Execution::Context&amp; context)
+<a href="#l719" class="line" id="l719">    719</a>     {
+<a href="#l720" class="line" id="l720">    720</a>         if (!WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerDownloadOnly))
+<a href="#l721" class="line" id="l721">    721</a>         {
+<a href="#l722" class="line" id="l722">    722</a>             return;
+<a href="#l723" class="line" id="l723">    723</a>         }
+<a href="#l724" class="line" id="l724">    724</a> 
+<a href="#l725" class="line" id="l725">    725</a>         if (context.Args.Contains(Execution::Args::Type::DownloadDirectory))
+<a href="#l726" class="line" id="l726">    726</a>         {
+<a href="#l727" class="line" id="l727">    727</a>             context.Add&lt;Execution::Data::DownloadDirectory&gt;(std::filesystem::path{ Utility::ConvertToUTF16(context.Args.GetArg(Execution::Args::Type::DownloadDirectory)) });
+<a href="#l728" class="line" id="l728">    728</a>         }
+<a href="#l729" class="line" id="l729">    729</a>         else
+<a href="#l730" class="line" id="l730">    730</a>         {
+<a href="#l731" class="line" id="l731">    731</a>             std::filesystem::path downloadsDirectory = Settings::User().Get&lt;Settings::Setting::DownloadDefaultDirectory&gt;();
+<a href="#l732" class="line" id="l732">    732</a> 
+<a href="#l733" class="line" id="l733">    733</a>             if (downloadsDirectory.empty())
+<a href="#l734" class="line" id="l734">    734</a>             {
+<a href="#l735" class="line" id="l735">    735</a>                 downloadsDirectory = AppInstaller::Runtime::GetPathTo(AppInstaller::Runtime::PathName::UserProfileDownloads);
+<a href="#l736" class="line" id="l736">    736</a>             }
+<a href="#l737" class="line" id="l737">    737</a> 
+<a href="#l738" class="line" id="l738">    738</a>             const auto&amp; manifest = context.Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l739" class="line" id="l739">    739</a>             std::string packageDownloadFolderName = manifest.Id;
+<a href="#l740" class="line" id="l740">    740</a>             if (!Utility::Version{ manifest.Version }.IsUnknown())
+<a href="#l741" class="line" id="l741">    741</a>             {
+<a href="#l742" class="line" id="l742">    742</a>                 packageDownloadFolderName += &#39;_&#39; + manifest.Version;
+<a href="#l743" class="line" id="l743">    743</a>             }
+<a href="#l744" class="line" id="l744">    744</a>             context.Add&lt;Execution::Data::DownloadDirectory&gt;(downloadsDirectory / Utility::ConvertToUTF16(packageDownloadFolderName));
+<a href="#l745" class="line" id="l745">    745</a>         }
+<a href="#l746" class="line" id="l746">    746</a>     }
+<a href="#l747" class="line" id="l747">    747</a> 
+<a href="#l748" class="line" id="l748">    748</a>     void ExportManifest(Execution::Context&amp; context)
+<a href="#l749" class="line" id="l749">    749</a>     {
+<a href="#l750" class="line" id="l750">    750</a>         const auto&amp; downloadDirectory = context.Get&lt;Execution::Data::DownloadDirectory&gt;();
+<a href="#l751" class="line" id="l751">    751</a>         const auto&amp; manifest = context.Get&lt;Execution::Data::Manifest&gt;();
+<a href="#l752" class="line" id="l752">    752</a>         const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;();
+<a href="#l753" class="line" id="l753">    753</a> 
+<a href="#l754" class="line" id="l754">    754</a>         std::filesystem::path manifestFileName = GetInstallerDownloadOnlyFileName(context, L&quot;.yaml&quot;);
+<a href="#l755" class="line" id="l755">    755</a>         auto manifestDownloadPath = downloadDirectory / manifestFileName;
+<a href="#l756" class="line" id="l756">    756</a>         YamlWriter::OutputYamlFile(manifest, installer.value(), manifestDownloadPath);
+<a href="#l757" class="line" id="l757">    757</a>         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Successfully generated manifest yaml. Path: &quot; &lt;&lt; manifestDownloadPath);
+<a href="#l758" class="line" id="l758">    758</a>     }
+<a href="#l759" class="line" id="l759">    759</a> 
+<a href="#l760" class="line" id="l760">    760</a>     void EnsureSupportForDownload(Execution::Context&amp; context)
+<a href="#l761" class="line" id="l761">    761</a>     {
+<a href="#l762" class="line" id="l762">    762</a>         // No checks needed if not download installer only.
+<a href="#l763" class="line" id="l763">    763</a>         if (WI_IsFlagClear(context.GetFlags(), Execution::ContextFlag::InstallerDownloadOnly))
+<a href="#l764" class="line" id="l764">    764</a>         {
+<a href="#l765" class="line" id="l765">    765</a>             return;
+<a href="#l766" class="line" id="l766">    766</a>         }
+<a href="#l767" class="line" id="l767">    767</a> 
+<a href="#l768" class="line" id="l768">    768</a>         const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;();
+<a href="#l769" class="line" id="l769">    769</a> 
+<a href="#l770" class="line" id="l770">    770</a>         if (installer-&gt;DownloadCommandProhibited)
+<a href="#l771" class="line" id="l771">    771</a>         {
+<a href="#l772" class="line" id="l772">    772</a>             context.Reporter.Error() &lt;&lt; Resource::String::InstallerDownloadCommandProhibited &lt;&lt; std::endl;
+<a href="#l773" class="line" id="l773">    773</a>             AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_DOWNLOAD_COMMAND_PROHIBITED);
+<a href="#l774" class="line" id="l774">    774</a>         }
+<a href="#l775" class="line" id="l775">    775</a>     }
+<a href="#l776" class="line" id="l776">    776</a> 
+<a href="#l777" class="line" id="l777">    777</a>     void InitializeInstallerDownloadAuthenticatorsMap(Execution::Context&amp; context)
+<a href="#l778" class="line" id="l778">    778</a>     {
+<a href="#l779" class="line" id="l779">    779</a>         context.Add&lt;Execution::Data::InstallerDownloadAuthenticators&gt;(std::make_shared&lt;std::map&lt;Authentication::AuthenticationInfo, Authentication::Authenticator&gt;&gt;());
+<a href="#l780" class="line" id="l780">    780</a>     }
+<a href="#l781" class="line" id="l781">    781</a> }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>SFSClientTool.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../../../"><img src="../../../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../../../log.html">Log</a> | <a href="../../../../../../files.html">Files</a> | <a href="../../../../../../refs.html">Refs</a> | <a href="../../../../../../file/README.md.html">README</a> | <a href="../../../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> SFSClientTool.cpp (16654B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> 
+<a href="#l4" class="line" id="l4">      4</a> #include &lt;sfsclient/SFSClient.h&gt;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;exception&gt;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;filesystem&gt;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;fstream&gt;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;iomanip&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;iostream&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;sstream&gt;
+<a href="#l12" class="line" id="l12">     12</a> #include &lt;time.h&gt;
+<a href="#l13" class="line" id="l13">     13</a> #include &lt;vector&gt;
+<a href="#l14" class="line" id="l14">     14</a> 
+<a href="#l15" class="line" id="l15">     15</a> #include &lt;nlohmann/json.hpp&gt;
+<a href="#l16" class="line" id="l16">     16</a> 
+<a href="#l17" class="line" id="l17">     17</a> using namespace SFS;
+<a href="#l18" class="line" id="l18">     18</a> using json = nlohmann::json;
+<a href="#l19" class="line" id="l19">     19</a> 
+<a href="#l20" class="line" id="l20">     20</a> namespace
+<a href="#l21" class="line" id="l21">     21</a> {
+<a href="#l22" class="line" id="l22">     22</a> void DisplayUsage()
+<a href="#l23" class="line" id="l23">     23</a> {
+<a href="#l24" class="line" id="l24">     24</a>     std::cout
+<a href="#l25" class="line" id="l25">     25</a>         &lt;&lt; &quot;Usage: SFSClientTool --product &lt;identifier&gt; --accountId &lt;id&gt; [options]&quot; &lt;&lt; std::endl
+<a href="#l26" class="line" id="l26">     26</a>         &lt;&lt; std::endl
+<a href="#l27" class="line" id="l27">     27</a>         &lt;&lt; &quot;Required:&quot; &lt;&lt; std::endl
+<a href="#l28" class="line" id="l28">     28</a>         &lt;&lt; &quot;  --product &lt;identifier&gt;\tName or GUID of the product to be retrieved&quot; &lt;&lt; std::endl
+<a href="#l29" class="line" id="l29">     29</a>         &lt;&lt; &quot;  --accountId &lt;id&gt;\t\tAccount ID of the SFS service, used to identify the caller&quot; &lt;&lt; std::endl
+<a href="#l30" class="line" id="l30">     30</a>         &lt;&lt; std::endl
+<a href="#l31" class="line" id="l31">     31</a>         &lt;&lt; &quot;Options:&quot; &lt;&lt; std::endl
+<a href="#l32" class="line" id="l32">     32</a>         &lt;&lt; &quot;  -h, --help\t\t\tDisplay this help message&quot; &lt;&lt; std::endl
+<a href="#l33" class="line" id="l33">     33</a>         &lt;&lt; &quot;  -v, --version\t\t\tDisplay the library version&quot; &lt;&lt; std::endl
+<a href="#l34" class="line" id="l34">     34</a>         &lt;&lt; &quot;  -o, --outputFile &lt;path&gt;\t\tWhen specified, the JSON output is saved to this file&quot; &lt;&lt; std::endl
+<a href="#l35" class="line" id="l35">     35</a>         &lt;&lt; &quot;  --isApp\t\t\tIndicates the specific product is an App&quot; &lt;&lt; std::endl
+<a href="#l36" class="line" id="l36">     36</a>         &lt;&lt; &quot;  --instanceId &lt;id&gt;\t\tA custom SFS instance ID&quot; &lt;&lt; std::endl
+<a href="#l37" class="line" id="l37">     37</a>         &lt;&lt; &quot;  --namespace &lt;ns&gt;\t\tA custom SFS namespace&quot; &lt;&lt; std::endl
+<a href="#l38" class="line" id="l38">     38</a>         &lt;&lt; &quot;  --customUrl &lt;url&gt;\t\tA custom URL for the SFS service. Library must have been built with SFS_ENABLE_OVERRIDES&quot;
+<a href="#l39" class="line" id="l39">     39</a>         &lt;&lt; std::endl
+<a href="#l40" class="line" id="l40">     40</a>         &lt;&lt; std::endl
+<a href="#l41" class="line" id="l41">     41</a>         &lt;&lt; &quot;Example:&quot; &lt;&lt; std::endl
+<a href="#l42" class="line" id="l42">     42</a>         &lt;&lt; &quot;  SFSClientTool --product msedge-stable-win-x64 --accountId msedge&quot; &lt;&lt; std::endl;
+<a href="#l43" class="line" id="l43">     43</a> }
+<a href="#l44" class="line" id="l44">     44</a> 
+<a href="#l45" class="line" id="l45">     45</a> void DisplayHelp()
+<a href="#l46" class="line" id="l46">     46</a> {
+<a href="#l47" class="line" id="l47">     47</a>     std::cout &lt;&lt; &quot;SFSClient Tool&quot; &lt;&lt; std::endl
+<a href="#l48" class="line" id="l48">     48</a>               &lt;&lt; &quot;Copyright (c) Microsoft Corporation. All rights reserved.&quot; &lt;&lt; std::endl
+<a href="#l49" class="line" id="l49">     49</a>               &lt;&lt; std::endl
+<a href="#l50" class="line" id="l50">     50</a>               &lt;&lt; &quot;Use to interact with the SFS service through the SFS Client library.&quot; &lt;&lt; std::endl
+<a href="#l51" class="line" id="l51">     51</a>               &lt;&lt; std::endl;
+<a href="#l52" class="line" id="l52">     52</a>     DisplayUsage();
+<a href="#l53" class="line" id="l53">     53</a> }
+<a href="#l54" class="line" id="l54">     54</a> 
+<a href="#l55" class="line" id="l55">     55</a> void DisplayVersion()
+<a href="#l56" class="line" id="l56">     56</a> {
+<a href="#l57" class="line" id="l57">     57</a>     std::cout &lt;&lt; &quot;SFSClient Tool &quot; &lt;&lt; SFSClient::GetVersion() &lt;&lt; std::endl;
+<a href="#l58" class="line" id="l58">     58</a> }
+<a href="#l59" class="line" id="l59">     59</a> 
+<a href="#l60" class="line" id="l60">     60</a> const std::string c_boldRedStart = &quot;\033[1;31m&quot;;
+<a href="#l61" class="line" id="l61">     61</a> const std::string c_cyanStart = &quot;\033[0;36m&quot;;
+<a href="#l62" class="line" id="l62">     62</a> const std::string c_darkGreyStart = &quot;\033[0;90m&quot;;
+<a href="#l63" class="line" id="l63">     63</a> const std::string c_colorEnd = &quot;\033[0m&quot;;
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a> void PrintError(std::string_view message)
+<a href="#l66" class="line" id="l66">     66</a> {
+<a href="#l67" class="line" id="l67">     67</a>     std::cout &lt;&lt; c_boldRedStart &lt;&lt; message &lt;&lt; c_colorEnd &lt;&lt; std::endl;
+<a href="#l68" class="line" id="l68">     68</a> }
+<a href="#l69" class="line" id="l69">     69</a> 
+<a href="#l70" class="line" id="l70">     70</a> void PrintLog(std::string_view message)
+<a href="#l71" class="line" id="l71">     71</a> {
+<a href="#l72" class="line" id="l72">     72</a>     std::cout &lt;&lt; c_cyanStart &lt;&lt; message &lt;&lt; c_colorEnd &lt;&lt; std::endl;
+<a href="#l73" class="line" id="l73">     73</a> }
+<a href="#l74" class="line" id="l74">     74</a> 
+<a href="#l75" class="line" id="l75">     75</a> bool AreEqualI(std::string_view a, std::string_view b)
+<a href="#l76" class="line" id="l76">     76</a> {
+<a href="#l77" class="line" id="l77">     77</a>     return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](char a, char b) {
+<a href="#l78" class="line" id="l78">     78</a>         return std::tolower(static_cast&lt;unsigned char&gt;(a)) == std::tolower(static_cast&lt;unsigned char&gt;(b));
+<a href="#l79" class="line" id="l79">     79</a>     });
+<a href="#l80" class="line" id="l80">     80</a> }
+<a href="#l81" class="line" id="l81">     81</a> 
+<a href="#l82" class="line" id="l82">     82</a> struct Settings
+<a href="#l83" class="line" id="l83">     83</a> {
+<a href="#l84" class="line" id="l84">     84</a>     bool displayHelp{true};
+<a href="#l85" class="line" id="l85">     85</a>     bool displayVersion{false};
+<a href="#l86" class="line" id="l86">     86</a>     bool isApp{false};
+<a href="#l87" class="line" id="l87">     87</a>     std::string product;
+<a href="#l88" class="line" id="l88">     88</a>     std::string accountId;
+<a href="#l89" class="line" id="l89">     89</a>     std::string instanceId;
+<a href="#l90" class="line" id="l90">     90</a>     std::string nameSpace;
+<a href="#l91" class="line" id="l91">     91</a>     std::string customUrl;
+<a href="#l92" class="line" id="l92">     92</a>     std::string outputFile;
+<a href="#l93" class="line" id="l93">     93</a> 
+<a href="#l94" class="line" id="l94">     94</a>     bool ShouldOutputToFile() const
+<a href="#l95" class="line" id="l95">     95</a>     {
+<a href="#l96" class="line" id="l96">     96</a>         return !outputFile.empty();
+<a href="#l97" class="line" id="l97">     97</a>     }
+<a href="#l98" class="line" id="l98">     98</a> };
+<a href="#l99" class="line" id="l99">     99</a> 
+<a href="#l100" class="line" id="l100">    100</a> void ParseArguments(const std::vector&lt;std::string_view&gt;&amp; args, Settings&amp; settings)
+<a href="#l101" class="line" id="l101">    101</a> {
+<a href="#l102" class="line" id="l102">    102</a>     settings = {};
+<a href="#l103" class="line" id="l103">    103</a>     settings.displayHelp = args.size() == 1;
+<a href="#l104" class="line" id="l104">    104</a> 
+<a href="#l105" class="line" id="l105">    105</a>     const size_t argsSize = args.size();
+<a href="#l106" class="line" id="l106">    106</a>     auto validateArg =
+<a href="#l107" class="line" id="l107">    107</a>         [&amp;argsSize](const size_t index, const std::string&amp; switchName, const std::string_view&amp; argValue) -&gt; void {
+<a href="#l108" class="line" id="l108">    108</a>         if (argsSize &lt;= index + 1)
+<a href="#l109" class="line" id="l109">    109</a>         {
+<a href="#l110" class="line" id="l110">    110</a>             throw std::runtime_error(&quot;Missing argument of --&quot; + switchName);
+<a href="#l111" class="line" id="l111">    111</a>         }
+<a href="#l112" class="line" id="l112">    112</a>         if (!argValue.empty())
+<a href="#l113" class="line" id="l113">    113</a>         {
+<a href="#l114" class="line" id="l114">    114</a>             throw std::runtime_error(&quot;--&quot; + switchName + &quot; can only be specified once&quot;);
+<a href="#l115" class="line" id="l115">    115</a>         }
+<a href="#l116" class="line" id="l116">    116</a>     };
+<a href="#l117" class="line" id="l117">    117</a> 
+<a href="#l118" class="line" id="l118">    118</a>     auto matchArg =
+<a href="#l119" class="line" id="l119">    119</a>         [](std::string_view arg, const std::string&amp; shortSwitchName, const std::string&amp; longSwitchName) -&gt; bool {
+<a href="#l120" class="line" id="l120">    120</a>         return (!shortSwitchName.empty() &amp;&amp; AreEqualI(arg, shortSwitchName)) || AreEqualI(arg, longSwitchName);
+<a href="#l121" class="line" id="l121">    121</a>     };
+<a href="#l122" class="line" id="l122">    122</a> 
+<a href="#l123" class="line" id="l123">    123</a>     auto matchLongArg = [](std::string_view arg, const std::string&amp; longSwitchName) -&gt; bool {
+<a href="#l124" class="line" id="l124">    124</a>         return AreEqualI(arg, longSwitchName);
+<a href="#l125" class="line" id="l125">    125</a>     };
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a>     for (size_t i = 1; i &lt; args.size(); ++i)
+<a href="#l128" class="line" id="l128">    128</a>     {
+<a href="#l129" class="line" id="l129">    129</a>         if (matchArg(args[i], &quot;-h&quot;, &quot;--help&quot;))
+<a href="#l130" class="line" id="l130">    130</a>         {
+<a href="#l131" class="line" id="l131">    131</a>             settings.displayHelp = true;
+<a href="#l132" class="line" id="l132">    132</a>         }
+<a href="#l133" class="line" id="l133">    133</a>         else if (matchArg(args[i], &quot;-v&quot;, &quot;--version&quot;))
+<a href="#l134" class="line" id="l134">    134</a>         {
+<a href="#l135" class="line" id="l135">    135</a>             settings.displayVersion = true;
+<a href="#l136" class="line" id="l136">    136</a>         }
+<a href="#l137" class="line" id="l137">    137</a>         else if (matchArg(args[i], &quot;-o&quot;, &quot;--outputFile&quot;))
+<a href="#l138" class="line" id="l138">    138</a>         {
+<a href="#l139" class="line" id="l139">    139</a>             validateArg(i, &quot;outputFile&quot;, settings.outputFile);
+<a href="#l140" class="line" id="l140">    140</a>             settings.outputFile = args[++i];
+<a href="#l141" class="line" id="l141">    141</a>         }
+<a href="#l142" class="line" id="l142">    142</a>         else if (matchLongArg(args[i], &quot;--isApp&quot;))
+<a href="#l143" class="line" id="l143">    143</a>         {
+<a href="#l144" class="line" id="l144">    144</a>             settings.isApp = true;
+<a href="#l145" class="line" id="l145">    145</a>         }
+<a href="#l146" class="line" id="l146">    146</a>         else if (matchLongArg(args[i], &quot;--product&quot;))
+<a href="#l147" class="line" id="l147">    147</a>         {
+<a href="#l148" class="line" id="l148">    148</a>             validateArg(i, &quot;product&quot;, settings.product);
+<a href="#l149" class="line" id="l149">    149</a>             settings.product = args[++i];
+<a href="#l150" class="line" id="l150">    150</a>         }
+<a href="#l151" class="line" id="l151">    151</a>         else if (matchLongArg(args[i], &quot;--accountId&quot;))
+<a href="#l152" class="line" id="l152">    152</a>         {
+<a href="#l153" class="line" id="l153">    153</a>             validateArg(i, &quot;accountId&quot;, settings.accountId);
+<a href="#l154" class="line" id="l154">    154</a>             settings.accountId = args[++i];
+<a href="#l155" class="line" id="l155">    155</a>         }
+<a href="#l156" class="line" id="l156">    156</a>         else if (matchLongArg(args[i], &quot;--instanceId&quot;))
+<a href="#l157" class="line" id="l157">    157</a>         {
+<a href="#l158" class="line" id="l158">    158</a>             validateArg(i, &quot;instanceId&quot;, settings.instanceId);
+<a href="#l159" class="line" id="l159">    159</a>             settings.instanceId = args[++i];
+<a href="#l160" class="line" id="l160">    160</a>         }
+<a href="#l161" class="line" id="l161">    161</a>         else if (matchLongArg(args[i], &quot;--namespace&quot;))
+<a href="#l162" class="line" id="l162">    162</a>         {
+<a href="#l163" class="line" id="l163">    163</a>             validateArg(i, &quot;namespace&quot;, settings.nameSpace);
+<a href="#l164" class="line" id="l164">    164</a>             settings.nameSpace = args[++i];
+<a href="#l165" class="line" id="l165">    165</a>         }
+<a href="#l166" class="line" id="l166">    166</a>         else if (matchLongArg(args[i], &quot;--customUrl&quot;))
+<a href="#l167" class="line" id="l167">    167</a>         {
+<a href="#l168" class="line" id="l168">    168</a>             validateArg(i, &quot;customUrl&quot;, settings.customUrl);
+<a href="#l169" class="line" id="l169">    169</a>             settings.customUrl = args[++i];
+<a href="#l170" class="line" id="l170">    170</a>         }
+<a href="#l171" class="line" id="l171">    171</a>         else
+<a href="#l172" class="line" id="l172">    172</a>         {
+<a href="#l173" class="line" id="l173">    173</a>             throw std::runtime_error(&quot;Unknown option &quot; + std::string(args[i]));
+<a href="#l174" class="line" id="l174">    174</a>         }
+<a href="#l175" class="line" id="l175">    175</a>     }
+<a href="#l176" class="line" id="l176">    176</a> 
+<a href="#l177" class="line" id="l177">    177</a>     if (!settings.displayHelp &amp;&amp; (settings.product.empty() || settings.accountId.empty()))
+<a href="#l178" class="line" id="l178">    178</a>     {
+<a href="#l179" class="line" id="l179">    179</a>         throw std::runtime_error(&quot;--product and --accountId are required and cannot be empty&quot;);
+<a href="#l180" class="line" id="l180">    180</a>     }
+<a href="#l181" class="line" id="l181">    181</a> }
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a> constexpr std::string_view ToString(HashType type)
+<a href="#l184" class="line" id="l184">    184</a> {
+<a href="#l185" class="line" id="l185">    185</a>     switch (type)
+<a href="#l186" class="line" id="l186">    186</a>     {
+<a href="#l187" class="line" id="l187">    187</a>     case HashType::Sha1:
+<a href="#l188" class="line" id="l188">    188</a>         return &quot;Sha1&quot;;
+<a href="#l189" class="line" id="l189">    189</a>     case HashType::Sha256:
+<a href="#l190" class="line" id="l190">    190</a>         return &quot;Sha256&quot;;
+<a href="#l191" class="line" id="l191">    191</a>     }
+<a href="#l192" class="line" id="l192">    192</a>     return &quot;&quot;;
+<a href="#l193" class="line" id="l193">    193</a> }
+<a href="#l194" class="line" id="l194">    194</a> 
+<a href="#l195" class="line" id="l195">    195</a> constexpr std::string_view ToString(Architecture type)
+<a href="#l196" class="line" id="l196">    196</a> {
+<a href="#l197" class="line" id="l197">    197</a>     switch (type)
+<a href="#l198" class="line" id="l198">    198</a>     {
+<a href="#l199" class="line" id="l199">    199</a>     case Architecture::None:
+<a href="#l200" class="line" id="l200">    200</a>         return &quot;None&quot;;
+<a href="#l201" class="line" id="l201">    201</a>     case Architecture::Amd64:
+<a href="#l202" class="line" id="l202">    202</a>         return &quot;amd64&quot;;
+<a href="#l203" class="line" id="l203">    203</a>     case Architecture::Arm:
+<a href="#l204" class="line" id="l204">    204</a>         return &quot;arm&quot;;
+<a href="#l205" class="line" id="l205">    205</a>     case Architecture::Arm64:
+<a href="#l206" class="line" id="l206">    206</a>         return &quot;arm64&quot;;
+<a href="#l207" class="line" id="l207">    207</a>     case Architecture::x86:
+<a href="#l208" class="line" id="l208">    208</a>         return &quot;x86&quot;;
+<a href="#l209" class="line" id="l209">    209</a>     }
+<a href="#l210" class="line" id="l210">    210</a>     return &quot;&quot;;
+<a href="#l211" class="line" id="l211">    211</a> }
+<a href="#l212" class="line" id="l212">    212</a> 
+<a href="#l213" class="line" id="l213">    213</a> json ContentsToJson(const std::vector&lt;Content&gt;&amp; contents)
+<a href="#l214" class="line" id="l214">    214</a> {
+<a href="#l215" class="line" id="l215">    215</a>     json out = json::array();
+<a href="#l216" class="line" id="l216">    216</a>     for (const auto&amp; content : contents)
+<a href="#l217" class="line" id="l217">    217</a>     {
+<a href="#l218" class="line" id="l218">    218</a>         json j = json::object();
+<a href="#l219" class="line" id="l219">    219</a>         j[&quot;ContentId&quot;][&quot;Namespace&quot;] = content.GetContentId().GetNameSpace();
+<a href="#l220" class="line" id="l220">    220</a>         j[&quot;ContentId&quot;][&quot;Name&quot;] = content.GetContentId().GetName();
+<a href="#l221" class="line" id="l221">    221</a>         j[&quot;ContentId&quot;][&quot;Version&quot;] = content.GetContentId().GetVersion();
+<a href="#l222" class="line" id="l222">    222</a> 
+<a href="#l223" class="line" id="l223">    223</a>         j[&quot;Files&quot;] = json::array();
+<a href="#l224" class="line" id="l224">    224</a>         for (const auto&amp; file : content.GetFiles())
+<a href="#l225" class="line" id="l225">    225</a>         {
+<a href="#l226" class="line" id="l226">    226</a>             json fileJson = json::object();
+<a href="#l227" class="line" id="l227">    227</a>             fileJson[&quot;FileId&quot;] = file.GetFileId();
+<a href="#l228" class="line" id="l228">    228</a>             fileJson[&quot;Url&quot;] = file.GetUrl();
+<a href="#l229" class="line" id="l229">    229</a>             fileJson[&quot;SizeInBytes&quot;] = file.GetSizeInBytes();
+<a href="#l230" class="line" id="l230">    230</a>             json hashes = json::object();
+<a href="#l231" class="line" id="l231">    231</a>             for (const auto&amp; hash : file.GetHashes())
+<a href="#l232" class="line" id="l232">    232</a>             {
+<a href="#l233" class="line" id="l233">    233</a>                 hashes[ToString(hash.first)] = hash.second;
+<a href="#l234" class="line" id="l234">    234</a>             }
+<a href="#l235" class="line" id="l235">    235</a>             fileJson[&quot;Hashes&quot;] = hashes;
+<a href="#l236" class="line" id="l236">    236</a>             j[&quot;Files&quot;].push_back(fileJson);
+<a href="#l237" class="line" id="l237">    237</a>         }
+<a href="#l238" class="line" id="l238">    238</a>         out.push_back(j);
+<a href="#l239" class="line" id="l239">    239</a>     }
+<a href="#l240" class="line" id="l240">    240</a> 
+<a href="#l241" class="line" id="l241">    241</a>     return out;
+<a href="#l242" class="line" id="l242">    242</a> }
+<a href="#l243" class="line" id="l243">    243</a> 
+<a href="#l244" class="line" id="l244">    244</a> json AppFileToJson(const AppFile&amp; file)
+<a href="#l245" class="line" id="l245">    245</a> {
+<a href="#l246" class="line" id="l246">    246</a>     json fileJson = json::object();
+<a href="#l247" class="line" id="l247">    247</a>     fileJson[&quot;FileId&quot;] = file.GetFileId();
+<a href="#l248" class="line" id="l248">    248</a>     fileJson[&quot;Url&quot;] = file.GetUrl();
+<a href="#l249" class="line" id="l249">    249</a>     fileJson[&quot;SizeInBytes&quot;] = file.GetSizeInBytes();
+<a href="#l250" class="line" id="l250">    250</a>     fileJson[&quot;FileMoniker&quot;] = file.GetFileMoniker();
+<a href="#l251" class="line" id="l251">    251</a>     json hashes = json::object();
+<a href="#l252" class="line" id="l252">    252</a>     for (const auto&amp; hash : file.GetHashes())
+<a href="#l253" class="line" id="l253">    253</a>     {
+<a href="#l254" class="line" id="l254">    254</a>         hashes[ToString(hash.first)] = hash.second;
+<a href="#l255" class="line" id="l255">    255</a>     }
+<a href="#l256" class="line" id="l256">    256</a>     fileJson[&quot;Hashes&quot;] = hashes;
+<a href="#l257" class="line" id="l257">    257</a> 
+<a href="#l258" class="line" id="l258">    258</a>     fileJson[&quot;ApplicabilityDetails&quot;] = json::object();
+<a href="#l259" class="line" id="l259">    259</a>     fileJson[&quot;ApplicabilityDetails&quot;][&quot;Architectures&quot;] = json::array();
+<a href="#l260" class="line" id="l260">    260</a>     for (const auto&amp; arch : file.GetApplicabilityDetails().GetArchitectures())
+<a href="#l261" class="line" id="l261">    261</a>     {
+<a href="#l262" class="line" id="l262">    262</a>         fileJson[&quot;ApplicabilityDetails&quot;][&quot;Architectures&quot;].push_back(ToString(arch));
+<a href="#l263" class="line" id="l263">    263</a>     }
+<a href="#l264" class="line" id="l264">    264</a>     fileJson[&quot;ApplicabilityDetails&quot;][&quot;PlatformApplicabilityForPackage&quot;] = json::array();
+<a href="#l265" class="line" id="l265">    265</a>     for (const auto&amp; app : file.GetApplicabilityDetails().GetPlatformApplicabilityForPackage())
+<a href="#l266" class="line" id="l266">    266</a>     {
+<a href="#l267" class="line" id="l267">    267</a>         fileJson[&quot;ApplicabilityDetails&quot;][&quot;PlatformApplicabilityForPackage&quot;].push_back(app);
+<a href="#l268" class="line" id="l268">    268</a>     }
+<a href="#l269" class="line" id="l269">    269</a> 
+<a href="#l270" class="line" id="l270">    270</a>     return fileJson;
+<a href="#l271" class="line" id="l271">    271</a> }
+<a href="#l272" class="line" id="l272">    272</a> 
+<a href="#l273" class="line" id="l273">    273</a> json AppContentsToJson(const std::vector&lt;AppContent&gt;&amp; contents)
+<a href="#l274" class="line" id="l274">    274</a> {
+<a href="#l275" class="line" id="l275">    275</a>     json out = json::array();
+<a href="#l276" class="line" id="l276">    276</a>     for (const auto&amp; content : contents)
+<a href="#l277" class="line" id="l277">    277</a>     {
+<a href="#l278" class="line" id="l278">    278</a>         json j = json::object();
+<a href="#l279" class="line" id="l279">    279</a>         j[&quot;ContentId&quot;][&quot;Namespace&quot;] = content.GetContentId().GetNameSpace();
+<a href="#l280" class="line" id="l280">    280</a>         j[&quot;ContentId&quot;][&quot;Name&quot;] = content.GetContentId().GetName();
+<a href="#l281" class="line" id="l281">    281</a>         j[&quot;ContentId&quot;][&quot;Version&quot;] = content.GetContentId().GetVersion();
+<a href="#l282" class="line" id="l282">    282</a>         j[&quot;UpdateId&quot;] = content.GetUpdateId();
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a>         j[&quot;Files&quot;] = json::array();
+<a href="#l285" class="line" id="l285">    285</a>         for (const auto&amp; file : content.GetFiles())
+<a href="#l286" class="line" id="l286">    286</a>         {
+<a href="#l287" class="line" id="l287">    287</a>             j[&quot;Files&quot;].push_back(AppFileToJson(file));
+<a href="#l288" class="line" id="l288">    288</a>         }
+<a href="#l289" class="line" id="l289">    289</a> 
+<a href="#l290" class="line" id="l290">    290</a>         j[&quot;Prerequisites&quot;] = json::array();
+<a href="#l291" class="line" id="l291">    291</a>         for (const auto&amp; prereq : content.GetPrerequisites())
+<a href="#l292" class="line" id="l292">    292</a>         {
+<a href="#l293" class="line" id="l293">    293</a>             json prereqJson = json::object();
+<a href="#l294" class="line" id="l294">    294</a>             prereqJson[&quot;ContentId&quot;][&quot;Namespace&quot;] = prereq.GetContentId().GetNameSpace();
+<a href="#l295" class="line" id="l295">    295</a>             prereqJson[&quot;ContentId&quot;][&quot;Name&quot;] = prereq.GetContentId().GetName();
+<a href="#l296" class="line" id="l296">    296</a>             prereqJson[&quot;ContentId&quot;][&quot;Version&quot;] = prereq.GetContentId().GetVersion();
+<a href="#l297" class="line" id="l297">    297</a> 
+<a href="#l298" class="line" id="l298">    298</a>             prereqJson[&quot;Files&quot;] = json::array();
+<a href="#l299" class="line" id="l299">    299</a>             for (const auto&amp; file : prereq.GetFiles())
+<a href="#l300" class="line" id="l300">    300</a>             {
+<a href="#l301" class="line" id="l301">    301</a>                 prereqJson[&quot;Files&quot;].push_back(AppFileToJson(file));
+<a href="#l302" class="line" id="l302">    302</a>             }
+<a href="#l303" class="line" id="l303">    303</a> 
+<a href="#l304" class="line" id="l304">    304</a>             j[&quot;Prerequisites&quot;].push_back(prereqJson);
+<a href="#l305" class="line" id="l305">    305</a>         }
+<a href="#l306" class="line" id="l306">    306</a>         out.push_back(j);
+<a href="#l307" class="line" id="l307">    307</a>     }
+<a href="#l308" class="line" id="l308">    308</a> 
+<a href="#l309" class="line" id="l309">    309</a>     return out;
+<a href="#l310" class="line" id="l310">    310</a> }
+<a href="#l311" class="line" id="l311">    311</a> 
+<a href="#l312" class="line" id="l312">    312</a> void DisplayResults(const json&amp; results)
+<a href="#l313" class="line" id="l313">    313</a> {
+<a href="#l314" class="line" id="l314">    314</a>     if (results.empty())
+<a href="#l315" class="line" id="l315">    315</a>     {
+<a href="#l316" class="line" id="l316">    316</a>         return;
+<a href="#l317" class="line" id="l317">    317</a>     }
+<a href="#l318" class="line" id="l318">    318</a> 
+<a href="#l319" class="line" id="l319">    319</a>     PrintLog(&quot;Content found:&quot;);
+<a href="#l320" class="line" id="l320">    320</a>     PrintLog(results.dump(2 /*indent*/));
+<a href="#l321" class="line" id="l321">    321</a> }
+<a href="#l322" class="line" id="l322">    322</a> 
+<a href="#l323" class="line" id="l323">    323</a> Result JSONToFile(const json&amp; results, const std::string&amp; filename)
+<a href="#l324" class="line" id="l324">    324</a> {
+<a href="#l325" class="line" id="l325">    325</a>     if (results.empty())
+<a href="#l326" class="line" id="l326">    326</a>     {
+<a href="#l327" class="line" id="l327">    327</a>         return Result::Unexpected;
+<a href="#l328" class="line" id="l328">    328</a>     }
+<a href="#l329" class="line" id="l329">    329</a> 
+<a href="#l330" class="line" id="l330">    330</a>     const std::filesystem::path filepath = std::filesystem::absolute(filename);
+<a href="#l331" class="line" id="l331">    331</a>     try
+<a href="#l332" class="line" id="l332">    332</a>     {
+<a href="#l333" class="line" id="l333">    333</a>         std::filesystem::create_directories(filepath.parent_path());
+<a href="#l334" class="line" id="l334">    334</a>     }
+<a href="#l335" class="line" id="l335">    335</a>     catch (const std::exception&amp; e)
+<a href="#l336" class="line" id="l336">    336</a>     {
+<a href="#l337" class="line" id="l337">    337</a>         PrintError(&quot;Failed to create parent directories for filepath: &quot; + filepath.string() + &quot;. Error: &quot; + e.what());
+<a href="#l338" class="line" id="l338">    338</a>         return Result::Unexpected;
+<a href="#l339" class="line" id="l339">    339</a>     }
+<a href="#l340" class="line" id="l340">    340</a> 
+<a href="#l341" class="line" id="l341">    341</a>     std::ofstream file(filepath, std::ios::out | std::ios::trunc);
+<a href="#l342" class="line" id="l342">    342</a>     if (!file.is_open())
+<a href="#l343" class="line" id="l343">    343</a>     {
+<a href="#l344" class="line" id="l344">    344</a>         PrintError(&quot;Failed to open file for writing: &quot; + filename);
+<a href="#l345" class="line" id="l345">    345</a>         return Result::Unexpected;
+<a href="#l346" class="line" id="l346">    346</a>     }
+<a href="#l347" class="line" id="l347">    347</a> 
+<a href="#l348" class="line" id="l348">    348</a>     file &lt;&lt; results.dump(2 /*indent*/);
+<a href="#l349" class="line" id="l349">    349</a> 
+<a href="#l350" class="line" id="l350">    350</a>     PrintLog(&quot;Content found. Saved to file &quot; + filepath.string());
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>     return Result::Success;
+<a href="#l353" class="line" id="l353">    353</a> }
+<a href="#l354" class="line" id="l354">    354</a> 
+<a href="#l355" class="line" id="l355">    355</a> void LogResult(const SFS::Result&amp; result)
+<a href="#l356" class="line" id="l356">    356</a> {
+<a href="#l357" class="line" id="l357">    357</a>     std::cout &lt;&lt; &quot;  Result code: &quot; &lt;&lt; ToString(result.GetCode());
+<a href="#l358" class="line" id="l358">    358</a>     if (!result.GetMsg().empty())
+<a href="#l359" class="line" id="l359">    359</a>     {
+<a href="#l360" class="line" id="l360">    360</a>         std::cout &lt;&lt; &quot;. Message: &quot; &lt;&lt; result.GetMsg();
+<a href="#l361" class="line" id="l361">    361</a>     }
+<a href="#l362" class="line" id="l362">    362</a>     std::cout &lt;&lt; std::endl;
+<a href="#l363" class="line" id="l363">    363</a> }
+<a href="#l364" class="line" id="l364">    364</a> 
+<a href="#l365" class="line" id="l365">    365</a> std::string TimestampToString(std::chrono::time_point&lt;std::chrono::system_clock&gt; time)
+<a href="#l366" class="line" id="l366">    366</a> {
+<a href="#l367" class="line" id="l367">    367</a>     using namespace std::chrono;
+<a href="#l368" class="line" id="l368">    368</a> 
+<a href="#l369" class="line" id="l369">    369</a>     // get number of milliseconds for the current second
+<a href="#l370" class="line" id="l370">    370</a>     // (remainder after division into seconds)
+<a href="#l371" class="line" id="l371">    371</a>     auto ms = duration_cast&lt;milliseconds&gt;(time.time_since_epoch()) % 1000;
+<a href="#l372" class="line" id="l372">    372</a> 
+<a href="#l373" class="line" id="l373">    373</a>     auto timer = system_clock::to_time_t(time);
+<a href="#l374" class="line" id="l374">    374</a> 
+<a href="#l375" class="line" id="l375">    375</a>     std::stringstream timeStream;
+<a href="#l376" class="line" id="l376">    376</a>     struct tm gmTime;
+<a href="#l377" class="line" id="l377">    377</a> #ifdef _WIN32
+<a href="#l378" class="line" id="l378">    378</a>     gmtime_s(&amp;gmTime, &amp;timer); // gmtime_s is the safe version of gmtime, not available on Linux
+<a href="#l379" class="line" id="l379">    379</a> #else
+<a href="#l380" class="line" id="l380">    380</a>     gmTime = (*std::gmtime(&amp;timer));
+<a href="#l381" class="line" id="l381">    381</a> #endif
+<a href="#l382" class="line" id="l382">    382</a>     timeStream &lt;&lt; std::put_time(&amp;gmTime, &quot;%F %X&quot;); // yyyy-mm-dd HH:MM:SS
+<a href="#l383" class="line" id="l383">    383</a>     timeStream &lt;&lt; &#39;.&#39; &lt;&lt; std::setfill(&#39;0&#39;) &lt;&lt; std::setw(3) &lt;&lt; ms.count();
+<a href="#l384" class="line" id="l384">    384</a> 
+<a href="#l385" class="line" id="l385">    385</a>     return timeStream.str();
+<a href="#l386" class="line" id="l386">    386</a> }
+<a href="#l387" class="line" id="l387">    387</a> 
+<a href="#l388" class="line" id="l388">    388</a> void LoggingCallback(const SFS::LogData&amp; logData)
+<a href="#l389" class="line" id="l389">    389</a> {
+<a href="#l390" class="line" id="l390">    390</a>     std::cout &lt;&lt; c_darkGreyStart &lt;&lt; &quot;Log: &quot; &lt;&lt; TimestampToString(logData.time) &lt;&lt; &quot; [&quot; &lt;&lt; ToString(logData.severity)
+<a href="#l391" class="line" id="l391">    391</a>               &lt;&lt; &quot;]&quot;
+<a href="#l392" class="line" id="l392">    392</a>               &lt;&lt; &quot; &quot; &lt;&lt; std::filesystem::path(logData.file).filename().string() &lt;&lt; &quot;:&quot; &lt;&lt; logData.line &lt;&lt; &quot; &quot;
+<a href="#l393" class="line" id="l393">    393</a>               &lt;&lt; logData.message &lt;&lt; c_colorEnd &lt;&lt; std::endl;
+<a href="#l394" class="line" id="l394">    394</a> }
+<a href="#l395" class="line" id="l395">    395</a> 
+<a href="#l396" class="line" id="l396">    396</a> bool SetEnv(const std::string&amp; varName, const std::string&amp; value)
+<a href="#l397" class="line" id="l397">    397</a> {
+<a href="#l398" class="line" id="l398">    398</a>     if (varName.empty() || value.empty())
+<a href="#l399" class="line" id="l399">    399</a>     {
+<a href="#l400" class="line" id="l400">    400</a>         return false;
+<a href="#l401" class="line" id="l401">    401</a>     }
+<a href="#l402" class="line" id="l402">    402</a> #ifdef _WIN32
+<a href="#l403" class="line" id="l403">    403</a>     return _putenv_s(varName.c_str(), value.c_str()) == 0;
+<a href="#l404" class="line" id="l404">    404</a> #else
+<a href="#l405" class="line" id="l405">    405</a>     return setenv(varName.c_str(), value.c_str(), 1 /*overwrite*/) == 0;
+<a href="#l406" class="line" id="l406">    406</a> #endif
+<a href="#l407" class="line" id="l407">    407</a> }
+<a href="#l408" class="line" id="l408">    408</a> 
+<a href="#l409" class="line" id="l409">    409</a> Result GetLatestDownloadInfo(const SFSClient&amp; sfsClient, const Settings&amp; settings, json&amp; out)
+<a href="#l410" class="line" id="l410">    410</a> {
+<a href="#l411" class="line" id="l411">    411</a>     PrintLog(&quot;Getting latest download info for product: &quot; + settings.product);
+<a href="#l412" class="line" id="l412">    412</a>     RequestParams params;
+<a href="#l413" class="line" id="l413">    413</a>     params.productRequests = {{settings.product, {}}};
+<a href="#l414" class="line" id="l414">    414</a> 
+<a href="#l415" class="line" id="l415">    415</a>     if (settings.isApp)
+<a href="#l416" class="line" id="l416">    416</a>     {
+<a href="#l417" class="line" id="l417">    417</a>         std::vector&lt;AppContent&gt; appContents;
+<a href="#l418" class="line" id="l418">    418</a>         auto result = sfsClient.GetLatestAppDownloadInfo(params, appContents);
+<a href="#l419" class="line" id="l419">    419</a>         if (!result)
+<a href="#l420" class="line" id="l420">    420</a>         {
+<a href="#l421" class="line" id="l421">    421</a>             PrintError(&quot;Failed to get latest download info for app.&quot;);
+<a href="#l422" class="line" id="l422">    422</a>             LogResult(result);
+<a href="#l423" class="line" id="l423">    423</a>             return result.GetCode();
+<a href="#l424" class="line" id="l424">    424</a>         }
+<a href="#l425" class="line" id="l425">    425</a> 
+<a href="#l426" class="line" id="l426">    426</a>         out = AppContentsToJson(appContents);
+<a href="#l427" class="line" id="l427">    427</a>     }
+<a href="#l428" class="line" id="l428">    428</a>     else
+<a href="#l429" class="line" id="l429">    429</a>     {
+<a href="#l430" class="line" id="l430">    430</a>         std::vector&lt;Content&gt; contents;
+<a href="#l431" class="line" id="l431">    431</a>         auto result = sfsClient.GetLatestDownloadInfo(params, contents);
+<a href="#l432" class="line" id="l432">    432</a>         if (!result)
+<a href="#l433" class="line" id="l433">    433</a>         {
+<a href="#l434" class="line" id="l434">    434</a>             PrintError(&quot;Failed to get latest download info.&quot;);
+<a href="#l435" class="line" id="l435">    435</a>             LogResult(result);
+<a href="#l436" class="line" id="l436">    436</a>             return result.GetCode();
+<a href="#l437" class="line" id="l437">    437</a>         }
+<a href="#l438" class="line" id="l438">    438</a> 
+<a href="#l439" class="line" id="l439">    439</a>         out = ContentsToJson(contents);
+<a href="#l440" class="line" id="l440">    440</a>     }
+<a href="#l441" class="line" id="l441">    441</a> 
+<a href="#l442" class="line" id="l442">    442</a>     if (out.empty())
+<a href="#l443" class="line" id="l443">    443</a>     {
+<a href="#l444" class="line" id="l444">    444</a>         PrintError(&quot;No results found.&quot;);
+<a href="#l445" class="line" id="l445">    445</a>         return Result::Unexpected;
+<a href="#l446" class="line" id="l446">    446</a>     }
+<a href="#l447" class="line" id="l447">    447</a> 
+<a href="#l448" class="line" id="l448">    448</a>     return Result::Success;
+<a href="#l449" class="line" id="l449">    449</a> }
+<a href="#l450" class="line" id="l450">    450</a> 
+<a href="#l451" class="line" id="l451">    451</a> Result HandleJSONContents(const Settings&amp; settings, const json&amp; contents)
+<a href="#l452" class="line" id="l452">    452</a> {
+<a href="#l453" class="line" id="l453">    453</a>     if (settings.ShouldOutputToFile())
+<a href="#l454" class="line" id="l454">    454</a>     {
+<a href="#l455" class="line" id="l455">    455</a>         auto result = JSONToFile(contents, settings.outputFile);
+<a href="#l456" class="line" id="l456">    456</a>         if (!result)
+<a href="#l457" class="line" id="l457">    457</a>         {
+<a href="#l458" class="line" id="l458">    458</a>             PrintError(&quot;Failed to save to file.&quot;);
+<a href="#l459" class="line" id="l459">    459</a>             return result.GetCode();
+<a href="#l460" class="line" id="l460">    460</a>         }
+<a href="#l461" class="line" id="l461">    461</a>     }
+<a href="#l462" class="line" id="l462">    462</a>     else
+<a href="#l463" class="line" id="l463">    463</a>     {
+<a href="#l464" class="line" id="l464">    464</a>         DisplayResults(contents);
+<a href="#l465" class="line" id="l465">    465</a>         return Result::Success;
+<a href="#l466" class="line" id="l466">    466</a>     }
+<a href="#l467" class="line" id="l467">    467</a> 
+<a href="#l468" class="line" id="l468">    468</a>     return Result::Success;
+<a href="#l469" class="line" id="l469">    469</a> }
+<a href="#l470" class="line" id="l470">    470</a> } // namespace
+<a href="#l471" class="line" id="l471">    471</a> 
+<a href="#l472" class="line" id="l472">    472</a> int main(int argc, char* argv[])
+<a href="#l473" class="line" id="l473">    473</a> {
+<a href="#l474" class="line" id="l474">    474</a>     Settings settings;
+<a href="#l475" class="line" id="l475">    475</a>     try
+<a href="#l476" class="line" id="l476">    476</a>     {
+<a href="#l477" class="line" id="l477">    477</a>         ParseArguments(std::vector&lt;std::string_view&gt;(argv, argv + argc), settings);
+<a href="#l478" class="line" id="l478">    478</a>     }
+<a href="#l479" class="line" id="l479">    479</a>     catch (const std::runtime_error&amp; e)
+<a href="#l480" class="line" id="l480">    480</a>     {
+<a href="#l481" class="line" id="l481">    481</a>         PrintError(std::string(e.what()) + &quot;\n&quot;);
+<a href="#l482" class="line" id="l482">    482</a>         DisplayUsage();
+<a href="#l483" class="line" id="l483">    483</a>         return 1;
+<a href="#l484" class="line" id="l484">    484</a>     }
+<a href="#l485" class="line" id="l485">    485</a> 
+<a href="#l486" class="line" id="l486">    486</a>     if (settings.displayVersion)
+<a href="#l487" class="line" id="l487">    487</a>     {
+<a href="#l488" class="line" id="l488">    488</a>         DisplayVersion();
+<a href="#l489" class="line" id="l489">    489</a>         return 0;
+<a href="#l490" class="line" id="l490">    490</a>     }
+<a href="#l491" class="line" id="l491">    491</a> 
+<a href="#l492" class="line" id="l492">    492</a>     if (settings.displayHelp)
+<a href="#l493" class="line" id="l493">    493</a>     {
+<a href="#l494" class="line" id="l494">    494</a>         DisplayHelp();
+<a href="#l495" class="line" id="l495">    495</a>         return 0;
+<a href="#l496" class="line" id="l496">    496</a>     }
+<a href="#l497" class="line" id="l497">    497</a> 
+<a href="#l498" class="line" id="l498">    498</a>     if (!settings.customUrl.empty())
+<a href="#l499" class="line" id="l499">    499</a>     {
+<a href="#l500" class="line" id="l500">    500</a>         SetEnv(&quot;SFS_TEST_OVERRIDE_BASE_URL&quot;, settings.customUrl);
+<a href="#l501" class="line" id="l501">    501</a>         PrintLog(&quot;Using custom URL: &quot; + settings.customUrl);
+<a href="#l502" class="line" id="l502">    502</a>         PrintLog(&quot;Note that the library must have been built with SFS_ENABLE_OVERRIDES to use a custom URL.&quot;);
+<a href="#l503" class="line" id="l503">    503</a>     }
+<a href="#l504" class="line" id="l504">    504</a> 
+<a href="#l505" class="line" id="l505">    505</a>     // Initialize SFSClient
+<a href="#l506" class="line" id="l506">    506</a>     PrintLog(&quot;Initializing SFSClient with accountId: &quot; + settings.accountId +
+<a href="#l507" class="line" id="l507">    507</a>              (settings.instanceId.empty() ? &quot;&quot; : &quot;, instanceId: &quot; + settings.instanceId) +
+<a href="#l508" class="line" id="l508">    508</a>              (settings.nameSpace.empty() ? &quot;&quot; : &quot;, namespace: &quot; + settings.nameSpace));
+<a href="#l509" class="line" id="l509">    509</a> 
+<a href="#l510" class="line" id="l510">    510</a>     ClientConfig config;
+<a href="#l511" class="line" id="l511">    511</a>     config.accountId = settings.accountId;
+<a href="#l512" class="line" id="l512">    512</a>     if (!settings.instanceId.empty())
+<a href="#l513" class="line" id="l513">    513</a>     {
+<a href="#l514" class="line" id="l514">    514</a>         config.instanceId = settings.instanceId;
+<a href="#l515" class="line" id="l515">    515</a>     }
+<a href="#l516" class="line" id="l516">    516</a>     if (!settings.nameSpace.empty())
+<a href="#l517" class="line" id="l517">    517</a>     {
+<a href="#l518" class="line" id="l518">    518</a>         config.nameSpace = settings.nameSpace;
+<a href="#l519" class="line" id="l519">    519</a>     }
+<a href="#l520" class="line" id="l520">    520</a>     config.logCallbackFn = LoggingCallback;
+<a href="#l521" class="line" id="l521">    521</a> 
+<a href="#l522" class="line" id="l522">    522</a>     std::unique_ptr&lt;SFSClient&gt; sfsClient;
+<a href="#l523" class="line" id="l523">    523</a>     auto result = SFSClient::Make(config, sfsClient);
+<a href="#l524" class="line" id="l524">    524</a>     if (!result)
+<a href="#l525" class="line" id="l525">    525</a>     {
+<a href="#l526" class="line" id="l526">    526</a>         PrintError(&quot;Failed to initialize SFSClient.&quot;);
+<a href="#l527" class="line" id="l527">    527</a>         LogResult(result);
+<a href="#l528" class="line" id="l528">    528</a>         return result.GetCode();
+<a href="#l529" class="line" id="l529">    529</a>     }
+<a href="#l530" class="line" id="l530">    530</a> 
+<a href="#l531" class="line" id="l531">    531</a>     // Perform operations using SFSClient
+<a href="#l532" class="line" id="l532">    532</a>     json contents;
+<a href="#l533" class="line" id="l533">    533</a>     result = GetLatestDownloadInfo(*sfsClient, settings, contents);
+<a href="#l534" class="line" id="l534">    534</a>     if (!result)
+<a href="#l535" class="line" id="l535">    535</a>     {
+<a href="#l536" class="line" id="l536">    536</a>         LogResult(result);
+<a href="#l537" class="line" id="l537">    537</a>         return result.GetCode();
+<a href="#l538" class="line" id="l538">    538</a>     }
+<a href="#l539" class="line" id="l539">    539</a> 
+<a href="#l540" class="line" id="l540">    540</a>     result = HandleJSONContents(settings, contents);
+<a href="#l541" class="line" id="l541">    541</a>     if (!result)
+<a href="#l542" class="line" id="l542">    542</a>     {
+<a href="#l543" class="line" id="l543">    543</a>         LogResult(result);
+<a href="#l544" class="line" id="l544">    544</a>         return result.GetCode();
+<a href="#l545" class="line" id="l545">    545</a>     }
+<a href="#l546" class="line" id="l546">    546</a> 
+<a href="#l547" class="line" id="l547">    547</a>     return 0;
+<a href="#l548" class="line" id="l548">    548</a> }
+</pre>
+</div>
+</body>
+</html>

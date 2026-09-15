@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>main.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> main.cpp (22034B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> 
+<a href="#l4" class="line" id="l4">      4</a> #include &lt;windows.h&gt;
+<a href="#l5" class="line" id="l5">      5</a> #include &lt;winreg.h&gt;
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;winerror.h&gt;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;iostream&gt;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;fstream&gt;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;filesystem&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;sstream&gt;
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> using namespace std::filesystem;
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a> std::wstring_view RegistrySubkey = L&quot;SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\&quot;;
+<a href="#l15" class="line" id="l15">     15</a> std::wstring_view DefaultProductID = L&quot;{A499DD5E-8DC5-4AD2-911A-BCD0263295E9}&quot;;
+<a href="#l16" class="line" id="l16">     16</a> std::wstring_view DefaultDisplayName = L&quot;AppInstallerTestExeInstaller&quot;;
+<a href="#l17" class="line" id="l17">     17</a> std::wstring_view DefaultDisplayVersion = L&quot;1.0.0.0&quot;;
+<a href="#l18" class="line" id="l18">     18</a> 
+<a href="#l19" class="line" id="l19">     19</a> void WriteModifyRepairScript(std::wofstream&amp; script, const path&amp; repairCompletedTextFilePath, bool isModifyScript) {
+<a href="#l20" class="line" id="l20">     20</a>     std::wstring scriptName = isModifyScript ? L&quot;Modify&quot; : L&quot;Uninstaller&quot;;
+<a href="#l21" class="line" id="l21">     21</a>     script &lt;&lt; L&quot;    if /I \&quot;%%A\&quot;==\&quot;/repair\&quot; (\n&quot;
+<a href="#l22" class="line" id="l22">     22</a>         &lt;&lt; L&quot;        ECHO &quot; &lt;&lt; scriptName &lt;&lt; L&quot; Repair operation for AppInstallerTestExeInstaller.exe completed successfully &gt; \&quot;&quot; &lt;&lt; repairCompletedTextFilePath.wstring() &lt;&lt; &quot;\&quot;\n&quot;
+<a href="#l23" class="line" id="l23">     23</a>         &lt;&lt; L&quot;        ECHO &quot; &lt;&lt; scriptName &lt;&lt; L&quot; Repair operation for AppInstallerTestExeInstaller.exe completed successfully\n&quot;
+<a href="#l24" class="line" id="l24">     24</a>         &lt;&lt; L&quot;        EXIT /B 0\n&quot;
+<a href="#l25" class="line" id="l25">     25</a>         &lt;&lt; L&quot;    ) else if /I \&quot;%%A\&quot;==\&quot;/r\&quot; (\n&quot;
+<a href="#l26" class="line" id="l26">     26</a>         &lt;&lt; L&quot;        ECHO &quot; &lt;&lt; scriptName &lt;&lt; L&quot; Repair operation for AppInstallerTestExeInstaller.exe completed successfully &gt; \&quot;&quot; &lt;&lt; repairCompletedTextFilePath.wstring() &lt;&lt; &quot;\&quot;\n&quot;
+<a href="#l27" class="line" id="l27">     27</a>         &lt;&lt; L&quot;        ECHO &quot; &lt;&lt; scriptName &lt;&lt; L&quot; Repair operation for AppInstallerTestExeInstaller.exe completed successfully\n&quot;
+<a href="#l28" class="line" id="l28">     28</a>         &lt;&lt; L&quot;        EXIT /B 0\n&quot;
+<a href="#l29" class="line" id="l29">     29</a>         &lt;&lt; L&quot;    )&quot;;
+<a href="#l30" class="line" id="l30">     30</a> }
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a> void WriteModifyUninstallScript(std::wofstream&amp; script) {
+<a href="#l33" class="line" id="l33">     33</a>     script &lt;&lt; L&quot;    else if /I \&quot;%%A\&quot;==\&quot;/uninstall\&quot; (\n&quot;
+<a href="#l34" class="line" id="l34">     34</a>         &lt;&lt; L&quot;        call UninstallTestExe.bat\n&quot;
+<a href="#l35" class="line" id="l35">     35</a>         &lt;&lt; L&quot;        EXIT /B 0\n&quot;
+<a href="#l36" class="line" id="l36">     36</a>         &lt;&lt; L&quot;    ) else if /I \&quot;%%A\&quot;==\&quot;/X\&quot; (\n&quot;
+<a href="#l37" class="line" id="l37">     37</a>         &lt;&lt; L&quot;        call UninstallTestExe.bat\n&quot;
+<a href="#l38" class="line" id="l38">     38</a>         &lt;&lt; L&quot;        EXIT /B 0\n&quot;
+<a href="#l39" class="line" id="l39">     39</a>         &lt;&lt; L&quot;    )\n&quot;;
+<a href="#l40" class="line" id="l40">     40</a> }
+<a href="#l41" class="line" id="l41">     41</a> 
+<a href="#l42" class="line" id="l42">     42</a> void WriteModifyInvalidOperationScript(std::wofstream&amp; script) {
+<a href="#l43" class="line" id="l43">     43</a>     script &lt;&lt; L&quot;echo Invalid operation\n&quot;
+<a href="#l44" class="line" id="l44">     44</a>         &lt;&lt; L&quot;EXIT /B 1\n&quot;;
+<a href="#l45" class="line" id="l45">     45</a> }
+<a href="#l46" class="line" id="l46">     46</a> 
+<a href="#l47" class="line" id="l47">     47</a> void WriteUninstallerScript(
+<a href="#l48" class="line" id="l48">     48</a>     std::wofstream&amp; uninstallerScript,
+<a href="#l49" class="line" id="l49">     49</a>     const path&amp; uninstallerOutputTextFilePath,
+<a href="#l50" class="line" id="l50">     50</a>     const std::wstring&amp; registryKey,
+<a href="#l51" class="line" id="l51">     51</a>     const path&amp; modifyScriptPath,
+<a href="#l52" class="line" id="l52">     52</a>     const path&amp; repairCompletedTextFilePath,
+<a href="#l53" class="line" id="l53">     53</a>     const path&amp; dscResourceExecutablePath,
+<a href="#l54" class="line" id="l54">     54</a>     const path&amp; dscResourceManifestPath) {
+<a href="#l55" class="line" id="l55">     55</a>     uninstallerScript &lt;&lt; &quot;ECHO. &gt;&quot; &lt;&lt; uninstallerOutputTextFilePath &lt;&lt; &quot;\n&quot;;
+<a href="#l56" class="line" id="l56">     56</a>     uninstallerScript &lt;&lt; &quot;ECHO AppInstallerTestExeInstaller.exe uninstalled successfully.\n&quot;;
+<a href="#l57" class="line" id="l57">     57</a>     uninstallerScript &lt;&lt; &quot;REG DELETE &quot; &lt;&lt; registryKey &lt;&lt; &quot; /f\n&quot;;
+<a href="#l58" class="line" id="l58">     58</a>     uninstallerScript &lt;&lt; &quot;if exist \&quot;&quot; &lt;&lt; modifyScriptPath.wstring() &lt;&lt; &quot;\&quot; del \&quot;&quot; &lt;&lt; modifyScriptPath.wstring() &lt;&lt; &quot;\&quot;\n&quot;;
+<a href="#l59" class="line" id="l59">     59</a>     uninstallerScript &lt;&lt; &quot;if exist \&quot;&quot; &lt;&lt; repairCompletedTextFilePath.wstring() &lt;&lt; &quot;\&quot; del \&quot;&quot; &lt;&lt; repairCompletedTextFilePath.wstring() &lt;&lt; &quot;\&quot;\n&quot;;
+<a href="#l60" class="line" id="l60">     60</a>     uninstallerScript &lt;&lt; &quot;if exist \&quot;&quot; &lt;&lt; dscResourceExecutablePath.wstring() &lt;&lt; &quot;\&quot; del \&quot;&quot; &lt;&lt; dscResourceExecutablePath.wstring() &lt;&lt; &quot;\&quot;\n&quot;;
+<a href="#l61" class="line" id="l61">     61</a>     uninstallerScript &lt;&lt; &quot;if exist \&quot;&quot; &lt;&lt; dscResourceManifestPath.wstring() &lt;&lt; &quot;\&quot; del \&quot;&quot; &lt;&lt; dscResourceManifestPath.wstring() &lt;&lt; &quot;\&quot;\n&quot;;
+<a href="#l62" class="line" id="l62">     62</a> }
+<a href="#l63" class="line" id="l63">     63</a> 
+<a href="#l64" class="line" id="l64">     64</a> path GenerateUninstaller(std::wostream&amp; out, const path&amp; installDirectory, const std::wstring&amp; productID, bool useHKLM)
+<a href="#l65" class="line" id="l65">     65</a> {
+<a href="#l66" class="line" id="l66">     66</a>     path uninstallerPath = installDirectory;
+<a href="#l67" class="line" id="l67">     67</a>     uninstallerPath /= &quot;UninstallTestExe.bat&quot;;
+<a href="#l68" class="line" id="l68">     68</a> 
+<a href="#l69" class="line" id="l69">     69</a>     out &lt;&lt; &quot;Uninstaller located at path: &quot; &lt;&lt; uninstallerPath &lt;&lt; std::endl;
+<a href="#l70" class="line" id="l70">     70</a> 
+<a href="#l71" class="line" id="l71">     71</a>     path uninstallerOutputTextFilePath = installDirectory;
+<a href="#l72" class="line" id="l72">     72</a>     uninstallerOutputTextFilePath /= &quot;TestExeUninstalled.txt&quot;;
+<a href="#l73" class="line" id="l73">     73</a> 
+<a href="#l74" class="line" id="l74">     74</a>     path repairCompletedTextFilePath = installDirectory;
+<a href="#l75" class="line" id="l75">     75</a>     repairCompletedTextFilePath /= &quot;TestExeRepairCompleted.txt&quot;;
+<a href="#l76" class="line" id="l76">     76</a> 
+<a href="#l77" class="line" id="l77">     77</a>     path modifyScriptPath = installDirectory;
+<a href="#l78" class="line" id="l78">     78</a>     modifyScriptPath /= &quot;ModifyTestExe.bat&quot;;
+<a href="#l79" class="line" id="l79">     79</a> 
+<a href="#l80" class="line" id="l80">     80</a>     path dscResourceExecutablePath = installDirectory;
+<a href="#l81" class="line" id="l81">     81</a>     dscResourceExecutablePath /= &quot;AppInstallerTestResource.exe&quot;;
+<a href="#l82" class="line" id="l82">     82</a> 
+<a href="#l83" class="line" id="l83">     83</a>     path dscResourceManifestPath = installDirectory;
+<a href="#l84" class="line" id="l84">     84</a>     dscResourceManifestPath /= &quot;AppInstallerTest.dsc.resource.json&quot;;
+<a href="#l85" class="line" id="l85">     85</a> 
+<a href="#l86" class="line" id="l86">     86</a>     std::wstring registryKey{ useHKLM ? L&quot;HKEY_LOCAL_MACHINE\\&quot; : L&quot;HKEY_CURRENT_USER\\&quot; };
+<a href="#l87" class="line" id="l87">     87</a>     registryKey += RegistrySubkey;
+<a href="#l88" class="line" id="l88">     88</a>     if (!productID.empty())
+<a href="#l89" class="line" id="l89">     89</a>     {
+<a href="#l90" class="line" id="l90">     90</a>         registryKey += productID;
+<a href="#l91" class="line" id="l91">     91</a>     }
+<a href="#l92" class="line" id="l92">     92</a>     else
+<a href="#l93" class="line" id="l93">     93</a>     {
+<a href="#l94" class="line" id="l94">     94</a>         registryKey += DefaultProductID;
+<a href="#l95" class="line" id="l95">     95</a>     }
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>     std::wofstream uninstallerScript(uninstallerPath);
+<a href="#l98" class="line" id="l98">     98</a>     uninstallerScript &lt;&lt; &quot;@echo off\n&quot;;
+<a href="#l99" class="line" id="l99">     99</a>     uninstallerScript &lt;&lt; L&quot;for %%A in (%*) do (\n&quot;;
+<a href="#l100" class="line" id="l100">    100</a>     WriteModifyRepairScript(uninstallerScript, repairCompletedTextFilePath, false /*isModifyScript*/);
+<a href="#l101" class="line" id="l101">    101</a>     uninstallerScript &lt;&lt; &quot;)\n&quot;;
+<a href="#l102" class="line" id="l102">    102</a>     WriteUninstallerScript(uninstallerScript, uninstallerOutputTextFilePath, registryKey, modifyScriptPath, repairCompletedTextFilePath, dscResourceExecutablePath, dscResourceManifestPath);
+<a href="#l103" class="line" id="l103">    103</a> 
+<a href="#l104" class="line" id="l104">    104</a>     uninstallerScript.close();
+<a href="#l105" class="line" id="l105">    105</a> 
+<a href="#l106" class="line" id="l106">    106</a>     return uninstallerPath;
+<a href="#l107" class="line" id="l107">    107</a> }
+<a href="#l108" class="line" id="l108">    108</a> 
+<a href="#l109" class="line" id="l109">    109</a> path GenerateModifyPath(const path&amp; installDirectory)
+<a href="#l110" class="line" id="l110">    110</a> {
+<a href="#l111" class="line" id="l111">    111</a>     path modifyScriptPath = installDirectory;
+<a href="#l112" class="line" id="l112">    112</a>     modifyScriptPath /= &quot;ModifyTestExe.bat&quot;;
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>     path repairCompletedTextFilePath = installDirectory;
+<a href="#l115" class="line" id="l115">    115</a>     repairCompletedTextFilePath /= &quot;TestExeRepairCompleted.txt&quot;;
+<a href="#l116" class="line" id="l116">    116</a> 
+<a href="#l117" class="line" id="l117">    117</a>     std::wofstream modifyScript(modifyScriptPath);
+<a href="#l118" class="line" id="l118">    118</a> 
+<a href="#l119" class="line" id="l119">    119</a>     modifyScript &lt;&lt; L&quot;@echo off\n&quot;;
+<a href="#l120" class="line" id="l120">    120</a>     modifyScript &lt;&lt; L&quot;for %%A in (%*) do (\n&quot;;
+<a href="#l121" class="line" id="l121">    121</a>     WriteModifyRepairScript(modifyScript, repairCompletedTextFilePath, true /*isModifyScript*/);
+<a href="#l122" class="line" id="l122">    122</a>     WriteModifyUninstallScript(modifyScript);
+<a href="#l123" class="line" id="l123">    123</a>     modifyScript &lt;&lt; L&quot;)\n&quot;;
+<a href="#l124" class="line" id="l124">    124</a>     WriteModifyInvalidOperationScript(modifyScript);
+<a href="#l125" class="line" id="l125">    125</a> 
+<a href="#l126" class="line" id="l126">    126</a>     modifyScript.close();
+<a href="#l127" class="line" id="l127">    127</a> 
+<a href="#l128" class="line" id="l128">    128</a>     return modifyScriptPath;
+<a href="#l129" class="line" id="l129">    129</a> }
+<a href="#l130" class="line" id="l130">    130</a> 
+<a href="#l131" class="line" id="l131">    131</a> void GenerateDSCv3ProviderFiles(const path&amp; installDirectory)
+<a href="#l132" class="line" id="l132">    132</a> {
+<a href="#l133" class="line" id="l133">    133</a>     path dscResourceExecutablePath = installDirectory;
+<a href="#l134" class="line" id="l134">    134</a>     dscResourceExecutablePath /= &quot;AppInstallerTestResource.exe&quot;;
+<a href="#l135" class="line" id="l135">    135</a> 
+<a href="#l136" class="line" id="l136">    136</a>     WCHAR currentExecutable[MAX_PATH];
+<a href="#l137" class="line" id="l137">    137</a>     GetModuleFileName(nullptr, currentExecutable, MAX_PATH);
+<a href="#l138" class="line" id="l138">    138</a>     path currentExecutablePath{ currentExecutable };
+<a href="#l139" class="line" id="l139">    139</a>     copy_file(currentExecutablePath, dscResourceExecutablePath);
+<a href="#l140" class="line" id="l140">    140</a> 
+<a href="#l141" class="line" id="l141">    141</a>     path dscResourceManifestPath = installDirectory;
+<a href="#l142" class="line" id="l142">    142</a>     dscResourceManifestPath /= &quot;AppInstallerTest.dsc.resource.json&quot;;
+<a href="#l143" class="line" id="l143">    143</a> 
+<a href="#l144" class="line" id="l144">    144</a>     std::wstring DscResourceJsonContent =
+<a href="#l145" class="line" id="l145">    145</a>         LR&quot;(
+<a href="#l146" class="line" id="l146">    146</a>     {
+<a href="#l147" class="line" id="l147">    147</a>         &quot;$schema&quot; : &quot;https://raw.githubusercontent.com/PowerShell/DSC/main/schemas/2024/04/bundled/resource/manifest.json&quot;,
+<a href="#l148" class="line" id="l148">    148</a>         &quot;description&quot; : &quot;AppInstallerTest dsc Resource.&quot;,
+<a href="#l149" class="line" id="l149">    149</a>         &quot;export&quot; :
+<a href="#l150" class="line" id="l150">    150</a>         {
+<a href="#l151" class="line" id="l151">    151</a>             &quot;args&quot; :
+<a href="#l152" class="line" id="l152">    152</a>             [
+<a href="#l153" class="line" id="l153">    153</a>                 &quot;/DscExport&quot;
+<a href="#l154" class="line" id="l154">    154</a>             ],
+<a href="#l155" class="line" id="l155">    155</a>             &quot;executable&quot; : &quot;AppInstallerTestResource.exe&quot;
+<a href="#l156" class="line" id="l156">    156</a>         },
+<a href="#l157" class="line" id="l157">    157</a>         &quot;get&quot; :
+<a href="#l158" class="line" id="l158">    158</a>         {
+<a href="#l159" class="line" id="l159">    159</a>             &quot;args&quot; :
+<a href="#l160" class="line" id="l160">    160</a>             [
+<a href="#l161" class="line" id="l161">    161</a>                 &quot;/DscGet&quot;
+<a href="#l162" class="line" id="l162">    162</a>             ],
+<a href="#l163" class="line" id="l163">    163</a>             &quot;executable&quot; : &quot;AppInstallerTestResource.exe&quot;,
+<a href="#l164" class="line" id="l164">    164</a>             &quot;input&quot; : &quot;stdin&quot;
+<a href="#l165" class="line" id="l165">    165</a>         },
+<a href="#l166" class="line" id="l166">    166</a>         &quot;set&quot; :
+<a href="#l167" class="line" id="l167">    167</a>         {
+<a href="#l168" class="line" id="l168">    168</a>             &quot;args&quot; :
+<a href="#l169" class="line" id="l169">    169</a>             [
+<a href="#l170" class="line" id="l170">    170</a>                 &quot;/DscSet&quot;
+<a href="#l171" class="line" id="l171">    171</a>             ] ,
+<a href="#l172" class="line" id="l172">    172</a>             &quot;executable&quot; : &quot;AppInstallerTestResource.exe&quot;,
+<a href="#l173" class="line" id="l173">    173</a>             &quot;handlesExist&quot; : true,
+<a href="#l174" class="line" id="l174">    174</a>             &quot;implementsPretest&quot; : true,
+<a href="#l175" class="line" id="l175">    175</a>             &quot;input&quot; : &quot;stdin&quot;,
+<a href="#l176" class="line" id="l176">    176</a>             &quot;return&quot; : &quot;state&quot;
+<a href="#l177" class="line" id="l177">    177</a>         },
+<a href="#l178" class="line" id="l178">    178</a>         &quot;test&quot; :
+<a href="#l179" class="line" id="l179">    179</a>         {
+<a href="#l180" class="line" id="l180">    180</a>             &quot;args&quot; :
+<a href="#l181" class="line" id="l181">    181</a>             [
+<a href="#l182" class="line" id="l182">    182</a>                 &quot;/DscTest&quot;
+<a href="#l183" class="line" id="l183">    183</a>             ] ,
+<a href="#l184" class="line" id="l184">    184</a>             &quot;executable&quot; : &quot;AppInstallerTestResource.exe&quot;,
+<a href="#l185" class="line" id="l185">    185</a>             &quot;input&quot; : &quot;stdin&quot;,
+<a href="#l186" class="line" id="l186">    186</a>             &quot;return&quot; : &quot;state&quot;
+<a href="#l187" class="line" id="l187">    187</a>         },
+<a href="#l188" class="line" id="l188">    188</a>         &quot;schema&quot;: {
+<a href="#l189" class="line" id="l189">    189</a>             &quot;embedded&quot;: {
+<a href="#l190" class="line" id="l190">    190</a>                 &quot;$schema&quot;: &quot;http://json-schema.org/draft-07/schema#&quot;,
+<a href="#l191" class="line" id="l191">    191</a>                 &quot;title&quot;: &quot;AppInstallerTestResource&quot;,
+<a href="#l192" class="line" id="l192">    192</a>                 &quot;description&quot;: &quot;App Installer Test Resource&quot;,
+<a href="#l193" class="line" id="l193">    193</a>                 &quot;type&quot;: &quot;object&quot;,
+<a href="#l194" class="line" id="l194">    194</a>                 &quot;required&quot;: [],
+<a href="#l195" class="line" id="l195">    195</a>                 &quot;additionalProperties&quot;: false,
+<a href="#l196" class="line" id="l196">    196</a>                 &quot;properties&quot;: {
+<a href="#l197" class="line" id="l197">    197</a>                     &quot;_inDesiredState&quot;: {
+<a href="#l198" class="line" id="l198">    198</a>                         &quot;description&quot;: &quot;Indicates whether an instance is in the desired state.&quot;,
+<a href="#l199" class="line" id="l199">    199</a>                         &quot;type&quot;: &quot;boolean&quot;
+<a href="#l200" class="line" id="l200">    200</a>                     },
+<a href="#l201" class="line" id="l201">    201</a>                     &quot;data&quot;: {
+<a href="#l202" class="line" id="l202">    202</a>                         &quot;type&quot;: &quot;string&quot;,
+<a href="#l203" class="line" id="l203">    203</a>                         &quot;description&quot;: &quot;Test data.&quot;
+<a href="#l204" class="line" id="l204">    204</a>                     }
+<a href="#l205" class="line" id="l205">    205</a>                 }
+<a href="#l206" class="line" id="l206">    206</a>             }
+<a href="#l207" class="line" id="l207">    207</a>         },
+<a href="#l208" class="line" id="l208">    208</a>         &quot;type&quot; : &quot;AppInstallerTest/TestResource&quot;,
+<a href="#l209" class="line" id="l209">    209</a>         &quot;version&quot; : &quot;1.0.0&quot;
+<a href="#l210" class="line" id="l210">    210</a>     }
+<a href="#l211" class="line" id="l211">    211</a>         )&quot;;
+<a href="#l212" class="line" id="l212">    212</a> 
+<a href="#l213" class="line" id="l213">    213</a> 
+<a href="#l214" class="line" id="l214">    214</a>     std::wofstream dscResourceJson(dscResourceManifestPath);
+<a href="#l215" class="line" id="l215">    215</a>     dscResourceJson &lt;&lt; DscResourceJsonContent;
+<a href="#l216" class="line" id="l216">    216</a>     dscResourceJson.close();
+<a href="#l217" class="line" id="l217">    217</a> }
+<a href="#l218" class="line" id="l218">    218</a> 
+<a href="#l219" class="line" id="l219">    219</a> void WriteToUninstallRegistry(
+<a href="#l220" class="line" id="l220">    220</a>     std::wostream&amp; out,
+<a href="#l221" class="line" id="l221">    221</a>     const std::wstring&amp; productID,
+<a href="#l222" class="line" id="l222">    222</a>     const path&amp; uninstallerPath,
+<a href="#l223" class="line" id="l223">    223</a>     const path&amp; modifyPath,
+<a href="#l224" class="line" id="l224">    224</a>     const std::wstring&amp; displayName,
+<a href="#l225" class="line" id="l225">    225</a>     const std::wstring&amp; displayVersion,
+<a href="#l226" class="line" id="l226">    226</a>     const std::wstring&amp; installLocation,
+<a href="#l227" class="line" id="l227">    227</a>     bool useHKLM,
+<a href="#l228" class="line" id="l228">    228</a>     bool noRepair,
+<a href="#l229" class="line" id="l229">    229</a>     bool noModify)
+<a href="#l230" class="line" id="l230">    230</a> {
+<a href="#l231" class="line" id="l231">    231</a>     HKEY hkey;
+<a href="#l232" class="line" id="l232">    232</a>     LONG lReg;
+<a href="#l233" class="line" id="l233">    233</a> 
+<a href="#l234" class="line" id="l234">    234</a>     // String inputs to registry must be of wide char type
+<a href="#l235" class="line" id="l235">    235</a>     const wchar_t* publisher = L&quot;Microsoft Corporation&quot;;
+<a href="#l236" class="line" id="l236">    236</a>     std::wstring uninstallString = uninstallerPath.wstring();
+<a href="#l237" class="line" id="l237">    237</a>     std::wstring modifyPathString = modifyPath.wstring();
+<a href="#l238" class="line" id="l238">    238</a> 
+<a href="#l239" class="line" id="l239">    239</a>     DWORD version = 1;
+<a href="#l240" class="line" id="l240">    240</a> 
+<a href="#l241" class="line" id="l241">    241</a>     std::wstring registryKey{ RegistrySubkey };
+<a href="#l242" class="line" id="l242">    242</a> 
+<a href="#l243" class="line" id="l243">    243</a>     if (!productID.empty())
+<a href="#l244" class="line" id="l244">    244</a>     {
+<a href="#l245" class="line" id="l245">    245</a>         registryKey += productID;
+<a href="#l246" class="line" id="l246">    246</a>         out &lt;&lt; &quot;Product Code overridden to: &quot; &lt;&lt; registryKey &lt;&lt; std::endl;
+<a href="#l247" class="line" id="l247">    247</a>     }
+<a href="#l248" class="line" id="l248">    248</a>     else
+<a href="#l249" class="line" id="l249">    249</a>     {
+<a href="#l250" class="line" id="l250">    250</a>         registryKey += DefaultProductID;
+<a href="#l251" class="line" id="l251">    251</a>         out &lt;&lt; &quot;Default Product Code used: &quot; &lt;&lt; registryKey &lt;&lt; std::endl;
+<a href="#l252" class="line" id="l252">    252</a>     }
+<a href="#l253" class="line" id="l253">    253</a> 
+<a href="#l254" class="line" id="l254">    254</a>     lReg = RegCreateKeyEx(
+<a href="#l255" class="line" id="l255">    255</a>         useHKLM ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER,
+<a href="#l256" class="line" id="l256">    256</a>         registryKey.c_str(),
+<a href="#l257" class="line" id="l257">    257</a>         0,
+<a href="#l258" class="line" id="l258">    258</a>         NULL,
+<a href="#l259" class="line" id="l259">    259</a>         REG_OPTION_NON_VOLATILE,
+<a href="#l260" class="line" id="l260">    260</a>         KEY_ALL_ACCESS,
+<a href="#l261" class="line" id="l261">    261</a>         NULL,
+<a href="#l262" class="line" id="l262">    262</a>         &amp;hkey,
+<a href="#l263" class="line" id="l263">    263</a>         NULL);
+<a href="#l264" class="line" id="l264">    264</a> 
+<a href="#l265" class="line" id="l265">    265</a>     if (lReg == ERROR_SUCCESS)
+<a href="#l266" class="line" id="l266">    266</a>     {
+<a href="#l267" class="line" id="l267">    267</a>         out &lt;&lt; &quot;Successfully opened registry key&quot; &lt;&lt; std::endl;
+<a href="#l268" class="line" id="l268">    268</a> 
+<a href="#l269" class="line" id="l269">    269</a>         // Set Display Name Property Value
+<a href="#l270" class="line" id="l270">    270</a>         if (LONG res = RegSetValueEx(hkey, L&quot;DisplayName&quot;, NULL, REG_SZ, (LPBYTE)displayName.c_str(), (DWORD)(displayName.length() + 1) * sizeof(wchar_t)) != ERROR_SUCCESS)
+<a href="#l271" class="line" id="l271">    271</a>         {
+<a href="#l272" class="line" id="l272">    272</a>             out &lt;&lt; &quot;Failed to write DisplayName value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l273" class="line" id="l273">    273</a>         }
+<a href="#l274" class="line" id="l274">    274</a> 
+<a href="#l275" class="line" id="l275">    275</a>         // Set Display Version Property Value
+<a href="#l276" class="line" id="l276">    276</a>         if (LONG res = RegSetValueEx(hkey, L&quot;DisplayVersion&quot;, NULL, REG_SZ, (LPBYTE)displayVersion.c_str(), (DWORD)(displayVersion.length() + 1) * sizeof(wchar_t)) != ERROR_SUCCESS)
+<a href="#l277" class="line" id="l277">    277</a>         {
+<a href="#l278" class="line" id="l278">    278</a>             out &lt;&lt; &quot;Failed to write DisplayVersion value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l279" class="line" id="l279">    279</a>         }
+<a href="#l280" class="line" id="l280">    280</a> 
+<a href="#l281" class="line" id="l281">    281</a>         // Set Publisher Property Value
+<a href="#l282" class="line" id="l282">    282</a>         if (LONG res = RegSetValueEx(hkey, L&quot;Publisher&quot;, NULL, REG_SZ, (LPBYTE)publisher, (DWORD)(wcslen(publisher) + 1) * sizeof(wchar_t)) != ERROR_SUCCESS)
+<a href="#l283" class="line" id="l283">    283</a>         {
+<a href="#l284" class="line" id="l284">    284</a>             out &lt;&lt; &quot;Failed to write Publisher value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l285" class="line" id="l285">    285</a>         }
+<a href="#l286" class="line" id="l286">    286</a> 
+<a href="#l287" class="line" id="l287">    287</a>         // Set UninstallString Property Value
+<a href="#l288" class="line" id="l288">    288</a>         if (LONG res = RegSetValueEx(hkey, L&quot;UninstallString&quot;, NULL, REG_EXPAND_SZ, (LPBYTE)uninstallString.c_str(), (DWORD)(uninstallString.length() + 1) * sizeof(wchar_t)) != ERROR_SUCCESS)
+<a href="#l289" class="line" id="l289">    289</a>         {
+<a href="#l290" class="line" id="l290">    290</a>             out &lt;&lt; &quot;Failed to write UninstallString value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l291" class="line" id="l291">    291</a>         }
+<a href="#l292" class="line" id="l292">    292</a> 
+<a href="#l293" class="line" id="l293">    293</a>         // Set Version Property Value
+<a href="#l294" class="line" id="l294">    294</a>         if (LONG res = RegSetValueEx(hkey, L&quot;Version&quot;, NULL, REG_DWORD, (LPBYTE)&amp;version, sizeof(version)) != ERROR_SUCCESS)
+<a href="#l295" class="line" id="l295">    295</a>         {
+<a href="#l296" class="line" id="l296">    296</a>             out &lt;&lt; &quot;Failed to write Version value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l297" class="line" id="l297">    297</a>         }
+<a href="#l298" class="line" id="l298">    298</a> 
+<a href="#l299" class="line" id="l299">    299</a>         // Set InstallLocation Property Value
+<a href="#l300" class="line" id="l300">    300</a>         if (LONG res = RegSetValueEx(hkey, L&quot;InstallLocation&quot;, NULL, REG_SZ, (LPBYTE)installLocation.c_str(), (DWORD)(installLocation.length() + 1) * sizeof(wchar_t)) != ERROR_SUCCESS)
+<a href="#l301" class="line" id="l301">    301</a>         {
+<a href="#l302" class="line" id="l302">    302</a>             out &lt;&lt; &quot;Failed to write InstallLocation value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l303" class="line" id="l303">    303</a>         }
+<a href="#l304" class="line" id="l304">    304</a> 
+<a href="#l305" class="line" id="l305">    305</a>         // Set ModifyPath Property Value
+<a href="#l306" class="line" id="l306">    306</a>         if (LONG res = RegSetValueEx(hkey, L&quot;ModifyPath&quot;, NULL, REG_EXPAND_SZ, (LPBYTE)modifyPathString.c_str(), (DWORD)(modifyPathString.length() + 1) * sizeof(wchar_t)) != ERROR_SUCCESS)
+<a href="#l307" class="line" id="l307">    307</a>         {
+<a href="#l308" class="line" id="l308">    308</a>             out &lt;&lt; &quot;Failed to write ModifyPath value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l309" class="line" id="l309">    309</a>         }
+<a href="#l310" class="line" id="l310">    310</a> 
+<a href="#l311" class="line" id="l311">    311</a>         if(noRepair)
+<a href="#l312" class="line" id="l312">    312</a>         {
+<a href="#l313" class="line" id="l313">    313</a>             // Set NoRepair Property Value
+<a href="#l314" class="line" id="l314">    314</a>             DWORD noRepairValue = 1;
+<a href="#l315" class="line" id="l315">    315</a>             if (LONG res = RegSetValueEx(hkey, L&quot;NoRepair&quot;, NULL, REG_DWORD, (LPBYTE)&amp;noRepairValue, sizeof(noRepairValue)) != ERROR_SUCCESS)
+<a href="#l316" class="line" id="l316">    316</a>             {
+<a href="#l317" class="line" id="l317">    317</a>                 out &lt;&lt; &quot;Failed to write NoRepair value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l318" class="line" id="l318">    318</a>             }
+<a href="#l319" class="line" id="l319">    319</a>         }
+<a href="#l320" class="line" id="l320">    320</a> 
+<a href="#l321" class="line" id="l321">    321</a>         if(noModify)
+<a href="#l322" class="line" id="l322">    322</a>         {
+<a href="#l323" class="line" id="l323">    323</a>             // Set NoModify Property Value
+<a href="#l324" class="line" id="l324">    324</a>             DWORD noModifyValue = 1;
+<a href="#l325" class="line" id="l325">    325</a>             if (LONG res = RegSetValueEx(hkey, L&quot;NoModify&quot;, NULL, REG_DWORD, (LPBYTE)&amp;noModifyValue, sizeof(noModifyValue)) != ERROR_SUCCESS)
+<a href="#l326" class="line" id="l326">    326</a>             {
+<a href="#l327" class="line" id="l327">    327</a>                 out &lt;&lt; &quot;Failed to write NoModify value. Error Code: &quot; &lt;&lt; res &lt;&lt; std::endl;
+<a href="#l328" class="line" id="l328">    328</a>             }
+<a href="#l329" class="line" id="l329">    329</a>         }
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>         out &lt;&lt; &quot;Write to registry key completed&quot; &lt;&lt; std::endl;
+<a href="#l332" class="line" id="l332">    332</a>     }
+<a href="#l333" class="line" id="l333">    333</a>     else {
+<a href="#l334" class="line" id="l334">    334</a>         out &lt;&lt; &quot;Key Creation Failed&quot; &lt;&lt; std::endl;
+<a href="#l335" class="line" id="l335">    335</a>     }
+<a href="#l336" class="line" id="l336">    336</a> 
+<a href="#l337" class="line" id="l337">    337</a>     RegCloseKey(hkey);
+<a href="#l338" class="line" id="l338">    338</a> }
+<a href="#l339" class="line" id="l339">    339</a> 
+<a href="#l340" class="line" id="l340">    340</a> void WriteToFile(const path&amp; filePath, const std::wstringstream&amp; content)
+<a href="#l341" class="line" id="l341">    341</a> {
+<a href="#l342" class="line" id="l342">    342</a>     std::wofstream file(filePath, std::ofstream::out);
+<a href="#l343" class="line" id="l343">    343</a>     file &lt;&lt; content.str();
+<a href="#l344" class="line" id="l344">    344</a>     file.close();
+<a href="#l345" class="line" id="l345">    345</a> }
+<a href="#l346" class="line" id="l346">    346</a> 
+<a href="#l347" class="line" id="l347">    347</a> void HandleRepairOperation(const std::wstring&amp; productID, const std::wstringstream&amp; outContent, bool useHKLM)
+<a href="#l348" class="line" id="l348">    348</a> {
+<a href="#l349" class="line" id="l349">    349</a>     path installDirectory;
+<a href="#l350" class="line" id="l350">    350</a> 
+<a href="#l351" class="line" id="l351">    351</a>     // Open the registry key
+<a href="#l352" class="line" id="l352">    352</a>     HKEY hKey;
+<a href="#l353" class="line" id="l353">    353</a>     std::wstring registryPath = std::wstring(RegistrySubkey);
+<a href="#l354" class="line" id="l354">    354</a> 
+<a href="#l355" class="line" id="l355">    355</a>     if (!productID.empty())
+<a href="#l356" class="line" id="l356">    356</a>     {
+<a href="#l357" class="line" id="l357">    357</a>         registryPath += productID;
+<a href="#l358" class="line" id="l358">    358</a>     }
+<a href="#l359" class="line" id="l359">    359</a>     else
+<a href="#l360" class="line" id="l360">    360</a>     {
+<a href="#l361" class="line" id="l361">    361</a>         registryPath += DefaultProductID;
+<a href="#l362" class="line" id="l362">    362</a>     }
+<a href="#l363" class="line" id="l363">    363</a> 
+<a href="#l364" class="line" id="l364">    364</a>     LONG lReg = RegOpenKeyEx(useHKLM ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER, registryPath.c_str(), 0, KEY_READ, &amp;hKey);
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>     if (lReg == ERROR_SUCCESS)
+<a href="#l367" class="line" id="l367">    367</a>     {
+<a href="#l368" class="line" id="l368">    368</a>         // Query the value of the InstallLocation
+<a href="#l369" class="line" id="l369">    369</a>         wchar_t regInstallLocation[MAX_PATH];
+<a href="#l370" class="line" id="l370">    370</a>         DWORD bufferSize = sizeof(regInstallLocation);
+<a href="#l371" class="line" id="l371">    371</a>         lReg = RegQueryValueEx(hKey, L&quot;InstallLocation&quot;, NULL, NULL, (LPBYTE)regInstallLocation, &amp;bufferSize);
+<a href="#l372" class="line" id="l372">    372</a> 
+<a href="#l373" class="line" id="l373">    373</a>         if (lReg == ERROR_SUCCESS)
+<a href="#l374" class="line" id="l374">    374</a>         {
+<a href="#l375" class="line" id="l375">    375</a>             // Convert the InstallLocation to a path
+<a href="#l376" class="line" id="l376">    376</a>             installDirectory = std::wstring(regInstallLocation);
+<a href="#l377" class="line" id="l377">    377</a>         }
+<a href="#l378" class="line" id="l378">    378</a> 
+<a href="#l379" class="line" id="l379">    379</a>         // Close the registry key
+<a href="#l380" class="line" id="l380">    380</a>         RegCloseKey(hKey);
+<a href="#l381" class="line" id="l381">    381</a> 
+<a href="#l382" class="line" id="l382">    382</a>         if(installDirectory.empty())
+<a href="#l383" class="line" id="l383">    383</a>         {
+<a href="#l384" class="line" id="l384">    384</a>             // We could not find the install location, so we cannot repair
+<a href="#l385" class="line" id="l385">    385</a>             return;
+<a href="#l386" class="line" id="l386">    386</a>         }
+<a href="#l387" class="line" id="l387">    387</a>     }
+<a href="#l388" class="line" id="l388">    388</a>     else
+<a href="#l389" class="line" id="l389">    389</a>     {
+<a href="#l390" class="line" id="l390">    390</a>         // We could not find the uninstall APR registry key, so we cannot repair
+<a href="#l391" class="line" id="l391">    391</a>         return;
+<a href="#l392" class="line" id="l392">    392</a>     }
+<a href="#l393" class="line" id="l393">    393</a> 
+<a href="#l394" class="line" id="l394">    394</a>     path outFilePath = installDirectory;
+<a href="#l395" class="line" id="l395">    395</a>     outFilePath /= &quot;TestExeRepairCompleted.txt&quot;;
+<a href="#l396" class="line" id="l396">    396</a>     WriteToFile(outFilePath, outContent);
+<a href="#l397" class="line" id="l397">    397</a> }
+<a href="#l398" class="line" id="l398">    398</a> 
+<a href="#l399" class="line" id="l399">    399</a> void HandleInstallationOperation(
+<a href="#l400" class="line" id="l400">    400</a>     std::wostream&amp; out,
+<a href="#l401" class="line" id="l401">    401</a>     const path&amp; installDirectory,
+<a href="#l402" class="line" id="l402">    402</a>     const std::wstringstream&amp; outContent,
+<a href="#l403" class="line" id="l403">    403</a>     const std::wstring&amp; productCode,
+<a href="#l404" class="line" id="l404">    404</a>     bool useHKLM,
+<a href="#l405" class="line" id="l405">    405</a>     const std::wstring&amp; displayName,
+<a href="#l406" class="line" id="l406">    406</a>     const std::wstring&amp; displayVersion,
+<a href="#l407" class="line" id="l407">    407</a>     bool noRepair,
+<a href="#l408" class="line" id="l408">    408</a>     bool noModify,
+<a href="#l409" class="line" id="l409">    409</a>     bool generateDscResourceFiles)
+<a href="#l410" class="line" id="l410">    410</a> {
+<a href="#l411" class="line" id="l411">    411</a>     path outFilePath = installDirectory;
+<a href="#l412" class="line" id="l412">    412</a>     outFilePath /= &quot;TestExeInstalled.txt&quot;;
+<a href="#l413" class="line" id="l413">    413</a> 
+<a href="#l414" class="line" id="l414">    414</a>     std::wofstream file(outFilePath, std::ofstream::out);
+<a href="#l415" class="line" id="l415">    415</a>     file &lt;&lt; outContent.str();
+<a href="#l416" class="line" id="l416">    416</a>     file.close();
+<a href="#l417" class="line" id="l417">    417</a> 
+<a href="#l418" class="line" id="l418">    418</a>     if (generateDscResourceFiles)
+<a href="#l419" class="line" id="l419">    419</a>     {
+<a href="#l420" class="line" id="l420">    420</a>         GenerateDSCv3ProviderFiles(installDirectory);
+<a href="#l421" class="line" id="l421">    421</a>     }
+<a href="#l422" class="line" id="l422">    422</a> 
+<a href="#l423" class="line" id="l423">    423</a>     path uninstallerPath = GenerateUninstaller(out, installDirectory, productCode, useHKLM);
+<a href="#l424" class="line" id="l424">    424</a>     path modifyPath = GenerateModifyPath(installDirectory);
+<a href="#l425" class="line" id="l425">    425</a> 
+<a href="#l426" class="line" id="l426">    426</a>     WriteToUninstallRegistry(out, productCode, uninstallerPath, modifyPath, displayName, displayVersion, installDirectory.wstring(), useHKLM, noRepair, noModify);
+<a href="#l427" class="line" id="l427">    427</a> }
+<a href="#l428" class="line" id="l428">    428</a> 
+<a href="#l429" class="line" id="l429">    429</a> // The installer prints all args to an output file and writes to the Uninstall registry key
+<a href="#l430" class="line" id="l430">    430</a> int wmain(int argc, const wchar_t** argv)
+<a href="#l431" class="line" id="l431">    431</a> {
+<a href="#l432" class="line" id="l432">    432</a>     path installDirectory = temp_directory_path();
+<a href="#l433" class="line" id="l433">    433</a>     std::wstringstream outContent;
+<a href="#l434" class="line" id="l434">    434</a>     std::wstring productCode;
+<a href="#l435" class="line" id="l435">    435</a>     std::wstring displayName;
+<a href="#l436" class="line" id="l436">    436</a>     std::wstring displayVersion;
+<a href="#l437" class="line" id="l437">    437</a>     std::wstring aliasToExecute;
+<a href="#l438" class="line" id="l438">    438</a>     std::wstring aliasArguments;
+<a href="#l439" class="line" id="l439">    439</a>     bool useHKLM = false;
+<a href="#l440" class="line" id="l440">    440</a>     bool noOperation = false;
+<a href="#l441" class="line" id="l441">    441</a>     int exitCode = 0;
+<a href="#l442" class="line" id="l442">    442</a>     bool isRepair = false;
+<a href="#l443" class="line" id="l443">    443</a>     bool noRepair = false;
+<a href="#l444" class="line" id="l444">    444</a>     bool noModify = false;
+<a href="#l445" class="line" id="l445">    445</a>     bool generateDscResourceFiles = false;
+<a href="#l446" class="line" id="l446">    446</a> 
+<a href="#l447" class="line" id="l447">    447</a>     // Output to cout by default, but swap to a file if requested
+<a href="#l448" class="line" id="l448">    448</a>     std::wostream* out = &amp;std::wcout;
+<a href="#l449" class="line" id="l449">    449</a>     std::wofstream logFile;
+<a href="#l450" class="line" id="l450">    450</a> 
+<a href="#l451" class="line" id="l451">    451</a>     for (int i = 1; i &lt; argc; i++)
+<a href="#l452" class="line" id="l452">    452</a>     {
+<a href="#l453" class="line" id="l453">    453</a>         outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l454" class="line" id="l454">    454</a> 
+<a href="#l455" class="line" id="l455">    455</a>         // Supports custom install path.
+<a href="#l456" class="line" id="l456">    456</a>         if (_wcsicmp(argv[i], L&quot;/InstallDir&quot;) == 0)
+<a href="#l457" class="line" id="l457">    457</a>         {
+<a href="#l458" class="line" id="l458">    458</a>             if (++i &lt; argc)
+<a href="#l459" class="line" id="l459">    459</a>             {
+<a href="#l460" class="line" id="l460">    460</a>                 installDirectory = argv[i];
+<a href="#l461" class="line" id="l461">    461</a>                 std::filesystem::create_directories(installDirectory);
+<a href="#l462" class="line" id="l462">    462</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l463" class="line" id="l463">    463</a>             }
+<a href="#l464" class="line" id="l464">    464</a>         }
+<a href="#l465" class="line" id="l465">    465</a> 
+<a href="#l466" class="line" id="l466">    466</a>         // Supports custom exit code
+<a href="#l467" class="line" id="l467">    467</a>         else if (_wcsicmp(argv[i], L&quot;/ExitCode&quot;) == 0)
+<a href="#l468" class="line" id="l468">    468</a>         {
+<a href="#l469" class="line" id="l469">    469</a>             if (++i &lt; argc)
+<a href="#l470" class="line" id="l470">    470</a>             {
+<a href="#l471" class="line" id="l471">    471</a>                 exitCode = static_cast&lt;int&gt;(std::stoll(argv[i], 0, 0));
+<a href="#l472" class="line" id="l472">    472</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l473" class="line" id="l473">    473</a>             }
+<a href="#l474" class="line" id="l474">    474</a>         }
+<a href="#l475" class="line" id="l475">    475</a> 
+<a href="#l476" class="line" id="l476">    476</a>         // Supports custom product code ID
+<a href="#l477" class="line" id="l477">    477</a>         else if (_wcsicmp(argv[i], L&quot;/ProductID&quot;) == 0)
+<a href="#l478" class="line" id="l478">    478</a>         {
+<a href="#l479" class="line" id="l479">    479</a>             if (++i &lt; argc)
+<a href="#l480" class="line" id="l480">    480</a>             {
+<a href="#l481" class="line" id="l481">    481</a>                 productCode = argv[i];
+<a href="#l482" class="line" id="l482">    482</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l483" class="line" id="l483">    483</a>             }
+<a href="#l484" class="line" id="l484">    484</a>         }
+<a href="#l485" class="line" id="l485">    485</a> 
+<a href="#l486" class="line" id="l486">    486</a>         // Supports custom DisplayName
+<a href="#l487" class="line" id="l487">    487</a>         else if (_wcsicmp(argv[i], L&quot;/DisplayName&quot;) == 0)
+<a href="#l488" class="line" id="l488">    488</a>         {
+<a href="#l489" class="line" id="l489">    489</a>             if (++i &lt; argc)
+<a href="#l490" class="line" id="l490">    490</a>             {
+<a href="#l491" class="line" id="l491">    491</a>                 displayName = argv[i];
+<a href="#l492" class="line" id="l492">    492</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l493" class="line" id="l493">    493</a>             }
+<a href="#l494" class="line" id="l494">    494</a>         }
+<a href="#l495" class="line" id="l495">    495</a> 
+<a href="#l496" class="line" id="l496">    496</a>         // Supports custom version
+<a href="#l497" class="line" id="l497">    497</a>         else if (_wcsicmp(argv[i], L&quot;/Version&quot;) == 0)
+<a href="#l498" class="line" id="l498">    498</a>         {
+<a href="#l499" class="line" id="l499">    499</a>             if (++i &lt; argc)
+<a href="#l500" class="line" id="l500">    500</a>             {
+<a href="#l501" class="line" id="l501">    501</a>                 displayVersion = argv[i];
+<a href="#l502" class="line" id="l502">    502</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l503" class="line" id="l503">    503</a>             }
+<a href="#l504" class="line" id="l504">    504</a>         }
+<a href="#l505" class="line" id="l505">    505</a> 
+<a href="#l506" class="line" id="l506">    506</a>         // Supports log file
+<a href="#l507" class="line" id="l507">    507</a>         else if (_wcsicmp(argv[i], L&quot;/LogFile&quot;) == 0)
+<a href="#l508" class="line" id="l508">    508</a>         {
+<a href="#l509" class="line" id="l509">    509</a>             if (++i &lt; argc)
+<a href="#l510" class="line" id="l510">    510</a>             {
+<a href="#l511" class="line" id="l511">    511</a>                 logFile = std::wofstream(argv[i], std::wofstream::out | std::wofstream::trunc);
+<a href="#l512" class="line" id="l512">    512</a>                 out = &amp;logFile;
+<a href="#l513" class="line" id="l513">    513</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l514" class="line" id="l514">    514</a>             }
+<a href="#l515" class="line" id="l515">    515</a>         }
+<a href="#l516" class="line" id="l516">    516</a> 
+<a href="#l517" class="line" id="l517">    517</a>         // Writes to HKLM
+<a href="#l518" class="line" id="l518">    518</a>         else if (_wcsicmp(argv[i], L&quot;/UseHKLM&quot;) == 0)
+<a href="#l519" class="line" id="l519">    519</a>         {
+<a href="#l520" class="line" id="l520">    520</a>             useHKLM = true;
+<a href="#l521" class="line" id="l521">    521</a>         }
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>         // Executes a command alias during installation
+<a href="#l524" class="line" id="l524">    524</a>         else if (_wcsicmp(argv[i], L&quot;/AliasToExecute&quot;) == 0)
+<a href="#l525" class="line" id="l525">    525</a>         {
+<a href="#l526" class="line" id="l526">    526</a>             if (++i &lt; argc)
+<a href="#l527" class="line" id="l527">    527</a>             {
+<a href="#l528" class="line" id="l528">    528</a>                 aliasToExecute = argv[i];
+<a href="#l529" class="line" id="l529">    529</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l530" class="line" id="l530">    530</a>             }
+<a href="#l531" class="line" id="l531">    531</a>         }
+<a href="#l532" class="line" id="l532">    532</a> 
+<a href="#l533" class="line" id="l533">    533</a>         // Additional arguments to include when executing the command alias during installation
+<a href="#l534" class="line" id="l534">    534</a>         else if (_wcsicmp(argv[i], L&quot;/AliasArguments&quot;) == 0)
+<a href="#l535" class="line" id="l535">    535</a>         {
+<a href="#l536" class="line" id="l536">    536</a>             if (++i &lt; argc)
+<a href="#l537" class="line" id="l537">    537</a>             {
+<a href="#l538" class="line" id="l538">    538</a>                 aliasArguments = argv[i];
+<a href="#l539" class="line" id="l539">    539</a>                 outContent &lt;&lt; argv[i] &lt;&lt; &#39; &#39;;
+<a href="#l540" class="line" id="l540">    540</a>             }
+<a href="#l541" class="line" id="l541">    541</a>         }
+<a href="#l542" class="line" id="l542">    542</a> 
+<a href="#l543" class="line" id="l543">    543</a>         // Supports /repair and /r to emulate repair operation using installer.
+<a href="#l544" class="line" id="l544">    544</a>         else if (_wcsicmp(argv[i], L&quot;/repair&quot;) == 0
+<a href="#l545" class="line" id="l545">    545</a>             || _wcsicmp(argv[i], L&quot;/r&quot;) == 0)
+<a href="#l546" class="line" id="l546">    546</a>         {
+<a href="#l547" class="line" id="l547">    547</a>             isRepair = true;
+<a href="#l548" class="line" id="l548">    548</a>         }
+<a href="#l549" class="line" id="l549">    549</a> 
+<a href="#l550" class="line" id="l550">    550</a>         else if (_wcsicmp(argv[i], L&quot;/NoRepair&quot;) == 0)
+<a href="#l551" class="line" id="l551">    551</a>         {
+<a href="#l552" class="line" id="l552">    552</a>             noRepair = true;
+<a href="#l553" class="line" id="l553">    553</a>         }
+<a href="#l554" class="line" id="l554">    554</a> 
+<a href="#l555" class="line" id="l555">    555</a>         else if (_wcsicmp(argv[i], L&quot;/NoModify&quot;) == 0)
+<a href="#l556" class="line" id="l556">    556</a>         {
+<a href="#l557" class="line" id="l557">    557</a>             noModify = true;
+<a href="#l558" class="line" id="l558">    558</a>         }
+<a href="#l559" class="line" id="l559">    559</a> 
+<a href="#l560" class="line" id="l560">    560</a>         // Returns the success exit code to emulate being invoked by another caller.
+<a href="#l561" class="line" id="l561">    561</a>         else if (_wcsicmp(argv[i], L&quot;/NoOperation&quot;) == 0)
+<a href="#l562" class="line" id="l562">    562</a>         {
+<a href="#l563" class="line" id="l563">    563</a>             noOperation = true;
+<a href="#l564" class="line" id="l564">    564</a>         }
+<a href="#l565" class="line" id="l565">    565</a> 
+<a href="#l566" class="line" id="l566">    566</a>         // Also output dsc resource files
+<a href="#l567" class="line" id="l567">    567</a>         else if (_wcsicmp(argv[i], L&quot;/GenerateDscResourceFiles&quot;) == 0)
+<a href="#l568" class="line" id="l568">    568</a>         {
+<a href="#l569" class="line" id="l569">    569</a>             generateDscResourceFiles = true;
+<a href="#l570" class="line" id="l570">    570</a>         }
+<a href="#l571" class="line" id="l571">    571</a> 
+<a href="#l572" class="line" id="l572">    572</a>         // Dsc resource get
+<a href="#l573" class="line" id="l573">    573</a>         else if (_wcsicmp(argv[i], L&quot;/DscGet&quot;) == 0)
+<a href="#l574" class="line" id="l574">    574</a>         {
+<a href="#l575" class="line" id="l575">    575</a>             std::cout &lt;&lt; R&quot;({&quot;data&quot;:&quot;TestData&quot;})&quot; &lt;&lt; std::endl;
+<a href="#l576" class="line" id="l576">    576</a>             return 0;
+<a href="#l577" class="line" id="l577">    577</a>         }
+<a href="#l578" class="line" id="l578">    578</a> 
+<a href="#l579" class="line" id="l579">    579</a>         // Dsc resource set
+<a href="#l580" class="line" id="l580">    580</a>         else if (_wcsicmp(argv[i], L&quot;/DscSet&quot;) == 0)
+<a href="#l581" class="line" id="l581">    581</a>         {
+<a href="#l582" class="line" id="l582">    582</a>             std::cout &lt;&lt; R&quot;({&quot;_inDesiredState&quot;:true})&quot; &lt;&lt; std::endl;
+<a href="#l583" class="line" id="l583">    583</a>             return 0;
+<a href="#l584" class="line" id="l584">    584</a>         }
+<a href="#l585" class="line" id="l585">    585</a> 
+<a href="#l586" class="line" id="l586">    586</a>         // Dsc resource test
+<a href="#l587" class="line" id="l587">    587</a>         else if (_wcsicmp(argv[i], L&quot;/DscTest&quot;) == 0)
+<a href="#l588" class="line" id="l588">    588</a>         {
+<a href="#l589" class="line" id="l589">    589</a>             std::cout &lt;&lt; R&quot;({&quot;_inDesiredState&quot;:true})&quot; &lt;&lt; std::endl;
+<a href="#l590" class="line" id="l590">    590</a>             return 0;
+<a href="#l591" class="line" id="l591">    591</a>         }
+<a href="#l592" class="line" id="l592">    592</a> 
+<a href="#l593" class="line" id="l593">    593</a>         // Dsc resource export
+<a href="#l594" class="line" id="l594">    594</a>         else if (_wcsicmp(argv[i], L&quot;/DscExport&quot;) == 0)
+<a href="#l595" class="line" id="l595">    595</a>         {
+<a href="#l596" class="line" id="l596">    596</a>             std::cout &lt;&lt; R&quot;({&quot;data&quot;:&quot;TestData&quot;})&quot; &lt;&lt; std::endl;
+<a href="#l597" class="line" id="l597">    597</a>             return 0;
+<a href="#l598" class="line" id="l598">    598</a>         }
+<a href="#l599" class="line" id="l599">    599</a>     }
+<a href="#l600" class="line" id="l600">    600</a> 
+<a href="#l601" class="line" id="l601">    601</a>     if (noOperation)
+<a href="#l602" class="line" id="l602">    602</a>     {
+<a href="#l603" class="line" id="l603">    603</a>         return exitCode;
+<a href="#l604" class="line" id="l604">    604</a>     }
+<a href="#l605" class="line" id="l605">    605</a> 
+<a href="#l606" class="line" id="l606">    606</a>     if (!aliasToExecute.empty())
+<a href="#l607" class="line" id="l607">    607</a>     {
+<a href="#l608" class="line" id="l608">    608</a>         SHELLEXECUTEINFOW execInfo = { 0 };
+<a href="#l609" class="line" id="l609">    609</a>         execInfo.cbSize = sizeof(execInfo);
+<a href="#l610" class="line" id="l610">    610</a>         execInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+<a href="#l611" class="line" id="l611">    611</a>         execInfo.lpFile = aliasToExecute.c_str();
+<a href="#l612" class="line" id="l612">    612</a> 
+<a href="#l613" class="line" id="l613">    613</a>         if (!aliasArguments.empty())
+<a href="#l614" class="line" id="l614">    614</a>         {
+<a href="#l615" class="line" id="l615">    615</a>             execInfo.lpParameters = aliasArguments.c_str();
+<a href="#l616" class="line" id="l616">    616</a>         }
+<a href="#l617" class="line" id="l617">    617</a>         execInfo.nShow = SW_SHOW;
+<a href="#l618" class="line" id="l618">    618</a> 
+<a href="#l619" class="line" id="l619">    619</a>         if (!ShellExecuteExW(&amp;execInfo) || !execInfo.hProcess)
+<a href="#l620" class="line" id="l620">    620</a>         {
+<a href="#l621" class="line" id="l621">    621</a>             return -1;
+<a href="#l622" class="line" id="l622">    622</a>         }
+<a href="#l623" class="line" id="l623">    623</a>     }
+<a href="#l624" class="line" id="l624">    624</a> 
+<a href="#l625" class="line" id="l625">    625</a>     if (displayName.empty())
+<a href="#l626" class="line" id="l626">    626</a>     {
+<a href="#l627" class="line" id="l627">    627</a>         displayName = DefaultDisplayName;
+<a href="#l628" class="line" id="l628">    628</a>     }
+<a href="#l629" class="line" id="l629">    629</a> 
+<a href="#l630" class="line" id="l630">    630</a>     if (displayVersion.empty())
+<a href="#l631" class="line" id="l631">    631</a>     {
+<a href="#l632" class="line" id="l632">    632</a>         displayVersion = DefaultDisplayVersion;
+<a href="#l633" class="line" id="l633">    633</a>     }
+<a href="#l634" class="line" id="l634">    634</a> 
+<a href="#l635" class="line" id="l635">    635</a>     path outFilePath = installDirectory;
+<a href="#l636" class="line" id="l636">    636</a> 
+<a href="#l637" class="line" id="l637">    637</a>     if (isRepair)
+<a href="#l638" class="line" id="l638">    638</a>     {
+<a href="#l639" class="line" id="l639">    639</a>         outContent &lt;&lt; L&quot;\nInstaller Repair operation for AppInstallerTestExeInstaller.exe completed successfully.&quot;;
+<a href="#l640" class="line" id="l640">    640</a>         HandleRepairOperation(productCode, outContent, useHKLM);
+<a href="#l641" class="line" id="l641">    641</a>     }
+<a href="#l642" class="line" id="l642">    642</a>     else
+<a href="#l643" class="line" id="l643">    643</a>     {
+<a href="#l644" class="line" id="l644">    644</a>         HandleInstallationOperation(*out, installDirectory, outContent, productCode, useHKLM, displayName, displayVersion, noRepair, noModify, generateDscResourceFiles);
+<a href="#l645" class="line" id="l645">    645</a>     }
+<a href="#l646" class="line" id="l646">    646</a> 
+<a href="#l647" class="line" id="l647">    647</a>     return exitCode;
+<a href="#l648" class="line" id="l648">    648</a> }
+</pre>
+</div>
+</body>
+</html>

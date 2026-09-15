@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>RestSource.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../"><img src="../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../log.html">Log</a> | <a href="../../../../files.html">Files</a> | <a href="../../../../refs.html">Refs</a> | <a href="../../../../file/README.md.html">README</a> | <a href="../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> RestSource.cpp (22586B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;RestSource.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> using namespace AppInstaller::Utility;
+<a href="#l7" class="line" id="l7">      7</a> 
+<a href="#l8" class="line" id="l8">      8</a> namespace AppInstaller::Repository::Rest
+<a href="#l9" class="line" id="l9">      9</a> {
+<a href="#l10" class="line" id="l10">     10</a>     namespace
+<a href="#l11" class="line" id="l11">     11</a>     {
+<a href="#l12" class="line" id="l12">     12</a>         using namespace AppInstaller::Repository::Rest::Schema;
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a>         // The source reference used by package objects.
+<a href="#l15" class="line" id="l15">     15</a>         struct SourceReference
+<a href="#l16" class="line" id="l16">     16</a>         {
+<a href="#l17" class="line" id="l17">     17</a>             SourceReference(const std::shared_ptr&lt;RestSource&gt;&amp; source) :
+<a href="#l18" class="line" id="l18">     18</a>                 m_source(source) {}
+<a href="#l19" class="line" id="l19">     19</a> 
+<a href="#l20" class="line" id="l20">     20</a>         protected:
+<a href="#l21" class="line" id="l21">     21</a>             std::shared_ptr&lt;RestSource&gt; GetReferenceSource() const
+<a href="#l22" class="line" id="l22">     22</a>             {
+<a href="#l23" class="line" id="l23">     23</a>                 std::shared_ptr&lt;RestSource&gt; source = m_source.lock();
+<a href="#l24" class="line" id="l24">     24</a>                 THROW_HR_IF(E_NOT_VALID_STATE, !source);
+<a href="#l25" class="line" id="l25">     25</a>                 return source;
+<a href="#l26" class="line" id="l26">     26</a>             }
+<a href="#l27" class="line" id="l27">     27</a> 
+<a href="#l28" class="line" id="l28">     28</a>         private:
+<a href="#l29" class="line" id="l29">     29</a>             std::weak_ptr&lt;RestSource&gt; m_source;
+<a href="#l30" class="line" id="l30">     30</a>         };
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a>         // The IPackage implementation for Available packages from RestSource.
+<a href="#l33" class="line" id="l33">     33</a>         struct RestPackage : public std::enable_shared_from_this&lt;RestPackage&gt;, public SourceReference, public IPackage, public ICompositePackage
+<a href="#l34" class="line" id="l34">     34</a>         {
+<a href="#l35" class="line" id="l35">     35</a>             static constexpr IPackageType PackageType = IPackageType::RestPackage;
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a>             RestPackage(const std::shared_ptr&lt;RestSource&gt;&amp; source, IRestClient::Package&amp;&amp; package) :
+<a href="#l38" class="line" id="l38">     38</a>                 SourceReference(source), m_package(std::move(package))
+<a href="#l39" class="line" id="l39">     39</a>             {
+<a href="#l40" class="line" id="l40">     40</a>                 SortVersionsInternal();
+<a href="#l41" class="line" id="l41">     41</a>             }
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a>             // Inherited via IPackage
+<a href="#l44" class="line" id="l44">     44</a>             Utility::LocIndString GetProperty(PackageProperty property) const override
+<a href="#l45" class="line" id="l45">     45</a>             {
+<a href="#l46" class="line" id="l46">     46</a>                 switch (property)
+<a href="#l47" class="line" id="l47">     47</a>                 {
+<a href="#l48" class="line" id="l48">     48</a>                 case PackageProperty::Id:
+<a href="#l49" class="line" id="l49">     49</a>                     return Utility::LocIndString{ m_package.PackageInformation.PackageIdentifier };
+<a href="#l50" class="line" id="l50">     50</a>                 case PackageProperty::Name:
+<a href="#l51" class="line" id="l51">     51</a>                     return Utility::LocIndString{ m_package.PackageInformation.PackageName };
+<a href="#l52" class="line" id="l52">     52</a>                 default:
+<a href="#l53" class="line" id="l53">     53</a>                     THROW_HR(E_UNEXPECTED);
+<a href="#l54" class="line" id="l54">     54</a>                 }
+<a href="#l55" class="line" id="l55">     55</a>             }
+<a href="#l56" class="line" id="l56">     56</a> 
+<a href="#l57" class="line" id="l57">     57</a>             std::vector&lt;Utility::LocIndString&gt; GetMultiProperty(PackageMultiProperty property) const override;
+<a href="#l58" class="line" id="l58">     58</a> 
+<a href="#l59" class="line" id="l59">     59</a>             std::vector&lt;PackageVersionKey&gt; GetVersionKeys() const override
+<a href="#l60" class="line" id="l60">     60</a>             {
+<a href="#l61" class="line" id="l61">     61</a>                 std::shared_ptr&lt;const RestSource&gt; source = GetReferenceSource();
+<a href="#l62" class="line" id="l62">     62</a>                 std::scoped_lock versionsLock{ m_packageVersionsLock };
+<a href="#l63" class="line" id="l63">     63</a> 
+<a href="#l64" class="line" id="l64">     64</a>                 std::vector&lt;PackageVersionKey&gt; result;
+<a href="#l65" class="line" id="l65">     65</a>                 for (const auto&amp; versionInfo : m_package.Versions)
+<a href="#l66" class="line" id="l66">     66</a>                 {
+<a href="#l67" class="line" id="l67">     67</a>                     result.emplace_back(
+<a href="#l68" class="line" id="l68">     68</a>                         source-&gt;GetIdentifier(), versionInfo.VersionAndChannel.GetVersion().ToString(), versionInfo.VersionAndChannel.GetChannel().ToString());
+<a href="#l69" class="line" id="l69">     69</a>                 }
+<a href="#l70" class="line" id="l70">     70</a> 
+<a href="#l71" class="line" id="l71">     71</a>                 return result;
+<a href="#l72" class="line" id="l72">     72</a>             }
+<a href="#l73" class="line" id="l73">     73</a> 
+<a href="#l74" class="line" id="l74">     74</a>             std::shared_ptr&lt;IPackageVersion&gt; GetLatestVersion() const override
+<a href="#l75" class="line" id="l75">     75</a>             {
+<a href="#l76" class="line" id="l76">     76</a>                 std::scoped_lock versionsLock{ m_packageVersionsLock };
+<a href="#l77" class="line" id="l77">     77</a>                 return GetLatestVersionInternal();
+<a href="#l78" class="line" id="l78">     78</a>             }
+<a href="#l79" class="line" id="l79">     79</a> 
+<a href="#l80" class="line" id="l80">     80</a>             std::shared_ptr&lt;IPackageVersion&gt; GetVersion(const PackageVersionKey&amp; versionKey) const override;
+<a href="#l81" class="line" id="l81">     81</a> 
+<a href="#l82" class="line" id="l82">     82</a>             Source GetSource() const override
+<a href="#l83" class="line" id="l83">     83</a>             {
+<a href="#l84" class="line" id="l84">     84</a>                 return Source{ GetReferenceSource() };
+<a href="#l85" class="line" id="l85">     85</a>             }
+<a href="#l86" class="line" id="l86">     86</a> 
+<a href="#l87" class="line" id="l87">     87</a>             bool IsSame(const IPackage* other) const override
+<a href="#l88" class="line" id="l88">     88</a>             {
+<a href="#l89" class="line" id="l89">     89</a>                 const RestPackage* otherPackage = PackageCast&lt;const RestPackage*&gt;(other);
+<a href="#l90" class="line" id="l90">     90</a> 
+<a href="#l91" class="line" id="l91">     91</a>                 if (otherPackage)
+<a href="#l92" class="line" id="l92">     92</a>                 {
+<a href="#l93" class="line" id="l93">     93</a>                     return GetReferenceSource()-&gt;IsSame(otherPackage-&gt;GetReferenceSource().get()) &amp;&amp;
+<a href="#l94" class="line" id="l94">     94</a>                         Utility::CaseInsensitiveEquals(m_package.PackageInformation.PackageIdentifier, otherPackage-&gt;m_package.PackageInformation.PackageIdentifier);
+<a href="#l95" class="line" id="l95">     95</a>                 }
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>                 return false;
+<a href="#l98" class="line" id="l98">     98</a>             }
+<a href="#l99" class="line" id="l99">     99</a> 
+<a href="#l100" class="line" id="l100">    100</a>             const void* CastTo(IPackageType type) const override
+<a href="#l101" class="line" id="l101">    101</a>             {
+<a href="#l102" class="line" id="l102">    102</a>                 if (type == PackageType)
+<a href="#l103" class="line" id="l103">    103</a>                 {
+<a href="#l104" class="line" id="l104">    104</a>                     return this;
+<a href="#l105" class="line" id="l105">    105</a>                 }
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a>                 return nullptr;
+<a href="#l108" class="line" id="l108">    108</a>             }
+<a href="#l109" class="line" id="l109">    109</a> 
+<a href="#l110" class="line" id="l110">    110</a>             // Inherited via ICompositePackage
+<a href="#l111" class="line" id="l111">    111</a>             std::shared_ptr&lt;IPackage&gt; GetInstalled() override
+<a href="#l112" class="line" id="l112">    112</a>             {
+<a href="#l113" class="line" id="l113">    113</a>                 return {};
+<a href="#l114" class="line" id="l114">    114</a>             }
+<a href="#l115" class="line" id="l115">    115</a> 
+<a href="#l116" class="line" id="l116">    116</a>             std::vector&lt;std::shared_ptr&lt;IPackage&gt;&gt; GetAvailable() override
+<a href="#l117" class="line" id="l117">    117</a>             {
+<a href="#l118" class="line" id="l118">    118</a>                 return std::vector&lt;std::shared_ptr&lt;IPackage&gt;&gt;{ shared_from_this() };
+<a href="#l119" class="line" id="l119">    119</a>             }
+<a href="#l120" class="line" id="l120">    120</a> 
+<a href="#l121" class="line" id="l121">    121</a>             // Helpers for PackageVersion interop
+<a href="#l122" class="line" id="l122">    122</a>             const IRestClient::PackageInfo&amp; PackageInfo() const
+<a href="#l123" class="line" id="l123">    123</a>             {
+<a href="#l124" class="line" id="l124">    124</a>                 return m_package.PackageInformation;
+<a href="#l125" class="line" id="l125">    125</a>             }
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a>             // This function is designed to handle the case where the only version that is returned by the
+<a href="#l128" class="line" id="l128">    128</a>             // initial search is Unknown. In that case, we perform a search intended to trigger the optimized
+<a href="#l129" class="line" id="l129">    129</a>             // path and directly get all manifests.
+<a href="#l130" class="line" id="l130">    130</a>             bool HandleSingleUnknownVersion(IRestClient::VersionInfo&amp; versionInfo)
+<a href="#l131" class="line" id="l131">    131</a>             {
+<a href="#l132" class="line" id="l132">    132</a>                 // If the calling version is unknown then we want to update it if we already
+<a href="#l133" class="line" id="l133">    133</a>                 // have the results in the package.
+<a href="#l134" class="line" id="l134">    134</a>                 if (versionInfo.VersionAndChannel.GetVersion().IsUnknown() &amp;&amp; !versionInfo.Manifest)
+<a href="#l135" class="line" id="l135">    135</a>                 {
+<a href="#l136" class="line" id="l136">    136</a>                     std::scoped_lock versionsLock{ m_packageVersionsLock };
+<a href="#l137" class="line" id="l137">    137</a>                     if (m_package.Versions.size() == 1 &amp;&amp; m_package.Versions[0].VersionAndChannel.GetVersion().IsUnknown() &amp;&amp; !m_package.Versions[0].Manifest)
+<a href="#l138" class="line" id="l138">    138</a>                     {
+<a href="#l139" class="line" id="l139">    139</a>                         SearchRequest request;
+<a href="#l140" class="line" id="l140">    140</a>                         request.Filters.emplace_back(PackageMatchField::Id, MatchType::CaseInsensitive, m_package.PackageInformation.PackageIdentifier);
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>                         IRestClient::SearchResult result = GetReferenceSource()-&gt;GetRestClient().Search(request);
+<a href="#l143" class="line" id="l143">    143</a> 
+<a href="#l144" class="line" id="l144">    144</a>                         if (result.Matches.size() == 1)
+<a href="#l145" class="line" id="l145">    145</a>                         {
+<a href="#l146" class="line" id="l146">    146</a>                             m_package.Versions = std::move(result.Matches[0].Versions);
+<a href="#l147" class="line" id="l147">    147</a>                             SortVersionsInternal();
+<a href="#l148" class="line" id="l148">    148</a>                         }
+<a href="#l149" class="line" id="l149">    149</a>                         else
+<a href="#l150" class="line" id="l150">    150</a>                         {
+<a href="#l151" class="line" id="l151">    151</a>                             // Unexpected, but just leave things as they are
+<a href="#l152" class="line" id="l152">    152</a>                             AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Found &quot; &lt;&lt; result.Matches.size() &lt;&lt; &quot; matches for optimized search of &quot; &lt;&lt; m_package.PackageInformation.PackageIdentifier);
+<a href="#l153" class="line" id="l153">    153</a>                         }
+<a href="#l154" class="line" id="l154">    154</a>                     }
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a>                     if (!m_package.Versions.empty())
+<a href="#l157" class="line" id="l157">    157</a>                     {
+<a href="#l158" class="line" id="l158">    158</a>                         // The results are now sorted; either take the last one if it is unknown
+<a href="#l159" class="line" id="l159">    159</a>                         // or the first one if it is not (aka latest).
+<a href="#l160" class="line" id="l160">    160</a>                         if (m_package.Versions.back().VersionAndChannel.GetVersion().IsUnknown())
+<a href="#l161" class="line" id="l161">    161</a>                         {
+<a href="#l162" class="line" id="l162">    162</a>                             versionInfo = m_package.Versions.back();
+<a href="#l163" class="line" id="l163">    163</a>                         }
+<a href="#l164" class="line" id="l164">    164</a>                         else
+<a href="#l165" class="line" id="l165">    165</a>                         {
+<a href="#l166" class="line" id="l166">    166</a>                             versionInfo = m_package.Versions.front();
+<a href="#l167" class="line" id="l167">    167</a>                         }
+<a href="#l168" class="line" id="l168">    168</a>                     }
+<a href="#l169" class="line" id="l169">    169</a> 
+<a href="#l170" class="line" id="l170">    170</a>                     return true;
+<a href="#l171" class="line" id="l171">    171</a>                 }
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a>                 return false;
+<a href="#l174" class="line" id="l174">    174</a>             }
+<a href="#l175" class="line" id="l175">    175</a> 
+<a href="#l176" class="line" id="l176">    176</a>         private:
+<a href="#l177" class="line" id="l177">    177</a>             std::shared_ptr&lt;RestPackage&gt; NonConstSharedFromThis() const
+<a href="#l178" class="line" id="l178">    178</a>             {
+<a href="#l179" class="line" id="l179">    179</a>                 return const_cast&lt;RestPackage*&gt;(this)-&gt;shared_from_this();
+<a href="#l180" class="line" id="l180">    180</a>             }
+<a href="#l181" class="line" id="l181">    181</a> 
+<a href="#l182" class="line" id="l182">    182</a>             // Must hold m_packageVersionsLock while calling this
+<a href="#l183" class="line" id="l183">    183</a>             std::shared_ptr&lt;IPackageVersion&gt; GetLatestVersionInternal() const;
+<a href="#l184" class="line" id="l184">    184</a> 
+<a href="#l185" class="line" id="l185">    185</a>             // Must hold m_packageVersionsLock while calling this
+<a href="#l186" class="line" id="l186">    186</a>             void SortVersionsInternal()
+<a href="#l187" class="line" id="l187">    187</a>             {
+<a href="#l188" class="line" id="l188">    188</a>                 std::sort(m_package.Versions.begin(), m_package.Versions.end(),
+<a href="#l189" class="line" id="l189">    189</a>                     [](const IRestClient::VersionInfo&amp; a, const IRestClient::VersionInfo&amp; b)
+<a href="#l190" class="line" id="l190">    190</a>                     {
+<a href="#l191" class="line" id="l191">    191</a>                         return a.VersionAndChannel &lt; b.VersionAndChannel;
+<a href="#l192" class="line" id="l192">    192</a>                     });
+<a href="#l193" class="line" id="l193">    193</a>             }
+<a href="#l194" class="line" id="l194">    194</a> 
+<a href="#l195" class="line" id="l195">    195</a>             IRestClient::Package m_package;
+<a href="#l196" class="line" id="l196">    196</a>             // Protects access to m_package.Versions
+<a href="#l197" class="line" id="l197">    197</a>             mutable std::mutex m_packageVersionsLock;
+<a href="#l198" class="line" id="l198">    198</a>         };
+<a href="#l199" class="line" id="l199">    199</a> 
+<a href="#l200" class="line" id="l200">    200</a>         void GetMultiPropertyValues(
+<a href="#l201" class="line" id="l201">    201</a>             const RestPackage* package,
+<a href="#l202" class="line" id="l202">    202</a>             const IRestClient::VersionInfo&amp; versionInfo,
+<a href="#l203" class="line" id="l203">    203</a>             PackageVersionMultiProperty property,
+<a href="#l204" class="line" id="l204">    204</a>             std::vector&lt;Utility::LocIndString&gt;&amp; result,
+<a href="#l205" class="line" id="l205">    205</a>             void (*Action)(std::vector&lt;Utility::LocIndString&gt;&amp;, Utility::LocIndString&amp;&amp;))
+<a href="#l206" class="line" id="l206">    206</a>         {
+<a href="#l207" class="line" id="l207">    207</a>             switch (property)
+<a href="#l208" class="line" id="l208">    208</a>             {
+<a href="#l209" class="line" id="l209">    209</a>             case PackageVersionMultiProperty::PackageFamilyName:
+<a href="#l210" class="line" id="l210">    210</a>                 for (const std::string&amp; pfn : versionInfo.PackageFamilyNames)
+<a href="#l211" class="line" id="l211">    211</a>                 {
+<a href="#l212" class="line" id="l212">    212</a>                     Action(result, Utility::LocIndString{ pfn });
+<a href="#l213" class="line" id="l213">    213</a>                 }
+<a href="#l214" class="line" id="l214">    214</a>                 break;
+<a href="#l215" class="line" id="l215">    215</a>             case PackageVersionMultiProperty::ProductCode:
+<a href="#l216" class="line" id="l216">    216</a>                 for (const std::string&amp; productCode : versionInfo.ProductCodes)
+<a href="#l217" class="line" id="l217">    217</a>                 {
+<a href="#l218" class="line" id="l218">    218</a>                     Action(result, Utility::LocIndString{ productCode });
+<a href="#l219" class="line" id="l219">    219</a>                 }
+<a href="#l220" class="line" id="l220">    220</a>                 break;
+<a href="#l221" class="line" id="l221">    221</a>             case PackageVersionMultiProperty::UpgradeCode:
+<a href="#l222" class="line" id="l222">    222</a>                 for (const std::string&amp; upgradeCode : versionInfo.UpgradeCodes)
+<a href="#l223" class="line" id="l223">    223</a>                 {
+<a href="#l224" class="line" id="l224">    224</a>                     Action(result, Utility::LocIndString{ upgradeCode });
+<a href="#l225" class="line" id="l225">    225</a>                 }
+<a href="#l226" class="line" id="l226">    226</a>                 break;
+<a href="#l227" class="line" id="l227">    227</a>             case PackageVersionMultiProperty::Name:
+<a href="#l228" class="line" id="l228">    228</a>                 if (versionInfo.Manifest)
+<a href="#l229" class="line" id="l229">    229</a>                 {
+<a href="#l230" class="line" id="l230">    230</a>                     for (auto&amp;&amp; name : versionInfo.Manifest-&gt;GetPackageNames())
+<a href="#l231" class="line" id="l231">    231</a>                     {
+<a href="#l232" class="line" id="l232">    232</a>                         Action(result, Utility::LocIndString{ std::move(name) });
+<a href="#l233" class="line" id="l233">    233</a>                     }
+<a href="#l234" class="line" id="l234">    234</a>                 }
+<a href="#l235" class="line" id="l235">    235</a>                 else
+<a href="#l236" class="line" id="l236">    236</a>                 {
+<a href="#l237" class="line" id="l237">    237</a>                     Action(result, Utility::LocIndString{ package-&gt;PackageInfo().PackageName });
+<a href="#l238" class="line" id="l238">    238</a>                 }
+<a href="#l239" class="line" id="l239">    239</a>                 break;
+<a href="#l240" class="line" id="l240">    240</a>             case PackageVersionMultiProperty::Publisher:
+<a href="#l241" class="line" id="l241">    241</a>                 if (versionInfo.Manifest)
+<a href="#l242" class="line" id="l242">    242</a>                 {
+<a href="#l243" class="line" id="l243">    243</a>                     for (auto&amp;&amp; publisher : versionInfo.Manifest-&gt;GetPublishers())
+<a href="#l244" class="line" id="l244">    244</a>                     {
+<a href="#l245" class="line" id="l245">    245</a>                         Action(result, Utility::LocIndString{ std::move(publisher) });
+<a href="#l246" class="line" id="l246">    246</a>                     }
+<a href="#l247" class="line" id="l247">    247</a>                 }
+<a href="#l248" class="line" id="l248">    248</a>                 else
+<a href="#l249" class="line" id="l249">    249</a>                 {
+<a href="#l250" class="line" id="l250">    250</a>                     Action(result, Utility::LocIndString{ package-&gt;PackageInfo().Publisher });
+<a href="#l251" class="line" id="l251">    251</a>                 }
+<a href="#l252" class="line" id="l252">    252</a>                 break;
+<a href="#l253" class="line" id="l253">    253</a>             case PackageVersionMultiProperty::Locale:
+<a href="#l254" class="line" id="l254">    254</a>                 if (versionInfo.Manifest)
+<a href="#l255" class="line" id="l255">    255</a>                 {
+<a href="#l256" class="line" id="l256">    256</a>                     Action(result, Utility::LocIndString{ versionInfo.Manifest-&gt;DefaultLocalization.Locale });
+<a href="#l257" class="line" id="l257">    257</a>                     for (const auto&amp; loc : versionInfo.Manifest-&gt;Localizations)
+<a href="#l258" class="line" id="l258">    258</a>                     {
+<a href="#l259" class="line" id="l259">    259</a>                         Action(result, Utility::LocIndString{ loc.Locale });
+<a href="#l260" class="line" id="l260">    260</a>                     }
+<a href="#l261" class="line" id="l261">    261</a>                 }
+<a href="#l262" class="line" id="l262">    262</a>                 break;
+<a href="#l263" class="line" id="l263">    263</a>             }
+<a href="#l264" class="line" id="l264">    264</a>         }
+<a href="#l265" class="line" id="l265">    265</a> 
+<a href="#l266" class="line" id="l266">    266</a>         std::vector&lt;Utility::LocIndString&gt; RestPackage::GetMultiProperty(PackageMultiProperty property) const
+<a href="#l267" class="line" id="l267">    267</a>         {
+<a href="#l268" class="line" id="l268">    268</a>             std::scoped_lock versionsLock{ m_packageVersionsLock };
+<a href="#l269" class="line" id="l269">    269</a>             std::vector&lt;Utility::LocIndString&gt; result;
+<a href="#l270" class="line" id="l270">    270</a>             PackageVersionMultiProperty mappedProperty = PackageMultiPropertyToPackageVersionMultiProperty(property);
+<a href="#l271" class="line" id="l271">    271</a> 
+<a href="#l272" class="line" id="l272">    272</a>             for (const auto&amp; versionInfo : m_package.Versions)
+<a href="#l273" class="line" id="l273">    273</a>             {
+<a href="#l274" class="line" id="l274">    274</a>                 GetMultiPropertyValues(
+<a href="#l275" class="line" id="l275">    275</a>                     this,
+<a href="#l276" class="line" id="l276">    276</a>                     versionInfo,
+<a href="#l277" class="line" id="l277">    277</a>                     mappedProperty,
+<a href="#l278" class="line" id="l278">    278</a>                     result,
+<a href="#l279" class="line" id="l279">    279</a>                     [](std::vector&lt;Utility::LocIndString&gt;&amp; result, Utility::LocIndString&amp;&amp; string)
+<a href="#l280" class="line" id="l280">    280</a>                     {
+<a href="#l281" class="line" id="l281">    281</a>                         auto itr = std::lower_bound(result.begin(), result.end(), string);
+<a href="#l282" class="line" id="l282">    282</a> 
+<a href="#l283" class="line" id="l283">    283</a>                         if (itr == result.end() || *itr != string)
+<a href="#l284" class="line" id="l284">    284</a>                         {
+<a href="#l285" class="line" id="l285">    285</a>                             result.emplace(itr, std::move(string));
+<a href="#l286" class="line" id="l286">    286</a>                         }
+<a href="#l287" class="line" id="l287">    287</a>                     });
+<a href="#l288" class="line" id="l288">    288</a>             }
+<a href="#l289" class="line" id="l289">    289</a> 
+<a href="#l290" class="line" id="l290">    290</a>             return result;
+<a href="#l291" class="line" id="l291">    291</a>         }
+<a href="#l292" class="line" id="l292">    292</a> 
+<a href="#l293" class="line" id="l293">    293</a>         // The IPackageVersion impl for RestSource.
+<a href="#l294" class="line" id="l294">    294</a>         struct PackageVersion : public SourceReference, public IPackageVersion
+<a href="#l295" class="line" id="l295">    295</a>         {
+<a href="#l296" class="line" id="l296">    296</a>             PackageVersion(
+<a href="#l297" class="line" id="l297">    297</a>                 const std::shared_ptr&lt;RestSource&gt;&amp; source, std::shared_ptr&lt;RestPackage&gt;&amp;&amp; package, IRestClient::VersionInfo versionInfo)
+<a href="#l298" class="line" id="l298">    298</a>                 : SourceReference(source), m_package(std::move(package)), m_versionInfo(std::move(versionInfo)) {}
+<a href="#l299" class="line" id="l299">    299</a> 
+<a href="#l300" class="line" id="l300">    300</a>             // Inherited via IPackageVersion
+<a href="#l301" class="line" id="l301">    301</a>             Utility::LocIndString GetProperty(PackageVersionProperty property) const override
+<a href="#l302" class="line" id="l302">    302</a>             {
+<a href="#l303" class="line" id="l303">    303</a>                 switch (property)
+<a href="#l304" class="line" id="l304">    304</a>                 {
+<a href="#l305" class="line" id="l305">    305</a>                 case PackageVersionProperty::SourceIdentifier:
+<a href="#l306" class="line" id="l306">    306</a>                     return Utility::LocIndString{ GetReferenceSource()-&gt;GetIdentifier() };
+<a href="#l307" class="line" id="l307">    307</a>                 case PackageVersionProperty::SourceName:
+<a href="#l308" class="line" id="l308">    308</a>                     return Utility::LocIndString{ GetReferenceSource()-&gt;GetDetails().Name };
+<a href="#l309" class="line" id="l309">    309</a>                 case PackageVersionProperty::Id:
+<a href="#l310" class="line" id="l310">    310</a>                     return Utility::LocIndString{ m_package-&gt;PackageInfo().PackageIdentifier };
+<a href="#l311" class="line" id="l311">    311</a>                 case PackageVersionProperty::Name:
+<a href="#l312" class="line" id="l312">    312</a>                     return Utility::LocIndString{ m_package-&gt;PackageInfo().PackageName };
+<a href="#l313" class="line" id="l313">    313</a>                 case PackageVersionProperty::Version:
+<a href="#l314" class="line" id="l314">    314</a>                     return Utility::LocIndString{ m_versionInfo.VersionAndChannel.GetVersion().ToString() };
+<a href="#l315" class="line" id="l315">    315</a>                 case PackageVersionProperty::Channel:
+<a href="#l316" class="line" id="l316">    316</a>                     return Utility::LocIndString{ m_versionInfo.VersionAndChannel.GetChannel().ToString() };
+<a href="#l317" class="line" id="l317">    317</a>                 case PackageVersionProperty::Publisher:
+<a href="#l318" class="line" id="l318">    318</a>                     return Utility::LocIndString{ m_package-&gt;PackageInfo().Publisher };
+<a href="#l319" class="line" id="l319">    319</a>                 case PackageVersionProperty::ArpMinVersion:
+<a href="#l320" class="line" id="l320">    320</a>                     if (!m_versionInfo.ArpVersions.empty())
+<a href="#l321" class="line" id="l321">    321</a>                     {
+<a href="#l322" class="line" id="l322">    322</a>                         return Utility::LocIndString{ m_versionInfo.ArpVersions.front().ToString() };
+<a href="#l323" class="line" id="l323">    323</a>                     }
+<a href="#l324" class="line" id="l324">    324</a>                     else if (m_versionInfo.Manifest)
+<a href="#l325" class="line" id="l325">    325</a>                     {
+<a href="#l326" class="line" id="l326">    326</a>                         auto arpVersionRange = m_versionInfo.Manifest-&gt;GetArpVersionRange();
+<a href="#l327" class="line" id="l327">    327</a>                         return arpVersionRange.IsEmpty() ? Utility::LocIndString{} : Utility::LocIndString{ arpVersionRange.GetMinVersion().ToString() };
+<a href="#l328" class="line" id="l328">    328</a>                     }
+<a href="#l329" class="line" id="l329">    329</a>                     else
+<a href="#l330" class="line" id="l330">    330</a>                     {
+<a href="#l331" class="line" id="l331">    331</a>                         return {};
+<a href="#l332" class="line" id="l332">    332</a>                     }
+<a href="#l333" class="line" id="l333">    333</a>                 case PackageVersionProperty::ArpMaxVersion:
+<a href="#l334" class="line" id="l334">    334</a>                     if (!m_versionInfo.ArpVersions.empty())
+<a href="#l335" class="line" id="l335">    335</a>                     {
+<a href="#l336" class="line" id="l336">    336</a>                         return Utility::LocIndString{ m_versionInfo.ArpVersions.back().ToString() };
+<a href="#l337" class="line" id="l337">    337</a>                     }
+<a href="#l338" class="line" id="l338">    338</a>                     else if (m_versionInfo.Manifest)
+<a href="#l339" class="line" id="l339">    339</a>                     {
+<a href="#l340" class="line" id="l340">    340</a>                         auto arpVersionRange = m_versionInfo.Manifest-&gt;GetArpVersionRange();
+<a href="#l341" class="line" id="l341">    341</a>                         return arpVersionRange.IsEmpty() ? Utility::LocIndString{} : Utility::LocIndString{ arpVersionRange.GetMaxVersion().ToString() };
+<a href="#l342" class="line" id="l342">    342</a>                     }
+<a href="#l343" class="line" id="l343">    343</a>                     else
+<a href="#l344" class="line" id="l344">    344</a>                     {
+<a href="#l345" class="line" id="l345">    345</a>                         return {};
+<a href="#l346" class="line" id="l346">    346</a>                     }
+<a href="#l347" class="line" id="l347">    347</a>                 default:
+<a href="#l348" class="line" id="l348">    348</a>                     return {};
+<a href="#l349" class="line" id="l349">    349</a>                 }
+<a href="#l350" class="line" id="l350">    350</a>             }
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>             std::vector&lt;Utility::LocIndString&gt; GetMultiProperty(PackageVersionMultiProperty property) const override
+<a href="#l353" class="line" id="l353">    353</a>             {
+<a href="#l354" class="line" id="l354">    354</a>                 std::vector&lt;Utility::LocIndString&gt; result;
+<a href="#l355" class="line" id="l355">    355</a> 
+<a href="#l356" class="line" id="l356">    356</a>                 GetMultiPropertyValues(
+<a href="#l357" class="line" id="l357">    357</a>                     m_package.get(),
+<a href="#l358" class="line" id="l358">    358</a>                     m_versionInfo,
+<a href="#l359" class="line" id="l359">    359</a>                     property,
+<a href="#l360" class="line" id="l360">    360</a>                     result,
+<a href="#l361" class="line" id="l361">    361</a>                     [](std::vector&lt;Utility::LocIndString&gt;&amp; result, Utility::LocIndString&amp;&amp; string)
+<a href="#l362" class="line" id="l362">    362</a>                     {
+<a href="#l363" class="line" id="l363">    363</a>                         result.emplace_back(std::move(string));
+<a href="#l364" class="line" id="l364">    364</a>                     });
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>                 return result;
+<a href="#l367" class="line" id="l367">    367</a>             }
+<a href="#l368" class="line" id="l368">    368</a> 
+<a href="#l369" class="line" id="l369">    369</a>             Manifest::Manifest GetManifest() override
+<a href="#l370" class="line" id="l370">    370</a>             {
+<a href="#l371" class="line" id="l371">    371</a>                 AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Getting manifest&quot;);
+<a href="#l372" class="line" id="l372">    372</a> 
+<a href="#l373" class="line" id="l373">    373</a>                 if (m_versionInfo.Manifest)
+<a href="#l374" class="line" id="l374">    374</a>                 {
+<a href="#l375" class="line" id="l375">    375</a>                     return m_versionInfo.Manifest.value();
+<a href="#l376" class="line" id="l376">    376</a>                 }
+<a href="#l377" class="line" id="l377">    377</a> 
+<a href="#l378" class="line" id="l378">    378</a>                 if (m_package-&gt;HandleSingleUnknownVersion(m_versionInfo) &amp;&amp;
+<a href="#l379" class="line" id="l379">    379</a>                     m_versionInfo.Manifest)
+<a href="#l380" class="line" id="l380">    380</a>                 {
+<a href="#l381" class="line" id="l381">    381</a>                     return m_versionInfo.Manifest.value();
+<a href="#l382" class="line" id="l382">    382</a>                 }
+<a href="#l383" class="line" id="l383">    383</a> 
+<a href="#l384" class="line" id="l384">    384</a>                 std::optional&lt;Manifest::Manifest&gt; manifest = GetReferenceSource()-&gt;GetRestClient().GetManifestByVersion(
+<a href="#l385" class="line" id="l385">    385</a>                     m_package-&gt;PackageInfo().PackageIdentifier, m_versionInfo.VersionAndChannel.GetVersion().ToString(), m_versionInfo.VersionAndChannel.GetChannel().ToString());
+<a href="#l386" class="line" id="l386">    386</a> 
+<a href="#l387" class="line" id="l387">    387</a>                 if (!manifest)
+<a href="#l388" class="line" id="l388">    388</a>                 {
+<a href="#l389" class="line" id="l389">    389</a>                     AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Valid manifest not found for package: &quot; &lt;&lt; m_package-&gt;PackageInfo().PackageIdentifier);
+<a href="#l390" class="line" id="l390">    390</a>                     return {};
+<a href="#l391" class="line" id="l391">    391</a>                 }
+<a href="#l392" class="line" id="l392">    392</a>                 
+<a href="#l393" class="line" id="l393">    393</a>                 m_versionInfo.Manifest = std::move(manifest.value());
+<a href="#l394" class="line" id="l394">    394</a>                 return m_versionInfo.Manifest.value();
+<a href="#l395" class="line" id="l395">    395</a>             }
+<a href="#l396" class="line" id="l396">    396</a> 
+<a href="#l397" class="line" id="l397">    397</a>             Source GetSource() const override
+<a href="#l398" class="line" id="l398">    398</a>             {
+<a href="#l399" class="line" id="l399">    399</a>                 return Source{ GetReferenceSource() };
+<a href="#l400" class="line" id="l400">    400</a>             }
+<a href="#l401" class="line" id="l401">    401</a> 
+<a href="#l402" class="line" id="l402">    402</a>             IPackageVersion::Metadata GetMetadata() const override
+<a href="#l403" class="line" id="l403">    403</a>             {
+<a href="#l404" class="line" id="l404">    404</a>                 IPackageVersion::Metadata result;
+<a href="#l405" class="line" id="l405">    405</a>                 return result;
+<a href="#l406" class="line" id="l406">    406</a>             }
+<a href="#l407" class="line" id="l407">    407</a> 
+<a href="#l408" class="line" id="l408">    408</a>         private:
+<a href="#l409" class="line" id="l409">    409</a>             std::shared_ptr&lt;RestPackage&gt; m_package;
+<a href="#l410" class="line" id="l410">    410</a>             IRestClient::VersionInfo m_versionInfo;
+<a href="#l411" class="line" id="l411">    411</a>         };
+<a href="#l412" class="line" id="l412">    412</a> 
+<a href="#l413" class="line" id="l413">    413</a>         std::shared_ptr&lt;IPackageVersion&gt; RestPackage::GetVersion(const PackageVersionKey&amp; versionKey) const
+<a href="#l414" class="line" id="l414">    414</a>         {
+<a href="#l415" class="line" id="l415">    415</a>             std::shared_ptr&lt;RestSource&gt; source = GetReferenceSource();
+<a href="#l416" class="line" id="l416">    416</a>             std::scoped_lock versionsLock{ m_packageVersionsLock };
+<a href="#l417" class="line" id="l417">    417</a> 
+<a href="#l418" class="line" id="l418">    418</a>             // Ensure that this key targets this (or any) source
+<a href="#l419" class="line" id="l419">    419</a>             if (!versionKey.SourceId.empty() &amp;&amp; versionKey.SourceId != source-&gt;GetIdentifier())
+<a href="#l420" class="line" id="l420">    420</a>             {
+<a href="#l421" class="line" id="l421">    421</a>                 return {};
+<a href="#l422" class="line" id="l422">    422</a>             }
+<a href="#l423" class="line" id="l423">    423</a> 
+<a href="#l424" class="line" id="l424">    424</a>             std::shared_ptr&lt;IPackageVersion&gt; packageVersion;
+<a href="#l425" class="line" id="l425">    425</a>             if (!versionKey.Version.empty() &amp;&amp; !versionKey.Channel.empty())
+<a href="#l426" class="line" id="l426">    426</a>             {
+<a href="#l427" class="line" id="l427">    427</a>                 for (const auto&amp; versionInfo : m_package.Versions)
+<a href="#l428" class="line" id="l428">    428</a>                 {
+<a href="#l429" class="line" id="l429">    429</a>                     if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetVersion().ToString(), versionKey.Version)
+<a href="#l430" class="line" id="l430">    430</a>                         &amp;&amp; CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetChannel().ToString(), versionKey.Channel))
+<a href="#l431" class="line" id="l431">    431</a>                     {
+<a href="#l432" class="line" id="l432">    432</a>                         packageVersion = std::make_shared&lt;PackageVersion&gt;(source, NonConstSharedFromThis(), versionInfo);
+<a href="#l433" class="line" id="l433">    433</a>                         break;
+<a href="#l434" class="line" id="l434">    434</a>                     }
+<a href="#l435" class="line" id="l435">    435</a>                 }
+<a href="#l436" class="line" id="l436">    436</a>             }
+<a href="#l437" class="line" id="l437">    437</a>             else if (versionKey.Version.empty() &amp;&amp; versionKey.Channel.empty())
+<a href="#l438" class="line" id="l438">    438</a>             {
+<a href="#l439" class="line" id="l439">    439</a>                 packageVersion = GetLatestVersionInternal();
+<a href="#l440" class="line" id="l440">    440</a>             }
+<a href="#l441" class="line" id="l441">    441</a>             else if (versionKey.Version.empty())
+<a href="#l442" class="line" id="l442">    442</a>             {
+<a href="#l443" class="line" id="l443">    443</a>                 for (const auto&amp; versionInfo : m_package.Versions)
+<a href="#l444" class="line" id="l444">    444</a>                 {
+<a href="#l445" class="line" id="l445">    445</a>                     if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetChannel().ToString(), versionKey.Channel))
+<a href="#l446" class="line" id="l446">    446</a>                     {
+<a href="#l447" class="line" id="l447">    447</a>                         packageVersion = std::make_shared&lt;PackageVersion&gt;(source, NonConstSharedFromThis(), versionInfo);
+<a href="#l448" class="line" id="l448">    448</a>                         break;
+<a href="#l449" class="line" id="l449">    449</a>                     }
+<a href="#l450" class="line" id="l450">    450</a>                 }
+<a href="#l451" class="line" id="l451">    451</a>             }
+<a href="#l452" class="line" id="l452">    452</a>             else if (versionKey.Channel.empty())
+<a href="#l453" class="line" id="l453">    453</a>             {
+<a href="#l454" class="line" id="l454">    454</a>                 for (const auto&amp; versionInfo : m_package.Versions)
+<a href="#l455" class="line" id="l455">    455</a>                 {
+<a href="#l456" class="line" id="l456">    456</a>                     if (CaseInsensitiveEquals(versionInfo.VersionAndChannel.GetVersion().ToString(), versionKey.Version))
+<a href="#l457" class="line" id="l457">    457</a>                     {
+<a href="#l458" class="line" id="l458">    458</a>                         packageVersion = std::make_shared&lt;PackageVersion&gt;(source, NonConstSharedFromThis(), versionInfo);
+<a href="#l459" class="line" id="l459">    459</a>                         break;
+<a href="#l460" class="line" id="l460">    460</a>                     }
+<a href="#l461" class="line" id="l461">    461</a>                 }
+<a href="#l462" class="line" id="l462">    462</a>             }
+<a href="#l463" class="line" id="l463">    463</a> 
+<a href="#l464" class="line" id="l464">    464</a>             return packageVersion;
+<a href="#l465" class="line" id="l465">    465</a>         }
+<a href="#l466" class="line" id="l466">    466</a> 
+<a href="#l467" class="line" id="l467">    467</a>         std::shared_ptr&lt;IPackageVersion&gt; RestPackage::GetLatestVersionInternal() const
+<a href="#l468" class="line" id="l468">    468</a>         {
+<a href="#l469" class="line" id="l469">    469</a>             return std::make_shared&lt;PackageVersion&gt;(GetReferenceSource(), NonConstSharedFromThis(), m_package.Versions.front());
+<a href="#l470" class="line" id="l470">    470</a>         }
+<a href="#l471" class="line" id="l471">    471</a>     }
+<a href="#l472" class="line" id="l472">    472</a> 
+<a href="#l473" class="line" id="l473">    473</a>     RestSource::RestSource(const SourceDetails&amp; details, SourceInformation information, RestClient&amp;&amp; restClient)
+<a href="#l474" class="line" id="l474">    474</a>         : m_details(details), m_information(std::move(information)), m_restClient(std::move(restClient))
+<a href="#l475" class="line" id="l475">    475</a>     {
+<a href="#l476" class="line" id="l476">    476</a>     }
+<a href="#l477" class="line" id="l477">    477</a> 
+<a href="#l478" class="line" id="l478">    478</a>     const std::string&amp; RestSource::GetIdentifier() const
+<a href="#l479" class="line" id="l479">    479</a>     {
+<a href="#l480" class="line" id="l480">    480</a>         return m_details.Identifier;
+<a href="#l481" class="line" id="l481">    481</a>     }
+<a href="#l482" class="line" id="l482">    482</a> 
+<a href="#l483" class="line" id="l483">    483</a>     const SourceDetails&amp; RestSource::GetDetails() const
+<a href="#l484" class="line" id="l484">    484</a>     {
+<a href="#l485" class="line" id="l485">    485</a>         return m_details;
+<a href="#l486" class="line" id="l486">    486</a>     }
+<a href="#l487" class="line" id="l487">    487</a> 
+<a href="#l488" class="line" id="l488">    488</a>     SourceInformation RestSource::GetInformation() const
+<a href="#l489" class="line" id="l489">    489</a>     {
+<a href="#l490" class="line" id="l490">    490</a>         return m_information;
+<a href="#l491" class="line" id="l491">    491</a>     }
+<a href="#l492" class="line" id="l492">    492</a> 
+<a href="#l493" class="line" id="l493">    493</a>     bool RestSource::QueryFeatureFlag(SourceFeatureFlag flag) const
+<a href="#l494" class="line" id="l494">    494</a>     {
+<a href="#l495" class="line" id="l495">    495</a>         switch (flag)
+<a href="#l496" class="line" id="l496">    496</a>         {
+<a href="#l497" class="line" id="l497">    497</a>         case SourceFeatureFlag::ManifestMayContainAdditionalSystemReferenceStrings:
+<a href="#l498" class="line" id="l498">    498</a>             return true;
+<a href="#l499" class="line" id="l499">    499</a>         }
+<a href="#l500" class="line" id="l500">    500</a> 
+<a href="#l501" class="line" id="l501">    501</a>         return false;
+<a href="#l502" class="line" id="l502">    502</a>     }
+<a href="#l503" class="line" id="l503">    503</a> 
+<a href="#l504" class="line" id="l504">    504</a>     SearchResult RestSource::Search(const SearchRequest&amp; request) const
+<a href="#l505" class="line" id="l505">    505</a>     {
+<a href="#l506" class="line" id="l506">    506</a>         IRestClient::SearchResult results = m_restClient.Search(request);
+<a href="#l507" class="line" id="l507">    507</a>         SearchResult searchResult;
+<a href="#l508" class="line" id="l508">    508</a> 
+<a href="#l509" class="line" id="l509">    509</a>         std::shared_ptr&lt;RestSource&gt; sharedThis = NonConstSharedFromThis();
+<a href="#l510" class="line" id="l510">    510</a>         for (auto&amp; result : results.Matches)
+<a href="#l511" class="line" id="l511">    511</a>         {
+<a href="#l512" class="line" id="l512">    512</a>             std::shared_ptr&lt;ICompositePackage&gt; package = std::make_shared&lt;RestPackage&gt;(sharedThis, std::move(result));
+<a href="#l513" class="line" id="l513">    513</a> 
+<a href="#l514" class="line" id="l514">    514</a>             // TODO: Improve to use Package match filter to return relevant search results.
+<a href="#l515" class="line" id="l515">    515</a>             PackageMatchFilter packageFilter{ {}, {}, {} };
+<a href="#l516" class="line" id="l516">    516</a> 
+<a href="#l517" class="line" id="l517">    517</a>             searchResult.Matches.emplace_back(std::move(package), std::move(packageFilter));
+<a href="#l518" class="line" id="l518">    518</a>         }
+<a href="#l519" class="line" id="l519">    519</a> 
+<a href="#l520" class="line" id="l520">    520</a>         searchResult.Truncated = results.Truncated;
+<a href="#l521" class="line" id="l521">    521</a> 
+<a href="#l522" class="line" id="l522">    522</a>         return searchResult;
+<a href="#l523" class="line" id="l523">    523</a>     }
+<a href="#l524" class="line" id="l524">    524</a> 
+<a href="#l525" class="line" id="l525">    525</a>     void* RestSource::CastTo(ISourceType type)
+<a href="#l526" class="line" id="l526">    526</a>     {
+<a href="#l527" class="line" id="l527">    527</a>         if (type == SourceType)
+<a href="#l528" class="line" id="l528">    528</a>         {
+<a href="#l529" class="line" id="l529">    529</a>             return this;
+<a href="#l530" class="line" id="l530">    530</a>         }
+<a href="#l531" class="line" id="l531">    531</a> 
+<a href="#l532" class="line" id="l532">    532</a>         return nullptr;
+<a href="#l533" class="line" id="l533">    533</a>     }
+<a href="#l534" class="line" id="l534">    534</a> 
+<a href="#l535" class="line" id="l535">    535</a>     const RestClient&amp; RestSource::GetRestClient() const
+<a href="#l536" class="line" id="l536">    536</a>     {
+<a href="#l537" class="line" id="l537">    537</a>         return m_restClient;
+<a href="#l538" class="line" id="l538">    538</a>     }
+<a href="#l539" class="line" id="l539">    539</a> 
+<a href="#l540" class="line" id="l540">    540</a>     bool RestSource::IsSame(const RestSource* other) const
+<a href="#l541" class="line" id="l541">    541</a>     {
+<a href="#l542" class="line" id="l542">    542</a>         return (other &amp;&amp; GetIdentifier() == other-&gt;GetIdentifier());
+<a href="#l543" class="line" id="l543">    543</a>     }
+<a href="#l544" class="line" id="l544">    544</a> 
+<a href="#l545" class="line" id="l545">    545</a>     std::shared_ptr&lt;RestSource&gt; RestSource::NonConstSharedFromThis() const
+<a href="#l546" class="line" id="l546">    546</a>     {
+<a href="#l547" class="line" id="l547">    547</a>         return const_cast&lt;RestSource*&gt;(this)-&gt;shared_from_this();
+<a href="#l548" class="line" id="l548">    548</a>     }
+<a href="#l549" class="line" id="l549">    549</a> }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fixes for deploying optional package while running (#81) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/9a291758856428eeb11c5cd3c05d16b2ae9fbb2c.html">9a291758856428eeb11c5cd3c05d16b2ae9fbb2c</a>
+<b>parent</b> <a href="../commit/fb0db2ae4ef8d9216b2f501edd9a95b66a9ba423.html">fb0db2ae4ef8d9216b2f501edd9a95b66a9ba423</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed,  8 Apr 2020 23:40:41 -0700
+
+Fixes for deploying optional package while running (#81)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/VTSupport.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">+++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/MsixInfo.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">+++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Deployment.cpp</a></td><td> | </td><td class="num">121</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCommonCore/MsixInfo.cpp</a></td><td> | </td><td class="num">46</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a></td><td> | </td><td class="num">14</td><td><span class="i">++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h</a></td><td> | </td><td class="num">11</td><td><span class="i">+++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></td><td> | </td><td class="num">71</td><td><span class="i">+++++++++++++++++++++++++++</span><span class="d">--------------------------------------------</span></td></tr>
+</table></pre><pre>7 files changed, 191 insertions(+), 82 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/VTSupport.cpp.html">src/AppInstallerCLICore/VTSupport.cpp</a> b/<a href="../file/src/AppInstallerCLICore/VTSupport.cpp.html">src/AppInstallerCLICore/VTSupport.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -24,7 +24,9 @@ namespace AppInstaller::CLI::VirtualTerminal
+</a>             {
+                 if (!GetConsoleMode(hOut, &amp;m_previousMode))
+                 {
+<a href="#h0-0-3" id="h0-0-3" class="d">-                    LOG_LAST_ERROR();
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+                    // If the user redirects output, the handle will be invalid for this function.
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+                    // Don&#39;t log it in that case.
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+                    LOG_LAST_ERROR_IF(GetLastError() != ERROR_INVALID_HANDLE);
+</a>                 }
+                 else
+                 {
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/MsixInfo.cpp.html">src/AppInstallerCLITests/MsixInfo.cpp</a> b/<a href="../file/src/AppInstallerCLITests/MsixInfo.cpp.html">src/AppInstallerCLITests/MsixInfo.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -17,10 +17,10 @@ TEST_CASE(&quot;MsixInfo_GetPackageFamilyName&quot;, &quot;[msixinfo]&quot;)
+</a>     TestDataFile index(s_MsixFile_1);
+     Msix::MsixInfo msix(index.GetPath().u8string());
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-    std::string expectedFamilyName = &quot;AppInstallerCLITestsFakeIndex_125rzkzqaqjwj&quot;;
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-    std::string actualFamilyName = msix.GetPackageFamilyName();
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    std::string expectedFullName = &quot;AppInstallerCLITestsFakeIndex_1.0.0.0_neutral__125rzkzqaqjwj&quot;;
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    std::string actualFullName = msix.GetPackageFullName();
+</a> 
+<a href="#h1-0-8" id="h1-0-8" class="d">-    REQUIRE(expectedFamilyName == actualFamilyName);
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    REQUIRE(expectedFullName == actualFullName);
+</a> }
+ 
+ TEST_CASE(&quot;MsixInfo_WriteManifestAndCompareToSelf&quot;, &quot;[msixinfo]&quot;)
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Deployment.cpp.html">src/AppInstallerCommonCore/Deployment.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Deployment.cpp.html">src/AppInstallerCommonCore/Deployment.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -8,6 +8,9 @@
+</a> 
+ namespace AppInstaller::Deployment
+ {
+<a href="#h2-0-3" id="h2-0-3" class="i">+    using namespace winrt::Windows::Foundation;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    using namespace winrt::Windows::Management::Deployment;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+
+</a>     namespace
+     {
+         size_t GetDeploymentOperationId()
+<a href="#h2-1" id="h2-1" class="h">@@ -15,6 +18,72 @@ namespace AppInstaller::Deployment
+</a>             static std::atomic_size_t s_deploymentId = 0;
+             return s_deploymentId.fetch_add(1);
+         }
+<a href="#h2-1-3" id="h2-1-3" class="i">+
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        void WaitForDeployment(
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+            IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt;&amp; deployOperation,
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+            size_t id,
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+            IProgressCallback&amp; callback)
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+        {
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+            AsyncOperationProgressHandler&lt;DeploymentResult, DeploymentProgress&gt; progressCallback(
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+                [&amp;callback](const IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt;&amp;, DeploymentProgress progress)
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+                {
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+                    callback.OnProgress(progress.percentage, 100, ProgressType::Percent);
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+                }
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+            );
+</a><a href="#h2-1-15" id="h2-1-15" class="i">+
+</a><a href="#h2-1-16" id="h2-1-16" class="i">+            // Set progress callback.
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+            deployOperation.Progress(progressCallback);
+</a><a href="#h2-1-18" id="h2-1-18" class="i">+
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+            auto removeCancel = callback.SetCancellationFunction([&amp;]() { deployOperation.Cancel(); });
+</a><a href="#h2-1-20" id="h2-1-20" class="i">+            auto deployResult = deployOperation.get();
+</a><a href="#h2-1-21" id="h2-1-21" class="i">+
+</a><a href="#h2-1-22" id="h2-1-22" class="i">+            if (!SUCCEEDED(deployResult.ExtendedErrorCode()))
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+            {
+</a><a href="#h2-1-24" id="h2-1-24" class="i">+                AICLI_LOG(Core, Error, &lt;&lt; &quot;Deployment failed #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(deployResult.ErrorText()));
+</a><a href="#h2-1-25" id="h2-1-25" class="i">+
+</a><a href="#h2-1-26" id="h2-1-26" class="i">+                // Note that while the format string is char*, it gets converted to wchar before being used and thus %s needs a wchar.
+</a><a href="#h2-1-27" id="h2-1-27" class="i">+                THROW_HR_MSG(deployResult.ExtendedErrorCode(), &quot;Install failed: %s&quot;, deployResult.ErrorText().c_str());
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+            }
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+            else
+</a><a href="#h2-1-30" id="h2-1-30" class="i">+            {
+</a><a href="#h2-1-31" id="h2-1-31" class="i">+                AICLI_LOG(Core, Info, &lt;&lt; &quot;Successfully deployed #&quot; &lt;&lt; id);
+</a><a href="#h2-1-32" id="h2-1-32" class="i">+            }
+</a><a href="#h2-1-33" id="h2-1-33" class="i">+        }
+</a><a href="#h2-1-34" id="h2-1-34" class="i">+
+</a><a href="#h2-1-35" id="h2-1-35" class="i">+        // Type that exists simply to enabled a fire and forget register call as we exit.
+</a><a href="#h2-1-36" id="h2-1-36" class="i">+        struct DelayRegisterStorage
+</a><a href="#h2-1-37" id="h2-1-37" class="i">+        {
+</a><a href="#h2-1-38" id="h2-1-38" class="i">+            DelayRegisterStorage() = default;
+</a><a href="#h2-1-39" id="h2-1-39" class="i">+
+</a><a href="#h2-1-40" id="h2-1-40" class="i">+            ~DelayRegisterStorage()
+</a><a href="#h2-1-41" id="h2-1-41" class="i">+            {
+</a><a href="#h2-1-42" id="h2-1-42" class="i">+                PackageManager packageManager;
+</a><a href="#h2-1-43" id="h2-1-43" class="i">+
+</a><a href="#h2-1-44" id="h2-1-44" class="i">+                for (const auto&amp; fn : m_familyNames)
+</a><a href="#h2-1-45" id="h2-1-45" class="i">+                {
+</a><a href="#h2-1-46" id="h2-1-46" class="i">+                    size_t id = GetDeploymentOperationId();
+</a><a href="#h2-1-47" id="h2-1-47" class="i">+                    AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting RegisterPackageByFamilyName operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; fn);
+</a><a href="#h2-1-48" id="h2-1-48" class="i">+
+</a><a href="#h2-1-49" id="h2-1-49" class="i">+                    winrt::hstring familyName = Utility::ConvertToUTF16(fn).c_str();
+</a><a href="#h2-1-50" id="h2-1-50" class="i">+                    (void)packageManager.RegisterPackageByFamilyNameAsync(
+</a><a href="#h2-1-51" id="h2-1-51" class="i">+                        familyName,
+</a><a href="#h2-1-52" id="h2-1-52" class="i">+                        nullptr,
+</a><a href="#h2-1-53" id="h2-1-53" class="i">+                        winrt::Windows::Management::Deployment::DeploymentOptions::None,
+</a><a href="#h2-1-54" id="h2-1-54" class="i">+                        nullptr,
+</a><a href="#h2-1-55" id="h2-1-55" class="i">+                        nullptr);
+</a><a href="#h2-1-56" id="h2-1-56" class="i">+                }
+</a><a href="#h2-1-57" id="h2-1-57" class="i">+            }
+</a><a href="#h2-1-58" id="h2-1-58" class="i">+
+</a><a href="#h2-1-59" id="h2-1-59" class="i">+            void Add(std::string_view familyName)
+</a><a href="#h2-1-60" id="h2-1-60" class="i">+            {
+</a><a href="#h2-1-61" id="h2-1-61" class="i">+                m_familyNames.emplace_back(familyName);
+</a><a href="#h2-1-62" id="h2-1-62" class="i">+            }
+</a><a href="#h2-1-63" id="h2-1-63" class="i">+
+</a><a href="#h2-1-64" id="h2-1-64" class="i">+        private:
+</a><a href="#h2-1-65" id="h2-1-65" class="i">+            std::vector&lt;std::string&gt; m_familyNames;
+</a><a href="#h2-1-66" id="h2-1-66" class="i">+        };
+</a><a href="#h2-1-67" id="h2-1-67" class="i">+
+</a><a href="#h2-1-68" id="h2-1-68" class="i">+        DelayRegisterStorage s_delayRegisterStorage;
+</a>     }
+ 
+     void RequestAddPackageAsync(
+<a href="#h2-2" id="h2-2" class="h">@@ -22,9 +91,6 @@ namespace AppInstaller::Deployment
+</a>         winrt::Windows::Management::Deployment::DeploymentOptions options,
+         IProgressCallback&amp; callback)
+     {
+<a href="#h2-2-3" id="h2-2-3" class="d">-        using namespace winrt::Windows::Foundation;
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-        using namespace winrt::Windows::Management::Deployment;
+</a><a href="#h2-2-5" id="h2-2-5" class="d">-
+</a>         size_t id = GetDeploymentOperationId();
+         AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting RequestAddPackage operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(uri.AbsoluteUri().c_str()));
+ 
+<a href="#h2-3" id="h2-3" class="h">@@ -39,36 +105,39 @@ namespace AppInstaller::Deployment
+</a>             nullptr, /*optionalAndRelatedPackageFamilyNames*/
+             nullptr /*relatedPackageUris*/);
+ 
+<a href="#h2-3-3" id="h2-3-3" class="d">-        AsyncOperationProgressHandler&lt;DeploymentResult, DeploymentProgress&gt; progressCallback(
+</a><a href="#h2-3-4" id="h2-3-4" class="d">-            [&amp;callback](const IAsyncOperationWithProgress&lt;DeploymentResult, DeploymentProgress&gt;&amp;, DeploymentProgress progress)
+</a><a href="#h2-3-5" id="h2-3-5" class="d">-            {
+</a><a href="#h2-3-6" id="h2-3-6" class="d">-                callback.OnProgress(progress.percentage, 100, ProgressType::Percent);
+</a><a href="#h2-3-7" id="h2-3-7" class="d">-            }
+</a><a href="#h2-3-8" id="h2-3-8" class="d">-        );
+</a><a href="#h2-3-9" id="h2-3-9" class="i">+        WaitForDeployment(deployOperation, id, callback);
+</a><a href="#h2-3-10" id="h2-3-10" class="i">+    }
+</a><a href="#h2-3-11" id="h2-3-11" class="i">+
+</a><a href="#h2-3-12" id="h2-3-12" class="i">+    void StageAndDelayRegisterPackageAsync(
+</a><a href="#h2-3-13" id="h2-3-13" class="i">+        std::string_view packageFamilyName,
+</a><a href="#h2-3-14" id="h2-3-14" class="i">+        const winrt::Windows::Foundation::Uri&amp; uri,
+</a><a href="#h2-3-15" id="h2-3-15" class="i">+        winrt::Windows::Management::Deployment::DeploymentOptions stageOptions,
+</a><a href="#h2-3-16" id="h2-3-16" class="i">+        winrt::Windows::Management::Deployment::DeploymentOptions,
+</a><a href="#h2-3-17" id="h2-3-17" class="i">+        IProgressCallback&amp; callback)
+</a><a href="#h2-3-18" id="h2-3-18" class="i">+    {
+</a><a href="#h2-3-19" id="h2-3-19" class="i">+        size_t id = GetDeploymentOperationId();
+</a><a href="#h2-3-20" id="h2-3-20" class="i">+        AICLI_LOG(Core, Info, &lt;&lt; &quot;Starting StagePackage operation #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(uri.AbsoluteUri().c_str()));
+</a> 
+<a href="#h2-3-22" id="h2-3-22" class="d">-        // Set progress callback.
+</a><a href="#h2-3-23" id="h2-3-23" class="d">-        deployOperation.Progress(progressCallback);
+</a><a href="#h2-3-24" id="h2-3-24" class="i">+        PackageManager packageManager;
+</a> 
+<a href="#h2-3-26" id="h2-3-26" class="d">-        auto removeCancel = callback.SetCancellationFunction([&amp;]() { deployOperation.Cancel(); });
+</a><a href="#h2-3-27" id="h2-3-27" class="d">-        auto deployResult = deployOperation.get();
+</a><a href="#h2-3-28" id="h2-3-28" class="i">+        // RequestAddPackageAsync will invoke smart screen.
+</a><a href="#h2-3-29" id="h2-3-29" class="i">+        auto deployOperation = packageManager.StagePackageAsync(
+</a><a href="#h2-3-30" id="h2-3-30" class="i">+            uri,
+</a><a href="#h2-3-31" id="h2-3-31" class="i">+            nullptr, /*dependencyPackageUris*/
+</a><a href="#h2-3-32" id="h2-3-32" class="i">+            stageOptions,
+</a><a href="#h2-3-33" id="h2-3-33" class="i">+            nullptr, /*targetVolume*/
+</a><a href="#h2-3-34" id="h2-3-34" class="i">+            nullptr, /*optionalAndRelatedPackageFamilyNames*/
+</a><a href="#h2-3-35" id="h2-3-35" class="i">+            nullptr /*relatedPackageUris*/);
+</a> 
+<a href="#h2-3-37" id="h2-3-37" class="d">-        if (!SUCCEEDED(deployResult.ExtendedErrorCode()))
+</a><a href="#h2-3-38" id="h2-3-38" class="d">-        {
+</a><a href="#h2-3-39" id="h2-3-39" class="d">-            AICLI_LOG(Core, Error, &lt;&lt; &quot;Deployment failed #&quot; &lt;&lt; id &lt;&lt; &quot;: &quot; &lt;&lt; Utility::ConvertToUTF8(deployResult.ErrorText()));
+</a><a href="#h2-3-40" id="h2-3-40" class="i">+        WaitForDeployment(deployOperation, id, callback);
+</a> 
+<a href="#h2-3-42" id="h2-3-42" class="d">-            // Note that while the format string is char*, it gets converted to wchar before being used and thus %s needs a wchar.
+</a><a href="#h2-3-43" id="h2-3-43" class="d">-            THROW_HR_MSG(deployResult.ExtendedErrorCode(), &quot;Install failed: %s&quot;, deployResult.ErrorText().c_str());
+</a><a href="#h2-3-44" id="h2-3-44" class="d">-        }
+</a><a href="#h2-3-45" id="h2-3-45" class="d">-        else
+</a><a href="#h2-3-46" id="h2-3-46" class="d">-        {
+</a><a href="#h2-3-47" id="h2-3-47" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Successfully deployed #&quot; &lt;&lt; id);
+</a><a href="#h2-3-48" id="h2-3-48" class="d">-        }
+</a><a href="#h2-3-49" id="h2-3-49" class="i">+        s_delayRegisterStorage.Add(packageFamilyName);
+</a>     }
+ 
+<a href="#h2-3-52" id="h2-3-52" class="d">-    void RemovePackageFireAndForget(winrt::hstring packageFullName)
+</a><a href="#h2-3-53" id="h2-3-53" class="i">+    void RemovePackageFireAndForget(std::string_view packageFullName)
+</a>     {
+<a href="#h2-3-55" id="h2-3-55" class="d">-        using namespace winrt::Windows::Management::Deployment;
+</a>         PackageManager packageManager;
+<a href="#h2-3-57" id="h2-3-57" class="d">-        (void)packageManager.RemovePackageAsync(packageFullName, RemovalOptions::None);
+</a><a href="#h2-3-58" id="h2-3-58" class="i">+        winrt::hstring fullName = Utility::ConvertToUTF16(packageFullName).c_str();
+</a><a href="#h2-3-59" id="h2-3-59" class="i">+        (void)packageManager.RemovePackageAsync(fullName, RemovalOptions::None);
+</a>     }
+ }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCommonCore/MsixInfo.cpp.html">src/AppInstallerCommonCore/MsixInfo.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/MsixInfo.cpp.html">src/AppInstallerCommonCore/MsixInfo.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -188,6 +188,44 @@ namespace AppInstaller::Msix
+</a>         THROW_IF_FAILED(appxFactory-&gt;CreateManifestReader(inputStream, reader));
+     }
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+    std::string GetPackageFamilyNameFromFullName(std::string_view fullName)
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    {
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        std::wstring result;
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        result.resize(PACKAGE_FAMILY_NAME_MAX_LENGTH + 1);
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+        UINT32 size = static_cast&lt;UINT32&gt;(result.size());
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+        THROW_IF_WIN32_ERROR(PackageFamilyNameFromFullName(Utility::ConvertToUTF16(fullName).c_str(), &amp;size, &amp;result[0]));
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+        result.resize(size - 1);
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+        return Utility::ConvertToUTF8(result);
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+    }
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+    std::optional&lt;std::filesystem::path&gt; GetPackageLocationFromFullName(std::string_view fullName)
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+    {
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+        std::wstring fn = Utility::ConvertToUTF16(fullName);
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+        UINT32 length = 0;
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+        LONG returnVal = GetStagedPackagePathByFullName(fn.c_str(), &amp;length, nullptr);
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+        if (returnVal != ERROR_INSUFFICIENT_BUFFER)
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+        {
+</a><a href="#h3-0-21" id="h3-0-21" class="i">+            LOG_WIN32(returnVal);
+</a><a href="#h3-0-22" id="h3-0-22" class="i">+            return {};
+</a><a href="#h3-0-23" id="h3-0-23" class="i">+        }
+</a><a href="#h3-0-24" id="h3-0-24" class="i">+
+</a><a href="#h3-0-25" id="h3-0-25" class="i">+        THROW_HR_IF(E_UNEXPECTED, length == 0);
+</a><a href="#h3-0-26" id="h3-0-26" class="i">+
+</a><a href="#h3-0-27" id="h3-0-27" class="i">+        std::wstring result;
+</a><a href="#h3-0-28" id="h3-0-28" class="i">+        result.resize(length);
+</a><a href="#h3-0-29" id="h3-0-29" class="i">+
+</a><a href="#h3-0-30" id="h3-0-30" class="i">+        returnVal = GetStagedPackagePathByFullName(fn.c_str(), &amp;length, &amp;result[0]);
+</a><a href="#h3-0-31" id="h3-0-31" class="i">+        if (returnVal != ERROR_SUCCESS)
+</a><a href="#h3-0-32" id="h3-0-32" class="i">+        {
+</a><a href="#h3-0-33" id="h3-0-33" class="i">+            LOG_WIN32(returnVal);
+</a><a href="#h3-0-34" id="h3-0-34" class="i">+            return {};
+</a><a href="#h3-0-35" id="h3-0-35" class="i">+        }
+</a><a href="#h3-0-36" id="h3-0-36" class="i">+
+</a><a href="#h3-0-37" id="h3-0-37" class="i">+        result.resize(length - 1);
+</a><a href="#h3-0-38" id="h3-0-38" class="i">+        return { result };
+</a><a href="#h3-0-39" id="h3-0-39" class="i">+    }
+</a><a href="#h3-0-40" id="h3-0-40" class="i">+
+</a>     MsixInfo::MsixInfo(std::string_view uriStr)
+     {
+         if (Utility::IsUrlRemote(uriStr))
+<a href="#h3-1" id="h3-1" class="h">@@ -255,7 +293,7 @@ namespace AppInstaller::Msix
+</a>         return signatureContent;
+     }
+ 
+<a href="#h3-1-3" id="h3-1-3" class="d">-    std::string MsixInfo::GetPackageFamilyName()
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+    std::string MsixInfo::GetPackageFullName()
+</a>     {
+         ComPtr&lt;IAppxManifestPackageId&gt; packageId;
+         if (m_isBundle)
+<a href="#h3-2" id="h3-2" class="h">@@ -271,10 +309,10 @@ namespace AppInstaller::Msix
+</a>             THROW_IF_FAILED(manifestReader-&gt;GetPackageId(&amp;packageId));
+         }
+ 
+<a href="#h3-2-3" id="h3-2-3" class="d">-        wil::unique_cotaskmem_string familyName;
+</a><a href="#h3-2-4" id="h3-2-4" class="d">-        THROW_IF_FAILED(packageId-&gt;GetPackageFamilyName(&amp;familyName));
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+        wil::unique_cotaskmem_string fullName;
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+        THROW_IF_FAILED(packageId-&gt;GetPackageFullName(&amp;fullName));
+</a> 
+<a href="#h3-2-8" id="h3-2-8" class="d">-        return Utility::ConvertToUTF8(familyName.get());
+</a><a href="#h3-2-9" id="h3-2-9" class="i">+        return Utility::ConvertToUTF8(fullName.get());
+</a>     }
+ 
+     bool MsixInfo::IsNewerThan(const std::filesystem::path&amp; otherManifest)
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCommonCore/Public/AppInstallerDeployment.h.html">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerDeployment.h.html">src/AppInstallerCommonCore/Public/AppInstallerDeployment.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -13,8 +13,18 @@ namespace AppInstaller::Deployment
+</a>         winrt::Windows::Management::Deployment::DeploymentOptions options,
+         IProgressCallback&amp; callback);
+ 
+<a href="#h4-0-3" id="h4-0-3" class="i">+    // Stages the package, and then attempts to register it without waiting.
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+    // This enables us to work around the fact that we cannot call SetPackageInUse,
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+    // and thus cannot actually update an optional package while we are running.
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+    void StageAndDelayRegisterPackageAsync(
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+        std::string_view packageFamilyName,
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+        const winrt::Windows::Foundation::Uri&amp; uri,
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+        winrt::Windows::Management::Deployment::DeploymentOptions stageOptions,
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+        winrt::Windows::Management::Deployment::DeploymentOptions registerOptions,
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+        IProgressCallback&amp; callback);
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+
+</a>     // Calls winrt::Windows::Management::Deployment::PackageManager::RemovePackageAsync,
+     // but *DOES NOT WAIT FOR A RESULT*.  As this is used for removing an optional package
+<a href="#h4-0-15" id="h4-0-15" class="d">-    // we will simply complete our actions 
+</a><a href="#h4-0-16" id="h4-0-16" class="d">-    void RemovePackageFireAndForget(winrt::hstring packageFullName);
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+    // we will simply complete our actions and exit the process.
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+    void RemovePackageFireAndForget(std::string_view packageFullName);
+</a> }
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h.html">src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h.html">src/AppInstallerCommonCore/Public/AppInstallerMsixInfo.h</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -5,6 +5,7 @@
+</a> #include &lt;AppxPackaging.h&gt;
+ #include &lt;wrl/client.h&gt;
+ #include &lt;filesystem&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+#include &lt;optional&gt;
+</a> #include &lt;string&gt;
+ #include &lt;string_view&gt;
+ #include &lt;vector&gt;
+<a href="#h5-1" id="h5-1" class="h">@@ -28,6 +29,12 @@ namespace AppInstaller::Msix
+</a>         IStream* inputStream,
+         IAppxManifestReader** reader);
+ 
+<a href="#h5-1-3" id="h5-1-3" class="i">+    // Gets the package family name from the given full name.
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+    std::string GetPackageFamilyNameFromFullName(std::string_view fullName);
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+
+</a><a href="#h5-1-6" id="h5-1-6" class="i">+    // Gets the package location from the given full name.
+</a><a href="#h5-1-7" id="h5-1-7" class="i">+    std::optional&lt;std::filesystem::path&gt; GetPackageLocationFromFullName(std::string_view fullName);
+</a><a href="#h5-1-8" id="h5-1-8" class="i">+
+</a>     // MsixInfo class handles all appx/msix related query.
+     struct MsixInfo
+     {
+<a href="#h5-2" id="h5-2" class="h">@@ -47,8 +54,8 @@ namespace AppInstaller::Msix
+</a>         // Full content of AppxSignature.p7x
+         std::vector&lt;byte&gt; GetSignature();
+ 
+<a href="#h5-2-3" id="h5-2-3" class="d">-        // Gets the package family name.
+</a><a href="#h5-2-4" id="h5-2-4" class="d">-        std::string GetPackageFamilyName();
+</a><a href="#h5-2-5" id="h5-2-5" class="i">+        // Gets the package full name.
+</a><a href="#h5-2-6" id="h5-2-6" class="i">+        std::string GetPackageFullName();
+</a> 
+         // Gets a value indicating whether the referenced info is newer than the given manifest.
+         bool IsNewerThan(const std::filesystem::path&amp; otherManifest);
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp.html">src/AppInstallerRepositoryCore/Microsoft/PreIndexedPackageSourceFactory.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -35,6 +35,13 @@ namespace AppInstaller::Repository::Microsoft
+</a>         std::string GetPackageFamilyNameFromDetails(const SourceDetails&amp; details)
+         {
+             THROW_HR_IF(E_UNEXPECTED, details.Data.empty());
+<a href="#h6-0-3" id="h6-0-3" class="i">+            return Msix::GetPackageFamilyNameFromFullName(details.Data);
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+        }
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+        // Gets the package full name from the details.
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+        std::string GetPackageFullNameFromDetails(const SourceDetails&amp; details)
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+        {
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+            THROW_HR_IF(E_UNEXPECTED, details.Data.empty());
+</a>             return details.Data;
+         }
+ 
+<a href="#h6-1" id="h6-1" class="h">@@ -86,9 +93,9 @@ namespace AppInstaller::Repository::Microsoft
+</a>                     // If not initialized, we need to open the package and get the family name.
+                     Msix::MsixInfo packageInfo(packageLocation);
+                     THROW_HR_IF(APPINSTALLER_CLI_ERROR_PACKAGE_IS_BUNDLE, packageInfo.GetIsBundle());
+<a href="#h6-1-3" id="h6-1-3" class="d">-                    details.Data = packageInfo.GetPackageFamilyName();
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+                    details.Data = packageInfo.GetPackageFullName();
+</a> 
+<a href="#h6-1-6" id="h6-1-6" class="d">-                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Found package family name: &quot; &lt;&lt; details.Name &lt;&lt; &quot; =&gt; &quot; &lt;&lt; details.Data);
+</a><a href="#h6-1-7" id="h6-1-7" class="i">+                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Found package full name: &quot; &lt;&lt; details.Name &lt;&lt; &quot; =&gt; &quot; &lt;&lt; details.Data);
+</a>                 }
+ 
+                 auto lock = Synchronization::CrossProcessReaderWriteLock::LockForWrite(CreateNameForCPRWL(details));
+<a href="#h6-2" id="h6-2" class="h">@@ -115,44 +122,21 @@ namespace AppInstaller::Repository::Microsoft
+</a>         struct PackagedContextFactory : public PreIndexedFactoryBase
+         {
+             // *Should only be called when under a CrossProcessReaderWriteLock*
+<a href="#h6-2-3" id="h6-2-3" class="d">-            auto GetPackageFromDetails(const SourceDetails&amp; details)
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+            std::optional&lt;std::filesystem::path&gt; GetPackageLocationFromDetails(const SourceDetails&amp; details)
+</a>             {
+<a href="#h6-2-6" id="h6-2-6" class="d">-                using Package = winrt::Windows::ApplicationModel::Package;
+</a><a href="#h6-2-7" id="h6-2-7" class="d">-
+</a><a href="#h6-2-8" id="h6-2-8" class="d">-                std::wstring packageFamilyName = Utility::ConvertToUTF16(GetPackageFamilyNameFromDetails(details));
+</a><a href="#h6-2-9" id="h6-2-9" class="d">-
+</a><a href="#h6-2-10" id="h6-2-10" class="d">-                Package currentPackage = Package::Current();
+</a><a href="#h6-2-11" id="h6-2-11" class="d">-                auto dependencies = currentPackage.Dependencies();
+</a><a href="#h6-2-12" id="h6-2-12" class="d">-                for (uint32_t i = 0; i &lt; dependencies.Size(); ++i)
+</a><a href="#h6-2-13" id="h6-2-13" class="d">-                {
+</a><a href="#h6-2-14" id="h6-2-14" class="d">-                    Package package = dependencies.GetAt(i);
+</a><a href="#h6-2-15" id="h6-2-15" class="d">-                    if (package.Id().FamilyName() == packageFamilyName)
+</a><a href="#h6-2-16" id="h6-2-16" class="d">-                    {
+</a><a href="#h6-2-17" id="h6-2-17" class="d">-                        if (package.IsOptional())
+</a><a href="#h6-2-18" id="h6-2-18" class="d">-                        {
+</a><a href="#h6-2-19" id="h6-2-19" class="d">-                            return package;
+</a><a href="#h6-2-20" id="h6-2-20" class="d">-                        }
+</a><a href="#h6-2-21" id="h6-2-21" class="d">-                        else
+</a><a href="#h6-2-22" id="h6-2-22" class="d">-                        {
+</a><a href="#h6-2-23" id="h6-2-23" class="d">-                            AICLI_LOG(Repo, Error, &lt;&lt; &quot;Source references a non-optional package: &quot; &lt;&lt; details.Name &lt;&lt; &quot; =&gt; &quot; &lt;&lt; GetPackageFamilyNameFromDetails(details));
+</a><a href="#h6-2-24" id="h6-2-24" class="d">-                            return Package{ nullptr };
+</a><a href="#h6-2-25" id="h6-2-25" class="d">-                        }
+</a><a href="#h6-2-26" id="h6-2-26" class="d">-                    }
+</a><a href="#h6-2-27" id="h6-2-27" class="d">-                }
+</a><a href="#h6-2-28" id="h6-2-28" class="d">-                AICLI_LOG(Repo, Error, &lt;&lt; &quot;Source references an unknown package: &quot; &lt;&lt; details.Name &lt;&lt; &quot; =&gt; &quot; &lt;&lt; GetPackageFamilyNameFromDetails(details));
+</a><a href="#h6-2-29" id="h6-2-29" class="d">-                return Package{ nullptr };
+</a><a href="#h6-2-30" id="h6-2-30" class="i">+                return Msix::GetPackageLocationFromFullName(GetPackageFullNameFromDetails(details));
+</a>             }
+ 
+             std::shared_ptr&lt;ISource&gt; CreateInternal(const SourceDetails&amp; details, Synchronization::CrossProcessReaderWriteLock&amp;&amp; lock) override
+             {
+<a href="#h6-2-35" id="h6-2-35" class="d">-                auto optionalPackage = GetPackageFromDetails(details);
+</a><a href="#h6-2-36" id="h6-2-36" class="i">+                auto optionalPackage = GetPackageLocationFromDetails(details);
+</a>                 if (!optionalPackage)
+                 {
+<a href="#h6-2-39" id="h6-2-39" class="d">-                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Package not found by family name &quot; &lt;&lt; details.Data);
+</a><a href="#h6-2-40" id="h6-2-40" class="i">+                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Package not found &quot; &lt;&lt; details.Data);
+</a>                     THROW_HR(APPINSTALLER_CLI_ERROR_SOURCE_DATA_MISSING);
+                 }
+ 
+<a href="#h6-2-44" id="h6-2-44" class="d">-                std::filesystem::path packageLocation = optionalPackage.InstalledLocation().Path().c_str();
+</a><a href="#h6-2-45" id="h6-2-45" class="i">+                std::filesystem::path packageLocation = optionalPackage.value();
+</a>                 packageLocation /= s_PreIndexedPackageSourceFactory_IndexFileName;
+ 
+                 SQLiteIndex index = SQLiteIndex::Open(packageLocation.u8string(), SQLiteIndex::OpenDisposition::Immutable);
+<a href="#h6-3" id="h6-3" class="h">@@ -164,7 +148,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>             {
+                 // Check if the package is newer before calling into deployment.
+                 // This can save us a lot of time over letting deployment detect same version.
+<a href="#h6-3-3" id="h6-3-3" class="d">-                auto optionalPackage = GetPackageFromDetails(details);
+</a><a href="#h6-3-4" id="h6-3-4" class="i">+                auto optionalPackage = GetPackageLocationFromDetails(details);
+</a>                 if (optionalPackage)
+                 {
+                     Msix::MsixInfo packageInfo(packageLocation);
+<a href="#h6-4" id="h6-4" class="h">@@ -176,7 +160,7 @@ namespace AppInstaller::Repository::Microsoft
+</a>                         return;
+                     }
+ 
+<a href="#h6-4-3" id="h6-4-3" class="d">-                    std::filesystem::path packagePath = optionalPackage.InstalledLocation().Path().c_str();
+</a><a href="#h6-4-4" id="h6-4-4" class="i">+                    std::filesystem::path packagePath = optionalPackage.value();
+</a>                     std::filesystem::path manifestPath = packagePath / s_PreIndexedPackageSourceFactory_AppxManifestFileName;
+ 
+                     if (!packageInfo.IsNewerThan(manifestPath))
+<a href="#h6-5" id="h6-5" class="h">@@ -184,6 +168,8 @@ namespace AppInstaller::Repository::Microsoft
+</a>                         AICLI_LOG(Repo, Info, &lt;&lt; &quot;Remote source data was not newer than existing, no update needed&quot;);
+                         return;
+                     }
+<a href="#h6-5-3" id="h6-5-3" class="i">+
+</a><a href="#h6-5-4" id="h6-5-4" class="i">+                    details.Data = packageInfo.GetPackageFullName();
+</a>                 }
+ 
+                 if (progress.IsCancelled())
+<a href="#h6-6" id="h6-6" class="h">@@ -193,23 +179,20 @@ namespace AppInstaller::Repository::Microsoft
+</a>                 }
+ 
+                 winrt::Windows::Foundation::Uri uri(Utility::ConvertToUTF16(packageLocation));
+<a href="#h6-6-3" id="h6-6-3" class="d">-                Deployment::RequestAddPackageAsync(uri, winrt::Windows::Management::Deployment::DeploymentOptions::None, progress);
+</a><a href="#h6-6-4" id="h6-6-4" class="i">+                Deployment::StageAndDelayRegisterPackageAsync(
+</a><a href="#h6-6-5" id="h6-6-5" class="i">+                    GetPackageFamilyNameFromDetails(details),
+</a><a href="#h6-6-6" id="h6-6-6" class="i">+                    uri,
+</a><a href="#h6-6-7" id="h6-6-7" class="i">+                    winrt::Windows::Management::Deployment::DeploymentOptions::None,
+</a><a href="#h6-6-8" id="h6-6-8" class="i">+                    winrt::Windows::Management::Deployment::DeploymentOptions::None,
+</a><a href="#h6-6-9" id="h6-6-9" class="i">+                    progress);
+</a>             }
+ 
+             void RemoveInternal(const SourceDetails&amp; details, IProgressCallback&amp;) override
+             {
+<a href="#h6-6-14" id="h6-6-14" class="d">-                // Get the package referenced by the details
+</a><a href="#h6-6-15" id="h6-6-15" class="d">-                auto optionalPackage = GetPackageFromDetails(details);
+</a><a href="#h6-6-16" id="h6-6-16" class="d">-                if (!optionalPackage)
+</a><a href="#h6-6-17" id="h6-6-17" class="d">-                {
+</a><a href="#h6-6-18" id="h6-6-18" class="d">-                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Package not found by family name &quot; &lt;&lt; details.Data);
+</a><a href="#h6-6-19" id="h6-6-19" class="d">-                    return;
+</a><a href="#h6-6-20" id="h6-6-20" class="d">-                }
+</a><a href="#h6-6-21" id="h6-6-21" class="d">-
+</a>                 // Begin package removal, but let it run its course without waiting.
+                 // This pattern is required due to the inability to use SetInUseAsync from a full trust process.
+<a href="#h6-6-24" id="h6-6-24" class="d">-                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Removing package &quot; &lt;&lt; Utility::ConvertToUTF8(optionalPackage.Id().FullName()));
+</a><a href="#h6-6-25" id="h6-6-25" class="d">-                Deployment::RemovePackageFireAndForget(optionalPackage.Id().FullName());
+</a><a href="#h6-6-26" id="h6-6-26" class="i">+                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Removing package &quot; &lt;&lt; GetPackageFullNameFromDetails(details));
+</a><a href="#h6-6-27" id="h6-6-27" class="i">+                Deployment::RemovePackageFireAndForget(GetPackageFullNameFromDetails(details));
+</a>             }
+         };
+ 
+<a href="#h6-7" id="h6-7" class="h">@@ -232,7 +215,7 @@ namespace AppInstaller::Repository::Microsoft
+</a> 
+                 if (!std::filesystem::exists(packageLocation))
+                 {
+<a href="#h6-7-3" id="h6-7-3" class="d">-                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Data not found by family name &quot; &lt;&lt; details.Data);
+</a><a href="#h6-7-4" id="h6-7-4" class="i">+                    AICLI_LOG(Repo, Info, &lt;&lt; &quot;Data not found at &quot; &lt;&lt; packageLocation);
+</a>                     THROW_HR(APPINSTALLER_CLI_ERROR_SOURCE_DATA_MISSING);
+                 }
+ 
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>generator.rs - auto-musik - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="auto-musik.git Atom Feed" href="../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="auto-musik.git Atom Feed (tags)" href="../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../"><img src="../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>auto-musik</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../log.html">Log</a> | <a href="../../files.html">Files</a> | <a href="../../refs.html">Refs</a> | <a href="../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> generator.rs (3263B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> use crate::data::{Bar, Beat, Chord, NoteEvent, Tonality};
+<a href="#l2" class="line" id="l2">      2</a> use rand::Rng;
+<a href="#l3" class="line" id="l3">      3</a> use std::collections::HashMap;
+<a href="#l4" class="line" id="l4">      4</a> 
+<a href="#l5" class="line" id="l5">      5</a> pub struct MusicGenerator {
+<a href="#l6" class="line" id="l6">      6</a>     previous_state: Chord,
+<a href="#l7" class="line" id="l7">      7</a>     transition_model: HashMap&lt;Chord, Vec&lt;(Chord, u32)&gt;&gt;,
+<a href="#l8" class="line" id="l8">      8</a> }
+<a href="#l9" class="line" id="l9">      9</a> 
+<a href="#l10" class="line" id="l10">     10</a> impl MusicGenerator {
+<a href="#l11" class="line" id="l11">     11</a>     pub fn new() -&gt; Self {
+<a href="#l12" class="line" id="l12">     12</a>         use Chord::*;
+<a href="#l13" class="line" id="l13">     13</a>         let mut model = HashMap::new();
+<a href="#l14" class="line" id="l14">     14</a> 
+<a href="#l15" class="line" id="l15">     15</a>         model.insert(
+<a href="#l16" class="line" id="l16">     16</a>             First,
+<a href="#l17" class="line" id="l17">     17</a>             vec![
+<a href="#l18" class="line" id="l18">     18</a>                 (Fourth, 5), // I -&gt; IV (F) に行きやすい
+<a href="#l19" class="line" id="l19">     19</a>                 (Fifth, 3),  // I -&gt; V (G) もあり
+<a href="#l20" class="line" id="l20">     20</a>                 (Sixth, 2),  // I -&gt; VI (Am) もあり
+<a href="#l21" class="line" id="l21">     21</a>                 (First, 1),  // I のまま留まる
+<a href="#l22" class="line" id="l22">     22</a>             ],
+<a href="#l23" class="line" id="l23">     23</a>         );
+<a href="#l24" class="line" id="l24">     24</a> 
+<a href="#l25" class="line" id="l25">     25</a>         model.insert(
+<a href="#l26" class="line" id="l26">     26</a>             Fourth,
+<a href="#l27" class="line" id="l27">     27</a>             vec![
+<a href="#l28" class="line" id="l28">     28</a>                 (Fifth, 8), // IV -&gt; V (G) に行きやすい
+<a href="#l29" class="line" id="l29">     29</a>                 (First, 2), // IV -&gt; I (C) に戻る
+<a href="#l30" class="line" id="l30">     30</a>             ],
+<a href="#l31" class="line" id="l31">     31</a>         );
+<a href="#l32" class="line" id="l32">     32</a> 
+<a href="#l33" class="line" id="l33">     33</a>         model.insert(
+<a href="#l34" class="line" id="l34">     34</a>             Fifth,
+<a href="#l35" class="line" id="l35">     35</a>             vec![
+<a href="#l36" class="line" id="l36">     36</a>                 (First, 10), // V -&gt; I (C) に戻るのが基本
+<a href="#l37" class="line" id="l37">     37</a>             ],
+<a href="#l38" class="line" id="l38">     38</a>         );
+<a href="#l39" class="line" id="l39">     39</a> 
+<a href="#l40" class="line" id="l40">     40</a>         model.insert(Sixth, vec![(Fourth, 5), (First, 5)]); // Am -&gt; F or C
+<a href="#l41" class="line" id="l41">     41</a>         model.insert(Second, vec![(Fifth, 10)]); // Dm -&gt; G
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a>         MusicGenerator {
+<a href="#l44" class="line" id="l44">     44</a>             previous_state: First, // 初期状態は I (C)
+<a href="#l45" class="line" id="l45">     45</a>             transition_model: model,
+<a href="#l46" class="line" id="l46">     46</a>         }
+<a href="#l47" class="line" id="l47">     47</a>     }
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a>     pub fn generate_next_bar(&amp;mut self) -&gt; Bar {
+<a href="#l50" class="line" id="l50">     50</a>         let next_chord = self.choose_next_state();
+<a href="#l51" class="line" id="l51">     51</a> 
+<a href="#l52" class="line" id="l52">     52</a>         let next_bar = self.generate_events_for_chord(next_chord);
+<a href="#l53" class="line" id="l53">     53</a> 
+<a href="#l54" class="line" id="l54">     54</a>         self.previous_state = next_chord;
+<a href="#l55" class="line" id="l55">     55</a>         next_bar
+<a href="#l56" class="line" id="l56">     56</a>     }
+<a href="#l57" class="line" id="l57">     57</a> 
+<a href="#l58" class="line" id="l58">     58</a>     fn choose_next_state(&amp;self) -&gt; Chord {
+<a href="#l59" class="line" id="l59">     59</a>         let options = self
+<a href="#l60" class="line" id="l60">     60</a>             .transition_model
+<a href="#l61" class="line" id="l61">     61</a>             .get(&amp;self.previous_state)
+<a href="#l62" class="line" id="l62">     62</a>             .unwrap_or_else(|| panic!(&quot;there no code {:?} on this model&quot;, self.previous_state));
+<a href="#l63" class="line" id="l63">     63</a> 
+<a href="#l64" class="line" id="l64">     64</a>         let total_weight: u32 = options.iter().map(|(_, w)| w).sum();
+<a href="#l65" class="line" id="l65">     65</a>         let mut rng = rand::rng();
+<a href="#l66" class="line" id="l66">     66</a>         let mut target = rng.random_range(0..total_weight);
+<a href="#l67" class="line" id="l67">     67</a> 
+<a href="#l68" class="line" id="l68">     68</a>         for (state, weight) in options {
+<a href="#l69" class="line" id="l69">     69</a>             if target &lt; *weight {
+<a href="#l70" class="line" id="l70">     70</a>                 return *state;
+<a href="#l71" class="line" id="l71">     71</a>             }
+<a href="#l72" class="line" id="l72">     72</a>             target -= weight;
+<a href="#l73" class="line" id="l73">     73</a>         }
+<a href="#l74" class="line" id="l74">     74</a>         options[0].0
+<a href="#l75" class="line" id="l75">     75</a>     }
+<a href="#l76" class="line" id="l76">     76</a> 
+<a href="#l77" class="line" id="l77">     77</a>     fn generate_events_for_chord(&amp;self, chord: Chord) -&gt; Bar {
+<a href="#l78" class="line" id="l78">     78</a>         let root_note = match chord {
+<a href="#l79" class="line" id="l79">     79</a>             Chord::First =&gt; 60,   // C4
+<a href="#l80" class="line" id="l80">     80</a>             Chord::Second =&gt; 62,  // D4
+<a href="#l81" class="line" id="l81">     81</a>             Chord::Third =&gt; 64,   // E4
+<a href="#l82" class="line" id="l82">     82</a>             Chord::Fourth =&gt; 65,  // F4
+<a href="#l83" class="line" id="l83">     83</a>             Chord::Fifth =&gt; 67,   // G4
+<a href="#l84" class="line" id="l84">     84</a>             Chord::Sixth =&gt; 69,   // A4
+<a href="#l85" class="line" id="l85">     85</a>             Chord::Seventh =&gt; 71, // B4
+<a href="#l86" class="line" id="l86">     86</a>         };
+<a href="#l87" class="line" id="l87">     87</a> 
+<a href="#l88" class="line" id="l88">     88</a>         let mut events = Vec::new();
+<a href="#l89" class="line" id="l89">     89</a>         const NOTE_DURATION: u64 = 480; // 500ms - 20ms の隙間
+<a href="#l90" class="line" id="l90">     90</a> 
+<a href="#l91" class="line" id="l91">     91</a>         for i in 0..4 {
+<a href="#l92" class="line" id="l92">     92</a>             let time_ms = (i as u64) * 500;
+<a href="#l93" class="line" id="l93">     93</a> 
+<a href="#l94" class="line" id="l94">     94</a>             events.push((
+<a href="#l95" class="line" id="l95">     95</a>                 time_ms,
+<a href="#l96" class="line" id="l96">     96</a>                 NoteEvent::NoteOn {
+<a href="#l97" class="line" id="l97">     97</a>                     note: root_note,
+<a href="#l98" class="line" id="l98">     98</a>                     velocity: 90,
+<a href="#l99" class="line" id="l99">     99</a>                 },
+<a href="#l100" class="line" id="l100">    100</a>             ));
+<a href="#l101" class="line" id="l101">    101</a>             events.push((
+<a href="#l102" class="line" id="l102">    102</a>                 time_ms + NOTE_DURATION,
+<a href="#l103" class="line" id="l103">    103</a>                 NoteEvent::NoteOff { note: root_note },
+<a href="#l104" class="line" id="l104">    104</a>             ));
+<a href="#l105" class="line" id="l105">    105</a>         }
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a>         Bar {
+<a href="#l108" class="line" id="l108">    108</a>             beat: Beat::FourFourth,
+<a href="#l109" class="line" id="l109">    109</a>             tonality: Tonality::CM,
+<a href="#l110" class="line" id="l110">    110</a>             chord,
+<a href="#l111" class="line" id="l111">    111</a>             events,
+<a href="#l112" class="line" id="l112">    112</a>         }
+<a href="#l113" class="line" id="l113">    113</a>     }
+<a href="#l114" class="line" id="l114">    114</a> }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>PackageCollection.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> PackageCollection.cpp (21762B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;TestCommon.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;winget/Regex.h&gt;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;PackageCollection.h&gt;
+<a href="#l8" class="line" id="l8">      8</a> 
+<a href="#l9" class="line" id="l9">      9</a> // Duplicating here because a change to these values in the product *REALLY* needs to be thought through.
+<a href="#l10" class="line" id="l10">     10</a> using namespace std::string_literals;
+<a href="#l11" class="line" id="l11">     11</a> using namespace std::string_view_literals;
+<a href="#l12" class="line" id="l12">     12</a> 
+<a href="#l13" class="line" id="l13">     13</a> using namespace AppInstaller::CLI;
+<a href="#l14" class="line" id="l14">     14</a> using namespace AppInstaller::Repository;
+<a href="#l15" class="line" id="l15">     15</a> using namespace AppInstaller::Utility;
+<a href="#l16" class="line" id="l16">     16</a> 
+<a href="#l17" class="line" id="l17">     17</a> const std::string s_PackagesJson_Schema = &quot;$schema&quot;;
+<a href="#l18" class="line" id="l18">     18</a> const std::string s_PackagesJson_SchemaUri_v2_0 = &quot;https://aka.ms/winget-packages.schema.2.0.json&quot;;
+<a href="#l19" class="line" id="l19">     19</a> const std::string s_PackagesJson_WinGetVersion = &quot;WinGetVersion&quot;;
+<a href="#l20" class="line" id="l20">     20</a> const std::string s_PackagesJson_CreationDate = &quot;CreationDate&quot;;
+<a href="#l21" class="line" id="l21">     21</a> 
+<a href="#l22" class="line" id="l22">     22</a> const std::string s_PackagesJson_Sources = &quot;Sources&quot;;
+<a href="#l23" class="line" id="l23">     23</a> const std::string s_PackagesJson_Source_Details = &quot;SourceDetails&quot;;
+<a href="#l24" class="line" id="l24">     24</a> const std::string s_PackagesJson_Source_Name = &quot;Name&quot;;
+<a href="#l25" class="line" id="l25">     25</a> const std::string s_PackagesJson_Source_Identifier = &quot;Identifier&quot;;
+<a href="#l26" class="line" id="l26">     26</a> const std::string s_PackagesJson_Source_Argument = &quot;Argument&quot;;
+<a href="#l27" class="line" id="l27">     27</a> const std::string s_PackagesJson_Source_Type = &quot;Type&quot;;
+<a href="#l28" class="line" id="l28">     28</a> 
+<a href="#l29" class="line" id="l29">     29</a> const std::string s_PackagesJson_Packages = &quot;Packages&quot;;
+<a href="#l30" class="line" id="l30">     30</a> const std::string s_PackagesJson_Package_PackageIdentifier = &quot;PackageIdentifier&quot;;
+<a href="#l31" class="line" id="l31">     31</a> const std::string s_PackagesJson_Package_Version = &quot;Version&quot;;
+<a href="#l32" class="line" id="l32">     32</a> const std::string s_PackagesJson_Package_Channel = &quot;Channel&quot;;
+<a href="#l33" class="line" id="l33">     33</a> 
+<a href="#l34" class="line" id="l34">     34</a> namespace
+<a href="#l35" class="line" id="l35">     35</a> {
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a>     Json::Value ParseJsonString(const std::string&amp; jsonString)
+<a href="#l38" class="line" id="l38">     38</a>     {
+<a href="#l39" class="line" id="l39">     39</a>         Json::Value root;
+<a href="#l40" class="line" id="l40">     40</a>         std::stringstream{ jsonString } &gt;&gt; root;
+<a href="#l41" class="line" id="l41">     41</a>         return root;
+<a href="#l42" class="line" id="l42">     42</a>     }
+<a href="#l43" class="line" id="l43">     43</a> 
+<a href="#l44" class="line" id="l44">     44</a>     void ValidateJsonStringProperty(const Json::Value&amp; node, const std::string&amp; propertyName, std::string_view expectedValue, bool allowMissing = false)
+<a href="#l45" class="line" id="l45">     45</a>     {
+<a href="#l46" class="line" id="l46">     46</a>         if (allowMissing &amp;&amp; expectedValue.empty() &amp;&amp; !node.isMember(propertyName))
+<a href="#l47" class="line" id="l47">     47</a>         {
+<a href="#l48" class="line" id="l48">     48</a>             return;
+<a href="#l49" class="line" id="l49">     49</a>         }
+<a href="#l50" class="line" id="l50">     50</a> 
+<a href="#l51" class="line" id="l51">     51</a>         REQUIRE(node.isMember(propertyName));
+<a href="#l52" class="line" id="l52">     52</a>         REQUIRE(node[propertyName].isString());
+<a href="#l53" class="line" id="l53">     53</a>         if (!expectedValue.empty())
+<a href="#l54" class="line" id="l54">     54</a>         {
+<a href="#l55" class="line" id="l55">     55</a>             REQUIRE(node[propertyName].asString() == expectedValue);
+<a href="#l56" class="line" id="l56">     56</a>         }
+<a href="#l57" class="line" id="l57">     57</a>     }
+<a href="#l58" class="line" id="l58">     58</a> 
+<a href="#l59" class="line" id="l59">     59</a>     const Json::Value&amp; GetAndValidateJsonProperty(const Json::Value&amp; node, const std::string&amp; propertyName, Json::ValueType valueType)
+<a href="#l60" class="line" id="l60">     60</a>     {
+<a href="#l61" class="line" id="l61">     61</a>         REQUIRE(node.isMember(propertyName));
+<a href="#l62" class="line" id="l62">     62</a>         REQUIRE(node[propertyName].type() == valueType);
+<a href="#l63" class="line" id="l63">     63</a>         return node[propertyName];
+<a href="#l64" class="line" id="l64">     64</a>     }
+<a href="#l65" class="line" id="l65">     65</a> 
+<a href="#l66" class="line" id="l66">     66</a>     void ValidateJsonWithCollection(const Json::Value&amp; root, const PackageCollection&amp; collection)
+<a href="#l67" class="line" id="l67">     67</a>     {
+<a href="#l68" class="line" id="l68">     68</a>         ValidateJsonStringProperty(root, s_PackagesJson_Schema, s_PackagesJson_SchemaUri_v2_0);
+<a href="#l69" class="line" id="l69">     69</a>         ValidateJsonStringProperty(root, s_PackagesJson_WinGetVersion, collection.ClientVersion);
+<a href="#l70" class="line" id="l70">     70</a>         // valijson now validates the date-time format, just check the string property exists.
+<a href="#l71" class="line" id="l71">     71</a>         ValidateJsonStringProperty(root, s_PackagesJson_CreationDate, &quot;&quot;);
+<a href="#l72" class="line" id="l72">     72</a> 
+<a href="#l73" class="line" id="l73">     73</a>         const auto&amp; jsonSources = GetAndValidateJsonProperty(root, s_PackagesJson_Sources, Json::ValueType::arrayValue);
+<a href="#l74" class="line" id="l74">     74</a>         REQUIRE(jsonSources.size() == collection.Sources.size());
+<a href="#l75" class="line" id="l75">     75</a> 
+<a href="#l76" class="line" id="l76">     76</a>         // Expect the order to be the same. Not really needed, but it makes things easier.
+<a href="#l77" class="line" id="l77">     77</a>         auto jsonSourceItr = jsonSources.begin();
+<a href="#l78" class="line" id="l78">     78</a>         auto sourceItr = collection.Sources.begin();
+<a href="#l79" class="line" id="l79">     79</a>         for (; jsonSourceItr != jsonSources.end(); ++jsonSourceItr, ++sourceItr)
+<a href="#l80" class="line" id="l80">     80</a>         {
+<a href="#l81" class="line" id="l81">     81</a>             REQUIRE(jsonSourceItr-&gt;isObject());
+<a href="#l82" class="line" id="l82">     82</a>             const auto&amp; jsonSourceDetails = GetAndValidateJsonProperty(*jsonSourceItr, s_PackagesJson_Source_Details, Json::ValueType::objectValue);
+<a href="#l83" class="line" id="l83">     83</a>             ValidateJsonStringProperty(jsonSourceDetails, s_PackagesJson_Source_Name, sourceItr-&gt;Details.Name);
+<a href="#l84" class="line" id="l84">     84</a>             ValidateJsonStringProperty(jsonSourceDetails, s_PackagesJson_Source_Argument, sourceItr-&gt;Details.Arg);
+<a href="#l85" class="line" id="l85">     85</a>             ValidateJsonStringProperty(jsonSourceDetails, s_PackagesJson_Source_Type, sourceItr-&gt;Details.Type);
+<a href="#l86" class="line" id="l86">     86</a>             ValidateJsonStringProperty(jsonSourceDetails, s_PackagesJson_Source_Identifier, sourceItr-&gt;Details.Identifier);
+<a href="#l87" class="line" id="l87">     87</a> 
+<a href="#l88" class="line" id="l88">     88</a>             const auto&amp; jsonPackages = GetAndValidateJsonProperty(*jsonSourceItr, s_PackagesJson_Packages, Json::ValueType::arrayValue);
+<a href="#l89" class="line" id="l89">     89</a>             REQUIRE(jsonPackages.size() == sourceItr-&gt;Packages.size());
+<a href="#l90" class="line" id="l90">     90</a> 
+<a href="#l91" class="line" id="l91">     91</a>             auto jsonPackageItr = jsonPackages.begin();
+<a href="#l92" class="line" id="l92">     92</a>             auto packageItr = sourceItr-&gt;Packages.begin();
+<a href="#l93" class="line" id="l93">     93</a>             for (; jsonPackageItr != jsonPackages.end(); ++jsonPackageItr, ++packageItr)
+<a href="#l94" class="line" id="l94">     94</a>             {
+<a href="#l95" class="line" id="l95">     95</a>                 REQUIRE(jsonPackageItr-&gt;isObject());
+<a href="#l96" class="line" id="l96">     96</a>                 ValidateJsonStringProperty(*jsonPackageItr, s_PackagesJson_Package_PackageIdentifier, packageItr-&gt;Id);
+<a href="#l97" class="line" id="l97">     97</a>                 ValidateJsonStringProperty(*jsonPackageItr, s_PackagesJson_Package_Version, packageItr-&gt;VersionAndChannel.GetVersion().ToString(), true);
+<a href="#l98" class="line" id="l98">     98</a>                 ValidateJsonStringProperty(*jsonPackageItr, s_PackagesJson_Package_Channel, packageItr-&gt;VersionAndChannel.GetChannel().ToString(), true);
+<a href="#l99" class="line" id="l99">     99</a>             }
+<a href="#l100" class="line" id="l100">    100</a>         }
+<a href="#l101" class="line" id="l101">    101</a>     }
+<a href="#l102" class="line" id="l102">    102</a> 
+<a href="#l103" class="line" id="l103">    103</a>     void ValidateEqualCollections(const PackageCollection&amp; first, const PackageCollection&amp; second)
+<a href="#l104" class="line" id="l104">    104</a>     {
+<a href="#l105" class="line" id="l105">    105</a>         REQUIRE(first.ClientVersion == second.ClientVersion);
+<a href="#l106" class="line" id="l106">    106</a>         REQUIRE(first.Sources.size() == second.Sources.size());
+<a href="#l107" class="line" id="l107">    107</a> 
+<a href="#l108" class="line" id="l108">    108</a>         auto firstSourceItr = first.Sources.begin();
+<a href="#l109" class="line" id="l109">    109</a>         auto secondSourceItr = second.Sources.begin();
+<a href="#l110" class="line" id="l110">    110</a>         for (; firstSourceItr != first.Sources.end(); ++firstSourceItr, ++secondSourceItr)
+<a href="#l111" class="line" id="l111">    111</a>         {
+<a href="#l112" class="line" id="l112">    112</a>             REQUIRE(firstSourceItr-&gt;Details.Name == secondSourceItr-&gt;Details.Name);
+<a href="#l113" class="line" id="l113">    113</a>             REQUIRE(firstSourceItr-&gt;Details.Arg == secondSourceItr-&gt;Details.Arg);
+<a href="#l114" class="line" id="l114">    114</a>             REQUIRE(firstSourceItr-&gt;Details.Type == secondSourceItr-&gt;Details.Type);
+<a href="#l115" class="line" id="l115">    115</a>             REQUIRE(firstSourceItr-&gt;Details.Identifier == secondSourceItr-&gt;Details.Identifier);
+<a href="#l116" class="line" id="l116">    116</a> 
+<a href="#l117" class="line" id="l117">    117</a>             REQUIRE(firstSourceItr-&gt;Packages.size() == secondSourceItr-&gt;Packages.size());
+<a href="#l118" class="line" id="l118">    118</a>             auto firstPackageItr = firstSourceItr-&gt;Packages.begin();
+<a href="#l119" class="line" id="l119">    119</a>             auto secondPackageItr = secondSourceItr-&gt;Packages.begin();
+<a href="#l120" class="line" id="l120">    120</a>             for (; firstPackageItr != firstSourceItr-&gt;Packages.end(); ++firstPackageItr, ++secondPackageItr)
+<a href="#l121" class="line" id="l121">    121</a>             {
+<a href="#l122" class="line" id="l122">    122</a>                 REQUIRE(firstPackageItr-&gt;Id == secondPackageItr-&gt;Id);
+<a href="#l123" class="line" id="l123">    123</a>                 REQUIRE(firstPackageItr-&gt;VersionAndChannel.ToString() == secondPackageItr-&gt;VersionAndChannel.ToString());
+<a href="#l124" class="line" id="l124">    124</a>             }
+<a href="#l125" class="line" id="l125">    125</a>         }
+<a href="#l126" class="line" id="l126">    126</a>     }
+<a href="#l127" class="line" id="l127">    127</a> }
+<a href="#l128" class="line" id="l128">    128</a> 
+<a href="#l129" class="line" id="l129">    129</a> TEST_CASE(&quot;PackageCollection_Write_SingleSource&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l130" class="line" id="l130">    130</a> {
+<a href="#l131" class="line" id="l131">    131</a>     PackageCollection::Source source;
+<a href="#l132" class="line" id="l132">    132</a>     source.Details.Name = &quot;TestSource&quot;;
+<a href="#l133" class="line" id="l133">    133</a>     source.Details.Arg = &quot;https://aka.ms/winget&quot;;
+<a href="#l134" class="line" id="l134">    134</a>     source.Details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l135" class="line" id="l135">    135</a>     source.Details.Identifier = &quot;TestSourceId&quot;;
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>     source.Packages.emplace_back(LocIndString{ &quot;test.package1&quot;sv }, Version{ &quot;1.0.1&quot; }, Channel{ &quot;&quot; });
+<a href="#l138" class="line" id="l138">    138</a>     source.Packages.emplace_back(LocIndString{ &quot;test.package2&quot;sv }, Version{ &quot;2&quot; }, Channel{ &quot;Public&quot; });
+<a href="#l139" class="line" id="l139">    139</a> 
+<a href="#l140" class="line" id="l140">    140</a>     PackageCollection pc
+<a href="#l141" class="line" id="l141">    141</a>     {
+<a href="#l142" class="line" id="l142">    142</a>         &quot;0.1.2.3&quot;,
+<a href="#l143" class="line" id="l143">    143</a>         std::vector&lt;PackageCollection::Source&gt;{ source }
+<a href="#l144" class="line" id="l144">    144</a>     };
+<a href="#l145" class="line" id="l145">    145</a> 
+<a href="#l146" class="line" id="l146">    146</a>     ValidateJsonWithCollection(PackagesJson::CreateJson(pc), pc);
+<a href="#l147" class="line" id="l147">    147</a> }
+<a href="#l148" class="line" id="l148">    148</a> 
+<a href="#l149" class="line" id="l149">    149</a> TEST_CASE(&quot;PackageCollection_Write_MultipleSources&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l150" class="line" id="l150">    150</a> {
+<a href="#l151" class="line" id="l151">    151</a>     PackageCollection::Source source1;
+<a href="#l152" class="line" id="l152">    152</a>     source1.Details.Name = &quot;TestSource&quot;;
+<a href="#l153" class="line" id="l153">    153</a>     source1.Details.Arg = &quot;https://aka.ms/winget&quot;;
+<a href="#l154" class="line" id="l154">    154</a>     source1.Details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l155" class="line" id="l155">    155</a>     source1.Details.Identifier = &quot;TestSourceId&quot;;
+<a href="#l156" class="line" id="l156">    156</a>     source1.Packages.emplace_back(LocIndString{ &quot;test.package1&quot;sv }, Version{ &quot;1.0.1&quot; }, Channel{ &quot;&quot; });
+<a href="#l157" class="line" id="l157">    157</a> 
+<a href="#l158" class="line" id="l158">    158</a>     PackageCollection::Source source2;
+<a href="#l159" class="line" id="l159">    159</a>     source2.Details.Name = &quot;TestSource2&quot;;
+<a href="#l160" class="line" id="l160">    160</a>     source2.Details.Arg = &quot;https://aka.ms/winget&quot;;
+<a href="#l161" class="line" id="l161">    161</a>     source2.Details.Type = &quot;*Test&quot;;
+<a href="#l162" class="line" id="l162">    162</a>     source2.Details.Identifier = &quot;SecondId&quot;;
+<a href="#l163" class="line" id="l163">    163</a>     source2.Packages.emplace_back(LocIndString{ &quot;test.package2&quot;sv }, Version{ &quot;2.1.0&quot; }, Channel{ &quot;Beta&quot; });
+<a href="#l164" class="line" id="l164">    164</a> 
+<a href="#l165" class="line" id="l165">    165</a>     PackageCollection pc
+<a href="#l166" class="line" id="l166">    166</a>     {
+<a href="#l167" class="line" id="l167">    167</a>         &quot;1.0.0.0&quot;,
+<a href="#l168" class="line" id="l168">    168</a>         std::vector&lt;PackageCollection::Source&gt;{ source1, source2 }
+<a href="#l169" class="line" id="l169">    169</a>     };
+<a href="#l170" class="line" id="l170">    170</a> 
+<a href="#l171" class="line" id="l171">    171</a>     ValidateJsonWithCollection(PackagesJson::CreateJson(pc), pc);
+<a href="#l172" class="line" id="l172">    172</a> }
+<a href="#l173" class="line" id="l173">    173</a> 
+<a href="#l174" class="line" id="l174">    174</a> TEST_CASE(&quot;PackageCollection_Read_SingleSource_1_0&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l175" class="line" id="l175">    175</a> {
+<a href="#l176" class="line" id="l176">    176</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l177" class="line" id="l177">    177</a>     {
+<a href="#l178" class="line" id="l178">    178</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.1.0.json&quot;,
+<a href="#l179" class="line" id="l179">    179</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l180" class="line" id="l180">    180</a>       &quot;Sources&quot;: [
+<a href="#l181" class="line" id="l181">    181</a>         {
+<a href="#l182" class="line" id="l182">    182</a>           &quot;Packages&quot;: [
+<a href="#l183" class="line" id="l183">    183</a>             {
+<a href="#l184" class="line" id="l184">    184</a>               &quot;Id&quot;: &quot;test.WithVersion&quot;,
+<a href="#l185" class="line" id="l185">    185</a>               &quot;Version&quot;: &quot;0.1&quot;,
+<a href="#l186" class="line" id="l186">    186</a>               &quot;Channel&quot;: &quot;Preview&quot;
+<a href="#l187" class="line" id="l187">    187</a>             },
+<a href="#l188" class="line" id="l188">    188</a>             {
+<a href="#l189" class="line" id="l189">    189</a>               &quot;Id&quot;: &quot;test.NoVersion&quot;
+<a href="#l190" class="line" id="l190">    190</a>             }
+<a href="#l191" class="line" id="l191">    191</a>           ],
+<a href="#l192" class="line" id="l192">    192</a>           &quot;SourceDetails&quot;: {
+<a href="#l193" class="line" id="l193">    193</a>             &quot;Argument&quot;: &quot;https://aka.ms/winget&quot;,
+<a href="#l194" class="line" id="l194">    194</a>             &quot;Identifier&quot;: &quot;TestSourceId&quot;,
+<a href="#l195" class="line" id="l195">    195</a>             &quot;Name&quot;: &quot;TestSource&quot;,
+<a href="#l196" class="line" id="l196">    196</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l197" class="line" id="l197">    197</a>           }
+<a href="#l198" class="line" id="l198">    198</a>         }
+<a href="#l199" class="line" id="l199">    199</a>       ],
+<a href="#l200" class="line" id="l200">    200</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;
+<a href="#l201" class="line" id="l201">    201</a>     })&quot;);
+<a href="#l202" class="line" id="l202">    202</a> 
+<a href="#l203" class="line" id="l203">    203</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l204" class="line" id="l204">    204</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::Success);
+<a href="#l205" class="line" id="l205">    205</a>     REQUIRE(parseResult.Errors.empty());
+<a href="#l206" class="line" id="l206">    206</a> 
+<a href="#l207" class="line" id="l207">    207</a>     PackageCollection::Source source;
+<a href="#l208" class="line" id="l208">    208</a>     source.Details.Name = &quot;TestSource&quot;;
+<a href="#l209" class="line" id="l209">    209</a>     source.Details.Arg = &quot;https://aka.ms/winget&quot;;
+<a href="#l210" class="line" id="l210">    210</a>     source.Details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l211" class="line" id="l211">    211</a>     source.Details.Identifier = &quot;TestSourceId&quot;;
+<a href="#l212" class="line" id="l212">    212</a> 
+<a href="#l213" class="line" id="l213">    213</a>     source.Packages.emplace_back(LocIndString{ &quot;test.WithVersion&quot;sv }, Version{ &quot;0.1&quot; }, Channel{ &quot;Preview&quot; });
+<a href="#l214" class="line" id="l214">    214</a>     source.Packages.emplace_back(LocIndString{ &quot;test.NoVersion&quot;sv }, Version{ &quot;&quot; }, Channel{ &quot;&quot; });
+<a href="#l215" class="line" id="l215">    215</a> 
+<a href="#l216" class="line" id="l216">    216</a>     PackageCollection expected
+<a href="#l217" class="line" id="l217">    217</a>     {
+<a href="#l218" class="line" id="l218">    218</a>         &quot;1.0.0&quot;,
+<a href="#l219" class="line" id="l219">    219</a>         std::vector&lt;PackageCollection::Source&gt;{ source }
+<a href="#l220" class="line" id="l220">    220</a>     };
+<a href="#l221" class="line" id="l221">    221</a> 
+<a href="#l222" class="line" id="l222">    222</a>     ValidateEqualCollections(parseResult.Packages, expected);
+<a href="#l223" class="line" id="l223">    223</a> }
+<a href="#l224" class="line" id="l224">    224</a> 
+<a href="#l225" class="line" id="l225">    225</a> TEST_CASE(&quot;PackageCollection_Read_SingleSource_2_0&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l226" class="line" id="l226">    226</a> {
+<a href="#l227" class="line" id="l227">    227</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l228" class="line" id="l228">    228</a>     {
+<a href="#l229" class="line" id="l229">    229</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.2.0.json&quot;,
+<a href="#l230" class="line" id="l230">    230</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l231" class="line" id="l231">    231</a>       &quot;Sources&quot;: [
+<a href="#l232" class="line" id="l232">    232</a>         {
+<a href="#l233" class="line" id="l233">    233</a>           &quot;Packages&quot;: [
+<a href="#l234" class="line" id="l234">    234</a>             {
+<a href="#l235" class="line" id="l235">    235</a>               &quot;PackageIdentifier&quot;: &quot;test.WithVersion&quot;,
+<a href="#l236" class="line" id="l236">    236</a>               &quot;Version&quot;: &quot;0.1&quot;,
+<a href="#l237" class="line" id="l237">    237</a>               &quot;Channel&quot;: &quot;Preview&quot;
+<a href="#l238" class="line" id="l238">    238</a>             },
+<a href="#l239" class="line" id="l239">    239</a>             {
+<a href="#l240" class="line" id="l240">    240</a>               &quot;PackageIdentifier&quot;: &quot;test.NoVersion&quot;
+<a href="#l241" class="line" id="l241">    241</a>             }
+<a href="#l242" class="line" id="l242">    242</a>           ],
+<a href="#l243" class="line" id="l243">    243</a>           &quot;SourceDetails&quot;: {
+<a href="#l244" class="line" id="l244">    244</a>             &quot;Argument&quot;: &quot;https://aka.ms/winget&quot;,
+<a href="#l245" class="line" id="l245">    245</a>             &quot;Identifier&quot;: &quot;TestSourceId&quot;,
+<a href="#l246" class="line" id="l246">    246</a>             &quot;Name&quot;: &quot;TestSource&quot;,
+<a href="#l247" class="line" id="l247">    247</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l248" class="line" id="l248">    248</a>           }
+<a href="#l249" class="line" id="l249">    249</a>         }
+<a href="#l250" class="line" id="l250">    250</a>       ]
+<a href="#l251" class="line" id="l251">    251</a>     })&quot;);
+<a href="#l252" class="line" id="l252">    252</a> 
+<a href="#l253" class="line" id="l253">    253</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l254" class="line" id="l254">    254</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::Success);
+<a href="#l255" class="line" id="l255">    255</a>     REQUIRE(parseResult.Errors.empty());
+<a href="#l256" class="line" id="l256">    256</a> 
+<a href="#l257" class="line" id="l257">    257</a>     PackageCollection::Source source;
+<a href="#l258" class="line" id="l258">    258</a>     source.Details.Name = &quot;TestSource&quot;;
+<a href="#l259" class="line" id="l259">    259</a>     source.Details.Arg = &quot;https://aka.ms/winget&quot;;
+<a href="#l260" class="line" id="l260">    260</a>     source.Details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l261" class="line" id="l261">    261</a>     source.Details.Identifier = &quot;TestSourceId&quot;;
+<a href="#l262" class="line" id="l262">    262</a> 
+<a href="#l263" class="line" id="l263">    263</a>     source.Packages.emplace_back(LocIndString{ &quot;test.WithVersion&quot;sv }, Version{ &quot;0.1&quot; }, Channel{ &quot;Preview&quot; });
+<a href="#l264" class="line" id="l264">    264</a>     source.Packages.emplace_back(LocIndString{ &quot;test.NoVersion&quot;sv }, Version{ &quot;&quot; }, Channel{ &quot;&quot; });
+<a href="#l265" class="line" id="l265">    265</a> 
+<a href="#l266" class="line" id="l266">    266</a>     PackageCollection expected
+<a href="#l267" class="line" id="l267">    267</a>     {
+<a href="#l268" class="line" id="l268">    268</a>         &quot;&quot;,
+<a href="#l269" class="line" id="l269">    269</a>         std::vector&lt;PackageCollection::Source&gt;{ source }
+<a href="#l270" class="line" id="l270">    270</a>     };
+<a href="#l271" class="line" id="l271">    271</a> 
+<a href="#l272" class="line" id="l272">    272</a>     ValidateEqualCollections(parseResult.Packages, expected);
+<a href="#l273" class="line" id="l273">    273</a> }
+<a href="#l274" class="line" id="l274">    274</a> 
+<a href="#l275" class="line" id="l275">    275</a> TEST_CASE(&quot;PackageCollection_Read_MultipleSources_1_0&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l276" class="line" id="l276">    276</a> {
+<a href="#l277" class="line" id="l277">    277</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l278" class="line" id="l278">    278</a>     {
+<a href="#l279" class="line" id="l279">    279</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.1.0.json&quot;,
+<a href="#l280" class="line" id="l280">    280</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l281" class="line" id="l281">    281</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;,
+<a href="#l282" class="line" id="l282">    282</a>       &quot;Sources&quot;: [
+<a href="#l283" class="line" id="l283">    283</a>         {
+<a href="#l284" class="line" id="l284">    284</a>           &quot;SourceDetails&quot;: {
+<a href="#l285" class="line" id="l285">    285</a>             &quot;Argument&quot;: &quot;//firstSource&quot;,
+<a href="#l286" class="line" id="l286">    286</a>             &quot;Identifier&quot;: &quot;Id1&quot;,
+<a href="#l287" class="line" id="l287">    287</a>             &quot;Name&quot;: &quot;First&quot;,
+<a href="#l288" class="line" id="l288">    288</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l289" class="line" id="l289">    289</a>           },
+<a href="#l290" class="line" id="l290">    290</a>           &quot;Packages&quot;: [
+<a href="#l291" class="line" id="l291">    291</a>             {
+<a href="#l292" class="line" id="l292">    292</a>               &quot;Id&quot;: &quot;test&quot;
+<a href="#l293" class="line" id="l293">    293</a>             }
+<a href="#l294" class="line" id="l294">    294</a>           ]
+<a href="#l295" class="line" id="l295">    295</a>         },
+<a href="#l296" class="line" id="l296">    296</a>         {
+<a href="#l297" class="line" id="l297">    297</a>           &quot;SourceDetails&quot;: {
+<a href="#l298" class="line" id="l298">    298</a>             &quot;Argument&quot;: &quot;//secondSource&quot;,
+<a href="#l299" class="line" id="l299">    299</a>             &quot;Identifier&quot;: &quot;Id2&quot;,
+<a href="#l300" class="line" id="l300">    300</a>             &quot;Name&quot;: &quot;Second&quot;,
+<a href="#l301" class="line" id="l301">    301</a>             &quot;Type&quot;: &quot;*TestSource&quot;
+<a href="#l302" class="line" id="l302">    302</a>           },
+<a href="#l303" class="line" id="l303">    303</a>           &quot;Packages&quot;: [
+<a href="#l304" class="line" id="l304">    304</a>             {
+<a href="#l305" class="line" id="l305">    305</a>               &quot;Id&quot;: &quot;test2&quot;,
+<a href="#l306" class="line" id="l306">    306</a>               &quot;Version&quot;: &quot;1.0&quot;
+<a href="#l307" class="line" id="l307">    307</a>             }
+<a href="#l308" class="line" id="l308">    308</a>           ]
+<a href="#l309" class="line" id="l309">    309</a>         }
+<a href="#l310" class="line" id="l310">    310</a>       ]
+<a href="#l311" class="line" id="l311">    311</a>     })&quot;);
+<a href="#l312" class="line" id="l312">    312</a> 
+<a href="#l313" class="line" id="l313">    313</a> 
+<a href="#l314" class="line" id="l314">    314</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l315" class="line" id="l315">    315</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::Success);
+<a href="#l316" class="line" id="l316">    316</a>     REQUIRE(parseResult.Errors.empty());
+<a href="#l317" class="line" id="l317">    317</a> 
+<a href="#l318" class="line" id="l318">    318</a>     PackageCollection::Source source1;
+<a href="#l319" class="line" id="l319">    319</a>     source1.Details.Name = &quot;First&quot;;
+<a href="#l320" class="line" id="l320">    320</a>     source1.Details.Arg = &quot;//firstSource&quot;;
+<a href="#l321" class="line" id="l321">    321</a>     source1.Details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l322" class="line" id="l322">    322</a>     source1.Details.Identifier = &quot;Id1&quot;;
+<a href="#l323" class="line" id="l323">    323</a>     source1.Packages.emplace_back(LocIndString{ &quot;test&quot;sv }, Version{ &quot;&quot; }, Channel{ &quot;&quot; });
+<a href="#l324" class="line" id="l324">    324</a> 
+<a href="#l325" class="line" id="l325">    325</a>     PackageCollection::Source source2;
+<a href="#l326" class="line" id="l326">    326</a>     source2.Details.Name = &quot;Second&quot;;
+<a href="#l327" class="line" id="l327">    327</a>     source2.Details.Arg = &quot;//secondSource&quot;;
+<a href="#l328" class="line" id="l328">    328</a>     source2.Details.Type = &quot;*TestSource&quot;;
+<a href="#l329" class="line" id="l329">    329</a>     source2.Details.Identifier = &quot;Id2&quot;;
+<a href="#l330" class="line" id="l330">    330</a>     source2.Packages.emplace_back(LocIndString{ &quot;test2&quot;sv }, Version{ &quot;1.0&quot; }, Channel{ &quot;&quot; });
+<a href="#l331" class="line" id="l331">    331</a> 
+<a href="#l332" class="line" id="l332">    332</a>     PackageCollection expected
+<a href="#l333" class="line" id="l333">    333</a>     {
+<a href="#l334" class="line" id="l334">    334</a>         &quot;1.0.0&quot;,
+<a href="#l335" class="line" id="l335">    335</a>         std::vector&lt;PackageCollection::Source&gt;{ source1, source2 }
+<a href="#l336" class="line" id="l336">    336</a>     };
+<a href="#l337" class="line" id="l337">    337</a> 
+<a href="#l338" class="line" id="l338">    338</a>     ValidateEqualCollections(parseResult.Packages, expected);
+<a href="#l339" class="line" id="l339">    339</a> }
+<a href="#l340" class="line" id="l340">    340</a> 
+<a href="#l341" class="line" id="l341">    341</a> TEST_CASE(&quot;PackageCollection_Read_MultipleSources_2_0&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l342" class="line" id="l342">    342</a> {
+<a href="#l343" class="line" id="l343">    343</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l344" class="line" id="l344">    344</a>     {
+<a href="#l345" class="line" id="l345">    345</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.2.0.json&quot;,
+<a href="#l346" class="line" id="l346">    346</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l347" class="line" id="l347">    347</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;,
+<a href="#l348" class="line" id="l348">    348</a>       &quot;Sources&quot;: [
+<a href="#l349" class="line" id="l349">    349</a>         {
+<a href="#l350" class="line" id="l350">    350</a>           &quot;SourceDetails&quot;: {
+<a href="#l351" class="line" id="l351">    351</a>             &quot;Argument&quot;: &quot;//firstSource&quot;,
+<a href="#l352" class="line" id="l352">    352</a>             &quot;Identifier&quot;: &quot;Id1&quot;,
+<a href="#l353" class="line" id="l353">    353</a>             &quot;Name&quot;: &quot;First&quot;,
+<a href="#l354" class="line" id="l354">    354</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l355" class="line" id="l355">    355</a>           },
+<a href="#l356" class="line" id="l356">    356</a>           &quot;Packages&quot;: [
+<a href="#l357" class="line" id="l357">    357</a>             {
+<a href="#l358" class="line" id="l358">    358</a>               &quot;PackageIdentifier&quot;: &quot;test&quot;
+<a href="#l359" class="line" id="l359">    359</a>             }
+<a href="#l360" class="line" id="l360">    360</a>           ]
+<a href="#l361" class="line" id="l361">    361</a>         },
+<a href="#l362" class="line" id="l362">    362</a>         {
+<a href="#l363" class="line" id="l363">    363</a>           &quot;SourceDetails&quot;: {
+<a href="#l364" class="line" id="l364">    364</a>             &quot;Argument&quot;: &quot;//secondSource&quot;,
+<a href="#l365" class="line" id="l365">    365</a>             &quot;Identifier&quot;: &quot;Id2&quot;,
+<a href="#l366" class="line" id="l366">    366</a>             &quot;Name&quot;: &quot;Second&quot;,
+<a href="#l367" class="line" id="l367">    367</a>             &quot;Type&quot;: &quot;*TestSource&quot;
+<a href="#l368" class="line" id="l368">    368</a>           },
+<a href="#l369" class="line" id="l369">    369</a>           &quot;Packages&quot;: [
+<a href="#l370" class="line" id="l370">    370</a>             {
+<a href="#l371" class="line" id="l371">    371</a>               &quot;PackageIdentifier&quot;: &quot;test2&quot;,
+<a href="#l372" class="line" id="l372">    372</a>               &quot;Version&quot;: &quot;1.0&quot;
+<a href="#l373" class="line" id="l373">    373</a>             }
+<a href="#l374" class="line" id="l374">    374</a>           ]
+<a href="#l375" class="line" id="l375">    375</a>         }
+<a href="#l376" class="line" id="l376">    376</a>       ]
+<a href="#l377" class="line" id="l377">    377</a>     })&quot;);
+<a href="#l378" class="line" id="l378">    378</a> 
+<a href="#l379" class="line" id="l379">    379</a> 
+<a href="#l380" class="line" id="l380">    380</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l381" class="line" id="l381">    381</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::Success);
+<a href="#l382" class="line" id="l382">    382</a>     REQUIRE(parseResult.Errors.empty());
+<a href="#l383" class="line" id="l383">    383</a> 
+<a href="#l384" class="line" id="l384">    384</a>     PackageCollection::Source source1;
+<a href="#l385" class="line" id="l385">    385</a>     source1.Details.Name = &quot;First&quot;;
+<a href="#l386" class="line" id="l386">    386</a>     source1.Details.Arg = &quot;//firstSource&quot;;
+<a href="#l387" class="line" id="l387">    387</a>     source1.Details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l388" class="line" id="l388">    388</a>     source1.Details.Identifier = &quot;Id1&quot;;
+<a href="#l389" class="line" id="l389">    389</a>     source1.Packages.emplace_back(LocIndString{ &quot;test&quot;sv }, Version{ &quot;&quot; }, Channel{ &quot;&quot; });
+<a href="#l390" class="line" id="l390">    390</a> 
+<a href="#l391" class="line" id="l391">    391</a>     PackageCollection::Source source2;
+<a href="#l392" class="line" id="l392">    392</a>     source2.Details.Name = &quot;Second&quot;;
+<a href="#l393" class="line" id="l393">    393</a>     source2.Details.Arg = &quot;//secondSource&quot;;
+<a href="#l394" class="line" id="l394">    394</a>     source2.Details.Type = &quot;*TestSource&quot;;
+<a href="#l395" class="line" id="l395">    395</a>     source2.Details.Identifier = &quot;Id2&quot;;
+<a href="#l396" class="line" id="l396">    396</a>     source2.Packages.emplace_back(LocIndString{ &quot;test2&quot;sv }, Version{ &quot;1.0&quot; }, Channel{ &quot;&quot; });
+<a href="#l397" class="line" id="l397">    397</a> 
+<a href="#l398" class="line" id="l398">    398</a>     PackageCollection expected
+<a href="#l399" class="line" id="l399">    399</a>     {
+<a href="#l400" class="line" id="l400">    400</a>         &quot;1.0.0&quot;,
+<a href="#l401" class="line" id="l401">    401</a>         std::vector&lt;PackageCollection::Source&gt;{ source1, source2 }
+<a href="#l402" class="line" id="l402">    402</a>     };
+<a href="#l403" class="line" id="l403">    403</a> 
+<a href="#l404" class="line" id="l404">    404</a>     ValidateEqualCollections(parseResult.Packages, expected);
+<a href="#l405" class="line" id="l405">    405</a> }
+<a href="#l406" class="line" id="l406">    406</a> 
+<a href="#l407" class="line" id="l407">    407</a> TEST_CASE(&quot;PackageCollection_Read_RepeatedSource&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l408" class="line" id="l408">    408</a> {
+<a href="#l409" class="line" id="l409">    409</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l410" class="line" id="l410">    410</a>     {
+<a href="#l411" class="line" id="l411">    411</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.1.0.json&quot;,
+<a href="#l412" class="line" id="l412">    412</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l413" class="line" id="l413">    413</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;,
+<a href="#l414" class="line" id="l414">    414</a>       &quot;Sources&quot;: [
+<a href="#l415" class="line" id="l415">    415</a>         {
+<a href="#l416" class="line" id="l416">    416</a>           &quot;SourceDetails&quot;: {
+<a href="#l417" class="line" id="l417">    417</a>             &quot;Argument&quot;: &quot;//firstSource&quot;,
+<a href="#l418" class="line" id="l418">    418</a>             &quot;Identifier&quot;: &quot;Id1&quot;,
+<a href="#l419" class="line" id="l419">    419</a>             &quot;Name&quot;: &quot;First&quot;,
+<a href="#l420" class="line" id="l420">    420</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l421" class="line" id="l421">    421</a>           },
+<a href="#l422" class="line" id="l422">    422</a>           &quot;Packages&quot;: [
+<a href="#l423" class="line" id="l423">    423</a>             {
+<a href="#l424" class="line" id="l424">    424</a>               &quot;Id&quot;: &quot;test&quot;
+<a href="#l425" class="line" id="l425">    425</a>             }
+<a href="#l426" class="line" id="l426">    426</a>           ]
+<a href="#l427" class="line" id="l427">    427</a>         },
+<a href="#l428" class="line" id="l428">    428</a>         {
+<a href="#l429" class="line" id="l429">    429</a>           &quot;SourceDetails&quot;: {
+<a href="#l430" class="line" id="l430">    430</a>             &quot;Argument&quot;: &quot;//secondSource&quot;,
+<a href="#l431" class="line" id="l431">    431</a>             &quot;Identifier&quot;: &quot;Id2&quot;,
+<a href="#l432" class="line" id="l432">    432</a>             &quot;Name&quot;: &quot;Second&quot;,
+<a href="#l433" class="line" id="l433">    433</a>             &quot;Type&quot;: &quot;*TestSource&quot;
+<a href="#l434" class="line" id="l434">    434</a>           },
+<a href="#l435" class="line" id="l435">    435</a>           &quot;Packages&quot;: [
+<a href="#l436" class="line" id="l436">    436</a>             {
+<a href="#l437" class="line" id="l437">    437</a>               &quot;Id&quot;: &quot;test2&quot;,
+<a href="#l438" class="line" id="l438">    438</a>               &quot;Version&quot;: &quot;1.0&quot;
+<a href="#l439" class="line" id="l439">    439</a>             }
+<a href="#l440" class="line" id="l440">    440</a>           ]
+<a href="#l441" class="line" id="l441">    441</a>         },
+<a href="#l442" class="line" id="l442">    442</a>         {
+<a href="#l443" class="line" id="l443">    443</a>           &quot;SourceDetails&quot;: {
+<a href="#l444" class="line" id="l444">    444</a>             &quot;Argument&quot;: &quot;//secondSource&quot;,
+<a href="#l445" class="line" id="l445">    445</a>             &quot;Identifier&quot;: &quot;Id2&quot;,
+<a href="#l446" class="line" id="l446">    446</a>             &quot;Name&quot;: &quot;Second&quot;,
+<a href="#l447" class="line" id="l447">    447</a>             &quot;Type&quot;: &quot;*TestSource&quot;
+<a href="#l448" class="line" id="l448">    448</a>           },
+<a href="#l449" class="line" id="l449">    449</a>           &quot;Packages&quot;: [
+<a href="#l450" class="line" id="l450">    450</a>             {
+<a href="#l451" class="line" id="l451">    451</a>               &quot;Id&quot;: &quot;test3&quot;,
+<a href="#l452" class="line" id="l452">    452</a>               &quot;Version&quot;: &quot;1.2&quot;
+<a href="#l453" class="line" id="l453">    453</a>             }
+<a href="#l454" class="line" id="l454">    454</a>           ]
+<a href="#l455" class="line" id="l455">    455</a>         }
+<a href="#l456" class="line" id="l456">    456</a>       ]
+<a href="#l457" class="line" id="l457">    457</a>     })&quot;);
+<a href="#l458" class="line" id="l458">    458</a> 
+<a href="#l459" class="line" id="l459">    459</a> 
+<a href="#l460" class="line" id="l460">    460</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l461" class="line" id="l461">    461</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::Success);
+<a href="#l462" class="line" id="l462">    462</a>     REQUIRE(parseResult.Errors.empty());
+<a href="#l463" class="line" id="l463">    463</a> 
+<a href="#l464" class="line" id="l464">    464</a>     PackageCollection::Source source1;
+<a href="#l465" class="line" id="l465">    465</a>     source1.Details.Name = &quot;First&quot;;
+<a href="#l466" class="line" id="l466">    466</a>     source1.Details.Arg = &quot;//firstSource&quot;;
+<a href="#l467" class="line" id="l467">    467</a>     source1.Details.Type = &quot;Microsoft.PreIndexed.Package&quot;;
+<a href="#l468" class="line" id="l468">    468</a>     source1.Details.Identifier = &quot;Id1&quot;;
+<a href="#l469" class="line" id="l469">    469</a>     source1.Packages.emplace_back(LocIndString{ &quot;test&quot;sv }, Version{ &quot;&quot; }, Channel{ &quot;&quot; });
+<a href="#l470" class="line" id="l470">    470</a> 
+<a href="#l471" class="line" id="l471">    471</a>     PackageCollection::Source source2;
+<a href="#l472" class="line" id="l472">    472</a>     source2.Details.Name = &quot;Second&quot;;
+<a href="#l473" class="line" id="l473">    473</a>     source2.Details.Arg = &quot;//secondSource&quot;;
+<a href="#l474" class="line" id="l474">    474</a>     source2.Details.Type = &quot;*TestSource&quot;;
+<a href="#l475" class="line" id="l475">    475</a>     source2.Details.Identifier = &quot;Id2&quot;;
+<a href="#l476" class="line" id="l476">    476</a>     source2.Packages.emplace_back(LocIndString{ &quot;test2&quot;sv }, Version{ &quot;1.0&quot; }, Channel{ &quot;&quot; });
+<a href="#l477" class="line" id="l477">    477</a>     source2.Packages.emplace_back(LocIndString{ &quot;test3&quot;sv }, Version{ &quot;1.2&quot; }, Channel{ &quot;&quot; });
+<a href="#l478" class="line" id="l478">    478</a> 
+<a href="#l479" class="line" id="l479">    479</a>     PackageCollection expected
+<a href="#l480" class="line" id="l480">    480</a>     {
+<a href="#l481" class="line" id="l481">    481</a>         &quot;1.0.0&quot;,
+<a href="#l482" class="line" id="l482">    482</a>         std::vector&lt;PackageCollection::Source&gt;{ source1, source2 }
+<a href="#l483" class="line" id="l483">    483</a>     };
+<a href="#l484" class="line" id="l484">    484</a> 
+<a href="#l485" class="line" id="l485">    485</a>     ValidateEqualCollections(parseResult.Packages, expected);
+<a href="#l486" class="line" id="l486">    486</a> }
+<a href="#l487" class="line" id="l487">    487</a> 
+<a href="#l488" class="line" id="l488">    488</a> TEST_CASE(&quot;PackageCollection_Read_MissingSchema&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l489" class="line" id="l489">    489</a> {
+<a href="#l490" class="line" id="l490">    490</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l491" class="line" id="l491">    491</a>     {
+<a href="#l492" class="line" id="l492">    492</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l493" class="line" id="l493">    493</a>       &quot;Sources&quot;: [
+<a href="#l494" class="line" id="l494">    494</a>         {
+<a href="#l495" class="line" id="l495">    495</a>           &quot;Packages&quot;: [
+<a href="#l496" class="line" id="l496">    496</a>             {
+<a href="#l497" class="line" id="l497">    497</a>               &quot;Id&quot;: &quot;test.test&quot;
+<a href="#l498" class="line" id="l498">    498</a>             }
+<a href="#l499" class="line" id="l499">    499</a>           ],
+<a href="#l500" class="line" id="l500">    500</a>           &quot;SourceDetails&quot;: {
+<a href="#l501" class="line" id="l501">    501</a>             &quot;Argument&quot;: &quot;https://aka.ms/winget&quot;,
+<a href="#l502" class="line" id="l502">    502</a>             &quot;Identifier&quot;: &quot;TestSourceId&quot;,
+<a href="#l503" class="line" id="l503">    503</a>             &quot;Name&quot;: &quot;TestSource&quot;,
+<a href="#l504" class="line" id="l504">    504</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l505" class="line" id="l505">    505</a>           }
+<a href="#l506" class="line" id="l506">    506</a>         }
+<a href="#l507" class="line" id="l507">    507</a>       ],
+<a href="#l508" class="line" id="l508">    508</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;
+<a href="#l509" class="line" id="l509">    509</a>     })&quot;);
+<a href="#l510" class="line" id="l510">    510</a> 
+<a href="#l511" class="line" id="l511">    511</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l512" class="line" id="l512">    512</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::MissingSchema);
+<a href="#l513" class="line" id="l513">    513</a> 
+<a href="#l514" class="line" id="l514">    514</a>     json = ParseJsonString(&quot;\&quot;Not even a JSON object\&quot;&quot;);
+<a href="#l515" class="line" id="l515">    515</a> 
+<a href="#l516" class="line" id="l516">    516</a>     parseResult = PackagesJson::TryParseJson(json);
+<a href="#l517" class="line" id="l517">    517</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::MissingSchema);
+<a href="#l518" class="line" id="l518">    518</a> }
+<a href="#l519" class="line" id="l519">    519</a> 
+<a href="#l520" class="line" id="l520">    520</a> TEST_CASE(&quot;PackageCollection_Read_WrongSchema&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l521" class="line" id="l521">    521</a> {
+<a href="#l522" class="line" id="l522">    522</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l523" class="line" id="l523">    523</a>     {
+<a href="#l524" class="line" id="l524">    524</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-settings.schema.json&quot;,
+<a href="#l525" class="line" id="l525">    525</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l526" class="line" id="l526">    526</a>       &quot;Sources&quot;: [
+<a href="#l527" class="line" id="l527">    527</a>         {
+<a href="#l528" class="line" id="l528">    528</a>           &quot;Packages&quot;: [
+<a href="#l529" class="line" id="l529">    529</a>             {
+<a href="#l530" class="line" id="l530">    530</a>               &quot;Id&quot;: &quot;test.test&quot;
+<a href="#l531" class="line" id="l531">    531</a>             }
+<a href="#l532" class="line" id="l532">    532</a>           ],
+<a href="#l533" class="line" id="l533">    533</a>           &quot;SourceDetails&quot;: {
+<a href="#l534" class="line" id="l534">    534</a>             &quot;Argument&quot;: &quot;https://aka.ms/winget&quot;,
+<a href="#l535" class="line" id="l535">    535</a>             &quot;Identifier&quot;: &quot;TestSourceId&quot;,
+<a href="#l536" class="line" id="l536">    536</a>             &quot;Name&quot;: &quot;TestSource&quot;,
+<a href="#l537" class="line" id="l537">    537</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l538" class="line" id="l538">    538</a>           }
+<a href="#l539" class="line" id="l539">    539</a>         }
+<a href="#l540" class="line" id="l540">    540</a>       ],
+<a href="#l541" class="line" id="l541">    541</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;
+<a href="#l542" class="line" id="l542">    542</a>     })&quot;);
+<a href="#l543" class="line" id="l543">    543</a> 
+<a href="#l544" class="line" id="l544">    544</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l545" class="line" id="l545">    545</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::UnrecognizedSchema);
+<a href="#l546" class="line" id="l546">    546</a> }
+<a href="#l547" class="line" id="l547">    547</a> 
+<a href="#l548" class="line" id="l548">    548</a> TEST_CASE(&quot;PackageCollection_Read_SchemaValidationFail&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l549" class="line" id="l549">    549</a> {
+<a href="#l550" class="line" id="l550">    550</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l551" class="line" id="l551">    551</a>     {
+<a href="#l552" class="line" id="l552">    552</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.1.0.json&quot;,
+<a href="#l553" class="line" id="l553">    553</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l554" class="line" id="l554">    554</a>       &quot;NotSources&quot;: [
+<a href="#l555" class="line" id="l555">    555</a>         {
+<a href="#l556" class="line" id="l556">    556</a>           &quot;Packages&quot;: [
+<a href="#l557" class="line" id="l557">    557</a>             {
+<a href="#l558" class="line" id="l558">    558</a>               &quot;Id&quot;: &quot;test.test&quot;
+<a href="#l559" class="line" id="l559">    559</a>             }
+<a href="#l560" class="line" id="l560">    560</a>           ],
+<a href="#l561" class="line" id="l561">    561</a>           &quot;SourceDetails&quot;: {
+<a href="#l562" class="line" id="l562">    562</a>             &quot;Argument&quot;: &quot;https://aka.ms/winget&quot;,
+<a href="#l563" class="line" id="l563">    563</a>             &quot;Identifier&quot;: &quot;TestSourceId&quot;,
+<a href="#l564" class="line" id="l564">    564</a>             &quot;Name&quot;: &quot;TestSource&quot;,
+<a href="#l565" class="line" id="l565">    565</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l566" class="line" id="l566">    566</a>           }
+<a href="#l567" class="line" id="l567">    567</a>         }
+<a href="#l568" class="line" id="l568">    568</a>       ],
+<a href="#l569" class="line" id="l569">    569</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;
+<a href="#l570" class="line" id="l570">    570</a>     })&quot;);
+<a href="#l571" class="line" id="l571">    571</a> 
+<a href="#l572" class="line" id="l572">    572</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l573" class="line" id="l573">    573</a>     INFO(parseResult.Errors);
+<a href="#l574" class="line" id="l574">    574</a> 
+<a href="#l575" class="line" id="l575">    575</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::SchemaValidationFailed);
+<a href="#l576" class="line" id="l576">    576</a>     REQUIRE(parseResult.Errors.find(&quot;Missing required property &#39;Sources&#39;.&quot;) != std::string::npos);
+<a href="#l577" class="line" id="l577">    577</a> }
+<a href="#l578" class="line" id="l578">    578</a> 
+<a href="#l579" class="line" id="l579">    579</a> TEST_CASE(&quot;PackageCollection_Read_SchemaValidationFail_Id&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l580" class="line" id="l580">    580</a> {
+<a href="#l581" class="line" id="l581">    581</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l582" class="line" id="l582">    582</a>     {
+<a href="#l583" class="line" id="l583">    583</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.1.0.json&quot;,
+<a href="#l584" class="line" id="l584">    584</a>       &quot;CreationDate&quot;: &quot;2021-01-01T12:00:00.000-00:00&quot;,
+<a href="#l585" class="line" id="l585">    585</a>       &quot;Sources&quot;: [
+<a href="#l586" class="line" id="l586">    586</a>         {
+<a href="#l587" class="line" id="l587">    587</a>           &quot;Packages&quot;: [
+<a href="#l588" class="line" id="l588">    588</a>             {
+<a href="#l589" class="line" id="l589">    589</a>               &quot;NotId&quot;: &quot;test.test&quot;
+<a href="#l590" class="line" id="l590">    590</a>             }
+<a href="#l591" class="line" id="l591">    591</a>           ],
+<a href="#l592" class="line" id="l592">    592</a>           &quot;SourceDetails&quot;: {
+<a href="#l593" class="line" id="l593">    593</a>             &quot;Argument&quot;: &quot;https://aka.ms/winget&quot;,
+<a href="#l594" class="line" id="l594">    594</a>             &quot;Identifier&quot;: &quot;TestSourceId&quot;,
+<a href="#l595" class="line" id="l595">    595</a>             &quot;Name&quot;: &quot;TestSource&quot;,
+<a href="#l596" class="line" id="l596">    596</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l597" class="line" id="l597">    597</a>           }
+<a href="#l598" class="line" id="l598">    598</a>         }
+<a href="#l599" class="line" id="l599">    599</a>       ],
+<a href="#l600" class="line" id="l600">    600</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;
+<a href="#l601" class="line" id="l601">    601</a>     })&quot;);
+<a href="#l602" class="line" id="l602">    602</a> 
+<a href="#l603" class="line" id="l603">    603</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l604" class="line" id="l604">    604</a>     INFO(parseResult.Errors);
+<a href="#l605" class="line" id="l605">    605</a> 
+<a href="#l606" class="line" id="l606">    606</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::SchemaValidationFailed);
+<a href="#l607" class="line" id="l607">    607</a>     REQUIRE(parseResult.Errors.find(&quot;Missing required property &#39;Id&#39;.&quot;) != std::string::npos);
+<a href="#l608" class="line" id="l608">    608</a> }
+<a href="#l609" class="line" id="l609">    609</a> 
+<a href="#l610" class="line" id="l610">    610</a> TEST_CASE(&quot;PackageCollection_Read_BadTimeStamp&quot;, &quot;[PackageCollection]&quot;)
+<a href="#l611" class="line" id="l611">    611</a> {
+<a href="#l612" class="line" id="l612">    612</a>     auto json = ParseJsonString(R&quot;(
+<a href="#l613" class="line" id="l613">    613</a>     {
+<a href="#l614" class="line" id="l614">    614</a>       &quot;$schema&quot;: &quot;https://aka.ms/winget-packages.schema.1.0.json&quot;,
+<a href="#l615" class="line" id="l615">    615</a>       &quot;CreationDate&quot;: &quot;2021- 1- 1 12:00:00.000&quot;,
+<a href="#l616" class="line" id="l616">    616</a>       &quot;Sources&quot;: [
+<a href="#l617" class="line" id="l617">    617</a>         {
+<a href="#l618" class="line" id="l618">    618</a>           &quot;Packages&quot;: [
+<a href="#l619" class="line" id="l619">    619</a>             {
+<a href="#l620" class="line" id="l620">    620</a>               &quot;Id&quot;: &quot;test&quot;
+<a href="#l621" class="line" id="l621">    621</a>             }
+<a href="#l622" class="line" id="l622">    622</a>           ],
+<a href="#l623" class="line" id="l623">    623</a>           &quot;SourceDetails&quot;: {
+<a href="#l624" class="line" id="l624">    624</a>             &quot;Argument&quot;: &quot;https://aka.ms/winget&quot;,
+<a href="#l625" class="line" id="l625">    625</a>             &quot;Identifier&quot;: &quot;TestSourceId&quot;,
+<a href="#l626" class="line" id="l626">    626</a>             &quot;Name&quot;: &quot;TestSource&quot;,
+<a href="#l627" class="line" id="l627">    627</a>             &quot;Type&quot;: &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l628" class="line" id="l628">    628</a>           }
+<a href="#l629" class="line" id="l629">    629</a>         }
+<a href="#l630" class="line" id="l630">    630</a>       ],
+<a href="#l631" class="line" id="l631">    631</a>       &quot;WinGetVersion&quot;: &quot;1.0.0&quot;
+<a href="#l632" class="line" id="l632">    632</a>     })&quot;);
+<a href="#l633" class="line" id="l633">    633</a> 
+<a href="#l634" class="line" id="l634">    634</a>     auto parseResult = PackagesJson::TryParseJson(json);
+<a href="#l635" class="line" id="l635">    635</a>     INFO(parseResult.Errors);
+<a href="#l636" class="line" id="l636">    636</a> 
+<a href="#l637" class="line" id="l637">    637</a>     REQUIRE(parseResult.Result == PackagesJson::ParseResult::Type::SchemaValidationFailed);
+<a href="#l638" class="line" id="l638">    638</a>     REQUIRE_FALSE(parseResult.Errors.empty());
+<a href="#l639" class="line" id="l639">    639</a> }
+</pre>
+</div>
+</body>
+</html>

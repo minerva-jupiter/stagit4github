@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>#888 - Com Api.md - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> #888 - Com Api.md (39367B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> # 1. Background
+<a href="#l2" class="line" id="l2">      2</a> 
+<a href="#l3" class="line" id="l3">      3</a> The Windows Package Manager currently exposes a command line interface to search for packages,
+<a href="#l4" class="line" id="l4">      4</a> install them, view progress, and more. This API is designed to provide another way for callers to
+<a href="#l5" class="line" id="l5">      5</a> make use of that functionality. The API will be preferred by callers that want to receive progress
+<a href="#l6" class="line" id="l6">      6</a> and completion events, and UWP packages that do not have permission to launch command line processes.
+<a href="#l7" class="line" id="l7">      7</a> The goal for this api is to provide the full set of install functionality possible using the Windows
+<a href="#l8" class="line" id="l8">      8</a> Package Manager command line. The command line is documented at
+<a href="#l9" class="line" id="l9">      9</a> https://docs.microsoft.com/windows/package-manager/winget/
+<a href="#l10" class="line" id="l10">     10</a> 
+<a href="#l11" class="line" id="l11">     11</a> # 2. Description
+<a href="#l12" class="line" id="l12">     12</a> 
+<a href="#l13" class="line" id="l13">     13</a> Windows Package Manager is a package manager for windows applications. It comes with a predefined
+<a href="#l14" class="line" id="l14">     14</a> repository of applications and users can add new repositories using the winget command line. This
+<a href="#l15" class="line" id="l15">     15</a> API allows packaged apps with the packageManagement capability and other higher privilege processes
+<a href="#l16" class="line" id="l16">     16</a> to start, manage, and monitor installation of packages that are listed in Windows Package Manager
+<a href="#l17" class="line" id="l17">     17</a> repositories.
+<a href="#l18" class="line" id="l18">     18</a> 
+<a href="#l19" class="line" id="l19">     19</a> # 3. Examples
+<a href="#l20" class="line" id="l20">     20</a> 
+<a href="#l21" class="line" id="l21">     21</a> Sample member values for the following examples:
+<a href="#l22" class="line" id="l22">     22</a> m_installAppId = L&quot;Microsoft.VisualStudioCode&quot;;
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a> ## 3.1. Create objects
+<a href="#l25" class="line" id="l25">     25</a> 
+<a href="#l26" class="line" id="l26">     26</a> Creation of objects has to be done through CoCreateInstance rather than normal winrt initialization
+<a href="#l27" class="line" id="l27">     27</a> since it&#39;s hosted by an out of proc com server. These helper methods will be used in the rest of the
+<a href="#l28" class="line" id="l28">     28</a> examples.
+<a href="#l29" class="line" id="l29">     29</a> 
+<a href="#l30" class="line" id="l30">     30</a> ```c++ (C++ish pseudocode)
+<a href="#l31" class="line" id="l31">     31</a>     AppInstaller CreateAppInstaller() {
+<a href="#l32" class="line" id="l32">     32</a>         return winrt::create_instance&lt;AppInstaller&gt;(CLSID_AppInstaller, CLSCTX_ALL);
+<a href="#l33" class="line" id="l33">     33</a>     }
+<a href="#l34" class="line" id="l34">     34</a>     InstallOptions CreateInstallOptions() {
+<a href="#l35" class="line" id="l35">     35</a>         return winrt::create_instance&lt;InstallOptions&gt;(CLSID_InstallOptions, CLSCTX_ALL);
+<a href="#l36" class="line" id="l36">     36</a>     }
+<a href="#l37" class="line" id="l37">     37</a>     FindPackagesOptions CreateFindPackagesOptions() {
+<a href="#l38" class="line" id="l38">     38</a>         return winrt::create_instance&lt;FindPackagesOptions&gt;(CLSID_FindPackagesOptions, CLSCTX_ALL);
+<a href="#l39" class="line" id="l39">     39</a>     }
+<a href="#l40" class="line" id="l40">     40</a>     CreateCompositeAppCatalogOptions CreateCreateCompositeAppCatalogOptions() {
+<a href="#l41" class="line" id="l41">     41</a>         return winrt::create_instance&lt;CreateCompositeAppCatalogOptions&gt;(CLSID_CreateCompositeAppCatalogOptions, CLSCTX_ALL);
+<a href="#l42" class="line" id="l42">     42</a>     }
+<a href="#l43" class="line" id="l43">     43</a>     PackageMatchFilter CreatePackageMatchFilter() {
+<a href="#l44" class="line" id="l44">     44</a>         return winrt::create_instance&lt;PackageMatchFilter&gt;(CLSID_PackageMatchFilter, CLSCTX_ALL);
+<a href="#l45" class="line" id="l45">     45</a>     }
+<a href="#l46" class="line" id="l46">     46</a> ```
+<a href="#l47" class="line" id="l47">     47</a> 
+<a href="#l48" class="line" id="l48">     48</a> ## 3.2. Search
+<a href="#l49" class="line" id="l49">     49</a> 
+<a href="#l50" class="line" id="l50">     50</a> The api can be used to search for packages in a catalog known to Windows Package Manager. This can
+<a href="#l51" class="line" id="l51">     51</a> be used to get availability information or start an install.
+<a href="#l52" class="line" id="l52">     52</a> 
+<a href="#l53" class="line" id="l53">     53</a> ```c++ (C++ish pseudocode)
+<a href="#l54" class="line" id="l54">     54</a> 
+<a href="#l55" class="line" id="l55">     55</a>     // Sample of using synchronous methods on background thread.
+<a href="#l56" class="line" id="l56">     56</a>     CatalogPackage MainPage::FindPackageOnBackgroundThread()
+<a href="#l57" class="line" id="l57">     57</a>     {
+<a href="#l58" class="line" id="l58">     58</a>         PackageManager packageManager = CreatePackageManager();
+<a href="#l59" class="line" id="l59">     59</a>         PackageCatalogReference catalogRef{
+<a href="#l60" class="line" id="l60">     60</a>             packageManager.GetPredefinedPackageCatalog(PredefinedPackageCatalog::OpenWindowsCatalog) };
+<a href="#l61" class="line" id="l61">     61</a>         ConnectResult connectResult = catalogRef.Connect();
+<a href="#l62" class="line" id="l62">     62</a>         if (connectResult.Status() != ConnectResultStatus::Ok)
+<a href="#l63" class="line" id="l63">     63</a>         {
+<a href="#l64" class="line" id="l64">     64</a>             return nullptr;
+<a href="#l65" class="line" id="l65">     65</a>         }
+<a href="#l66" class="line" id="l66">     66</a>         PackageCatalog catalog = connectResult.PackageCatalog();
+<a href="#l67" class="line" id="l67">     67</a> 
+<a href="#l68" class="line" id="l68">     68</a>         FindPackagesOptions findPackagesOptions = CreateFindPackagesOptions();
+<a href="#l69" class="line" id="l69">     69</a>         PackageMatchFilter filter = CreatePackageMatchFilter();
+<a href="#l70" class="line" id="l70">     70</a>         filter.Field(PackageMatchField::Id);
+<a href="#l71" class="line" id="l71">     71</a>         filter.Option(PackageFieldMatchOption::Equals);
+<a href="#l72" class="line" id="l72">     72</a>         filter.Value(m_installAppId);
+<a href="#l73" class="line" id="l73">     73</a>         findPackagesOptions.Filters().Append(filter);
+<a href="#l74" class="line" id="l74">     74</a>         // We&#39;ve already switched to a background thread, so do everything synchronously.
+<a href="#l75" class="line" id="l75">     75</a>         FindPackagesResult findPackagesResult{ catalog.FindPackages(findPackagesOptions) };
+<a href="#l76" class="line" id="l76">     76</a> 
+<a href="#l77" class="line" id="l77">     77</a>         winrt::IVectorView&lt;MatchResult&gt; matches = findPackagesResult.Matches();
+<a href="#l78" class="line" id="l78">     78</a>         if (matches.Size() == 0)
+<a href="#l79" class="line" id="l79">     79</a>         {
+<a href="#l80" class="line" id="l80">     80</a>             return nullptr;
+<a href="#l81" class="line" id="l81">     81</a>         }
+<a href="#l82" class="line" id="l82">     82</a>         return matches.GetAt(0).CatalogPackage();
+<a href="#l83" class="line" id="l83">     83</a>     }
+<a href="#l84" class="line" id="l84">     84</a> 
+<a href="#l85" class="line" id="l85">     85</a>     // Sample of using async methods.
+<a href="#l86" class="line" id="l86">     86</a>     IAsyncOperation&lt;CatalogPackage&gt; MainPage::FindPackageInCatalogAsync(PackageCatalog catalog,
+<a href="#l87" class="line" id="l87">     87</a>             std::wstring packageId)
+<a href="#l88" class="line" id="l88">     88</a>     {
+<a href="#l89" class="line" id="l89">     89</a>         FindPackagesOptions findPackagesOptions = CreateFindPackagesOptions();
+<a href="#l90" class="line" id="l90">     90</a>         PackageMatchFilter filter = CreatePackageMatchFilter();
+<a href="#l91" class="line" id="l91">     91</a>         filter.Field(PackageMatchField::Id);
+<a href="#l92" class="line" id="l92">     92</a>         filter.Option(PackageFieldMatchOption::Equals);
+<a href="#l93" class="line" id="l93">     93</a>         filter.Value(packageId);
+<a href="#l94" class="line" id="l94">     94</a>         findPackagesOptions.Filters().Append(filter);
+<a href="#l95" class="line" id="l95">     95</a>         FindPackagesResult findPackagesResult{ co_await catalog.FindPackagesAsync(findPackagesOptions) };
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>         winrt::IVectorView&lt;MatchResult&gt; matches = findPackagesResult.Matches();
+<a href="#l98" class="line" id="l98">     98</a>         if (matches.Size() == 0)
+<a href="#l99" class="line" id="l99">     99</a>         {
+<a href="#l100" class="line" id="l100">    100</a>             co_return nullptr;
+<a href="#l101" class="line" id="l101">    101</a>         }
+<a href="#l102" class="line" id="l102">    102</a>         co_return matches.GetAt(0).CatalogPackage();
+<a href="#l103" class="line" id="l103">    103</a>     }
+<a href="#l104" class="line" id="l104">    104</a> 
+<a href="#l105" class="line" id="l105">    105</a>     IAsyncOperation&lt;CatalogPackage&gt; MainPage::FindPackageAsync()
+<a href="#l106" class="line" id="l106">    106</a>     {
+<a href="#l107" class="line" id="l107">    107</a>         PackageManager packageManager = CreatePackageManager();
+<a href="#l108" class="line" id="l108">    108</a>         PackageCatalogReference catalogRef{
+<a href="#l109" class="line" id="l109">    109</a>             packageManager.GetPredefinedPackageCatalog(PredefinedPackageCatalog::OpenWindowsCatalog) };
+<a href="#l110" class="line" id="l110">    110</a>         ConnectResult connectResult = catalogRef.Connect();
+<a href="#l111" class="line" id="l111">    111</a>         if (connectResult.Status() != ConnectResultStatus::Ok)
+<a href="#l112" class="line" id="l112">    112</a>         {
+<a href="#l113" class="line" id="l113">    113</a>             co_return nullptr;
+<a href="#l114" class="line" id="l114">    114</a>         }
+<a href="#l115" class="line" id="l115">    115</a>         PackageCatalog catalog = connectResult.PackageCatalog();
+<a href="#l116" class="line" id="l116">    116</a>         co_return FindPackageInCatalogAsync(catalog, m_installAppId).get();
+<a href="#l117" class="line" id="l117">    117</a>     }
+<a href="#l118" class="line" id="l118">    118</a> ```
+<a href="#l119" class="line" id="l119">    119</a> 
+<a href="#l120" class="line" id="l120">    120</a> ## 3.3. Install
+<a href="#l121" class="line" id="l121">    121</a> 
+<a href="#l122" class="line" id="l122">    122</a> ```c++ (C++ish pseudocode)
+<a href="#l123" class="line" id="l123">    123</a> 
+<a href="#l124" class="line" id="l124">    124</a>     IAsyncOperationWithProgress&lt;InstallResult, InstallProgress&gt; MainPage::InstallPackage(CatalogPackage package)
+<a href="#l125" class="line" id="l125">    125</a>     {
+<a href="#l126" class="line" id="l126">    126</a>         PackageManager packageManager = CreatePackageManager();
+<a href="#l127" class="line" id="l127">    127</a>         InstallOptions installOptions = CreateInstallOptions();
+<a href="#l128" class="line" id="l128">    128</a>         installOptions.PackageInstallScope(PackageInstallScope::Any);
+<a href="#l129" class="line" id="l129">    129</a> 
+<a href="#l130" class="line" id="l130">    130</a>         return packageManager.InstallPackageAsync(package, installOptions);
+<a href="#l131" class="line" id="l131">    131</a>     }
+<a href="#l132" class="line" id="l132">    132</a> 
+<a href="#l133" class="line" id="l133">    133</a>      IAsyncAction UpdateUIProgress(
+<a href="#l134" class="line" id="l134">    134</a>         InstallProgress progress,
+<a href="#l135" class="line" id="l135">    135</a>         winrt::Windows::UI::Xaml::Controls::ProgressBar progressBar,
+<a href="#l136" class="line" id="l136">    136</a>         winrt::Windows::UI::Xaml::Controls::TextBlock statusText)
+<a href="#l137" class="line" id="l137">    137</a>     {
+<a href="#l138" class="line" id="l138">    138</a>         co_await winrt::resume_foreground(progressBar.Dispatcher());
+<a href="#l139" class="line" id="l139">    139</a>         progressBar.Value(progress.DownloadProgress*100);
+<a href="#l140" class="line" id="l140">    140</a> 
+<a href="#l141" class="line" id="l141">    141</a>         std::wstring downloadText{ L&quot;Downloading. &quot; };
+<a href="#l142" class="line" id="l142">    142</a>         switch (progress.State)
+<a href="#l143" class="line" id="l143">    143</a>         {
+<a href="#l144" class="line" id="l144">    144</a>         case PackageInstallProgressState::Queued:
+<a href="#l145" class="line" id="l145">    145</a>             statusText.Text(L&quot;Queued&quot;);
+<a href="#l146" class="line" id="l146">    146</a>             break;
+<a href="#l147" class="line" id="l147">    147</a>         case PackageInstallProgressState::Downloading:
+<a href="#l148" class="line" id="l148">    148</a>             downloadText += std::to_wstring(progress.BytesDownloaded) + L&quot; bytes of &quot; + std::to_wstring(progress.BytesRequired);
+<a href="#l149" class="line" id="l149">    149</a>             statusText.Text(downloadText);
+<a href="#l150" class="line" id="l150">    150</a>             break;
+<a href="#l151" class="line" id="l151">    151</a>         case PackageInstallProgressState::Installing:
+<a href="#l152" class="line" id="l152">    152</a>             statusText.Text(L&quot;Installing&quot;);
+<a href="#l153" class="line" id="l153">    153</a>             progressBar.IsIndeterminate(true);
+<a href="#l154" class="line" id="l154">    154</a>             break;
+<a href="#l155" class="line" id="l155">    155</a>         case PackageInstallProgressState::PostInstall:
+<a href="#l156" class="line" id="l156">    156</a>             statusText.Text(L&quot;Finishing install&quot;);
+<a href="#l157" class="line" id="l157">    157</a>             break;
+<a href="#l158" class="line" id="l158">    158</a>         case PackageInstallProgressState::Finished:
+<a href="#l159" class="line" id="l159">    159</a>             statusText.Text(L&quot;Finished install.&quot;);
+<a href="#l160" class="line" id="l160">    160</a>             progressBar.IsIndeterminate(false);
+<a href="#l161" class="line" id="l161">    161</a>             break;
+<a href="#l162" class="line" id="l162">    162</a>         default:
+<a href="#l163" class="line" id="l163">    163</a>             statusText.Text(L&quot;&quot;);
+<a href="#l164" class="line" id="l164">    164</a>         }
+<a href="#l165" class="line" id="l165">    165</a>         co_return;
+<a href="#l166" class="line" id="l166">    166</a>     }
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a>     // This method is called from a background thread.
+<a href="#l169" class="line" id="l169">    169</a>     IAsyncAction UpdateUIForInstall(
+<a href="#l170" class="line" id="l170">    170</a>         IAsyncOperationWithProgress&lt;InstallResult, InstallProgress&gt; installPackageOperation,
+<a href="#l171" class="line" id="l171">    171</a>         winrt::Windows::UI::Xaml::Controls::Button installButton,
+<a href="#l172" class="line" id="l172">    172</a>         winrt::Windows::UI::Xaml::Controls::Button cancelButton,
+<a href="#l173" class="line" id="l173">    173</a>         winrt::Windows::UI::Xaml::Controls::ProgressBar progressBar,
+<a href="#l174" class="line" id="l174">    174</a>         winrt::Windows::UI::Xaml::Controls::TextBlock statusText)
+<a href="#l175" class="line" id="l175">    175</a>     {
+<a href="#l176" class="line" id="l176">    176</a>         if (installPackageOperation)
+<a href="#l177" class="line" id="l177">    177</a>         {
+<a href="#l178" class="line" id="l178">    178</a> 
+<a href="#l179" class="line" id="l179">    179</a>             installPackageOperation.Progress([=](
+<a href="#l180" class="line" id="l180">    180</a>                 IAsyncOperationWithProgress&lt;InstallResult, InstallProgress&gt; const&amp; /* sender */,
+<a href="#l181" class="line" id="l181">    181</a>                 InstallProgress const&amp; progress)
+<a href="#l182" class="line" id="l182">    182</a>                 {
+<a href="#l183" class="line" id="l183">    183</a>                     UpdateUIProgress(progressBar, statusText, 50, stateStr).get();
+<a href="#l184" class="line" id="l184">    184</a>                 });
+<a href="#l185" class="line" id="l185">    185</a> 
+<a href="#l186" class="line" id="l186">    186</a> 
+<a href="#l187" class="line" id="l187">    187</a>             winrt::hresult installOperationHr = S_OK;
+<a href="#l188" class="line" id="l188">    188</a>             std::wstring errorMessage{ L&quot;Unknown Error&quot; };
+<a href="#l189" class="line" id="l189">    189</a>             InstallResult installResult{ nullptr };
+<a href="#l190" class="line" id="l190">    190</a>             try
+<a href="#l191" class="line" id="l191">    191</a>             {
+<a href="#l192" class="line" id="l192">    192</a>                 installResult = co_await installPackageOperation;
+<a href="#l193" class="line" id="l193">    193</a>             }
+<a href="#l194" class="line" id="l194">    194</a>             catch (hresult_canceled const&amp;)
+<a href="#l195" class="line" id="l195">    195</a>             {
+<a href="#l196" class="line" id="l196">    196</a>                 errorMessage = L&quot;Cancelled&quot;;
+<a href="#l197" class="line" id="l197">    197</a>                 OutputDebugString(L&quot;Operation was cancelled&quot;);
+<a href="#l198" class="line" id="l198">    198</a>             }
+<a href="#l199" class="line" id="l199">    199</a>             catch (...)
+<a href="#l200" class="line" id="l200">    200</a>             {
+<a href="#l201" class="line" id="l201">    201</a>                 // Operation failed
+<a href="#l202" class="line" id="l202">    202</a>                 // Example: HRESULT_FROM_WIN32(ERROR_DISK_FULL).
+<a href="#l203" class="line" id="l203">    203</a>                 installOperationHr = winrt::to_hresult();
+<a href="#l204" class="line" id="l204">    204</a>                 // Example: &quot;There is not enough space on the disk.&quot;
+<a href="#l205" class="line" id="l205">    205</a>                 errorMessage = winrt::to_message();
+<a href="#l206" class="line" id="l206">    206</a>                 OutputDebugString(L&quot;Operation failed&quot;);
+<a href="#l207" class="line" id="l207">    207</a>             }
+<a href="#l208" class="line" id="l208">    208</a> 
+<a href="#l209" class="line" id="l209">    209</a>             // Switch back to ui thread context.
+<a href="#l210" class="line" id="l210">    210</a>             co_await winrt::resume_foreground(progressBar.Dispatcher());
+<a href="#l211" class="line" id="l211">    211</a> 
+<a href="#l212" class="line" id="l212">    212</a>             cancelButton.IsEnabled(false);
+<a href="#l213" class="line" id="l213">    213</a>             installButton.IsEnabled(true);
+<a href="#l214" class="line" id="l214">    214</a>             progressBar.IsIndeterminate(false);
+<a href="#l215" class="line" id="l215">    215</a> 
+<a href="#l216" class="line" id="l216">    216</a>             if (installPackageOperation.Status() == AsyncStatus::Canceled)
+<a href="#l217" class="line" id="l217">    217</a>             {
+<a href="#l218" class="line" id="l218">    218</a>                 installButton.Content(box_value(L&quot;Retry&quot;));
+<a href="#l219" class="line" id="l219">    219</a>                 statusText.Text(L&quot;Install cancelled.&quot;);
+<a href="#l220" class="line" id="l220">    220</a>             }
+<a href="#l221" class="line" id="l221">    221</a>             if (installPackageOperation.Status() == AsyncStatus::Error || installResult == nullptr)
+<a href="#l222" class="line" id="l222">    222</a>             {
+<a href="#l223" class="line" id="l223">    223</a>                 installButton.Content(box_value(L&quot;Retry&quot;));
+<a href="#l224" class="line" id="l224">    224</a>                 statusText.Text(errorMessage);
+<a href="#l225" class="line" id="l225">    225</a>             }
+<a href="#l226" class="line" id="l226">    226</a>             else if (installResult.RebootRequired())
+<a href="#l227" class="line" id="l227">    227</a>             {
+<a href="#l228" class="line" id="l228">    228</a>                 installButton.Content(box_value(L&quot;Install&quot;));
+<a href="#l229" class="line" id="l229">    229</a>                 statusText.Text(L&quot;Reboot to finish installation.&quot;);
+<a href="#l230" class="line" id="l230">    230</a>             }
+<a href="#l231" class="line" id="l231">    231</a>             else if (installResult.Status() == InstallResultStatus::Ok)
+<a href="#l232" class="line" id="l232">    232</a>             {
+<a href="#l233" class="line" id="l233">    233</a>                 installButton.Content(box_value(L&quot;Install&quot;));
+<a href="#l234" class="line" id="l234">    234</a>                 statusText.Text(L&quot;Finished.&quot;);
+<a href="#l235" class="line" id="l235">    235</a>             }
+<a href="#l236" class="line" id="l236">    236</a>             else
+<a href="#l237" class="line" id="l237">    237</a>             {
+<a href="#l238" class="line" id="l238">    238</a>                 installButton.Content(box_value(L&quot;Install&quot;));
+<a href="#l239" class="line" id="l239">    239</a>                 statusText.Text(L&quot;Install failed.&quot;);
+<a href="#l240" class="line" id="l240">    240</a>             }
+<a href="#l241" class="line" id="l241">    241</a>         }
+<a href="#l242" class="line" id="l242">    242</a>     }
+<a href="#l243" class="line" id="l243">    243</a> 
+<a href="#l244" class="line" id="l244">    244</a>     IAsyncAction MainPage::StartInstall(
+<a href="#l245" class="line" id="l245">    245</a>         winrt::Windows::UI::Xaml::Controls::Button installButton,
+<a href="#l246" class="line" id="l246">    246</a>         winrt::Windows::UI::Xaml::Controls::Button cancelButton,
+<a href="#l247" class="line" id="l247">    247</a>         winrt::Windows::UI::Xaml::Controls::ProgressBar progressBar,
+<a href="#l248" class="line" id="l248">    248</a>         winrt::Windows::UI::Xaml::Controls::TextBlock statusText)
+<a href="#l249" class="line" id="l249">    249</a>     {
+<a href="#l250" class="line" id="l250">    250</a>         installButton.IsEnabled(false);
+<a href="#l251" class="line" id="l251">    251</a>         cancelButton.IsEnabled(true);
+<a href="#l252" class="line" id="l252">    252</a> 
+<a href="#l253" class="line" id="l253">    253</a>         co_await winrt::resume_background();
+<a href="#l254" class="line" id="l254">    254</a> 
+<a href="#l255" class="line" id="l255">    255</a>         PackageManager packageManager = CreatePackageManager();
+<a href="#l256" class="line" id="l256">    256</a>         PackageCatalogReference catalogRef{
+<a href="#l257" class="line" id="l257">    257</a>             packageManager.GetPredefinedPackageCatalog(PredefinedPackageCatalog::OpenWindowsCatalog) };
+<a href="#l258" class="line" id="l258">    258</a>         ConnectResult connectResult = catalogRef.Connect();
+<a href="#l259" class="line" id="l259">    259</a>         if (connectResult.Status() != ConnectResultStatus::Ok)
+<a href="#l260" class="line" id="l260">    260</a>         {
+<a href="#l261" class="line" id="l261">    261</a>             co_await winrt::resume_foreground(progressBar.Dispatcher());
+<a href="#l262" class="line" id="l262">    262</a>             statusText.Text(L&quot;Connecting to catalog failed.&quot;);
+<a href="#l263" class="line" id="l263">    263</a>             co_return;
+<a href="#l264" class="line" id="l264">    264</a>         }
+<a href="#l265" class="line" id="l265">    265</a>         PackageCatalog catalog = connectResult.PackageCatalog();
+<a href="#l266" class="line" id="l266">    266</a> 
+<a href="#l267" class="line" id="l267">    267</a>         FindPackagesResult findPackagesResult{ FindPackageOnBackgroundThread(catalog, m_installAppId) };
+<a href="#l268" class="line" id="l268">    268</a> 
+<a href="#l269" class="line" id="l269">    269</a>         winrt::IVectorView&lt;MatchResult&gt; matches = findPackagesResult.Matches();
+<a href="#l270" class="line" id="l270">    270</a>         if (matches.Size() &gt; 0)
+<a href="#l271" class="line" id="l271">    271</a>         {
+<a href="#l272" class="line" id="l272">    272</a>             m_installPackageOperation = InstallPackage(matches.GetAt(0).CatalogPackage());
+<a href="#l273" class="line" id="l273">    273</a>             UpdateUIForInstall(m_installPackageOperation, installButton, cancelButton, progressBar, statusText);
+<a href="#l274" class="line" id="l274">    274</a>         }
+<a href="#l275" class="line" id="l275">    275</a>         else
+<a href="#l276" class="line" id="l276">    276</a>         {
+<a href="#l277" class="line" id="l277">    277</a>             co_await winrt::resume_foreground(progressBar.Dispatcher());
+<a href="#l278" class="line" id="l278">    278</a>             statusText.Text(L&quot;Could not find package.&quot;);
+<a href="#l279" class="line" id="l279">    279</a>             co_return;
+<a href="#l280" class="line" id="l280">    280</a>         }
+<a href="#l281" class="line" id="l281">    281</a>     }
+<a href="#l282" class="line" id="l282">    282</a> ```
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a> ## 3.4.1 Cancel
+<a href="#l285" class="line" id="l285">    285</a> 
+<a href="#l286" class="line" id="l286">    286</a> The async operation can be stored, or the install code can wait on an event that can be triggered.
+<a href="#l287" class="line" id="l287">    287</a> 
+<a href="#l288" class="line" id="l288">    288</a> ```c++ (C++ish pseudocode)
+<a href="#l289" class="line" id="l289">    289</a>     void MainPage::CancelButtonClickHandler(IInspectable const&amp;, RoutedEventArgs const&amp;)
+<a href="#l290" class="line" id="l290">    290</a>     {
+<a href="#l291" class="line" id="l291">    291</a>         if (m_installPackageOperation)
+<a href="#l292" class="line" id="l292">    292</a>         {
+<a href="#l293" class="line" id="l293">    293</a>             m_installPackageOperation.Cancel();
+<a href="#l294" class="line" id="l294">    294</a>         }
+<a href="#l295" class="line" id="l295">    295</a>     }
+<a href="#l296" class="line" id="l296">    296</a> ```
+<a href="#l297" class="line" id="l297">    297</a> 
+<a href="#l298" class="line" id="l298">    298</a> ## 3.5. Open a catalog by name
+<a href="#l299" class="line" id="l299">    299</a> 
+<a href="#l300" class="line" id="l300">    300</a> Open a catalog known to the caller. There is no way to use the api to add a catalog, that must be done
+<a href="#l301" class="line" id="l301">    301</a> on the command line.
+<a href="#l302" class="line" id="l302">    302</a> 
+<a href="#l303" class="line" id="l303">    303</a> ```c++ (C++ish pseudocode)
+<a href="#l304" class="line" id="l304">    304</a>     IAsyncOperation&lt;PackageCatalog&gt; MainPage::FindSourceAsync(std::wstring packageSource)
+<a href="#l305" class="line" id="l305">    305</a>     {
+<a href="#l306" class="line" id="l306">    306</a>         PackageManager packageManager = CreatePackageManager();
+<a href="#l307" class="line" id="l307">    307</a>         PackageCatalogReference catalogRef{ packageManager.GetPackageCatalogByName(packageSource) };
+<a href="#l308" class="line" id="l308">    308</a>         if (catalogRef)
+<a href="#l309" class="line" id="l309">    309</a>         {
+<a href="#l310" class="line" id="l310">    310</a>             ConnectResult connectResult{ co_await catalogRef.ConnectAsync() };
+<a href="#l311" class="line" id="l311">    311</a>             // PackageCatalog will be null if connectResult.ErrorCode() is a failure
+<a href="#l312" class="line" id="l312">    312</a>             PackageCatalog catalog = connectResult.PackageCatalog();
+<a href="#l313" class="line" id="l313">    313</a>             co_return catalog;
+<a href="#l314" class="line" id="l314">    314</a>         }
+<a href="#l315" class="line" id="l315">    315</a>     }
+<a href="#l316" class="line" id="l316">    316</a> ```
+<a href="#l317" class="line" id="l317">    317</a> 
+<a href="#l318" class="line" id="l318">    318</a> # 4 Remarks
+<a href="#l319" class="line" id="l319">    319</a> 
+<a href="#l320" class="line" id="l320">    320</a> Notes have been added inline throughout the api details.
+<a href="#l321" class="line" id="l321">    321</a> 
+<a href="#l322" class="line" id="l322">    322</a> 
+<a href="#l323" class="line" id="l323">    323</a> For this api there are multiple similar apis that are
+<a href="#l324" class="line" id="l324">    324</a> relevant with regard to naming and consistency. There is the Windows Package Manager command line which uses
+<a href="#l325" class="line" id="l325">    325</a> &quot;source&quot; to describe the various repositories that can host packages and &quot;search&quot; to describe looking up an app.
+<a href="#l326" class="line" id="l326">    326</a> https://docs.microsoft.com/windows/package-manager/winget/
+<a href="#l327" class="line" id="l327">    327</a> There is the Windows::ApplicationModel::PackageCatalog which exists as a Windows API for installing packages
+<a href="#l328" class="line" id="l328">    328</a> and monitoring their installation progress.
+<a href="#l329" class="line" id="l329">    329</a> https://docs.microsoft.com/uwp/api/windows.applicationmodel.packagecatalog?view=winrt-19041
+<a href="#l330" class="line" id="l330">    330</a> And there is Windows.Management.Deployment.PackageManager which allows packages with the packageManagement
+<a href="#l331" class="line" id="l331">    331</a> capability to install msix apps and uses &quot;Find&quot; to describe looking up an app
+<a href="#l332" class="line" id="l332">    332</a> https://docs.microsoft.com/uwp/api/windows.management.deployment.packagemanager?view=winrt-19041
+<a href="#l333" class="line" id="l333">    333</a> 
+<a href="#l334" class="line" id="l334">    334</a> This API has aligned with those Windows APIs in using \*Catalog and Find.
+<a href="#l335" class="line" id="l335">    335</a> 
+<a href="#l336" class="line" id="l336">    336</a> # 5 API Details
+<a href="#l337" class="line" id="l337">    337</a> 
+<a href="#l338" class="line" id="l338">    338</a> ```c# (but really MIDL3)
+<a href="#l339" class="line" id="l339">    339</a> namespace Microsoft.Management.Deployment
+<a href="#l340" class="line" id="l340">    340</a> {
+<a href="#l341" class="line" id="l341">    341</a>     [contractversion(1)]
+<a href="#l342" class="line" id="l342">    342</a>     apicontract WindowsPackageManagerContract{};
+<a href="#l343" class="line" id="l343">    343</a> 
+<a href="#l344" class="line" id="l344">    344</a>     /// State of the install.
+<a href="#l345" class="line" id="l345">    345</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l346" class="line" id="l346">    346</a>     enum PackageInstallProgressState
+<a href="#l347" class="line" id="l347">    347</a>     {
+<a href="#l348" class="line" id="l348">    348</a>         /// The install is queued but not yet active. Cancellation of the IAsyncOperationWithProgress in this
+<a href="#l349" class="line" id="l349">    349</a>         /// state will prevent the package from downloading or installing.
+<a href="#l350" class="line" id="l350">    350</a>         Queued,
+<a href="#l351" class="line" id="l351">    351</a>         /// The installer is downloading. Cancellation of the IAsyncOperationWithProgress in this state will
+<a href="#l352" class="line" id="l352">    352</a>         /// end the download and prevent the package from installing.
+<a href="#l353" class="line" id="l353">    353</a>         Downloading,
+<a href="#l354" class="line" id="l354">    354</a>         /// The install is in progress. Cancellation of the IAsyncOperationWithProgress in this state will not
+<a href="#l355" class="line" id="l355">    355</a>         /// stop the installation or the post install cleanup.
+<a href="#l356" class="line" id="l356">    356</a>         Installing,
+<a href="#l357" class="line" id="l357">    357</a>         /// The installer has completed and cleanup actions are in progress. Cancellation of the
+<a href="#l358" class="line" id="l358">    358</a>         /// IAsyncOperationWithProgress in this state will not stop cleanup or roll back the install.
+<a href="#l359" class="line" id="l359">    359</a>         PostInstall,
+<a href="#l360" class="line" id="l360">    360</a>         /// The operation has completed.
+<a href="#l361" class="line" id="l361">    361</a>         Finished,
+<a href="#l362" class="line" id="l362">    362</a>     };
+<a href="#l363" class="line" id="l363">    363</a> 
+<a href="#l364" class="line" id="l364">    364</a>     /// Progress object for the install
+<a href="#l365" class="line" id="l365">    365</a>     /// DESIGN NOTE: percentage for the install as a whole is purposefully not included as there is no way to
+<a href="#l366" class="line" id="l366">    366</a>     /// estimate progress when the installer is running.
+<a href="#l367" class="line" id="l367">    367</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l368" class="line" id="l368">    368</a>     struct InstallProgress
+<a href="#l369" class="line" id="l369">    369</a>     {
+<a href="#l370" class="line" id="l370">    370</a>         /// State of the install
+<a href="#l371" class="line" id="l371">    371</a>         PackageInstallProgressState State;
+<a href="#l372" class="line" id="l372">    372</a>         /// DESIGN NOTE: BytesDownloaded may only be available for downloads done by Windows Package Manager itself.
+<a href="#l373" class="line" id="l373">    373</a>         /// Number of bytes downloaded if known
+<a href="#l374" class="line" id="l374">    374</a>         UInt64 BytesDownloaded;
+<a href="#l375" class="line" id="l375">    375</a>         /// DESIGN NOTE: BytesRequired may only be available for downloads done by Windows Package Manager itself.
+<a href="#l376" class="line" id="l376">    376</a>         /// Number of bytes required if known
+<a href="#l377" class="line" id="l377">    377</a>         UInt64 BytesRequired;
+<a href="#l378" class="line" id="l378">    378</a>         /// Download percentage completed
+<a href="#l379" class="line" id="l379">    379</a>         Double DownloadProgress;
+<a href="#l380" class="line" id="l380">    380</a>         /// Install percentage if known.
+<a href="#l381" class="line" id="l381">    381</a>         Double InstallationProgress;
+<a href="#l382" class="line" id="l382">    382</a>     };
+<a href="#l383" class="line" id="l383">    383</a> 
+<a href="#l384" class="line" id="l384">    384</a>     /// Status of the Install call
+<a href="#l385" class="line" id="l385">    385</a>     /// Implementation Note: Errors mapped from AppInstallerErrors.h
+<a href="#l386" class="line" id="l386">    386</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l387" class="line" id="l387">    387</a>     enum InstallResultStatus
+<a href="#l388" class="line" id="l388">    388</a>     {
+<a href="#l389" class="line" id="l389">    389</a>         Ok,
+<a href="#l390" class="line" id="l390">    390</a>         BlockedByPolicy,
+<a href="#l391" class="line" id="l391">    391</a>         CatalogError,
+<a href="#l392" class="line" id="l392">    392</a>         InternalError,
+<a href="#l393" class="line" id="l393">    393</a>         InvalidOptions,
+<a href="#l394" class="line" id="l394">    394</a>         DownloadError,
+<a href="#l395" class="line" id="l395">    395</a>         InstallError,
+<a href="#l396" class="line" id="l396">    396</a>         ManifestError,
+<a href="#l397" class="line" id="l397">    397</a>         NoApplicableInstallers,
+<a href="#l398" class="line" id="l398">    398</a>     };
+<a href="#l399" class="line" id="l399">    399</a> 
+<a href="#l400" class="line" id="l400">    400</a>     /// Result of the install
+<a href="#l401" class="line" id="l401">    401</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l402" class="line" id="l402">    402</a>     runtimeclass InstallResult
+<a href="#l403" class="line" id="l403">    403</a>     {
+<a href="#l404" class="line" id="l404">    404</a>         /// Used by a caller to correlate the install with a caller&#39;s data.
+<a href="#l405" class="line" id="l405">    405</a>         String CorrelationData{ get; };
+<a href="#l406" class="line" id="l406">    406</a>         /// Whether a restart is required to complete the install.
+<a href="#l407" class="line" id="l407">    407</a>         Boolean RebootRequired{ get; };
+<a href="#l408" class="line" id="l408">    408</a> 
+<a href="#l409" class="line" id="l409">    409</a>         /// Batched error code, example APPINSTALLER_CLI_ERROR_SHELLEXEC_INSTALL_FAILED
+<a href="#l410" class="line" id="l410">    410</a>         InstallResultStatus Status{ get; };
+<a href="#l411" class="line" id="l411">    411</a>         /// Specific error if known, from downloader or installer itself, example ERROR_INSTALL_PACKAGE_REJECTED
+<a href="#l412" class="line" id="l412">    412</a>         HRESULT ExtendedErrorCode{ get; };
+<a href="#l413" class="line" id="l413">    413</a>     }
+<a href="#l414" class="line" id="l414">    414</a> 
+<a href="#l415" class="line" id="l415">    415</a>     /// IMPLEMENTATION NOTE: SourceOrigin from AppInstallerRepositorySource.h
+<a href="#l416" class="line" id="l416">    416</a>     /// Defines the origin of the package catalog details.
+<a href="#l417" class="line" id="l417">    417</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l418" class="line" id="l418">    418</a>     enum PackageCatalogOrigin
+<a href="#l419" class="line" id="l419">    419</a>     {
+<a href="#l420" class="line" id="l420">    420</a>         /// Predefined means it came as part of the Windows Package Manager package and cannot be removed.
+<a href="#l421" class="line" id="l421">    421</a>         Predefined,
+<a href="#l422" class="line" id="l422">    422</a>         /// User means it was added by the user and could be removed.
+<a href="#l423" class="line" id="l423">    423</a>         User,
+<a href="#l424" class="line" id="l424">    424</a>     };
+<a href="#l425" class="line" id="l425">    425</a> 
+<a href="#l426" class="line" id="l426">    426</a>     /// IMPLEMENTATION NOTE: SourceTrustLevel from AppInstallerRepositorySource.h
+<a href="#l427" class="line" id="l427">    427</a>     /// Defines the trust level of the package catalog.
+<a href="#l428" class="line" id="l428">    428</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l429" class="line" id="l429">    429</a>     enum PackageCatalogTrustLevel
+<a href="#l430" class="line" id="l430">    430</a>     {
+<a href="#l431" class="line" id="l431">    431</a>         None,
+<a href="#l432" class="line" id="l432">    432</a>         Trusted,
+<a href="#l433" class="line" id="l433">    433</a>     };
+<a href="#l434" class="line" id="l434">    434</a> 
+<a href="#l435" class="line" id="l435">    435</a>     /// IMPLEMENTATION NOTE: SourceDetails from AppInstallerRepositorySource.h
+<a href="#l436" class="line" id="l436">    436</a>     /// Interface for retrieving information about an package catalog without acting on it.
+<a href="#l437" class="line" id="l437">    437</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l438" class="line" id="l438">    438</a>     runtimeclass PackageCatalogInfo
+<a href="#l439" class="line" id="l439">    439</a>     {
+<a href="#l440" class="line" id="l440">    440</a>         /// The package catalog&#39;s unique identifier.
+<a href="#l441" class="line" id="l441">    441</a>         /// SAMPLE VALUES: For OpenWindowsCatalog &quot;Microsoft.Winget.Source_8wekyb3d8bbwe&quot;
+<a href="#l442" class="line" id="l442">    442</a>         /// For contoso sample on msdn &quot;contoso&quot;
+<a href="#l443" class="line" id="l443">    443</a>         String Id { get; };
+<a href="#l444" class="line" id="l444">    444</a>         /// The name of the package catalog.
+<a href="#l445" class="line" id="l445">    445</a>         /// SAMPLE VALUES: For OpenWindowsCatalog &quot;winget&quot;.
+<a href="#l446" class="line" id="l446">    446</a>         /// For contoso sample on msdn &quot;contoso&quot;
+<a href="#l447" class="line" id="l447">    447</a>         String Name { get; };
+<a href="#l448" class="line" id="l448">    448</a>         /// The type of the package catalog.
+<a href="#l449" class="line" id="l449">    449</a>         /// ALLOWED VALUES: &quot;Microsoft.Rest&quot;, &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l450" class="line" id="l450">    450</a>         /// SAMPLE VALUES: For OpenWindowsCatalog &quot;Microsoft.PreIndexed.Package&quot;.
+<a href="#l451" class="line" id="l451">    451</a>         /// For contoso sample on msdn &quot;Microsoft.PreIndexed.Package&quot;
+<a href="#l452" class="line" id="l452">    452</a>         String Type { get; };
+<a href="#l453" class="line" id="l453">    453</a>         /// The argument used when adding the package catalog.
+<a href="#l454" class="line" id="l454">    454</a>         /// SAMPLE VALUES: For OpenWindowsCatalog &quot;https://winget.azureedge.net/cache&quot;
+<a href="#l455" class="line" id="l455">    455</a>         /// For contoso sample on msdn &quot;https://pkgmgr-int.azureedge.net/cache&quot;
+<a href="#l456" class="line" id="l456">    456</a>         String Argument { get; };
+<a href="#l457" class="line" id="l457">    457</a>         /// The last time that this package catalog was updated.
+<a href="#l458" class="line" id="l458">    458</a>         Windows.Foundation.DateTime LastUpdateTime { get; };
+<a href="#l459" class="line" id="l459">    459</a>         /// The origin of the package catalog.
+<a href="#l460" class="line" id="l460">    460</a>         PackageCatalogOrigin Origin { get; };
+<a href="#l461" class="line" id="l461">    461</a>         /// The trust level of the package catalog
+<a href="#l462" class="line" id="l462">    462</a>         PackageCatalogTrustLevel TrustLevel { get; };
+<a href="#l463" class="line" id="l463">    463</a>     }
+<a href="#l464" class="line" id="l464">    464</a> 
+<a href="#l465" class="line" id="l465">    465</a>     /// A metadata item of a package version.
+<a href="#l466" class="line" id="l466">    466</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l467" class="line" id="l467">    467</a>     enum PackageVersionMetadataField
+<a href="#l468" class="line" id="l468">    468</a>     {
+<a href="#l469" class="line" id="l469">    469</a>         /// The InstallerType of an installed package
+<a href="#l470" class="line" id="l470">    470</a>         InstallerType,
+<a href="#l471" class="line" id="l471">    471</a>         /// The Scope of an installed package
+<a href="#l472" class="line" id="l472">    472</a>         InstalledScope,
+<a href="#l473" class="line" id="l473">    473</a>         /// The system path where the package is installed
+<a href="#l474" class="line" id="l474">    474</a>         InstalledLocation,
+<a href="#l475" class="line" id="l475">    475</a>         /// The standard uninstall command; which may be interactive
+<a href="#l476" class="line" id="l476">    476</a>         StandardUninstallCommand,
+<a href="#l477" class="line" id="l477">    477</a>         /// An uninstall command that should be non-interactive
+<a href="#l478" class="line" id="l478">    478</a>         SilentUninstallCommand,
+<a href="#l479" class="line" id="l479">    479</a>         /// The publisher of the package
+<a href="#l480" class="line" id="l480">    480</a>         PublisherDisplayName,
+<a href="#l481" class="line" id="l481">    481</a>     };
+<a href="#l482" class="line" id="l482">    482</a> 
+<a href="#l483" class="line" id="l483">    483</a>     /// IMPLEMENTATION NOTE: IPackageVersion from AppInstallerRepositorySearch.h
+<a href="#l484" class="line" id="l484">    484</a>     /// A single package version.
+<a href="#l485" class="line" id="l485">    485</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l486" class="line" id="l486">    486</a>     runtimeclass PackageVersionInfo
+<a href="#l487" class="line" id="l487">    487</a>     {
+<a href="#l488" class="line" id="l488">    488</a>         /// IMPLEMENTATION NOTE: PackageVersionMetadata fields from AppInstallerRepositorySearch.h
+<a href="#l489" class="line" id="l489">    489</a>         /// Gets any metadata associated with this package version.
+<a href="#l490" class="line" id="l490">    490</a>         /// Primarily stores data on installed packages.
+<a href="#l491" class="line" id="l491">    491</a>         /// Metadata fields may have no value (e.g. packages that aren&#39;t installed will not have an InstalledLocation).
+<a href="#l492" class="line" id="l492">    492</a>         String GetMetadata(PackageVersionMetadataField metadataField);
+<a href="#l493" class="line" id="l493">    493</a>         /// IMPLEMENTATION NOTE: PackageVersionProperty fields from AppInstallerRepositorySearch.h
+<a href="#l494" class="line" id="l494">    494</a>         String Id { get; };
+<a href="#l495" class="line" id="l495">    495</a>         String DisplayName { get; };
+<a href="#l496" class="line" id="l496">    496</a>         String Version { get; };
+<a href="#l497" class="line" id="l497">    497</a>         String Channel { get; };
+<a href="#l498" class="line" id="l498">    498</a>         /// DESIGN NOTE: RelativePath from AppInstallerRepositorySearch.h is excluded as not needed.
+<a href="#l499" class="line" id="l499">    499</a>         /// String RelativePath;
+<a href="#l500" class="line" id="l500">    500</a> 
+<a href="#l501" class="line" id="l501">    501</a>         /// IMPLEMENTATION NOTE: PackageVersionMultiProperty fields from AppInstallerRepositorySearch.h
+<a href="#l502" class="line" id="l502">    502</a>         /// PackageFamilyName and ProductCode can have multiple values.
+<a href="#l503" class="line" id="l503">    503</a>         Windows.Foundation.Collections.IVectorView&lt;String&gt; PackageFamilyNames { get; };
+<a href="#l504" class="line" id="l504">    504</a>         Windows.Foundation.Collections.IVectorView&lt;String&gt; ProductCodes { get; };
+<a href="#l505" class="line" id="l505">    505</a> 
+<a href="#l506" class="line" id="l506">    506</a>         /// Gets the package catalog  where this package version is from.
+<a href="#l507" class="line" id="l507">    507</a>         PackageCatalog PackageCatalog { get; };
+<a href="#l508" class="line" id="l508">    508</a> 
+<a href="#l509" class="line" id="l509">    509</a>         /// DESIGN NOTE:
+<a href="#l510" class="line" id="l510">    510</a>         /// GetManifest from IPackageVersion in AppInstallerRepositorySearch is not implemented in V1. That class has
+<a href="#l511" class="line" id="l511">    511</a>         /// a lot of fields and no one requesting it.
+<a href="#l512" class="line" id="l512">    512</a>         /// Gets the manifest of this package version.
+<a href="#l513" class="line" id="l513">    513</a>         /// virtual Manifest::Manifest GetManifest() = 0;
+<a href="#l514" class="line" id="l514">    514</a>     }
+<a href="#l515" class="line" id="l515">    515</a> 
+<a href="#l516" class="line" id="l516">    516</a>     /// IMPLEMENTATION NOTE: PackageVersionKey from AppInstallerRepositorySearch.h
+<a href="#l517" class="line" id="l517">    517</a>     /// A key to identify a package version within a package.
+<a href="#l518" class="line" id="l518">    518</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l519" class="line" id="l519">    519</a>     runtimeclass PackageVersionId
+<a href="#l520" class="line" id="l520">    520</a>     {
+<a href="#l521" class="line" id="l521">    521</a>         /// The package catalog id that this version came from.
+<a href="#l522" class="line" id="l522">    522</a>         String PackageCatalogId { get; };
+<a href="#l523" class="line" id="l523">    523</a>         /// The version.
+<a href="#l524" class="line" id="l524">    524</a>         String Version { get; };
+<a href="#l525" class="line" id="l525">    525</a>         /// The channel.
+<a href="#l526" class="line" id="l526">    526</a>         String Channel { get; };
+<a href="#l527" class="line" id="l527">    527</a>     };
+<a href="#l528" class="line" id="l528">    528</a> 
+<a href="#l529" class="line" id="l529">    529</a>     /// IMPLEMENTATION NOTE: IPackage from AppInstallerRepositorySearch.h
+<a href="#l530" class="line" id="l530">    530</a>     /// A package, potentially containing information about it&#39;s local state and the available versions.
+<a href="#l531" class="line" id="l531">    531</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l532" class="line" id="l532">    532</a>     runtimeclass CatalogPackage
+<a href="#l533" class="line" id="l533">    533</a>     {
+<a href="#l534" class="line" id="l534">    534</a>         /// IMPLEMENTATION NOTE: PackageProperty fields from AppInstallerRepositorySearch.h
+<a href="#l535" class="line" id="l535">    535</a>         /// Gets a property of this package.
+<a href="#l536" class="line" id="l536">    536</a>         String Id { get; };
+<a href="#l537" class="line" id="l537">    537</a>         String Name { get; };
+<a href="#l538" class="line" id="l538">    538</a> 
+<a href="#l539" class="line" id="l539">    539</a>         /// Gets the installed package information if the package is installed.
+<a href="#l540" class="line" id="l540">    540</a>         PackageVersionInfo InstalledVersion{ get; };
+<a href="#l541" class="line" id="l541">    541</a> 
+<a href="#l542" class="line" id="l542">    542</a>         /// Gets all available versions of this package. Ordering is not guaranteed.
+<a href="#l543" class="line" id="l543">    543</a>         Windows.Foundation.Collections.IVectorView&lt;PackageVersionId&gt; AvailableVersions { get; };
+<a href="#l544" class="line" id="l544">    544</a> 
+<a href="#l545" class="line" id="l545">    545</a>         /// Gets the version of this package that will be installed if version is not set in InstallOptions.
+<a href="#l546" class="line" id="l546">    546</a>         PackageVersionInfo DefaultInstallVersion { get; };
+<a href="#l547" class="line" id="l547">    547</a> 
+<a href="#l548" class="line" id="l548">    548</a>         /// Gets a specific version of this package.
+<a href="#l549" class="line" id="l549">    549</a>         PackageVersionInfo GetPackageVersionInfo(PackageVersionId versionKey);
+<a href="#l550" class="line" id="l550">    550</a> 
+<a href="#l551" class="line" id="l551">    551</a>         /// Gets a value indicating whether an available version is newer than the installed version.
+<a href="#l552" class="line" id="l552">    552</a>         Boolean IsUpdateAvailable { get; };
+<a href="#l553" class="line" id="l553">    553</a> 
+<a href="#l554" class="line" id="l554">    554</a>         /// DESIGN NOTE:
+<a href="#l555" class="line" id="l555">    555</a>         /// IsSame from IPackage in AppInstallerRepositorySearch is not implemented in V1.
+<a href="#l556" class="line" id="l556">    556</a>         /// Determines if the given IPackage refers to the same package as this one.
+<a href="#l557" class="line" id="l557">    557</a>         /// virtual bool IsSame(const IPackage*) const = 0;
+<a href="#l558" class="line" id="l558">    558</a>     }
+<a href="#l559" class="line" id="l559">    559</a> 
+<a href="#l560" class="line" id="l560">    560</a>     /// IMPLEMENTATION NOTE: CompositeSearchBehavior from AppInstallerRepositorySource.h
+<a href="#l561" class="line" id="l561">    561</a>     /// Search behavior for composite catalogs.
+<a href="#l562" class="line" id="l562">    562</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l563" class="line" id="l563">    563</a>     enum CompositeSearchBehavior
+<a href="#l564" class="line" id="l564">    564</a>     {
+<a href="#l565" class="line" id="l565">    565</a>         /// Search local catalogs only
+<a href="#l566" class="line" id="l566">    566</a>         LocalCatalogs,
+<a href="#l567" class="line" id="l567">    567</a>         /// Search remote catalogs only, don&#39;t check local catalogs for InstalledVersion
+<a href="#l568" class="line" id="l568">    568</a>         RemotePackagesFromRemoteCatalogs,
+<a href="#l569" class="line" id="l569">    569</a>         /// Search remote catalogs, and check local catalogs for InstalledVersion
+<a href="#l570" class="line" id="l570">    570</a>         RemotePackagesFromAllCatalogs,
+<a href="#l571" class="line" id="l571">    571</a>         /// Search both local and remote catalogs.
+<a href="#l572" class="line" id="l572">    572</a>         AllCatalogs,
+<a href="#l573" class="line" id="l573">    573</a>     };
+<a href="#l574" class="line" id="l574">    574</a> 
+<a href="#l575" class="line" id="l575">    575</a>     /// IMPLEMENTATION NOTE: PackageFieldMatchOption from AppInstallerRepositorySearch.h
+<a href="#l576" class="line" id="l576">    576</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l577" class="line" id="l577">    577</a>     enum PackageFieldMatchOption
+<a href="#l578" class="line" id="l578">    578</a>     {
+<a href="#l579" class="line" id="l579">    579</a>         Equals,
+<a href="#l580" class="line" id="l580">    580</a>         EqualsCaseInsensitive,
+<a href="#l581" class="line" id="l581">    581</a>         StartsWithCaseInsensitive,
+<a href="#l582" class="line" id="l582">    582</a>         ContainsCaseInsensitive,
+<a href="#l583" class="line" id="l583">    583</a>     };
+<a href="#l584" class="line" id="l584">    584</a> 
+<a href="#l585" class="line" id="l585">    585</a>     /// IMPLEMENTATION NOTE: PackageFieldMatchOption from AppInstallerRepositorySearch.h
+<a href="#l586" class="line" id="l586">    586</a>     /// The field to match on.
+<a href="#l587" class="line" id="l587">    587</a>     /// The values must be declared in order of preference in search results.
+<a href="#l588" class="line" id="l588">    588</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l589" class="line" id="l589">    589</a>     enum PackageMatchField
+<a href="#l590" class="line" id="l590">    590</a>     {
+<a href="#l591" class="line" id="l591">    591</a>         CatalogDefault,
+<a href="#l592" class="line" id="l592">    592</a>         Id,
+<a href="#l593" class="line" id="l593">    593</a>         Name,
+<a href="#l594" class="line" id="l594">    594</a>         Moniker,
+<a href="#l595" class="line" id="l595">    595</a>         Command,
+<a href="#l596" class="line" id="l596">    596</a>         Tag,
+<a href="#l597" class="line" id="l597">    597</a>         /// DESIGN NOTE: The following PackageFieldMatchOption from AppInstallerRepositorySearch.h are not implemented in V1.
+<a href="#l598" class="line" id="l598">    598</a>         /// PackageFamilyName,
+<a href="#l599" class="line" id="l599">    599</a>         /// ProductCode,
+<a href="#l600" class="line" id="l600">    600</a>         /// NormalizedNameAndPublisher,
+<a href="#l601" class="line" id="l601">    601</a>     };
+<a href="#l602" class="line" id="l602">    602</a> 
+<a href="#l603" class="line" id="l603">    603</a>     /// IMPLEMENTATION NOTE: PackageMatchFilter from AppInstallerRepositorySearch.h
+<a href="#l604" class="line" id="l604">    604</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l605" class="line" id="l605">    605</a>     runtimeclass PackageMatchFilter
+<a href="#l606" class="line" id="l606">    606</a>     {
+<a href="#l607" class="line" id="l607">    607</a>         PackageMatchFilter();
+<a href="#l608" class="line" id="l608">    608</a>         /// The type of string comparison for matching
+<a href="#l609" class="line" id="l609">    609</a>         PackageFieldMatchOption Option;
+<a href="#l610" class="line" id="l610">    610</a>         /// The field to search
+<a href="#l611" class="line" id="l611">    611</a>         PackageMatchField Field;
+<a href="#l612" class="line" id="l612">    612</a>         /// The value to match
+<a href="#l613" class="line" id="l613">    613</a>         String Value;
+<a href="#l614" class="line" id="l614">    614</a>         /// DESIGN NOTE: &quot;Additional&quot; from RequestMatch AppInstallerRepositorySearch.h is not implemented here.
+<a href="#l615" class="line" id="l615">    615</a>     }
+<a href="#l616" class="line" id="l616">    616</a> 
+<a href="#l617" class="line" id="l617">    617</a>     /// IMPLEMENTATION NOTE: MatchResult from AppInstallerRepositorySearch.h
+<a href="#l618" class="line" id="l618">    618</a>     /// A single result from the search.
+<a href="#l619" class="line" id="l619">    619</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l620" class="line" id="l620">    620</a>     runtimeclass MatchResult
+<a href="#l621" class="line" id="l621">    621</a>     {
+<a href="#l622" class="line" id="l622">    622</a>         /// The package found by the search request.
+<a href="#l623" class="line" id="l623">    623</a>         CatalogPackage CatalogPackage { get; };
+<a href="#l624" class="line" id="l624">    624</a> 
+<a href="#l625" class="line" id="l625">    625</a>         /// The highest order field on which the package matched the search.
+<a href="#l626" class="line" id="l626">    626</a>         PackageMatchFilter MatchCriteria { get; };
+<a href="#l627" class="line" id="l627">    627</a>     }
+<a href="#l628" class="line" id="l628">    628</a> 
+<a href="#l629" class="line" id="l629">    629</a>     /// Status of the FindPackages call
+<a href="#l630" class="line" id="l630">    630</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l631" class="line" id="l631">    631</a>     enum FindPackagesResultStatus
+<a href="#l632" class="line" id="l632">    632</a>     {
+<a href="#l633" class="line" id="l633">    633</a>         Ok,
+<a href="#l634" class="line" id="l634">    634</a>         BlockedByPolicy,
+<a href="#l635" class="line" id="l635">    635</a>         CatalogError,
+<a href="#l636" class="line" id="l636">    636</a>         InternalError,
+<a href="#l637" class="line" id="l637">    637</a>         InvalidOptions
+<a href="#l638" class="line" id="l638">    638</a>     };
+<a href="#l639" class="line" id="l639">    639</a> 
+<a href="#l640" class="line" id="l640">    640</a>     /// IMPLEMENTATION NOTE: SearchResult from AppInstallerRepositorySearch.h
+<a href="#l641" class="line" id="l641">    641</a>     /// Search result data returned from FindPackages
+<a href="#l642" class="line" id="l642">    642</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l643" class="line" id="l643">    643</a>     runtimeclass FindPackagesResult
+<a href="#l644" class="line" id="l644">    644</a>     {
+<a href="#l645" class="line" id="l645">    645</a>         /// Error codes
+<a href="#l646" class="line" id="l646">    646</a>         FindPackagesResultStatus Status{ get; };
+<a href="#l647" class="line" id="l647">    647</a> 
+<a href="#l648" class="line" id="l648">    648</a>         /// The full set of results from the search.
+<a href="#l649" class="line" id="l649">    649</a>         Windows.Foundation.Collections.IVectorView&lt;MatchResult&gt; Matches { get; };
+<a href="#l650" class="line" id="l650">    650</a> 
+<a href="#l651" class="line" id="l651">    651</a>         /// If true, the results were truncated by the given ResultLimit
+<a href="#l652" class="line" id="l652">    652</a>         /// USAGE NOTE: Windows Package Manager does not support result pagination, there is no way to continue
+<a href="#l653" class="line" id="l653">    653</a>         /// getting more results.
+<a href="#l654" class="line" id="l654">    654</a>         Boolean WasLimitExceeded{ get; };
+<a href="#l655" class="line" id="l655">    655</a>     }
+<a href="#l656" class="line" id="l656">    656</a> 
+<a href="#l657" class="line" id="l657">    657</a>     /// Options for FindPackages
+<a href="#l658" class="line" id="l658">    658</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l659" class="line" id="l659">    659</a>     runtimeclass FindPackagesOptions
+<a href="#l660" class="line" id="l660">    660</a>     {
+<a href="#l661" class="line" id="l661">    661</a>         FindPackagesOptions();
+<a href="#l662" class="line" id="l662">    662</a> 
+<a href="#l663" class="line" id="l663">    663</a>         /// DESIGN NOTE:
+<a href="#l664" class="line" id="l664">    664</a>         /// This class maps to SearchRequest from  AppInstallerRepositorySearch.h
+<a href="#l665" class="line" id="l665">    665</a>         /// That class is a container for data used to filter the available manifests in an package catalog.
+<a href="#l666" class="line" id="l666">    666</a>         /// Its properties can be thought of as:
+<a href="#l667" class="line" id="l667">    667</a>         /// (Query || Selectors...) &amp;&amp; Filters...
+<a href="#l668" class="line" id="l668">    668</a>         /// If Query and Selectors are both empty, the starting data set will be the entire database.
+<a href="#l669" class="line" id="l669">    669</a>         /// Everything &amp;&amp; Filters...
+<a href="#l670" class="line" id="l670">    670</a>         /// Query is PackageMatchField::CatalogDefault and in the Selector list.
+<a href="#l671" class="line" id="l671">    671</a>         /// USAGE NOTE: Only one selector with PackageMatchField::CatalogDefault is allowed.
+<a href="#l672" class="line" id="l672">    672</a> 
+<a href="#l673" class="line" id="l673">    673</a>         /// Selectors = you have to match at least one selector (if there are no selectors, then nothing is selected)
+<a href="#l674" class="line" id="l674">    674</a>         Windows.Foundation.Collections.IVector&lt;PackageMatchFilter&gt; Selectors { get; };
+<a href="#l675" class="line" id="l675">    675</a>         /// Filters = you have to match all filters(if there are no filters, then there is no filtering of selected items)
+<a href="#l676" class="line" id="l676">    676</a>         Windows.Foundation.Collections.IVector&lt;PackageMatchFilter&gt; Filters{ get; };
+<a href="#l677" class="line" id="l677">    677</a> 
+<a href="#l678" class="line" id="l678">    678</a>         /// Restricts the length of the returned results to the specified count.
+<a href="#l679" class="line" id="l679">    679</a>         UInt32 ResultLimit;
+<a href="#l680" class="line" id="l680">    680</a>     }
+<a href="#l681" class="line" id="l681">    681</a> 
+<a href="#l682" class="line" id="l682">    682</a>     /// IMPLEMENTATION NOTE: ISource from AppInstallerRepositorySource.h
+<a href="#l683" class="line" id="l683">    683</a>     /// A catalog for searching for packages
+<a href="#l684" class="line" id="l684">    684</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l685" class="line" id="l685">    685</a>     runtimeclass PackageCatalog
+<a href="#l686" class="line" id="l686">    686</a>     {
+<a href="#l687" class="line" id="l687">    687</a>         /// Gets a value indicating whether this package catalog is a composite of other package catalogs,
+<a href="#l688" class="line" id="l688">    688</a>         /// and thus the packages may come from disparate package catalogs as well.
+<a href="#l689" class="line" id="l689">    689</a>         Boolean IsComposite { get; };
+<a href="#l690" class="line" id="l690">    690</a>         /// The details of the package catalog if it is not a composite.
+<a href="#l691" class="line" id="l691">    691</a>         PackageCatalogInfo Info { get; };
+<a href="#l692" class="line" id="l692">    692</a> 
+<a href="#l693" class="line" id="l693">    693</a>         /// Searches for Packages in the catalog.
+<a href="#l694" class="line" id="l694">    694</a>         Windows.Foundation.IAsyncOperation&lt;FindPackagesResult&gt; FindPackagesAsync(FindPackagesOptions options);
+<a href="#l695" class="line" id="l695">    695</a>         FindPackagesResult FindPackages(FindPackagesOptions options);
+<a href="#l696" class="line" id="l696">    696</a>     }
+<a href="#l697" class="line" id="l697">    697</a> 
+<a href="#l698" class="line" id="l698">    698</a>     /// Status of the Connect call
+<a href="#l699" class="line" id="l699">    699</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l700" class="line" id="l700">    700</a>     enum ConnectResultStatus
+<a href="#l701" class="line" id="l701">    701</a>     {
+<a href="#l702" class="line" id="l702">    702</a>         Ok,
+<a href="#l703" class="line" id="l703">    703</a>         CatalogError,
+<a href="#l704" class="line" id="l704">    704</a>     };
+<a href="#l705" class="line" id="l705">    705</a> 
+<a href="#l706" class="line" id="l706">    706</a>     /// Result of the Connect call
+<a href="#l707" class="line" id="l707">    707</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l708" class="line" id="l708">    708</a>     runtimeclass ConnectResult
+<a href="#l709" class="line" id="l709">    709</a>     {
+<a href="#l710" class="line" id="l710">    710</a>         /// Error codes
+<a href="#l711" class="line" id="l711">    711</a>         ConnectResultStatus Status{ get; };
+<a href="#l712" class="line" id="l712">    712</a> 
+<a href="#l713" class="line" id="l713">    713</a>         PackageCatalog PackageCatalog { get; };
+<a href="#l714" class="line" id="l714">    714</a>     }
+<a href="#l715" class="line" id="l715">    715</a> 
+<a href="#l716" class="line" id="l716">    716</a>     /// A reference to a catalog that callers can try to Connect.
+<a href="#l717" class="line" id="l717">    717</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l718" class="line" id="l718">    718</a>     runtimeclass PackageCatalogReference
+<a href="#l719" class="line" id="l719">    719</a>     {
+<a href="#l720" class="line" id="l720">    720</a>         /// Gets a value indicating whether this package catalog is a composite of other package catalogs,
+<a href="#l721" class="line" id="l721">    721</a>         /// and thus the packages may come from disparate package catalogs as well.
+<a href="#l722" class="line" id="l722">    722</a>         Boolean IsComposite { get; };
+<a href="#l723" class="line" id="l723">    723</a>         /// The details of the package catalog if it is not a composite.
+<a href="#l724" class="line" id="l724">    724</a>         PackageCatalogInfo Info { get; };
+<a href="#l725" class="line" id="l725">    725</a> 
+<a href="#l726" class="line" id="l726">    726</a>         /// Opens a catalog. Required before searching. For remote catalogs (i.e. not Installed and Installing) this
+<a href="#l727" class="line" id="l727">    727</a>         /// may require downloading information from a server.
+<a href="#l728" class="line" id="l728">    728</a>         Windows.Foundation.IAsyncOperation&lt;ConnectResult&gt; ConnectAsync();
+<a href="#l729" class="line" id="l729">    729</a>         ConnectResult Connect();
+<a href="#l730" class="line" id="l730">    730</a>     }
+<a href="#l731" class="line" id="l731">    731</a> 
+<a href="#l732" class="line" id="l732">    732</a>     /// Catalogs with PackageCatalogOrigin Predefined
+<a href="#l733" class="line" id="l733">    733</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l734" class="line" id="l734">    734</a>     enum PredefinedPackageCatalog
+<a href="#l735" class="line" id="l735">    735</a>     {
+<a href="#l736" class="line" id="l736">    736</a>         OpenWindowsCatalog,
+<a href="#l737" class="line" id="l737">    737</a>     };
+<a href="#l738" class="line" id="l738">    738</a> 
+<a href="#l739" class="line" id="l739">    739</a>     /// Local Catalogs with PackageCatalogOrigin Predefined
+<a href="#l740" class="line" id="l740">    740</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l741" class="line" id="l741">    741</a>     enum LocalPackageCatalog
+<a href="#l742" class="line" id="l742">    742</a>     {
+<a href="#l743" class="line" id="l743">    743</a>         InstalledPackages,
+<a href="#l744" class="line" id="l744">    744</a>     };
+<a href="#l745" class="line" id="l745">    745</a> 
+<a href="#l746" class="line" id="l746">    746</a>     /// Options for creating a composite catalog.
+<a href="#l747" class="line" id="l747">    747</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l748" class="line" id="l748">    748</a>     runtimeclass CreateCompositePackageCatalogOptions
+<a href="#l749" class="line" id="l749">    749</a>     {
+<a href="#l750" class="line" id="l750">    750</a>         CreateCompositePackageCatalogOptions();
+<a href="#l751" class="line" id="l751">    751</a> 
+<a href="#l752" class="line" id="l752">    752</a>         /// Create a composite catalog to allow searching a user defined or pre defined source
+<a href="#l753" class="line" id="l753">    753</a>         /// and a local source (Installed packages) together
+<a href="#l754" class="line" id="l754">    754</a>         IVector&lt;PackageCatalogReference&gt; Catalogs { get; };
+<a href="#l755" class="line" id="l755">    755</a>         /// Sets the default search behavior if the catalog is a composite catalog.
+<a href="#l756" class="line" id="l756">    756</a>         CompositeSearchBehavior CompositeSearchBehavior;
+<a href="#l757" class="line" id="l757">    757</a>     }
+<a href="#l758" class="line" id="l758">    758</a> 
+<a href="#l759" class="line" id="l759">    759</a>     /// Required install scope for the package. If the package does not have an installer that
+<a href="#l760" class="line" id="l760">    760</a>     /// supports the specified scope the Install call will fail with InstallResultStatus.NoApplicableInstallers
+<a href="#l761" class="line" id="l761">    761</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l762" class="line" id="l762">    762</a>     enum PackageInstallScope
+<a href="#l763" class="line" id="l763">    763</a>     {
+<a href="#l764" class="line" id="l764">    764</a>         /// An installer with any install scope is valid.
+<a href="#l765" class="line" id="l765">    765</a>         Any,
+<a href="#l766" class="line" id="l766">    766</a>         /// Only User install scope installers are valid
+<a href="#l767" class="line" id="l767">    767</a>         User,
+<a href="#l768" class="line" id="l768">    768</a>         /// Only System installers will be valid
+<a href="#l769" class="line" id="l769">    769</a>         System,
+<a href="#l770" class="line" id="l770">    770</a>     };
+<a href="#l771" class="line" id="l771">    771</a> 
+<a href="#l772" class="line" id="l772">    772</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l773" class="line" id="l773">    773</a>     enum PackageInstallMode
+<a href="#l774" class="line" id="l774">    774</a>     {
+<a href="#l775" class="line" id="l775">    775</a>         /// The default experience for the installer. Installer may show some UI.
+<a href="#l776" class="line" id="l776">    776</a>         Default,
+<a href="#l777" class="line" id="l777">    777</a>         /// Runs the installer in silent mode. This suppresses the installer&#39;s UI to the extent
+<a href="#l778" class="line" id="l778">    778</a>         /// possible (installer may still show some required UI).
+<a href="#l779" class="line" id="l779">    779</a>         Silent,
+<a href="#l780" class="line" id="l780">    780</a>         /// Runs the installer in interactive mode.
+<a href="#l781" class="line" id="l781">    781</a>         Interactive,
+<a href="#l782" class="line" id="l782">    782</a>     };
+<a href="#l783" class="line" id="l783">    783</a> 
+<a href="#l784" class="line" id="l784">    784</a>     /// Options when installing a package.
+<a href="#l785" class="line" id="l785">    785</a>     /// Intended to allow full compatibility with the &quot;winget install&quot; command line interface.
+<a href="#l786" class="line" id="l786">    786</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l787" class="line" id="l787">    787</a>     runtimeclass InstallOptions
+<a href="#l788" class="line" id="l788">    788</a>     {
+<a href="#l789" class="line" id="l789">    789</a>         InstallOptions();
+<a href="#l790" class="line" id="l790">    790</a> 
+<a href="#l791" class="line" id="l791">    791</a>         /// Optionally specifies the version from the package to install. If unspecified the version matching
+<a href="#l792" class="line" id="l792">    792</a>         /// CatalogPackage.GetLatestVersion() is used.
+<a href="#l793" class="line" id="l793">    793</a>         PackageVersionId PackageVersionId;
+<a href="#l794" class="line" id="l794">    794</a> 
+<a href="#l795" class="line" id="l795">    795</a>         /// Specifies alternate location to install package (if supported).
+<a href="#l796" class="line" id="l796">    796</a>         String PreferredInstallLocation;
+<a href="#l797" class="line" id="l797">    797</a>         /// User or Machine.
+<a href="#l798" class="line" id="l798">    798</a>         PackageInstallScope PackageInstallScope;
+<a href="#l799" class="line" id="l799">    799</a>         /// Silent, Interactive, or Default
+<a href="#l800" class="line" id="l800">    800</a>         PackageInstallMode PackageInstallMode;
+<a href="#l801" class="line" id="l801">    801</a>         /// Directs the logging to a log file. If provided, the installer must have write access to the file
+<a href="#l802" class="line" id="l802">    802</a>         String LogOutputPath;
+<a href="#l803" class="line" id="l803">    803</a>         /// Continues the install even if the hash in the catalog does not match the linked installer.
+<a href="#l804" class="line" id="l804">    804</a>         Boolean AllowHashMismatch;
+<a href="#l805" class="line" id="l805">    805</a>         /// Allows Store installs when Store Client is disabled.
+<a href="#l806" class="line" id="l806">    806</a>         Boolean BypassIsStoreClientBlockedPolicyCheck;
+<a href="#l807" class="line" id="l807">    807</a>         /// A string that will be passed to the installer.
+<a href="#l808" class="line" id="l808">    808</a>         /// IMPLEMENTATION NOTE: maps to &quot;--override&quot; in the winget cmd line
+<a href="#l809" class="line" id="l809">    809</a>         String ReplacementInstallerArguments;
+<a href="#l810" class="line" id="l810">    810</a> 
+<a href="#l811" class="line" id="l811">    811</a>         /// Used by a caller to correlate the install with a caller&#39;s data.
+<a href="#l812" class="line" id="l812">    812</a>         /// The string must be JSON encoded.
+<a href="#l813" class="line" id="l813">    813</a>         String CorrelationData;
+<a href="#l814" class="line" id="l814">    814</a>         /// A string that will be passed to the source server if using a REST source
+<a href="#l815" class="line" id="l815">    815</a>         String AdditionalPackageCatalogArguments;
+<a href="#l816" class="line" id="l816">    816</a>     }
+<a href="#l817" class="line" id="l817">    817</a> 
+<a href="#l818" class="line" id="l818">    818</a>     [contract(Microsoft.Management.Deployment.WindowsPackageManagerContract, 1)]
+<a href="#l819" class="line" id="l819">    819</a>     runtimeclass PackageManager
+<a href="#l820" class="line" id="l820">    820</a>     {
+<a href="#l821" class="line" id="l821">    821</a>         PackageManager();
+<a href="#l822" class="line" id="l822">    822</a> 
+<a href="#l823" class="line" id="l823">    823</a>         /// Get the available catalogs. Each source will have a separate catalog.
+<a href="#l824" class="line" id="l824">    824</a>         /// This does not open the catalog. These catalogs can be used individually or merged with CreateCompositePackageCatalogAsync.
+<a href="#l825" class="line" id="l825">    825</a>         /// IMPLEMENTATION NOTE: This is a list of sources returned by Windows Package Manager source list
+<a href="#l826" class="line" id="l826">    826</a>         Windows.Foundation.Collections.IVectorView&lt;PackageCatalogReference&gt; GetPackageCatalogs();
+<a href="#l827" class="line" id="l827">    827</a>         /// Get a built in catalog
+<a href="#l828" class="line" id="l828">    828</a>         PackageCatalogReference GetPredefinedPackageCatalog(PredefinedPackageCatalog predefinedPackageCatalog);
+<a href="#l829" class="line" id="l829">    829</a>         /// Get a built in catalog
+<a href="#l830" class="line" id="l830">    830</a>         PackageCatalogReference GetLocalPackageCatalog(LocalPackageCatalog localPackageCatalog);
+<a href="#l831" class="line" id="l831">    831</a>         /// Get a catalog by a known name
+<a href="#l832" class="line" id="l832">    832</a>         PackageCatalogReference GetPackageCatalogByName(String catalogName);
+<a href="#l833" class="line" id="l833">    833</a>         /// Get a composite catalog to allow searching a user defined or pre defined source and a local source
+<a href="#l834" class="line" id="l834">    834</a>         /// (Installing, Installed) together at the same time.
+<a href="#l835" class="line" id="l835">    835</a>         PackageCatalogReference CreateCompositePackageCatalog(CreateCompositePackageCatalogOptions options);
+<a href="#l836" class="line" id="l836">    836</a> 
+<a href="#l837" class="line" id="l837">    837</a>         /// Install the specified package
+<a href="#l838" class="line" id="l838">    838</a>         Windows.Foundation.IAsyncOperationWithProgress&lt;InstallResult, InstallProgress&gt; InstallPackageAsync(CatalogPackage package, InstallOptions options);
+<a href="#l839" class="line" id="l839">    839</a>     }
+<a href="#l840" class="line" id="l840">    840</a> 
+<a href="#l841" class="line" id="l841">    841</a>     /// Force midl3 to generate vector marshalling info.
+<a href="#l842" class="line" id="l842">    842</a>     declare
+<a href="#l843" class="line" id="l843">    843</a>     {
+<a href="#l844" class="line" id="l844">    844</a>         interface Windows.Foundation.Collections.IVector&lt;PackageCatalog&gt;;
+<a href="#l845" class="line" id="l845">    845</a>         interface Windows.Foundation.Collections.IVectorView&lt;PackageCatalog&gt;;
+<a href="#l846" class="line" id="l846">    846</a>         interface Windows.Foundation.Collections.IVector&lt;PackageCatalogInfo&gt;;
+<a href="#l847" class="line" id="l847">    847</a>         interface Windows.Foundation.Collections.IVectorView&lt;PackageCatalogInfo&gt;;
+<a href="#l848" class="line" id="l848">    848</a>         interface Windows.Foundation.Collections.IVector&lt;PackageCatalogReference&gt;;
+<a href="#l849" class="line" id="l849">    849</a>         interface Windows.Foundation.Collections.IVectorView&lt;PackageCatalogReference&gt;;
+<a href="#l850" class="line" id="l850">    850</a>         interface Windows.Foundation.Collections.IVector&lt;CatalogPackage&gt;;
+<a href="#l851" class="line" id="l851">    851</a>         interface Windows.Foundation.Collections.IVectorView&lt;CatalogPackage&gt;;
+<a href="#l852" class="line" id="l852">    852</a>         interface Windows.Foundation.Collections.IVector&lt;FindPackagesOptions&gt;;
+<a href="#l853" class="line" id="l853">    853</a>         interface Windows.Foundation.Collections.IVectorView&lt;FindPackagesOptions&gt;;
+<a href="#l854" class="line" id="l854">    854</a>         interface Windows.Foundation.Collections.IVector&lt;FindPackagesResult&gt;;
+<a href="#l855" class="line" id="l855">    855</a>         interface Windows.Foundation.Collections.IVectorView&lt;FindPackagesResult&gt;;
+<a href="#l856" class="line" id="l856">    856</a>         interface Windows.Foundation.Collections.IVector&lt;CreateCompositePackageCatalogOptions&gt;;
+<a href="#l857" class="line" id="l857">    857</a>         interface Windows.Foundation.Collections.IVectorView&lt;CreateCompositePackageCatalogOptions&gt;;
+<a href="#l858" class="line" id="l858">    858</a>         interface Windows.Foundation.Collections.IVector&lt;InstallOptions&gt;;
+<a href="#l859" class="line" id="l859">    859</a>         interface Windows.Foundation.Collections.IVectorView&lt;InstallOptions&gt;;
+<a href="#l860" class="line" id="l860">    860</a>         interface Windows.Foundation.Collections.IVector&lt;InstallResult&gt;;
+<a href="#l861" class="line" id="l861">    861</a>         interface Windows.Foundation.Collections.IVectorView&lt;InstallResult&gt;;
+<a href="#l862" class="line" id="l862">    862</a>         interface Windows.Foundation.Collections.IVector&lt;MatchResult&gt;;
+<a href="#l863" class="line" id="l863">    863</a>         interface Windows.Foundation.Collections.IVectorView&lt;MatchResult&gt;;
+<a href="#l864" class="line" id="l864">    864</a>         interface Windows.Foundation.Collections.IVector&lt;PackageManager&gt;;
+<a href="#l865" class="line" id="l865">    865</a>         interface Windows.Foundation.Collections.IVectorView&lt;PackageManager&gt;;
+<a href="#l866" class="line" id="l866">    866</a>         interface Windows.Foundation.Collections.IVector&lt;PackageMatchFilter&gt;;
+<a href="#l867" class="line" id="l867">    867</a>         interface Windows.Foundation.Collections.IVectorView&lt;PackageMatchFilter&gt;;
+<a href="#l868" class="line" id="l868">    868</a>         interface Windows.Foundation.Collections.IVector&lt;PackageVersionId&gt;;
+<a href="#l869" class="line" id="l869">    869</a>         interface Windows.Foundation.Collections.IVectorView&lt;PackageVersionId&gt;;
+<a href="#l870" class="line" id="l870">    870</a>         interface Windows.Foundation.Collections.IVector&lt;PackageVersionInfo&gt;;
+<a href="#l871" class="line" id="l871">    871</a>         interface Windows.Foundation.Collections.IVectorView&lt;PackageVersionInfo&gt;;
+<a href="#l872" class="line" id="l872">    872</a>     }
+<a href="#l873" class="line" id="l873">    873</a> }
+<a href="#l874" class="line" id="l874">    874</a> ```
+<a href="#l875" class="line" id="l875">    875</a> 
+<a href="#l876" class="line" id="l876">    876</a> # Appendix
+</pre>
+</div>
+</body>
+</html>

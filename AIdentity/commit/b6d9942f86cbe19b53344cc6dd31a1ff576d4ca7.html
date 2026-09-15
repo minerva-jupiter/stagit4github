@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(game): Implement &#39;Protect Heart&#39; canvas game for Stage 8 - AIdentity - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>AIdentity</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/b6d9942f86cbe19b53344cc6dd31a1ff576d4ca7.html">b6d9942f86cbe19b53344cc6dd31a1ff576d4ca7</a>
+<b>parent</b> <a href="../commit/56597476bab06a521c55160aa074d9923f444d9f.html">56597476bab06a521c55160aa074d9923f444d9f</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Sun,  9 Nov 2025 22:48:27 +0900
+
+feat(game): Implement &#39;Protect Heart&#39; canvas game for Stage 8
+
+This new component replaces the previous Stage 8 (kaleidoscope) and
+introduces an interactive canvas game where players use the mouse to
+repel flying objects and protect a central heart.
+
+Additionally, this commit includes minor dependency updates for
+@sentry/nextjs and eslint, and adds type definitions for a custom R3F
+water shader material.
+
+<b>Diffstat:</b>
+<table><tr><td class="A">A</td><td><a href="#h0">app/components/8_protectHart.tsx</a></td><td> | </td><td class="num">382</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">app/ctrl/page.tsx</a></td><td> | </td><td class="num">310</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">bun.lock</a></td><td> | </td><td class="num">5</td><td><span class="i">+++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">tsconfig.json</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">types/r3f-custom.d.ts</a></td><td> | </td><td class="num">22</td><td><span class="i">+++++++++++++++++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>5 files changed, 576 insertions(+), 145 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/app/components/8_protectHart.tsx.html">app/components/8_protectHart.tsx</a> b/<a href="../file/app/components/8_protectHart.tsx.html">app/components/8_protectHart.tsx</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -0,0 +1,382 @@
+</a><a href="#h0-0-0" id="h0-0-0" class="i">+&quot;use client&quot;;
+</a><a href="#h0-0-1" id="h0-0-1" class="i">+
+</a><a href="#h0-0-2" id="h0-0-2" class="i">+import React, { useRef, useCallback, useEffect } from &quot;react&quot;;
+</a><a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+export type Point = {
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+  x: number;
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+  y: number;
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+};
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+export type FlyingObject = {
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+  id: number;
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+  position: Point;
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+  velocity: Point; // vx, vy
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+  content: string;
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+  radius: number;
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+  isHit: boolean;
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+  when: number;
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+};
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+export type GameState = {
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+  heartCenter: Point;
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+  heartRadius: number;
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+  distortionLevel: number; // 歪み度合い (0.0 ～ 1.0)
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+  flyingObjects: FlyingObject[];
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+  mousePosition: Point;
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+  isGameOver: boolean;
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+  lastTime: number | undefined;
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+  totalTime: number;
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+};
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+// --- 設定値 ---
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+const HEART_RADIUS = 50;
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+const MOUSE_REPEL_RADIUS = 40;
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+const FLY_SPEED = 2;
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+const MAX_OBJECTS = 15;
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+// (省略: 飛来物生成や衝突判定などのヘルパー関数はここでは割愛)
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+const HEART_IMAGE_PATHS = [
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+  &quot;/images/heart_0.png&quot;, // distortionLevel 0.0-0.2
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+  &quot;/images/heart_1.png&quot;, // distortionLevel 0.2-0.4
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+  &quot;/images/heart_2.png&quot;, // distortionLevel 0.4-0.6
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+  &quot;/images/heart_3.png&quot;, // distortionLevel 0.6-0.8
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+  &quot;/images/heart_4.png&quot;, // distortionLevel 0.8-1.0
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+];
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+const heartImages = new Map&lt;string, HTMLImageElement&gt;();
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+let imagesLoaded = false; // 全ての画像が読み込まれたかのフラグ
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+const preloadImages = async () =&gt; {
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+  if (imagesLoaded) return; // 既に読み込み済みなら何もしない
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+  const promises = HEART_IMAGE_PATHS.map((path) =&gt; {
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+    return new Promise&lt;void&gt;((resolve, reject) =&gt; {
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+      const img = new Image();
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+      img.src = path;
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+      img.onload = () =&gt; {
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+        heartImages.set(path, img);
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+        resolve();
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+      };
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+      img.onerror = reject;
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+    });
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+  });
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+  try {
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+    await Promise.all(promises);
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+    imagesLoaded = true;
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+    console.log(&quot;All heart images loaded.&quot;);
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+  } catch (error) {
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+    console.error(&quot;Failed to load heart images:&quot;, error);
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+  }
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+};
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+const drawHeart = (ctx: CanvasRenderingContext2D, state: GameState) =&gt; {
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+  const { x, y } = state.heartCenter;
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+  const R = state.heartRadius; // このRは画像のサイズ調整に使われる
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+  const imageIndex = Math.min(
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+    HEART_IMAGE_PATHS.length - 1,
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+    Math.floor(state.distortionLevel * HEART_IMAGE_PATHS.length),
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+  );
+</a><a href="#h0-0-80" id="h0-0-80" class="i">+  const imagePath = HEART_IMAGE_PATHS[imageIndex];
+</a><a href="#h0-0-81" id="h0-0-81" class="i">+  const heartImage = heartImages.get(imagePath);
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+  if (heartImage &amp;&amp; imagesLoaded) {
+</a><a href="#h0-0-84" id="h0-0-84" class="i">+    const drawX = x - heartImage.width / 2;
+</a><a href="#h0-0-85" id="h0-0-85" class="i">+    const drawY = y - heartImage.height / 2;
+</a><a href="#h0-0-86" id="h0-0-86" class="i">+    ctx.drawImage(
+</a><a href="#h0-0-87" id="h0-0-87" class="i">+      heartImage,
+</a><a href="#h0-0-88" id="h0-0-88" class="i">+      drawX,
+</a><a href="#h0-0-89" id="h0-0-89" class="i">+      drawY,
+</a><a href="#h0-0-90" id="h0-0-90" class="i">+      heartImage.width,
+</a><a href="#h0-0-91" id="h0-0-91" class="i">+      heartImage.height,
+</a><a href="#h0-0-92" id="h0-0-92" class="i">+    );
+</a><a href="#h0-0-93" id="h0-0-93" class="i">+  } else {
+</a><a href="#h0-0-94" id="h0-0-94" class="i">+    ctx.fillStyle = &quot;red&quot;;
+</a><a href="#h0-0-95" id="h0-0-95" class="i">+    ctx.fillRect(x - R / 2, y - R / 2, R, R);
+</a><a href="#h0-0-96" id="h0-0-96" class="i">+  }
+</a><a href="#h0-0-97" id="h0-0-97" class="i">+};
+</a><a href="#h0-0-98" id="h0-0-98" class="i">+
+</a><a href="#h0-0-99" id="h0-0-99" class="i">+const FLY_SPEED_BASE = 0.05; // 速度の基準値 (deltaTimeとの積で調整)
+</a><a href="#h0-0-100" id="h0-0-100" class="i">+
+</a><a href="#h0-0-101" id="h0-0-101" class="i">+const SPAWN_LIST: Omit&lt;FlyingObject, &quot;id&quot; | &quot;isHit&quot;&gt;[] = [
+</a><a href="#h0-0-102" id="h0-0-102" class="i">+  {
+</a><a href="#h0-0-103" id="h0-0-103" class="i">+    when: 1000,
+</a><a href="#h0-0-104" id="h0-0-104" class="i">+    content: &quot;H&quot;,
+</a><a href="#h0-0-105" id="h0-0-105" class="i">+    radius: 20,
+</a><a href="#h0-0-106" id="h0-0-106" class="i">+    position: { x: 0.1, y: 0.1 },
+</a><a href="#h0-0-107" id="h0-0-107" class="i">+    velocity: { x: FLY_SPEED_BASE, y: FLY_SPEED_BASE },
+</a><a href="#h0-0-108" id="h0-0-108" class="i">+  },
+</a><a href="#h0-0-109" id="h0-0-109" class="i">+  {
+</a><a href="#h0-0-110" id="h0-0-110" class="i">+    when: 2500,
+</a><a href="#h0-0-111" id="h0-0-111" class="i">+    content: &quot;W&quot;,
+</a><a href="#h0-0-112" id="h0-0-112" class="i">+    radius: 20,
+</a><a href="#h0-0-113" id="h0-0-113" class="i">+    position: { x: 0.9, y: 0.1 },
+</a><a href="#h0-0-114" id="h0-0-114" class="i">+    velocity: { x: -FLY_SPEED_BASE, y: FLY_SPEED_BASE },
+</a><a href="#h0-0-115" id="h0-0-115" class="i">+  },
+</a><a href="#h0-0-116" id="h0-0-116" class="i">+  {
+</a><a href="#h0-0-117" id="h0-0-117" class="i">+    when: 3200,
+</a><a href="#h0-0-118" id="h0-0-118" class="i">+    content: &quot;X&quot;,
+</a><a href="#h0-0-119" id="h0-0-119" class="i">+    radius: 20,
+</a><a href="#h0-0-120" id="h0-0-120" class="i">+    position: { x: 0.5, y: 1.0 },
+</a><a href="#h0-0-121" id="h0-0-121" class="i">+    velocity: { x: 0.0, y: -FLY_SPEED_BASE * 1.5 },
+</a><a href="#h0-0-122" id="h0-0-122" class="i">+  },
+</a><a href="#h0-0-123" id="h0-0-123" class="i">+  {
+</a><a href="#h0-0-124" id="h0-0-124" class="i">+    when: 4000,
+</a><a href="#h0-0-125" id="h0-0-125" class="i">+    content: &quot;!!&quot;,
+</a><a href="#h0-0-126" id="h0-0-126" class="i">+    radius: 25,
+</a><a href="#h0-0-127" id="h0-0-127" class="i">+    position: { x: 0.0, y: 0.5 },
+</a><a href="#h0-0-128" id="h0-0-128" class="i">+    velocity: { x: FLY_SPEED_BASE, y: 0.0 },
+</a><a href="#h0-0-129" id="h0-0-129" class="i">+  },
+</a><a href="#h0-0-130" id="h0-0-130" class="i">+];
+</a><a href="#h0-0-131" id="h0-0-131" class="i">+
+</a><a href="#h0-0-132" id="h0-0-132" class="i">+const useGameLoop = (canvasRef: React.RefObject&lt;HTMLCanvasElement | null&gt;) =&gt; {
+</a><a href="#h0-0-133" id="h0-0-133" class="i">+  // ゲームの状態をuseRefで保持し、再レンダーに依存しないようにする
+</a><a href="#h0-0-134" id="h0-0-134" class="i">+  const gameStateRef = useRef&lt;GameState&gt;({
+</a><a href="#h0-0-135" id="h0-0-135" class="i">+    heartCenter: { x: 0, y: 0 },
+</a><a href="#h0-0-136" id="h0-0-136" class="i">+    heartRadius: HEART_RADIUS,
+</a><a href="#h0-0-137" id="h0-0-137" class="i">+    distortionLevel: 0,
+</a><a href="#h0-0-138" id="h0-0-138" class="i">+    flyingObjects: [],
+</a><a href="#h0-0-139" id="h0-0-139" class="i">+    mousePosition: { x: -100, y: -100 }, // 初期値は画面外
+</a><a href="#h0-0-140" id="h0-0-140" class="i">+    isGameOver: false,
+</a><a href="#h0-0-141" id="h0-0-141" class="i">+    lastTime: undefined,
+</a><a href="#h0-0-142" id="h0-0-142" class="i">+    totalTime: 0,
+</a><a href="#h0-0-143" id="h0-0-143" class="i">+  });
+</a><a href="#h0-0-144" id="h0-0-144" class="i">+
+</a><a href="#h0-0-145" id="h0-0-145" class="i">+  const scheduledObjectsRef = useRef&lt;FlyingObject[]&gt;(
+</a><a href="#h0-0-146" id="h0-0-146" class="i">+    JSON.parse(
+</a><a href="#h0-0-147" id="h0-0-147" class="i">+      JSON.stringify(
+</a><a href="#h0-0-148" id="h0-0-148" class="i">+        SPAWN_LIST.map((obj, index) =&gt; ({ ...obj, id: index, isHit: false })),
+</a><a href="#h0-0-149" id="h0-0-149" class="i">+      ),
+</a><a href="#h0-0-150" id="h0-0-150" class="i">+    ),
+</a><a href="#h0-0-151" id="h0-0-151" class="i">+  );
+</a><a href="#h0-0-152" id="h0-0-152" class="i">+
+</a><a href="#h0-0-153" id="h0-0-153" class="i">+  // requestAnimationFrameのIDを保持
+</a><a href="#h0-0-154" id="h0-0-154" class="i">+  const animationFrameId = useRef&lt;number | undefined&gt;(undefined);
+</a><a href="#h0-0-155" id="h0-0-155" class="i">+
+</a><a href="#h0-0-156" id="h0-0-156" class="i">+  // --- ゲーム更新ロジック ---
+</a><a href="#h0-0-157" id="h0-0-157" class="i">+  const updateGame = (state: GameState, deltaTime: number) =&gt; {
+</a><a href="#h0-0-158" id="h0-0-158" class="i">+    const canvas = canvasRef.current;
+</a><a href="#h0-0-159" id="h0-0-159" class="i">+    if (!canvas) return;
+</a><a href="#h0-0-160" id="h0-0-160" class="i">+    while (
+</a><a href="#h0-0-161" id="h0-0-161" class="i">+      scheduledObjectsRef.current.length &gt; 0 &amp;&amp;
+</a><a href="#h0-0-162" id="h0-0-162" class="i">+      scheduledObjectsRef.current[0].when &lt;= state.totalTime
+</a><a href="#h0-0-163" id="h0-0-163" class="i">+    ) {
+</a><a href="#h0-0-164" id="h0-0-164" class="i">+      const objToSpawn = scheduledObjectsRef.current.shift(); // 先頭を抜き取る
+</a><a href="#h0-0-165" id="h0-0-165" class="i">+
+</a><a href="#h0-0-166" id="h0-0-166" class="i">+      if (objToSpawn) {
+</a><a href="#h0-0-167" id="h0-0-167" class="i">+        objToSpawn.position.x = objToSpawn.position.x * canvas.width;
+</a><a href="#h0-0-168" id="h0-0-168" class="i">+        objToSpawn.position.y = objToSpawn.position.y * canvas.height;
+</a><a href="#h0-0-169" id="h0-0-169" class="i">+
+</a><a href="#h0-0-170" id="h0-0-170" class="i">+        objToSpawn.velocity.x = objToSpawn.velocity.x * canvas.width;
+</a><a href="#h0-0-171" id="h0-0-171" class="i">+        objToSpawn.velocity.y = objToSpawn.velocity.y * canvas.height;
+</a><a href="#h0-0-172" id="h0-0-172" class="i">+
+</a><a href="#h0-0-173" id="h0-0-173" class="i">+        // 飛来中オブジェクトリストに、新しくスポーンしたオブジェクトを追加
+</a><a href="#h0-0-174" id="h0-0-174" class="i">+        state.flyingObjects.push(objToSpawn);
+</a><a href="#h0-0-175" id="h0-0-175" class="i">+      }
+</a><a href="#h0-0-176" id="h0-0-176" class="i">+    }
+</a><a href="#h0-0-177" id="h0-0-177" class="i">+    state.flyingObjects = state.flyingObjects
+</a><a href="#h0-0-178" id="h0-0-178" class="i">+      .map((obj) =&gt; {
+</a><a href="#h0-0-179" id="h0-0-179" class="i">+        // ハートに向かって移動
+</a><a href="#h0-0-180" id="h0-0-180" class="i">+        obj.position.x += obj.velocity.x * deltaTime * 0.001;
+</a><a href="#h0-0-181" id="h0-0-181" class="i">+        obj.position.y += obj.velocity.y * deltaTime * 0.001;
+</a><a href="#h0-0-182" id="h0-0-182" class="i">+
+</a><a href="#h0-0-183" id="h0-0-183" class="i">+        // a. マウスとの衝突判定（弾くロジック）
+</a><a href="#h0-0-184" id="h0-0-184" class="i">+        const dxMouse = obj.position.x - state.mousePosition.x;
+</a><a href="#h0-0-185" id="h0-0-185" class="i">+        const dyMouse = obj.position.y - state.mousePosition.y;
+</a><a href="#h0-0-186" id="h0-0-186" class="i">+        const distanceMouse = Math.hypot(dxMouse, dyMouse); // マウスからの距離
+</a><a href="#h0-0-187" id="h0-0-187" class="i">+
+</a><a href="#h0-0-188" id="h0-0-188" class="i">+        if (distanceMouse &lt; MOUSE_REPEL_RADIUS + obj.radius) {
+</a><a href="#h0-0-189" id="h0-0-189" class="i">+          // 弾かれた後に止まらないように、現在の速度ベクトルに反発力を加算する
+</a><a href="#h0-0-190" id="h0-0-190" class="i">+
+</a><a href="#h0-0-191" id="h0-0-191" class="i">+          // 衝突の中心に近いほど反発が強くなる係数を計算 (0.0 ～ 1.0)
+</a><a href="#h0-0-192" id="h0-0-192" class="i">+          const overlap = MOUSE_REPEL_RADIUS + obj.radius - distanceMouse;
+</a><a href="#h0-0-193" id="h0-0-193" class="i">+          const repelFactor = overlap / (MOUSE_REPEL_RADIUS + obj.radius);
+</a><a href="#h0-0-194" id="h0-0-194" class="i">+
+</a><a href="#h0-0-195" id="h0-0-195" class="i">+          // 反発力の強さの基準 (値を大きくするとより勢いよく弾かれる)
+</a><a href="#h0-0-196" id="h0-0-196" class="i">+          const PUSH_STRENGTH = 200; // 👈 調整可能な定数 (大きめに設定)
+</a><a href="#h0-0-197" id="h0-0-197" class="i">+
+</a><a href="#h0-0-198" id="h0-0-198" class="i">+          // 反発力のベクトルを計算
+</a><a href="#h0-0-199" id="h0-0-199" class="i">+          const repelX = dxMouse * repelFactor * PUSH_STRENGTH;
+</a><a href="#h0-0-200" id="h0-0-200" class="i">+          const repelY = dyMouse * repelFactor * PUSH_STRENGTH;
+</a><a href="#h0-0-201" id="h0-0-201" class="i">+
+</a><a href="#h0-0-202" id="h0-0-202" class="i">+          // 🔥 修正: 現在の速度に反発力を加える（完全上書きを避ける）
+</a><a href="#h0-0-203" id="h0-0-203" class="i">+          // deltaTimeで調整するため、速度の変化量として加える
+</a><a href="#h0-0-204" id="h0-0-204" class="i">+          const accelerationFactor = 0.5; // 速度変化の感度 (調整可能)
+</a><a href="#h0-0-205" id="h0-0-205" class="i">+
+</a><a href="#h0-0-206" id="h0-0-206" class="i">+          obj.velocity.x += repelX * accelerationFactor;
+</a><a href="#h0-0-207" id="h0-0-207" class="i">+          obj.velocity.y += repelY * accelerationFactor; // オブジェクトが押し出された後、マウスと重ならないように位置を少し修正 (前回と同じロジック)
+</a><a href="#h0-0-208" id="h0-0-208" class="i">+
+</a><a href="#h0-0-209" id="h0-0-209" class="i">+          if (overlap &gt; 0 &amp;&amp; distanceMouse &gt; 0) {
+</a><a href="#h0-0-210" id="h0-0-210" class="i">+            const adjustX = (dxMouse / distanceMouse) * overlap;
+</a><a href="#h0-0-211" id="h0-0-211" class="i">+            const adjustY = (dyMouse / distanceMouse) * overlap;
+</a><a href="#h0-0-212" id="h0-0-212" class="i">+            obj.position.x += adjustX;
+</a><a href="#h0-0-213" id="h0-0-213" class="i">+            obj.position.y += adjustY;
+</a><a href="#h0-0-214" id="h0-0-214" class="i">+          }
+</a><a href="#h0-0-215" id="h0-0-215" class="i">+        }
+</a><a href="#h0-0-216" id="h0-0-216" class="i">+
+</a><a href="#h0-0-217" id="h0-0-217" class="i">+        // b. ハートとの衝突判定（蹂躙ロジック）
+</a><a href="#h0-0-218" id="h0-0-218" class="i">+        const dxHeart = obj.position.x - state.heartCenter.x;
+</a><a href="#h0-0-219" id="h0-0-219" class="i">+        const dyHeart = obj.position.y - state.heartCenter.y;
+</a><a href="#h0-0-220" id="h0-0-220" class="i">+        if (
+</a><a href="#h0-0-221" id="h0-0-221" class="i">+          Math.hypot(dxHeart, dyHeart) &lt; state.heartRadius + obj.radius &amp;&amp;
+</a><a href="#h0-0-222" id="h0-0-222" class="i">+          !obj.isHit
+</a><a href="#h0-0-223" id="h0-0-223" class="i">+        ) {
+</a><a href="#h0-0-224" id="h0-0-224" class="i">+          obj.isHit = true;
+</a><a href="#h0-0-225" id="h0-0-225" class="i">+          state.distortionLevel = Math.min(1.0, state.distortionLevel + 0.05);
+</a><a href="#h0-0-226" id="h0-0-226" class="i">+        }
+</a><a href="#h0-0-227" id="h0-0-227" class="i">+
+</a><a href="#h0-0-228" id="h0-0-228" class="i">+        return obj;
+</a><a href="#h0-0-229" id="h0-0-229" class="i">+      })
+</a><a href="#h0-0-230" id="h0-0-230" class="i">+      .filter((obj) =&gt; !obj.isHit &amp;&amp; obj.position.y &lt; canvas.height * 1.5); // 画面外に出たものと当たったものを削除
+</a><a href="#h0-0-231" id="h0-0-231" class="i">+
+</a><a href="#h0-0-232" id="h0-0-232" class="i">+    // 3. ハートとマウスの衝突判定（ハートも弾かれる）
+</a><a href="#h0-0-233" id="h0-0-233" class="i">+    const dxHeartMouse = state.heartCenter.x - state.mousePosition.x;
+</a><a href="#h0-0-234" id="h0-0-234" class="i">+    const dyHeartMouse = state.heartCenter.y - state.mousePosition.y;
+</a><a href="#h0-0-235" id="h0-0-235" class="i">+    if (Math.hypot(dxHeartMouse, dyHeartMouse) &lt; state.heartRadius + 30) {
+</a><a href="#h0-0-236" id="h0-0-236" class="i">+      // マウスによってハートが押しやられる
+</a><a href="#h0-0-237" id="h0-0-237" class="i">+      state.heartCenter.x += dxHeartMouse * 0.05;
+</a><a href="#h0-0-238" id="h0-0-238" class="i">+      state.heartCenter.y += dyHeartMouse * 0.05;
+</a><a href="#h0-0-239" id="h0-0-239" class="i">+    }
+</a><a href="#h0-0-240" id="h0-0-240" class="i">+    state.heartCenter.x += (canvas.width / 2 - state.heartCenter.x) * 0.01;
+</a><a href="#h0-0-241" id="h0-0-241" class="i">+    state.heartCenter.y += (canvas.height / 2 - state.heartCenter.y) * 0.01;
+</a><a href="#h0-0-242" id="h0-0-242" class="i">+  };
+</a><a href="#h0-0-243" id="h0-0-243" class="i">+
+</a><a href="#h0-0-244" id="h0-0-244" class="i">+  const drawGame = (ctx: CanvasRenderingContext2D, state: GameState) =&gt; {
+</a><a href="#h0-0-245" id="h0-0-245" class="i">+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+</a><a href="#h0-0-246" id="h0-0-246" class="i">+
+</a><a href="#h0-0-247" id="h0-0-247" class="i">+    state.flyingObjects.forEach((obj) =&gt; {
+</a><a href="#h0-0-248" id="h0-0-248" class="i">+      ctx.fillStyle = &quot;white&quot;;
+</a><a href="#h0-0-249" id="h0-0-249" class="i">+      ctx.font = `${obj.radius * 1.5}px sans-serif`;
+</a><a href="#h0-0-250" id="h0-0-250" class="i">+      ctx.fillText(obj.content, obj.position.x, obj.position.y);
+</a><a href="#h0-0-251" id="h0-0-251" class="i">+    });
+</a><a href="#h0-0-252" id="h0-0-252" class="i">+
+</a><a href="#h0-0-253" id="h0-0-253" class="i">+    // ハートの描画（画像を使用）
+</a><a href="#h0-0-254" id="h0-0-254" class="i">+    drawHeart(ctx, state);
+</a><a href="#h0-0-255" id="h0-0-255" class="i">+  };
+</a><a href="#h0-0-256" id="h0-0-256" class="i">+
+</a><a href="#h0-0-257" id="h0-0-257" class="i">+  // --- メインゲームループ ---
+</a><a href="#h0-0-258" id="h0-0-258" class="i">+  const gameLoop = useCallback(
+</a><a href="#h0-0-259" id="h0-0-259" class="i">+    (timestamp: DOMHighResTimeStamp) =&gt; {
+</a><a href="#h0-0-260" id="h0-0-260" class="i">+      const canvas = canvasRef.current;
+</a><a href="#h0-0-261" id="h0-0-261" class="i">+      if (!canvas) return;
+</a><a href="#h0-0-262" id="h0-0-262" class="i">+
+</a><a href="#h0-0-263" id="h0-0-263" class="i">+      const ctx = canvas.getContext(&quot;2d&quot;);
+</a><a href="#h0-0-264" id="h0-0-264" class="i">+      if (!ctx) return;
+</a><a href="#h0-0-265" id="h0-0-265" class="i">+
+</a><a href="#h0-0-266" id="h0-0-266" class="i">+      // 前回の実行時刻を保持 (deltaTime計算のため)
+</a><a href="#h0-0-267" id="h0-0-267" class="i">+      const lastTime = gameStateRef.current.lastTime || timestamp;
+</a><a href="#h0-0-268" id="h0-0-268" class="i">+      const deltaTime = timestamp - lastTime;
+</a><a href="#h0-0-269" id="h0-0-269" class="i">+      gameStateRef.current.totalTime += deltaTime;
+</a><a href="#h0-0-270" id="h0-0-270" class="i">+      // 1. **更新 (Update):** ゲームの状態を更新
+</a><a href="#h0-0-271" id="h0-0-271" class="i">+      updateGame(gameStateRef.current, deltaTime);
+</a><a href="#h0-0-272" id="h0-0-272" class="i">+
+</a><a href="#h0-0-273" id="h0-0-273" class="i">+      // 2. **描画 (Draw):** Canvasに描画
+</a><a href="#h0-0-274" id="h0-0-274" class="i">+      drawGame(ctx, gameStateRef.current);
+</a><a href="#h0-0-275" id="h0-0-275" class="i">+
+</a><a href="#h0-0-276" id="h0-0-276" class="i">+      gameStateRef.current.lastTime = timestamp;
+</a><a href="#h0-0-277" id="h0-0-277" class="i">+
+</a><a href="#h0-0-278" id="h0-0-278" class="i">+      // ループを継続
+</a><a href="#h0-0-279" id="h0-0-279" class="i">+      animationFrameId.current = requestAnimationFrame(gameLoop);
+</a><a href="#h0-0-280" id="h0-0-280" class="i">+    },
+</a><a href="#h0-0-281" id="h0-0-281" class="i">+    [canvasRef],
+</a><a href="#h0-0-282" id="h0-0-282" class="i">+  );
+</a><a href="#h0-0-283" id="h0-0-283" class="i">+
+</a><a href="#h0-0-284" id="h0-0-284" class="i">+  // マウスイベントハンドラ (コンポーネントで登録し、ここで使う)
+</a><a href="#h0-0-285" id="h0-0-285" class="i">+  const handleMouseMove = useCallback(
+</a><a href="#h0-0-286" id="h0-0-286" class="i">+    (e: React.MouseEvent&lt;HTMLCanvasElement&gt;) =&gt; {
+</a><a href="#h0-0-287" id="h0-0-287" class="i">+      if (canvasRef.current) {
+</a><a href="#h0-0-288" id="h0-0-288" class="i">+        // キャンバス内の相対座標に変換
+</a><a href="#h0-0-289" id="h0-0-289" class="i">+        const rect = canvasRef.current.getBoundingClientRect();
+</a><a href="#h0-0-290" id="h0-0-290" class="i">+        gameStateRef.current.mousePosition = {
+</a><a href="#h0-0-291" id="h0-0-291" class="i">+          x: e.clientX - rect.left,
+</a><a href="#h0-0-292" id="h0-0-292" class="i">+          y: e.clientY - rect.top,
+</a><a href="#h0-0-293" id="h0-0-293" class="i">+        };
+</a><a href="#h0-0-294" id="h0-0-294" class="i">+      }
+</a><a href="#h0-0-295" id="h0-0-295" class="i">+    },
+</a><a href="#h0-0-296" id="h0-0-296" class="i">+    [canvasRef],
+</a><a href="#h0-0-297" id="h0-0-297" class="i">+  );
+</a><a href="#h0-0-298" id="h0-0-298" class="i">+
+</a><a href="#h0-0-299" id="h0-0-299" class="i">+  // ゲームの開始・停止関数
+</a><a href="#h0-0-300" id="h0-0-300" class="i">+  const startGame = async () =&gt; {
+</a><a href="#h0-0-301" id="h0-0-301" class="i">+    await preloadImages();
+</a><a href="#h0-0-302" id="h0-0-302" class="i">+    const canvas = canvasRef.current;
+</a><a href="#h0-0-303" id="h0-0-303" class="i">+    if (!canvas) return; // nullチェック
+</a><a href="#h0-0-304" id="h0-0-304" class="i">+    gameStateRef.current.heartCenter = {
+</a><a href="#h0-0-305" id="h0-0-305" class="i">+      x: canvas.width / 2,
+</a><a href="#h0-0-306" id="h0-0-306" class="i">+      y: canvas.height / 2,
+</a><a href="#h0-0-307" id="h0-0-307" class="i">+    };
+</a><a href="#h0-0-308" id="h0-0-308" class="i">+    animationFrameId.current = requestAnimationFrame(gameLoop);
+</a><a href="#h0-0-309" id="h0-0-309" class="i">+  };
+</a><a href="#h0-0-310" id="h0-0-310" class="i">+
+</a><a href="#h0-0-311" id="h0-0-311" class="i">+  const stopGame = () =&gt; {
+</a><a href="#h0-0-312" id="h0-0-312" class="i">+    if (animationFrameId.current) {
+</a><a href="#h0-0-313" id="h0-0-313" class="i">+      cancelAnimationFrame(animationFrameId.current);
+</a><a href="#h0-0-314" id="h0-0-314" class="i">+    }
+</a><a href="#h0-0-315" id="h0-0-315" class="i">+  };
+</a><a href="#h0-0-316" id="h0-0-316" class="i">+
+</a><a href="#h0-0-317" id="h0-0-317" class="i">+  return {
+</a><a href="#h0-0-318" id="h0-0-318" class="i">+    startGame,
+</a><a href="#h0-0-319" id="h0-0-319" class="i">+    stopGame,
+</a><a href="#h0-0-320" id="h0-0-320" class="i">+    handleMouseMove,
+</a><a href="#h0-0-321" id="h0-0-321" class="i">+    gameState: gameStateRef.current,
+</a><a href="#h0-0-322" id="h0-0-322" class="i">+  };
+</a><a href="#h0-0-323" id="h0-0-323" class="i">+};
+</a><a href="#h0-0-324" id="h0-0-324" class="i">+
+</a><a href="#h0-0-325" id="h0-0-325" class="i">+export default function GameCanvas() {
+</a><a href="#h0-0-326" id="h0-0-326" class="i">+  const canvasRef = useRef&lt;HTMLCanvasElement&gt;(null);
+</a><a href="#h0-0-327" id="h0-0-327" class="i">+
+</a><a href="#h0-0-328" id="h0-0-328" class="i">+  // useGameLoopカスタムフックを呼び出し、ゲームロジックのAPIを取得
+</a><a href="#h0-0-329" id="h0-0-329" class="i">+  const { startGame, stopGame, handleMouseMove, gameState } =
+</a><a href="#h0-0-330" id="h0-0-330" class="i">+    useGameLoop(canvasRef);
+</a><a href="#h0-0-331" id="h0-0-331" class="i">+
+</a><a href="#h0-0-332" id="h0-0-332" class="i">+  useEffect(() =&gt; {
+</a><a href="#h0-0-333" id="h0-0-333" class="i">+    const initGame = async () =&gt; {
+</a><a href="#h0-0-334" id="h0-0-334" class="i">+      const canvas = canvasRef.current;
+</a><a href="#h0-0-335" id="h0-0-335" class="i">+      if (!canvas) return; // nullチェック
+</a><a href="#h0-0-336" id="h0-0-336" class="i">+      if (canvasRef.current) {
+</a><a href="#h0-0-337" id="h0-0-337" class="i">+        canvasRef.current.width = globalThis.innerWidth;
+</a><a href="#h0-0-338" id="h0-0-338" class="i">+        canvasRef.current.height = globalThis.innerHeight;
+</a><a href="#h0-0-339" id="h0-0-339" class="i">+        await startGame(); // awaitで画像の読み込み完了を待つ
+</a><a href="#h0-0-340" id="h0-0-340" class="i">+      }
+</a><a href="#h0-0-341" id="h0-0-341" class="i">+    };
+</a><a href="#h0-0-342" id="h0-0-342" class="i">+    initGame(); // 実行
+</a><a href="#h0-0-343" id="h0-0-343" class="i">+
+</a><a href="#h0-0-344" id="h0-0-344" class="i">+    return () =&gt; {
+</a><a href="#h0-0-345" id="h0-0-345" class="i">+      stopGame();
+</a><a href="#h0-0-346" id="h0-0-346" class="i">+    };
+</a><a href="#h0-0-347" id="h0-0-347" class="i">+  }, []);
+</a><a href="#h0-0-348" id="h0-0-348" class="i">+
+</a><a href="#h0-0-349" id="h0-0-349" class="i">+  return (
+</a><a href="#h0-0-350" id="h0-0-350" class="i">+    &lt;div
+</a><a href="#h0-0-351" id="h0-0-351" class="i">+      style={{
+</a><a href="#h0-0-352" id="h0-0-352" class="i">+        width: &quot;100vw&quot;,
+</a><a href="#h0-0-353" id="h0-0-353" class="i">+        height: &quot;100vh&quot;,
+</a><a href="#h0-0-354" id="h0-0-354" class="i">+      }}
+</a><a href="#h0-0-355" id="h0-0-355" class="i">+    &gt;
+</a><a href="#h0-0-356" id="h0-0-356" class="i">+      &lt;canvas
+</a><a href="#h0-0-357" id="h0-0-357" class="i">+        ref={canvasRef}
+</a><a href="#h0-0-358" id="h0-0-358" class="i">+        onMouseMove={handleMouseMove} // マウスイベントをフックに渡す
+</a><a href="#h0-0-359" id="h0-0-359" class="i">+        style={{
+</a><a href="#h0-0-360" id="h0-0-360" class="i">+          display: &quot;block&quot;,
+</a><a href="#h0-0-361" id="h0-0-361" class="i">+          width: &quot;100vw&quot;,
+</a><a href="#h0-0-362" id="h0-0-362" class="i">+          height: &quot;100vh&quot;,
+</a><a href="#h0-0-363" id="h0-0-363" class="i">+        }}
+</a><a href="#h0-0-364" id="h0-0-364" class="i">+      /&gt;
+</a><a href="#h0-0-365" id="h0-0-365" class="i">+      {gameState.isGameOver &amp;&amp; (
+</a><a href="#h0-0-366" id="h0-0-366" class="i">+        &lt;div
+</a><a href="#h0-0-367" id="h0-0-367" class="i">+          style={{
+</a><a href="#h0-0-368" id="h0-0-368" class="i">+            position: &quot;absolute&quot;,
+</a><a href="#h0-0-369" id="h0-0-369" class="i">+            top: &quot;50%&quot;,
+</a><a href="#h0-0-370" id="h0-0-370" class="i">+            left: &quot;50%&quot;,
+</a><a href="#h0-0-371" id="h0-0-371" class="i">+            transform: &quot;translate(-50%, -50%)&quot;,
+</a><a href="#h0-0-372" id="h0-0-372" class="i">+            color: &quot;red&quot;,
+</a><a href="#h0-0-373" id="h0-0-373" class="i">+            fontSize: &quot;48px&quot;,
+</a><a href="#h0-0-374" id="h0-0-374" class="i">+          }}
+</a><a href="#h0-0-375" id="h0-0-375" class="i">+        &gt;
+</a><a href="#h0-0-376" id="h0-0-376" class="i">+          GAME OVER
+</a><a href="#h0-0-377" id="h0-0-377" class="i">+        &lt;/div&gt;
+</a><a href="#h0-0-378" id="h0-0-378" class="i">+      )}
+</a><a href="#h0-0-379" id="h0-0-379" class="i">+    &lt;/div&gt;
+</a><a href="#h0-0-380" id="h0-0-380" class="i">+  );
+</a><a href="#h0-0-381" id="h0-0-381" class="i">+}
+</a><b>diff --git a/<a id="h1" href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a> b/<a href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,141 +1,169 @@
+</a><a href="#h1-0-0" id="h1-0-0" class="d">-&#39;use client&#39;;
+</a><a href="#h1-0-1" id="h1-0-1" class="d">-
+</a><a href="#h1-0-2" id="h1-0-2" class="d">-import { useEffect, useRef, useState, useCallback } from &#39;react&#39;;
+</a><a href="#h1-0-3" id="h1-0-3" class="d">-import dynamic from &#39;next/dynamic&#39;;
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-export interface StageProps {
+</a><a href="#h1-0-6" id="h1-0-6" class="d">-  onComplete: () =&gt; void;
+</a><a href="#h1-0-7" id="h1-0-7" class="d">-}
+</a><a href="#h1-0-8" id="h1-0-8" class="d">-
+</a><a href="#h1-0-9" id="h1-0-9" class="d">-const Loading = () =&gt; &lt;p&gt;loading...&lt;/p&gt;;
+</a><a href="#h1-0-10" id="h1-0-10" class="d">-
+</a><a href="#h1-0-11" id="h1-0-11" class="d">-//component dynamic import handler
+</a><a href="#h1-0-12" id="h1-0-12" class="d">-const FirstChat = dynamic&lt;StageProps&gt;(() =&gt; import(&#39;../components/1_chat.tsx&#39;), {
+</a><a href="#h1-0-13" id="h1-0-13" class="d">-	loading: Loading,
+</a><a href="#h1-0-14" id="h1-0-14" class="d">-});
+</a><a href="#h1-0-15" id="h1-0-15" class="d">-const SecondDraw = dynamic&lt;StageProps&gt;(() =&gt; import(&#39;../components/2_draw.tsx&#39;), {
+</a><a href="#h1-0-16" id="h1-0-16" class="d">-	loading: Loading,
+</a><a href="#h1-0-17" id="h1-0-17" class="d">-});
+</a><a href="#h1-0-18" id="h1-0-18" class="d">-const ThreeVR = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/3_vr.tsx&#39;),{
+</a><a href="#h1-0-19" id="h1-0-19" class="d">-	loading: Loading,
+</a><a href="#h1-0-20" id="h1-0-20" class="d">-});
+</a><a href="#h1-0-21" id="h1-0-21" class="d">-const OilArt = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/4_oil.tsx&#39;),{
+</a><a href="#h1-0-22" id="h1-0-22" class="d">-	loading: Loading,
+</a><a href="#h1-0-23" id="h1-0-23" class="d">-});
+</a><a href="#h1-0-24" id="h1-0-24" class="d">-const FifthTitle = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/5_title.tsx&#39;),{
+</a><a href="#h1-0-25" id="h1-0-25" class="d">-	loading: Loading,
+</a><a href="#h1-0-26" id="h1-0-26" class="d">-});
+</a><a href="#h1-0-27" id="h1-0-27" class="d">-const SixthChat = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/6_chat.tsx&#39;),{
+</a><a href="#h1-0-28" id="h1-0-28" class="d">-	loading: Loading,
+</a><a href="#h1-0-29" id="h1-0-29" class="d">-});
+</a><a href="#h1-0-30" id="h1-0-30" class="d">-const SeventhVR = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/7_vr.tsx&#39;),{
+</a><a href="#h1-0-31" id="h1-0-31" class="d">-	loading: Loading,
+</a><a href="#h1-0-32" id="h1-0-32" class="d">-});
+</a><a href="#h1-0-33" id="h1-0-33" class="d">-const EighthLightActivity = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/8_kaleidoscope.tsx&#39;),{
+</a><a href="#h1-0-34" id="h1-0-34" class="d">-	loading: Loading,
+</a><a href="#h1-0-35" id="h1-0-35" class="d">-});
+</a><a href="#h1-0-36" id="h1-0-36" class="d">-const Error = dynamic&lt;StageProps&gt;(() =&gt; import(&#39;../components/error.tsx&#39;), {
+</a><a href="#h1-0-37" id="h1-0-37" class="d">-	loading: Loading,
+</a><a href="#h1-0-38" id="h1-0-38" class="d">-});
+</a><a href="#h1-0-39" id="h1-0-39" class="d">-
+</a><a href="#h1-0-40" id="h1-0-40" class="d">-export default function Play() {
+</a><a href="#h1-0-41" id="h1-0-41" class="d">-
+</a><a href="#h1-0-42" id="h1-0-42" class="d">-	const pageRef = useRef&lt;HTMLDivElement&gt;(null);
+</a><a href="#h1-0-43" id="h1-0-43" class="d">-	const [isFullscreen, setIsFullscreen] = useState(false);
+</a><a href="#h1-0-44" id="h1-0-44" class="d">-	const [isInitialCheckDone, setIsInitialCheckDone] = useState(false);
+</a><a href="#h1-0-45" id="h1-0-45" class="d">-	const [ stage, setStage ] = useState(8);
+</a><a href="#h1-0-46" id="h1-0-46" class="d">-	const handleStageComplete = useCallback(() =&gt; {
+</a><a href="#h1-0-47" id="h1-0-47" class="d">-    	setStage(prevStage =&gt; prevStage + 1);
+</a><a href="#h1-0-48" id="h1-0-48" class="d">-	}, []);
+</a><a href="#h1-0-49" id="h1-0-49" class="d">-
+</a><a href="#h1-0-50" id="h1-0-50" class="d">-	let StageComponent: React.ReactNode;
+</a><a href="#h1-0-51" id="h1-0-51" class="d">-	console.log(&quot;now, stage is &quot;,stage);
+</a><a href="#h1-0-52" id="h1-0-52" class="d">-	switch (stage) {
+</a><a href="#h1-0-53" id="h1-0-53" class="d">-		case 1:
+</a><a href="#h1-0-54" id="h1-0-54" class="d">-			StageComponent = &lt;FirstChat onComplete={handleStageComplete}/&gt;;
+</a><a href="#h1-0-55" id="h1-0-55" class="d">-			break;
+</a><a href="#h1-0-56" id="h1-0-56" class="d">-		case 2:
+</a><a href="#h1-0-57" id="h1-0-57" class="d">-			StageComponent = &lt;SecondDraw onComplete={handleStageComplete}/&gt;;
+</a><a href="#h1-0-58" id="h1-0-58" class="d">-			break;
+</a><a href="#h1-0-59" id="h1-0-59" class="d">-		case 3:
+</a><a href="#h1-0-60" id="h1-0-60" class="d">-			StageComponent = &lt;ThreeVR onComplete={handleStageComplete}/&gt;;
+</a><a href="#h1-0-61" id="h1-0-61" class="d">-			break;
+</a><a href="#h1-0-62" id="h1-0-62" class="d">-		case 4:
+</a><a href="#h1-0-63" id="h1-0-63" class="d">-			StageComponent = &lt;OilArt onComplete={handleStageComplete}/&gt;
+</a><a href="#h1-0-64" id="h1-0-64" class="d">-			break;
+</a><a href="#h1-0-65" id="h1-0-65" class="d">-		case 5:
+</a><a href="#h1-0-66" id="h1-0-66" class="d">-			StageComponent = &lt;FifthTitle onComplete={handleStageComplete}/&gt;
+</a><a href="#h1-0-67" id="h1-0-67" class="d">-			break;
+</a><a href="#h1-0-68" id="h1-0-68" class="d">-		case 6:
+</a><a href="#h1-0-69" id="h1-0-69" class="d">-			StageComponent = &lt;SixthChat onComplete={handleStageComplete}/&gt;
+</a><a href="#h1-0-70" id="h1-0-70" class="d">-			break;
+</a><a href="#h1-0-71" id="h1-0-71" class="d">-		case 7:
+</a><a href="#h1-0-72" id="h1-0-72" class="d">-			StageComponent = &lt;SeventhVR onComplete={handleStageComplete}/&gt;
+</a><a href="#h1-0-73" id="h1-0-73" class="d">-			break;
+</a><a href="#h1-0-74" id="h1-0-74" class="d">-		case 8:
+</a><a href="#h1-0-75" id="h1-0-75" class="d">-			StageComponent = &lt;EighthLightActivity onComplete={handleStageComplete}/&gt;
+</a><a href="#h1-0-76" id="h1-0-76" class="d">-			break;
+</a><a href="#h1-0-77" id="h1-0-77" class="d">-		default:
+</a><a href="#h1-0-78" id="h1-0-78" class="d">-			StageComponent = &lt;Error onComplete={handleStageComplete}/&gt;;
+</a><a href="#h1-0-79" id="h1-0-79" class="d">-	}
+</a><a href="#h1-0-80" id="h1-0-80" class="d">-
+</a><a href="#h1-0-81" id="h1-0-81" class="d">-	const checkFullscreen = () =&gt; {
+</a><a href="#h1-0-82" id="h1-0-82" class="d">-		const isTargetFullscreen = document.fullscreenElement === pageRef.current;
+</a><a href="#h1-0-83" id="h1-0-83" class="d">-		setIsFullscreen(isTargetFullscreen);
+</a><a href="#h1-0-84" id="h1-0-84" class="d">-	};
+</a><a href="#h1-0-85" id="h1-0-85" class="d">-
+</a><a href="#h1-0-86" id="h1-0-86" class="d">-	useEffect(() =&gt; {
+</a><a href="#h1-0-87" id="h1-0-87" class="d">-		// for fullscreen
+</a><a href="#h1-0-88" id="h1-0-88" class="d">-		const element = pageRef.current;
+</a><a href="#h1-0-89" id="h1-0-89" class="d">-		if (element &amp;&amp; element.requestFullscreen) {
+</a><a href="#h1-0-90" id="h1-0-90" class="d">-			element.requestFullscreen()
+</a><a href="#h1-0-91" id="h1-0-91" class="d">-				.then(() =&gt; {
+</a><a href="#h1-0-92" id="h1-0-92" class="d">-					checkFullscreen();
+</a><a href="#h1-0-93" id="h1-0-93" class="d">-				})
+</a><a href="#h1-0-94" id="h1-0-94" class="d">-				.catch(() =&gt; {
+</a><a href="#h1-0-95" id="h1-0-95" class="d">-					setIsFullscreen(false);
+</a><a href="#h1-0-96" id="h1-0-96" class="d">-				})
+</a><a href="#h1-0-97" id="h1-0-97" class="d">-				.finally(() =&gt; {
+</a><a href="#h1-0-98" id="h1-0-98" class="d">-					setIsInitialCheckDone(true); 
+</a><a href="#h1-0-99" id="h1-0-99" class="d">-				});
+</a><a href="#h1-0-100" id="h1-0-100" class="d">-		}else{
+</a><a href="#h1-0-101" id="h1-0-101" class="d">-			setIsFullscreen(false);
+</a><a href="#h1-0-102" id="h1-0-102" class="d">-			setIsInitialCheckDone(true);
+</a><a href="#h1-0-103" id="h1-0-103" class="d">-			setStage(1);
+</a><a href="#h1-0-104" id="h1-0-104" class="d">-		}
+</a><a href="#h1-0-105" id="h1-0-105" class="d">-
+</a><a href="#h1-0-106" id="h1-0-106" class="d">-		document.addEventListener(&#39;fullscreenchange&#39;, checkFullscreen);
+</a><a href="#h1-0-107" id="h1-0-107" class="d">-		return () =&gt; {
+</a><a href="#h1-0-108" id="h1-0-108" class="d">-			document.removeEventListener(&#39;fullscreenchange&#39;, checkFullscreen);
+</a><a href="#h1-0-109" id="h1-0-109" class="d">-		};
+</a><a href="#h1-0-110" id="h1-0-110" class="d">-	}, []);
+</a><a href="#h1-0-111" id="h1-0-111" class="d">-
+</a><a href="#h1-0-112" id="h1-0-112" class="d">-	const enterFullScreen = () =&gt; {
+</a><a href="#h1-0-113" id="h1-0-113" class="d">-		const element = pageRef.current;
+</a><a href="#h1-0-114" id="h1-0-114" class="d">-		if (element &amp;&amp; element.requestFullscreen) {
+</a><a href="#h1-0-115" id="h1-0-115" class="d">-			element.requestFullscreen().catch(() =&gt; {
+</a><a href="#h1-0-116" id="h1-0-116" class="d">-				alert(&quot;フルスクリーンにできませんでした。&quot;)
+</a><a href="#h1-0-117" id="h1-0-117" class="d">-				setIsFullscreen(false)
+</a><a href="#h1-0-118" id="h1-0-118" class="d">-			})
+</a><a href="#h1-0-119" id="h1-0-119" class="d">-		}
+</a><a href="#h1-0-120" id="h1-0-120" class="d">-	};
+</a><a href="#h1-0-121" id="h1-0-121" class="d">-
+</a><a href="#h1-0-122" id="h1-0-122" class="d">-	if (!isInitialCheckDone) {
+</a><a href="#h1-0-123" id="h1-0-123" class="d">-		return &lt;div ref={pageRef} style={{ height: &#39;100vh&#39;, width: &#39;100vw&#39; }}&gt;&lt;/div&gt;;
+</a><a href="#h1-0-124" id="h1-0-124" class="d">-	}
+</a><a href="#h1-0-125" id="h1-0-125" class="d">-
+</a><a href="#h1-0-126" id="h1-0-126" class="d">-	return (
+</a><a href="#h1-0-127" id="h1-0-127" class="d">-		&lt;main ref={pageRef} style={{ height: &#39;100vh&#39;, width: &#39;100vw&#39; }}&gt;
+</a><a href="#h1-0-128" id="h1-0-128" class="d">-		{
+</a><a href="#h1-0-129" id="h1-0-129" class="d">-			!isFullscreen ? (
+</a><a href="#h1-0-130" id="h1-0-130" class="d">-				&lt;article style={{height: &#39;100%&#39;,width: &#39;100%&#39;, alignItems:&#39;center&#39;, justifyContent:&#39;center&#39;, display:&#39;flex&#39;}}&gt;
+</a><a href="#h1-0-131" id="h1-0-131" class="d">-				&lt;button type=&#39;button&#39; onClick={enterFullScreen} style={{fontSize:&#39;xxx-large&#39;}}&gt;フルスクリーンにする&lt;/button&gt;
+</a><a href="#h1-0-132" id="h1-0-132" class="d">-				&lt;/article&gt;
+</a><a href="#h1-0-133" id="h1-0-133" class="d">-			):(
+</a><a href="#h1-0-134" id="h1-0-134" class="d">-			StageComponent
+</a><a href="#h1-0-135" id="h1-0-135" class="d">-			)
+</a><a href="#h1-0-136" id="h1-0-136" class="d">-		}
+</a><a href="#h1-0-137" id="h1-0-137" class="d">-		&lt;/main&gt;
+</a><a href="#h1-0-138" id="h1-0-138" class="d">-	);
+</a><a href="#h1-0-139" id="h1-0-139" class="d">-};
+</a><a href="#h1-0-140" id="h1-0-140" class="d">-
+</a><a href="#h1-0-141" id="h1-0-141" class="i">+&quot;use client&quot;;
+</a><a href="#h1-0-142" id="h1-0-142" class="i">+
+</a><a href="#h1-0-143" id="h1-0-143" class="i">+import { useEffect, useRef, useState, useCallback } from &quot;react&quot;;
+</a><a href="#h1-0-144" id="h1-0-144" class="i">+import dynamic from &quot;next/dynamic&quot;;
+</a><a href="#h1-0-145" id="h1-0-145" class="i">+
+</a><a href="#h1-0-146" id="h1-0-146" class="i">+export interface StageProps {
+</a><a href="#h1-0-147" id="h1-0-147" class="i">+  onComplete: () =&gt; void;
+</a><a href="#h1-0-148" id="h1-0-148" class="i">+}
+</a><a href="#h1-0-149" id="h1-0-149" class="i">+
+</a><a href="#h1-0-150" id="h1-0-150" class="i">+const Loading = () =&gt; &lt;p&gt;loading...&lt;/p&gt;;
+</a><a href="#h1-0-151" id="h1-0-151" class="i">+
+</a><a href="#h1-0-152" id="h1-0-152" class="i">+//component dynamic import handler
+</a><a href="#h1-0-153" id="h1-0-153" class="i">+const FirstChat = dynamic&lt;StageProps&gt;(
+</a><a href="#h1-0-154" id="h1-0-154" class="i">+  () =&gt; import(&quot;../components/1_chat.tsx&quot;),
+</a><a href="#h1-0-155" id="h1-0-155" class="i">+  {
+</a><a href="#h1-0-156" id="h1-0-156" class="i">+    loading: Loading,
+</a><a href="#h1-0-157" id="h1-0-157" class="i">+  },
+</a><a href="#h1-0-158" id="h1-0-158" class="i">+);
+</a><a href="#h1-0-159" id="h1-0-159" class="i">+const SecondDraw = dynamic&lt;StageProps&gt;(
+</a><a href="#h1-0-160" id="h1-0-160" class="i">+  () =&gt; import(&quot;../components/2_draw.tsx&quot;),
+</a><a href="#h1-0-161" id="h1-0-161" class="i">+  {
+</a><a href="#h1-0-162" id="h1-0-162" class="i">+    loading: Loading,
+</a><a href="#h1-0-163" id="h1-0-163" class="i">+  },
+</a><a href="#h1-0-164" id="h1-0-164" class="i">+);
+</a><a href="#h1-0-165" id="h1-0-165" class="i">+const ThreeVR = dynamic&lt;StageProps&gt;(() =&gt; import(&quot;../components/3_vr.tsx&quot;), {
+</a><a href="#h1-0-166" id="h1-0-166" class="i">+  loading: Loading,
+</a><a href="#h1-0-167" id="h1-0-167" class="i">+});
+</a><a href="#h1-0-168" id="h1-0-168" class="i">+const OilArt = dynamic&lt;StageProps&gt;(() =&gt; import(&quot;../components/4_oil.tsx&quot;), {
+</a><a href="#h1-0-169" id="h1-0-169" class="i">+  loading: Loading,
+</a><a href="#h1-0-170" id="h1-0-170" class="i">+});
+</a><a href="#h1-0-171" id="h1-0-171" class="i">+const FifthTitle = dynamic&lt;StageProps&gt;(
+</a><a href="#h1-0-172" id="h1-0-172" class="i">+  () =&gt; import(&quot;../components/5_title.tsx&quot;),
+</a><a href="#h1-0-173" id="h1-0-173" class="i">+  {
+</a><a href="#h1-0-174" id="h1-0-174" class="i">+    loading: Loading,
+</a><a href="#h1-0-175" id="h1-0-175" class="i">+  },
+</a><a href="#h1-0-176" id="h1-0-176" class="i">+);
+</a><a href="#h1-0-177" id="h1-0-177" class="i">+const SixthChat = dynamic&lt;StageProps&gt;(
+</a><a href="#h1-0-178" id="h1-0-178" class="i">+  () =&gt; import(&quot;../components/6_chat.tsx&quot;),
+</a><a href="#h1-0-179" id="h1-0-179" class="i">+  {
+</a><a href="#h1-0-180" id="h1-0-180" class="i">+    loading: Loading,
+</a><a href="#h1-0-181" id="h1-0-181" class="i">+  },
+</a><a href="#h1-0-182" id="h1-0-182" class="i">+);
+</a><a href="#h1-0-183" id="h1-0-183" class="i">+const SeventhVR = dynamic&lt;StageProps&gt;(() =&gt; import(&quot;../components/7_vr.tsx&quot;), {
+</a><a href="#h1-0-184" id="h1-0-184" class="i">+  loading: Loading,
+</a><a href="#h1-0-185" id="h1-0-185" class="i">+});
+</a><a href="#h1-0-186" id="h1-0-186" class="i">+const EighthLightActivity = dynamic&lt;StageProps&gt;(
+</a><a href="#h1-0-187" id="h1-0-187" class="i">+  () =&gt; import(&quot;../components/8_protectHart.tsx&quot;),
+</a><a href="#h1-0-188" id="h1-0-188" class="i">+  {
+</a><a href="#h1-0-189" id="h1-0-189" class="i">+    loading: Loading,
+</a><a href="#h1-0-190" id="h1-0-190" class="i">+  },
+</a><a href="#h1-0-191" id="h1-0-191" class="i">+);
+</a><a href="#h1-0-192" id="h1-0-192" class="i">+const Error = dynamic&lt;StageProps&gt;(() =&gt; import(&quot;../components/error.tsx&quot;), {
+</a><a href="#h1-0-193" id="h1-0-193" class="i">+  loading: Loading,
+</a><a href="#h1-0-194" id="h1-0-194" class="i">+});
+</a><a href="#h1-0-195" id="h1-0-195" class="i">+
+</a><a href="#h1-0-196" id="h1-0-196" class="i">+export default function Play() {
+</a><a href="#h1-0-197" id="h1-0-197" class="i">+  const pageRef = useRef&lt;HTMLDivElement&gt;(null);
+</a><a href="#h1-0-198" id="h1-0-198" class="i">+  const [isFullscreen, setIsFullscreen] = useState(false);
+</a><a href="#h1-0-199" id="h1-0-199" class="i">+  const [isInitialCheckDone, setIsInitialCheckDone] = useState(false);
+</a><a href="#h1-0-200" id="h1-0-200" class="i">+  const [stage, setStage] = useState(8);
+</a><a href="#h1-0-201" id="h1-0-201" class="i">+  const handleStageComplete = useCallback(() =&gt; {
+</a><a href="#h1-0-202" id="h1-0-202" class="i">+    setStage((prevStage) =&gt; prevStage + 1);
+</a><a href="#h1-0-203" id="h1-0-203" class="i">+  }, []);
+</a><a href="#h1-0-204" id="h1-0-204" class="i">+
+</a><a href="#h1-0-205" id="h1-0-205" class="i">+  let StageComponent: React.ReactNode;
+</a><a href="#h1-0-206" id="h1-0-206" class="i">+  console.log(&quot;now, stage is &quot;, stage);
+</a><a href="#h1-0-207" id="h1-0-207" class="i">+  switch (stage) {
+</a><a href="#h1-0-208" id="h1-0-208" class="i">+    case 1:
+</a><a href="#h1-0-209" id="h1-0-209" class="i">+      StageComponent = &lt;FirstChat onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-210" id="h1-0-210" class="i">+      break;
+</a><a href="#h1-0-211" id="h1-0-211" class="i">+    case 2:
+</a><a href="#h1-0-212" id="h1-0-212" class="i">+      StageComponent = &lt;SecondDraw onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-213" id="h1-0-213" class="i">+      break;
+</a><a href="#h1-0-214" id="h1-0-214" class="i">+    case 3:
+</a><a href="#h1-0-215" id="h1-0-215" class="i">+      StageComponent = &lt;ThreeVR onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-216" id="h1-0-216" class="i">+      break;
+</a><a href="#h1-0-217" id="h1-0-217" class="i">+    case 4:
+</a><a href="#h1-0-218" id="h1-0-218" class="i">+      StageComponent = &lt;OilArt onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-219" id="h1-0-219" class="i">+      break;
+</a><a href="#h1-0-220" id="h1-0-220" class="i">+    case 5:
+</a><a href="#h1-0-221" id="h1-0-221" class="i">+      StageComponent = &lt;FifthTitle onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-222" id="h1-0-222" class="i">+      break;
+</a><a href="#h1-0-223" id="h1-0-223" class="i">+    case 6:
+</a><a href="#h1-0-224" id="h1-0-224" class="i">+      StageComponent = &lt;SixthChat onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-225" id="h1-0-225" class="i">+      break;
+</a><a href="#h1-0-226" id="h1-0-226" class="i">+    case 7:
+</a><a href="#h1-0-227" id="h1-0-227" class="i">+      StageComponent = &lt;SeventhVR onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-228" id="h1-0-228" class="i">+      break;
+</a><a href="#h1-0-229" id="h1-0-229" class="i">+    case 8:
+</a><a href="#h1-0-230" id="h1-0-230" class="i">+      StageComponent = &lt;EighthLightActivity onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-231" id="h1-0-231" class="i">+      break;
+</a><a href="#h1-0-232" id="h1-0-232" class="i">+    default:
+</a><a href="#h1-0-233" id="h1-0-233" class="i">+      StageComponent = &lt;Error onComplete={handleStageComplete} /&gt;;
+</a><a href="#h1-0-234" id="h1-0-234" class="i">+  }
+</a><a href="#h1-0-235" id="h1-0-235" class="i">+
+</a><a href="#h1-0-236" id="h1-0-236" class="i">+  const checkFullscreen = () =&gt; {
+</a><a href="#h1-0-237" id="h1-0-237" class="i">+    const isTargetFullscreen = document.fullscreenElement === pageRef.current;
+</a><a href="#h1-0-238" id="h1-0-238" class="i">+    setIsFullscreen(isTargetFullscreen);
+</a><a href="#h1-0-239" id="h1-0-239" class="i">+  };
+</a><a href="#h1-0-240" id="h1-0-240" class="i">+
+</a><a href="#h1-0-241" id="h1-0-241" class="i">+  useEffect(() =&gt; {
+</a><a href="#h1-0-242" id="h1-0-242" class="i">+    // for fullscreen
+</a><a href="#h1-0-243" id="h1-0-243" class="i">+    const element = pageRef.current;
+</a><a href="#h1-0-244" id="h1-0-244" class="i">+    if (element &amp;&amp; element.requestFullscreen) {
+</a><a href="#h1-0-245" id="h1-0-245" class="i">+      element
+</a><a href="#h1-0-246" id="h1-0-246" class="i">+        .requestFullscreen()
+</a><a href="#h1-0-247" id="h1-0-247" class="i">+        .then(() =&gt; {
+</a><a href="#h1-0-248" id="h1-0-248" class="i">+          checkFullscreen();
+</a><a href="#h1-0-249" id="h1-0-249" class="i">+        })
+</a><a href="#h1-0-250" id="h1-0-250" class="i">+        .catch(() =&gt; {
+</a><a href="#h1-0-251" id="h1-0-251" class="i">+          setIsFullscreen(false);
+</a><a href="#h1-0-252" id="h1-0-252" class="i">+        })
+</a><a href="#h1-0-253" id="h1-0-253" class="i">+        .finally(() =&gt; {
+</a><a href="#h1-0-254" id="h1-0-254" class="i">+          setIsInitialCheckDone(true);
+</a><a href="#h1-0-255" id="h1-0-255" class="i">+        });
+</a><a href="#h1-0-256" id="h1-0-256" class="i">+    } else {
+</a><a href="#h1-0-257" id="h1-0-257" class="i">+      setIsFullscreen(false);
+</a><a href="#h1-0-258" id="h1-0-258" class="i">+      setIsInitialCheckDone(true);
+</a><a href="#h1-0-259" id="h1-0-259" class="i">+      setStage(1);
+</a><a href="#h1-0-260" id="h1-0-260" class="i">+    }
+</a><a href="#h1-0-261" id="h1-0-261" class="i">+
+</a><a href="#h1-0-262" id="h1-0-262" class="i">+    document.addEventListener(&quot;fullscreenchange&quot;, checkFullscreen);
+</a><a href="#h1-0-263" id="h1-0-263" class="i">+    return () =&gt; {
+</a><a href="#h1-0-264" id="h1-0-264" class="i">+      document.removeEventListener(&quot;fullscreenchange&quot;, checkFullscreen);
+</a><a href="#h1-0-265" id="h1-0-265" class="i">+    };
+</a><a href="#h1-0-266" id="h1-0-266" class="i">+  }, []);
+</a><a href="#h1-0-267" id="h1-0-267" class="i">+
+</a><a href="#h1-0-268" id="h1-0-268" class="i">+  const enterFullScreen = () =&gt; {
+</a><a href="#h1-0-269" id="h1-0-269" class="i">+    const element = pageRef.current;
+</a><a href="#h1-0-270" id="h1-0-270" class="i">+    if (element &amp;&amp; element.requestFullscreen) {
+</a><a href="#h1-0-271" id="h1-0-271" class="i">+      element.requestFullscreen().catch(() =&gt; {
+</a><a href="#h1-0-272" id="h1-0-272" class="i">+        alert(&quot;フルスクリーンにできませんでした。&quot;);
+</a><a href="#h1-0-273" id="h1-0-273" class="i">+        setIsFullscreen(false);
+</a><a href="#h1-0-274" id="h1-0-274" class="i">+      });
+</a><a href="#h1-0-275" id="h1-0-275" class="i">+    }
+</a><a href="#h1-0-276" id="h1-0-276" class="i">+  };
+</a><a href="#h1-0-277" id="h1-0-277" class="i">+
+</a><a href="#h1-0-278" id="h1-0-278" class="i">+  if (!isInitialCheckDone) {
+</a><a href="#h1-0-279" id="h1-0-279" class="i">+    return (
+</a><a href="#h1-0-280" id="h1-0-280" class="i">+      &lt;div ref={pageRef} style={{ height: &quot;100vh&quot;, width: &quot;100vw&quot; }}&gt;&lt;/div&gt;
+</a><a href="#h1-0-281" id="h1-0-281" class="i">+    );
+</a><a href="#h1-0-282" id="h1-0-282" class="i">+  }
+</a><a href="#h1-0-283" id="h1-0-283" class="i">+
+</a><a href="#h1-0-284" id="h1-0-284" class="i">+  return (
+</a><a href="#h1-0-285" id="h1-0-285" class="i">+    &lt;main ref={pageRef} style={{ height: &quot;100vh&quot;, width: &quot;100vw&quot; }}&gt;
+</a><a href="#h1-0-286" id="h1-0-286" class="i">+      {!isFullscreen ? (
+</a><a href="#h1-0-287" id="h1-0-287" class="i">+        &lt;article
+</a><a href="#h1-0-288" id="h1-0-288" class="i">+          style={{
+</a><a href="#h1-0-289" id="h1-0-289" class="i">+            height: &quot;100%&quot;,
+</a><a href="#h1-0-290" id="h1-0-290" class="i">+            width: &quot;100%&quot;,
+</a><a href="#h1-0-291" id="h1-0-291" class="i">+            alignItems: &quot;center&quot;,
+</a><a href="#h1-0-292" id="h1-0-292" class="i">+            justifyContent: &quot;center&quot;,
+</a><a href="#h1-0-293" id="h1-0-293" class="i">+            display: &quot;flex&quot;,
+</a><a href="#h1-0-294" id="h1-0-294" class="i">+          }}
+</a><a href="#h1-0-295" id="h1-0-295" class="i">+        &gt;
+</a><a href="#h1-0-296" id="h1-0-296" class="i">+          &lt;button
+</a><a href="#h1-0-297" id="h1-0-297" class="i">+            type=&quot;button&quot;
+</a><a href="#h1-0-298" id="h1-0-298" class="i">+            onClick={enterFullScreen}
+</a><a href="#h1-0-299" id="h1-0-299" class="i">+            style={{ fontSize: &quot;xxx-large&quot; }}
+</a><a href="#h1-0-300" id="h1-0-300" class="i">+          &gt;
+</a><a href="#h1-0-301" id="h1-0-301" class="i">+            フルスクリーンにする
+</a><a href="#h1-0-302" id="h1-0-302" class="i">+          &lt;/button&gt;
+</a><a href="#h1-0-303" id="h1-0-303" class="i">+        &lt;/article&gt;
+</a><a href="#h1-0-304" id="h1-0-304" class="i">+      ) : (
+</a><a href="#h1-0-305" id="h1-0-305" class="i">+        StageComponent
+</a><a href="#h1-0-306" id="h1-0-306" class="i">+      )}
+</a><a href="#h1-0-307" id="h1-0-307" class="i">+    &lt;/main&gt;
+</a><a href="#h1-0-308" id="h1-0-308" class="i">+  );
+</a><a href="#h1-0-309" id="h1-0-309" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/bun.lock.html">bun.lock</a> b/<a href="../file/bun.lock.html">bun.lock</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -1,12 +1,13 @@
+</a> {
+   &quot;lockfileVersion&quot;: 1,
+<a href="#h2-0-2" id="h2-0-2" class="i">+  &quot;configVersion&quot;: 0,
+</a>   &quot;workspaces&quot;: {
+     &quot;&quot;: {
+       &quot;name&quot;: &quot;aidentity&quot;,
+       &quot;dependencies&quot;: {
+         &quot;@react-three/drei&quot;: &quot;^10.7.6&quot;,
+         &quot;@react-three/fiber&quot;: &quot;^9.4.0&quot;,
+<a href="#h2-0-9" id="h2-0-9" class="d">-        &quot;@sentry/nextjs&quot;: &quot;^10.22.0&quot;,
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+        &quot;@sentry/nextjs&quot;: &quot;^10.23.0&quot;,
+</a>         &quot;next&quot;: &quot;15.5.5&quot;,
+         &quot;react&quot;: &quot;19.1.0&quot;,
+         &quot;react-dom&quot;: &quot;19.1.0&quot;,
+<a href="#h2-1" id="h2-1" class="h">@@ -18,7 +19,7 @@
+</a>         &quot;@types/node&quot;: &quot;^20.19.24&quot;,
+         &quot;@types/react&quot;: &quot;^19.2.2&quot;,
+         &quot;@types/react-dom&quot;: &quot;^19.2.2&quot;,
+<a href="#h2-1-3" id="h2-1-3" class="d">-        &quot;eslint&quot;: &quot;^9.39.0&quot;,
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        &quot;eslint&quot;: &quot;^9.39.1&quot;,
+</a>         &quot;eslint-config-next&quot;: &quot;15.5.5&quot;,
+         &quot;typescript&quot;: &quot;^5.9.3&quot;,
+       },
+<b>diff --git a/<a id="h3" href="../file/tsconfig.json.html">tsconfig.json</a> b/<a href="../file/tsconfig.json.html">tsconfig.json</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -23,6 +23,6 @@
+</a>       &quot;@/*&quot;: [&quot;./*&quot;]
+     }
+   },
+<a href="#h3-0-3" id="h3-0-3" class="d">-  &quot;include&quot;: [&quot;next-env.d.ts&quot;, &quot;**/*.ts&quot;, &quot;**/*.tsx&quot;, &quot;.next/types/**/*.ts&quot;],
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+  &quot;include&quot;: [&quot;next-env.d.ts&quot;, &quot;**/*.ts&quot;, &quot;**/*.tsx&quot;, &quot;.next/types/**/*.ts&quot;, &quot;types/*.d.ts&quot;],
+</a>   &quot;exclude&quot;: [&quot;node_modules&quot;]
+ }
+<b>diff --git a/<a id="h4" href="../file/types/r3f-custom.d.ts.html">types/r3f-custom.d.ts</a> b/<a href="../file/types/r3f-custom.d.ts.html">types/r3f-custom.d.ts</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -1,6 +1,5 @@
+</a> // THREEとR3Fの型をインポート
+ import * as THREE from &#39;three&#39;;
+<a href="#h4-0-2" id="h4-0-2" class="d">-import { ThreeElements } from &#39;@react-three/fiber&#39;;
+</a> 
+ // OilArtMaterial のユニフォーム型を定義
+ interface OilArtUniforms {
+<a href="#h4-1" id="h4-1" class="h">@@ -20,3 +19,24 @@ declare module &#39;@react-three/fiber&#39; {
+</a>     oilArtMaterial: ThreeElements[&#39;shaderMaterial&#39;] &amp; OilArtUniforms;
+   }
+ }
+<a href="#h4-1-3" id="h4-1-3" class="i">+
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+interface WaterMaterialProps extends THREE.ShaderMaterialParameters {
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+  uTime: number;
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+  uDropPosition: THREE.Vector3;
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+  uDropTime: number;
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+}
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+
+</a><a href="#h4-1-10" id="h4-1-10" class="i">+// 2. JSXの組み込み要素 (IntrinsicElements) に新しいタグを追加
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+//    これにより、R3Fが &#39;waterMaterial&#39; を認識し、
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+//    Reactがそのプロパティの型チェックを行えるようになります。
+</a><a href="#h4-1-13" id="h4-1-13" class="i">+declare global {
+</a><a href="#h4-1-14" id="h4-1-14" class="i">+  namespace JSX {
+</a><a href="#h4-1-15" id="h4-1-15" class="i">+    interface IntrinsicElements {
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+      // JSXタグ名 &#39;waterMaterial&#39; に WaterMaterialProps を関連付け
+</a><a href="#h4-1-17" id="h4-1-17" class="i">+      waterMaterial: WaterMaterialProps &amp; {
+</a><a href="#h4-1-18" id="h4-1-18" class="i">+        // refを使用する場合のために THREE.ShaderMaterial も追加
+</a><a href="#h4-1-19" id="h4-1-19" class="i">+        ref?: React.Ref&lt;THREE.ShaderMaterial&gt;; 
+</a><a href="#h4-1-20" id="h4-1-20" class="i">+      };
+</a><a href="#h4-1-21" id="h4-1-21" class="i">+    }
+</a><a href="#h4-1-22" id="h4-1-22" class="i">+  }
+</a><a href="#h4-1-23" id="h4-1-23" class="i">+}
+</a></pre>
+</div>
+</body>
+</html>

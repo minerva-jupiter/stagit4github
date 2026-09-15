@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix CTRL-C causing process exit due to code also using E_ABORT (#108) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/224fcad5e36788619c987e274ea29d90e6fa94c4.html">224fcad5e36788619c987e274ea29d90e6fa94c4</a>
+<b>parent</b> <a href="../commit/0653f2c506b47d61930b781c550d6ae6adb4237b.html">0653f2c506b47d61930b781c550d6ae6adb4237b</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Fri,  8 May 2020 10:06:56 -0700
+
+Fix CTRL-C causing process exit due to code also using E_ABORT (#108)
+
+Due to the way that CTRL signals were being handled, the code that would exit the process in response to multiple CTRL signals was being invoked if the cooperative cancellation was resulting in another E_ABORT context termination.  This change uses a unique error code for CTRL signals, thus removing the possibility of accidental early termination.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ExecutionContext.cpp</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/ExecutionContext.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCommonCore/Public/AppInstallerErrors.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+</table></pre><pre>3 files changed, 15 insertions(+), 7 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ExecutionContext.cpp.html">src/AppInstallerCLICore/ExecutionContext.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionContext.cpp.html">src/AppInstallerCLICore/ExecutionContext.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -12,7 +12,7 @@ namespace AppInstaller::CLI::Execution
+</a>         Context* s_contextForCtrlHandler = nullptr;
+ 
+         BOOL WINAPI CtrlHandlerForContext(DWORD ctrlType)
+<a href="#h0-0-3" id="h0-0-3" class="d">-        {
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        {
+</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Got CTRL type: &quot; &lt;&lt; ctrlType);
+ 
+             // Won&#39;t save us from every crash, but a few more than direct access.
+<a href="#h0-1" id="h0-1" class="h">@@ -26,7 +26,7 @@ namespace AppInstaller::CLI::Execution
+</a>             {
+             case CTRL_C_EVENT:
+             case CTRL_BREAK_EVENT:
+<a href="#h0-1-3" id="h0-1-3" class="d">-                context-&gt;Terminate(E_ABORT);
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+                context-&gt;Terminate(APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED);
+</a>                 context-&gt;Reporter.CancelInProgressTask(false);
+                 return TRUE;
+                 // According to MSDN, we should never receive these due to having gdi32/user32 loaded in our process.
+<a href="#h0-2" id="h0-2" class="h">@@ -34,10 +34,10 @@ namespace AppInstaller::CLI::Execution
+</a>             case CTRL_CLOSE_EVENT:
+             case CTRL_LOGOFF_EVENT:
+             case CTRL_SHUTDOWN_EVENT:
+<a href="#h0-2-3" id="h0-2-3" class="d">-                context-&gt;Terminate(E_ABORT);
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+                context-&gt;Terminate(APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED);
+</a>                 context-&gt;Reporter.CancelInProgressTask(true);
+                 return TRUE;
+<a href="#h0-2-7" id="h0-2-7" class="d">-            default:
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+            default:
+</a>                 return FALSE;
+             }
+         }
+<a href="#h0-3" id="h0-3" class="h">@@ -92,12 +92,19 @@ namespace AppInstaller::CLI::Execution
+</a> 
+     void Context::Terminate(HRESULT hr)
+     {
+<a href="#h0-3-3" id="h0-3-3" class="d">-        if (m_isTerminated &amp;&amp; m_terminationHR == hr &amp;&amp; hr == E_ABORT)
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+        if (hr == APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED)
+</a>         {
+<a href="#h0-3-6" id="h0-3-6" class="i">+            ++m_CtrlSignalCount;
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+            // Use a more recognizable error
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+            hr = E_ABORT;
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+
+</a>             // If things aren&#39;t terminating fast enough for the user, they will probably press CTRL+C again.
+             // In that case, we should forcibly terminate.
+             // Unless we want to spin a separate thread for all work, we have to just exit here.
+<a href="#h0-3-13" id="h0-3-13" class="d">-            std::exit(hr);
+</a><a href="#h0-3-14" id="h0-3-14" class="i">+            if (m_CtrlSignalCount &gt;= 2)
+</a><a href="#h0-3-15" id="h0-3-15" class="i">+            {
+</a><a href="#h0-3-16" id="h0-3-16" class="i">+                std::exit(hr);
+</a><a href="#h0-3-17" id="h0-3-17" class="i">+            }
+</a>         }
+ 
+         m_isTerminated = true;
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/ExecutionContext.h.html">src/AppInstallerCLICore/ExecutionContext.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionContext.h.html">src/AppInstallerCLICore/ExecutionContext.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -188,5 +188,6 @@ namespace AppInstaller::CLI::Execution
+</a>         bool m_isTerminated = false;
+         HRESULT m_terminationHR = S_OK;
+         std::map&lt;Data, details::DataVariant&gt; m_data;
+<a href="#h1-0-3" id="h1-0-3" class="i">+        size_t m_CtrlSignalCount = 0;
+</a>     };
+ }
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCommonCore/Public/AppInstallerErrors.h.html">src/AppInstallerCommonCore/Public/AppInstallerErrors.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerErrors.h.html">src/AppInstallerCommonCore/Public/AppInstallerErrors.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -14,7 +14,7 @@
+</a> #define APPINSTALLER_CLI_ERROR_INVALID_CL_ARGUMENTS             ((HRESULT)0x8A150002)
+ #define APPINSTALLER_CLI_ERROR_COMMAND_FAILED                   ((HRESULT)0x8A150003)
+ #define APPINSTALLER_CLI_ERROR_MANIFEST_FAILED                  ((HRESULT)0x8A150004)
+<a href="#h2-0-3" id="h2-0-3" class="d">-//#define APPINSTALLER_CLI_ERROR_WORKFLOW_FAILED                  ((HRESULT)0x8A150005) // Unused, can be repurposed
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+#define APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED             ((HRESULT)0x8A150005)
+</a> #define APPINSTALLER_CLI_ERROR_SHELLEXEC_INSTALL_FAILED         ((HRESULT)0x8A150006)
+ //#define APPINSTALLER_CLI_ERROR_RUNTIME_ERROR                    ((HRESULT)0x8A150007) // Unused, can be repurposed
+ #define APPINSTALLER_CLI_ERROR_DOWNLOAD_FAILED                  ((HRESULT)0x8A150008)
+</pre>
+</div>
+</body>
+</html>

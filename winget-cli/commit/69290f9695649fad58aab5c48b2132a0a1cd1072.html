@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Force output paths to use u8string with filesystem::path (#694) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/69290f9695649fad58aab5c48b2132a0a1cd1072.html">69290f9695649fad58aab5c48b2132a0a1cd1072</a>
+<b>parent</b> <a href="../commit/b1538828de7ef3af1f3d4ba9659ed3f414df8d85.html">b1538828de7ef3af1f3d4ba9659ed3f414df8d85</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Mon, 11 Jan 2021 16:03:19 -0800
+
+Force output paths to use u8string with filesystem::path (#694)
+
+## Issue
+When paths with non-ASCII characters are used, logging them is resulting in an exception due to not being able to convert them to ASCII (the default behavior when forced to convert to a narrow char).
+
+## Change
+To better handle all situations of output of a path, both the logging and reporting infrastructure have been enlightened to force the use of `u8String()` when they see one.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ChannelStreams.cpp</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/ChannelStreams.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLIE2ETests/SourceCommand.cs</a></td><td> | </td><td class="num">16</td><td><span class="i">++++++++</span><span class="d">--------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLITests/Strings.cpp</a></td><td> | </td><td class="num">17</td><td><span class="i">+++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCommonCore/Public/AppInstallerLogging.h</a></td><td> | </td><td class="num">33</td><td><span class="i">++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCommonCore/Public/winget/LocIndependent.h</a></td><td> | </td><td class="num">10</td><td><span class="i">+++++</span><span class="d">-----</span></td></tr>
+</table></pre><pre>6 files changed, 70 insertions(+), 14 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ChannelStreams.cpp.html">src/AppInstallerCLICore/ChannelStreams.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ChannelStreams.cpp.html">src/AppInstallerCLICore/ChannelStreams.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -85,6 +85,13 @@ namespace AppInstaller::CLI::Execution
+</a>         return *this;
+     }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+    OutputStream&amp; OutputStream::operator&lt;&lt;(const std::filesystem::path&amp; path)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+    {
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        ApplyFormat();
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+        m_out &lt;&lt; path.u8string();
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+        return *this;
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+    }
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+
+</a>     NoVTStream::NoVTStream(std::ostream&amp; out, bool enabled) :
+         m_out(out, enabled, false) {}
+ 
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/ChannelStreams.h.html">src/AppInstallerCLICore/ChannelStreams.h</a> b/<a href="../file/src/AppInstallerCLICore/ChannelStreams.h.html">src/AppInstallerCLICore/ChannelStreams.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -100,6 +100,7 @@ namespace AppInstaller::CLI::Execution
+</a>         OutputStream&amp; operator&lt;&lt;(std::ostream&amp; (__cdecl* f)(std::ostream&amp;));
+         OutputStream&amp; operator&lt;&lt;(const VirtualTerminal::Sequence&amp; sequence);
+         OutputStream&amp; operator&lt;&lt;(const VirtualTerminal::ConstructedSequence&amp; sequence);
+<a href="#h1-0-3" id="h1-0-3" class="i">+        OutputStream&amp; operator&lt;&lt;(const std::filesystem::path&amp; path);
+</a> 
+     private:
+         // Applies the format for the stream.
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLIE2ETests/SourceCommand.cs.html">src/AppInstallerCLIE2ETests/SourceCommand.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/SourceCommand.cs.html">src/AppInstallerCLIE2ETests/SourceCommand.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -29,7 +29,7 @@ namespace AppInstallerCLIE2ETests
+</a>         public void SourceAddWithInvalidURL()
+         {
+             // Add source with invalid url should fail
+<a href="#h2-0-3" id="h2-0-3" class="d">-            var result = TestCommon.RunAICLICommand(&quot;source add&quot;, &quot;AnotherSource https://microsoft.com&quot;);
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+            var result = TestCommon.RunAICLICommand(&quot;source add&quot;, $&quot;AnotherSource {Constants.TestSourceUrl}/Invalid/Directory/Dont/Add/Me&quot;);
+</a>             Assert.AreEqual(Constants.ErrorCode.HTTP_E_STATUS_NOT_FOUND, result.ExitCode);
+             Assert.True(result.StdOut.Contains(&quot;An unexpected error occurred while executing the command&quot;));
+         }
+<a href="#h2-1" id="h2-1" class="h">@@ -50,7 +50,7 @@ namespace AppInstallerCLIE2ETests
+</a>             // List with no args should list all available sources
+             var result = TestCommon.RunAICLICommand(&quot;source list&quot;, &quot;&quot;);
+             Assert.AreEqual(Constants.ErrorCode.S_OK, result.ExitCode);
+<a href="#h2-1-3" id="h2-1-3" class="d">-            Assert.True(result.StdOut.Contains(&quot;https://localhost:5001/TestKit&quot;));
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+            Assert.True(result.StdOut.Contains(Constants.TestSourceUrl));
+</a>         }
+ 
+         [Test]
+<a href="#h2-2" id="h2-2" class="h">@@ -58,8 +58,8 @@ namespace AppInstallerCLIE2ETests
+</a>         {
+             var result = TestCommon.RunAICLICommand(&quot;source list&quot;, $&quot;-n {Constants.TestSourceName}&quot;);
+             Assert.AreEqual(Constants.ErrorCode.S_OK, result.ExitCode);
+<a href="#h2-2-3" id="h2-2-3" class="d">-            Assert.True(result.StdOut.Contains(&quot;TestSource&quot;));
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-            Assert.True(result.StdOut.Contains(&quot;https://localhost:5001/TestKit&quot;));
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+            Assert.True(result.StdOut.Contains(Constants.TestSourceName));
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+            Assert.True(result.StdOut.Contains(Constants.TestSourceUrl));
+</a>             Assert.True(result.StdOut.Contains(&quot;Microsoft.PreIndexed.Package&quot;));
+             Assert.True(result.StdOut.Contains(&quot;Updated&quot;));
+         }
+<a href="#h2-3" id="h2-3" class="h">@@ -110,8 +110,8 @@ namespace AppInstallerCLIE2ETests
+</a>         {
+             var result = TestCommon.RunAICLICommand(&quot;source reset&quot;, &quot;&quot;);
+             Assert.True(result.StdOut.Contains(&quot;The following sources will be reset if the --force option is given:&quot;));
+<a href="#h2-3-3" id="h2-3-3" class="d">-            Assert.True(result.StdOut.Contains(&quot;TestSource&quot;));
+</a><a href="#h2-3-4" id="h2-3-4" class="d">-            Assert.True(result.StdOut.Contains(&quot;https://localhost:5001/TestKit&quot;));
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+            Assert.True(result.StdOut.Contains(Constants.TestSourceName));
+</a><a href="#h2-3-6" id="h2-3-6" class="i">+            Assert.True(result.StdOut.Contains(Constants.TestSourceUrl));
+</a>         }
+ 
+         [Test]
+<a href="#h2-4" id="h2-4" class="h">@@ -126,8 +126,8 @@ namespace AppInstallerCLIE2ETests
+</a>             result = TestCommon.RunAICLICommand(&quot;source list&quot;, &quot;&quot;);
+             Assert.True(result.StdOut.Contains(&quot;winget&quot;));
+             Assert.True(result.StdOut.Contains(&quot;https://winget.azureedge.net/cache&quot;));
+<a href="#h2-4-3" id="h2-4-3" class="d">-            Assert.False(result.StdOut.Contains($&quot;{Constants.TestSourceName}&quot;));
+</a><a href="#h2-4-4" id="h2-4-4" class="d">-            Assert.False(result.StdOut.Contains($&quot;{Constants.TestSourceUrl}&quot;));
+</a><a href="#h2-4-5" id="h2-4-5" class="i">+            Assert.False(result.StdOut.Contains(Constants.TestSourceName));
+</a><a href="#h2-4-6" id="h2-4-6" class="i">+            Assert.False(result.StdOut.Contains(Constants.TestSourceUrl));
+</a>             ResetTestSource();
+         }
+     }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/Strings.cpp.html">src/AppInstallerCLITests/Strings.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Strings.cpp.html">src/AppInstallerCLITests/Strings.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -3,6 +3,7 @@
+</a> #include &quot;pch.h&quot;
+ #include &quot;TestCommon.h&quot;
+ #include &lt;AppInstallerStrings.h&gt;
+<a href="#h3-0-3" id="h3-0-3" class="i">+#include &lt;ExecutionReporter.h&gt;
+</a> 
+ using namespace std::string_view_literals;
+ using namespace AppInstaller::Utility;
+<a href="#h3-1" id="h3-1" class="h">@@ -147,3 +148,19 @@ TEST_CASE(&quot;ExpandEnvironmentVariables&quot;, &quot;[strings]&quot;)
+</a> 
+     REQUIRE(ExpandEnvironmentVariables(L&quot;%TEMP%&quot;) == tempPath);
+ }
+<a href="#h3-1-3" id="h3-1-3" class="i">+
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+TEST_CASE(&quot;PathOutput&quot;, &quot;[strings]&quot;)
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+{
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+    std::string original = &quot;\xe6\xb5\x8b\xe8\xaf\x95&quot;;
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+    std::filesystem::path path = ConvertToUTF16(original);
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+    AICLI_LOG(Test, Info, &lt;&lt; path);
+</a><a href="#h3-1-9" id="h3-1-9" class="i">+
+</a><a href="#h3-1-10" id="h3-1-10" class="i">+    std::istringstream in;
+</a><a href="#h3-1-11" id="h3-1-11" class="i">+    std::ostringstream out;
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+    AppInstaller::CLI::Execution::Reporter reporter{ out, in };
+</a><a href="#h3-1-13" id="h3-1-13" class="i">+
+</a><a href="#h3-1-14" id="h3-1-14" class="i">+    reporter.Info() &lt;&lt; path;
+</a><a href="#h3-1-15" id="h3-1-15" class="i">+
+</a><a href="#h3-1-16" id="h3-1-16" class="i">+    std::string output = out.str();
+</a><a href="#h3-1-17" id="h3-1-17" class="i">+    REQUIRE(output.substr(output.size() - original.size()) == original);
+</a><a href="#h3-1-18" id="h3-1-18" class="i">+}
+</a><b>diff --git a/<a id="h4" href="../file/src/AppInstallerCommonCore/Public/AppInstallerLogging.h.html">src/AppInstallerCommonCore/Public/AppInstallerLogging.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerLogging.h.html">src/AppInstallerCommonCore/Public/AppInstallerLogging.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -17,7 +17,7 @@
+</a>         auto&amp; _aicli_log_log = AppInstaller::Logging::Log(); \
+         if (_aicli_log_log.IsEnabled(_aicli_log_channel, _aicli_log_level)) \
+         { \
+<a href="#h4-0-3" id="h4-0-3" class="d">-            std::stringstream _aicli_log_strstr; \
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+            AppInstaller::Logging::LoggingStream _aicli_log_strstr; \
+</a>             _aicli_log_strstr _outstream_; \
+             _aicli_log_log.Write(_aicli_log_channel, _aicli_log_level, _aicli_log_strstr.str()); \
+         } \
+<a href="#h4-1" id="h4-1" class="h">@@ -140,6 +140,37 @@ namespace AppInstaller::Logging
+</a> 
+     // Calls the various stream format functions to produce an 8 character hexadecimal output.
+     std::ostream&amp; SetHRFormat(std::ostream&amp; out);
+<a href="#h4-1-3" id="h4-1-3" class="i">+
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+    // This type allows us to override the default behavior of output operators for logging.
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+    struct LoggingStream
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+    {
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+        // Force use of the UTF-8 string from a file path.
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+        // This should not be necessary when we move to C++20 and convert to using u8string.
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+        friend AppInstaller::Logging::LoggingStream&amp; operator&lt;&lt;(AppInstaller::Logging::LoggingStream&amp; out, std::filesystem::path&amp; path)
+</a><a href="#h4-1-10" id="h4-1-10" class="i">+        {
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+            out.m_out &lt;&lt; path.u8string();
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+            return out;
+</a><a href="#h4-1-13" id="h4-1-13" class="i">+        }
+</a><a href="#h4-1-14" id="h4-1-14" class="i">+
+</a><a href="#h4-1-15" id="h4-1-15" class="i">+        friend AppInstaller::Logging::LoggingStream&amp; operator&lt;&lt;(AppInstaller::Logging::LoggingStream&amp; out, const std::filesystem::path&amp; path)
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+        {
+</a><a href="#h4-1-17" id="h4-1-17" class="i">+            out.m_out &lt;&lt; path.u8string();
+</a><a href="#h4-1-18" id="h4-1-18" class="i">+            return out;
+</a><a href="#h4-1-19" id="h4-1-19" class="i">+        }
+</a><a href="#h4-1-20" id="h4-1-20" class="i">+
+</a><a href="#h4-1-21" id="h4-1-21" class="i">+        // Everything else.
+</a><a href="#h4-1-22" id="h4-1-22" class="i">+        template &lt;typename T&gt;
+</a><a href="#h4-1-23" id="h4-1-23" class="i">+        friend AppInstaller::Logging::LoggingStream&amp; operator&lt;&lt;(AppInstaller::Logging::LoggingStream&amp; out, T&amp;&amp; t)
+</a><a href="#h4-1-24" id="h4-1-24" class="i">+        {
+</a><a href="#h4-1-25" id="h4-1-25" class="i">+            out.m_out &lt;&lt; std::forward&lt;T&gt;(t);
+</a><a href="#h4-1-26" id="h4-1-26" class="i">+            return out;
+</a><a href="#h4-1-27" id="h4-1-27" class="i">+        }
+</a><a href="#h4-1-28" id="h4-1-28" class="i">+
+</a><a href="#h4-1-29" id="h4-1-29" class="i">+        std::string str() const { return m_out.str(); }
+</a><a href="#h4-1-30" id="h4-1-30" class="i">+
+</a><a href="#h4-1-31" id="h4-1-31" class="i">+    private:
+</a><a href="#h4-1-32" id="h4-1-32" class="i">+        std::stringstream m_out;
+</a><a href="#h4-1-33" id="h4-1-33" class="i">+    };
+</a> }
+ 
+ // Enable output of system_clock time_points.
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCommonCore/Public/winget/LocIndependent.h.html">src/AppInstallerCommonCore/Public/winget/LocIndependent.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/winget/LocIndependent.h.html">src/AppInstallerCommonCore/Public/winget/LocIndependent.h</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -53,12 +53,12 @@ namespace AppInstaller::Utility
+</a> 
+         bool operator&lt;(const LocIndString&amp; other) const { return m_value &lt; other.m_value; }
+ 
+<a href="#h5-0-3" id="h5-0-3" class="i">+        friend std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const AppInstaller::Utility::LocIndString&amp; lis)
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+        {
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+            return (out &lt;&lt; lis.get());
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+        }
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+
+</a>     private:
+         std::string m_value;
+     };
+ }
+<a href="#h5-0-12" id="h5-0-12" class="d">-
+</a><a href="#h5-0-13" id="h5-0-13" class="d">-inline std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const AppInstaller::Utility::LocIndString&amp; lis)
+</a><a href="#h5-0-14" id="h5-0-14" class="d">-{
+</a><a href="#h5-0-15" id="h5-0-15" class="d">-    return (out &lt;&lt; lis.get());
+</a><a href="#h5-0-16" id="h5-0-16" class="d">-}
+</a></pre>
+</div>
+</body>
+</html>

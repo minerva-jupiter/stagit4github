@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Remove preference for &quot;installed&quot; installer type (#4740) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/dc1435a5ff25d1220f955ab148f66cb68e332d85.html">dc1435a5ff25d1220f955ab148f66cb68e332d85</a>
+<b>parent</b> <a href="../commit/266a08f39c74e230fcd03caea56f7883a50dee8f.html">266a08f39c74e230fcd03caea56f7883a50dee8f</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 20 Aug 2024 10:35:01 -0700
+
+Remove preference for &quot;installed&quot; installer type (#4740)
+
+Fixes #2565 
+
+## Change
+Move (and rename) the `InstalledTypeComparator` from being a comparator
+to just a filter. Given what we can (or rather, currently do) actually
+discern from system state, it doesn&#39;t make sense to give preference to
+the few types that we use to signify the compatibility sets. If we truly
+want to preserve installer type selection within a compatibility set, we
+need to store the user selection into the tracking database similar to
+`UserIntentArchitecture`.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a></td><td> | </td><td class="num">80</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/ManifestComparator.cpp</a></td><td> | </td><td class="num">19</td><td><span class="i">++++++++++++++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>2 files changed, 69 insertions(+), 30 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.cpp.html">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ManifestComparator.cpp.html">src/AppInstallerCLICore/Workflows/ManifestComparator.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -364,12 +364,12 @@ namespace AppInstaller::CLI::Workflow
+</a>             }
+         };
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-        struct InstalledTypeComparator : public details::ComparisonField
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        struct InstalledTypeFilter : public details::FilterField
+</a>         {
+<a href="#h0-0-6" id="h0-0-6" class="d">-            InstalledTypeComparator(Manifest::InstallerTypeEnum installedType) :
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-                details::ComparisonField(&quot;Installed Type&quot;), m_installedType(installedType) {}
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+            InstalledTypeFilter(Manifest::InstallerTypeEnum installedType) :
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+                details::FilterField(&quot;Installed Type&quot;), m_installedType(installedType) {}
+</a> 
+<a href="#h0-0-11" id="h0-0-11" class="d">-            static std::unique_ptr&lt;InstalledTypeComparator&gt; Create(const Repository::IPackageVersion::Metadata&amp; installationMetadata)
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            static std::unique_ptr&lt;InstalledTypeFilter&gt; Create(const Repository::IPackageVersion::Metadata&amp; installationMetadata)
+</a>             {
+                 auto installerTypeItr = installationMetadata.find(Repository::PackageVersionMetadata::InstalledType);
+                 if (installerTypeItr != installationMetadata.end())
+<a href="#h0-1" id="h0-1" class="h">@@ -377,7 +377,7 @@ namespace AppInstaller::CLI::Workflow
+</a>                     Manifest::InstallerTypeEnum installedType = Manifest::ConvertToInstallerTypeEnum(installerTypeItr-&gt;second);
+                     if (installedType != Manifest::InstallerTypeEnum::Unknown)
+                     {
+<a href="#h0-1-3" id="h0-1-3" class="d">-                        return std::make_unique&lt;InstalledTypeComparator&gt;(installedType);
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+                        return std::make_unique&lt;InstalledTypeFilter&gt;(installedType);
+</a>                     }
+                 }
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -386,22 +386,7 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+             InapplicabilityFlags IsApplicable(const Manifest::ManifestInstaller&amp; installer) override
+             {
+<a href="#h0-2-3" id="h0-2-3" class="d">-                // The installer is applicable if it&#39;s type or any of its ARP entries&#39; type matches the installed type
+</a><a href="#h0-2-4" id="h0-2-4" class="d">-                if (Manifest::IsInstallerTypeCompatible(installer.EffectiveInstallerType(), m_installedType))
+</a><a href="#h0-2-5" id="h0-2-5" class="d">-                {
+</a><a href="#h0-2-6" id="h0-2-6" class="d">-                    return InapplicabilityFlags::None;
+</a><a href="#h0-2-7" id="h0-2-7" class="d">-                }
+</a><a href="#h0-2-8" id="h0-2-8" class="d">-
+</a><a href="#h0-2-9" id="h0-2-9" class="d">-                auto itr = std::find_if(
+</a><a href="#h0-2-10" id="h0-2-10" class="d">-                    installer.AppsAndFeaturesEntries.begin(),
+</a><a href="#h0-2-11" id="h0-2-11" class="d">-                    installer.AppsAndFeaturesEntries.end(),
+</a><a href="#h0-2-12" id="h0-2-12" class="d">-                    [=](AppsAndFeaturesEntry arpEntry) { return Manifest::IsInstallerTypeCompatible(arpEntry.InstallerType, m_installedType); });
+</a><a href="#h0-2-13" id="h0-2-13" class="d">-                if (itr != installer.AppsAndFeaturesEntries.end())
+</a><a href="#h0-2-14" id="h0-2-14" class="d">-                {
+</a><a href="#h0-2-15" id="h0-2-15" class="d">-                    return InapplicabilityFlags::None;
+</a><a href="#h0-2-16" id="h0-2-16" class="d">-                }
+</a><a href="#h0-2-17" id="h0-2-17" class="d">-
+</a><a href="#h0-2-18" id="h0-2-18" class="d">-                return InapplicabilityFlags::InstalledType;
+</a><a href="#h0-2-19" id="h0-2-19" class="i">+                return IsInstallerCompatibleWith(installer, m_installedType) ? InapplicabilityFlags::None : InapplicabilityFlags::InstalledType;
+</a>             }
+ 
+             std::string ExplainInapplicable(const Manifest::ManifestInstaller&amp; installer) override
+<a href="#h0-3" id="h0-3" class="h">@@ -423,20 +408,27 @@ namespace AppInstaller::CLI::Workflow
+</a>                 return result;
+             }
+ 
+<a href="#h0-3-3" id="h0-3-3" class="d">-            details::ComparisonResult IsFirstBetter(const Manifest::ManifestInstaller&amp; first, const Manifest::ManifestInstaller&amp; second) override
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+        private:
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+            // The installer is compatible if it&#39;s type or any of its ARP entries&#39; type matches the installed type
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+            static bool IsInstallerCompatibleWith(const Manifest::ManifestInstaller&amp; installer, Manifest::InstallerTypeEnum type)
+</a>             {
+<a href="#h0-3-8" id="h0-3-8" class="d">-                if (first.EffectiveInstallerType() == m_installedType &amp;&amp; second.EffectiveInstallerType() != m_installedType)
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+                if (Manifest::IsInstallerTypeCompatible(installer.EffectiveInstallerType(), type))
+</a>                 {
+<a href="#h0-3-11" id="h0-3-11" class="d">-                    // Installed type matching is intended to be sticky, so make this a strong match.
+</a><a href="#h0-3-12" id="h0-3-12" class="d">-                    return details::ComparisonResult::StrongPositive;
+</a><a href="#h0-3-13" id="h0-3-13" class="i">+                    return true;
+</a>                 }
+<a href="#h0-3-15" id="h0-3-15" class="d">-                else
+</a><a href="#h0-3-16" id="h0-3-16" class="i">+
+</a><a href="#h0-3-17" id="h0-3-17" class="i">+                auto itr = std::find_if(
+</a><a href="#h0-3-18" id="h0-3-18" class="i">+                    installer.AppsAndFeaturesEntries.begin(),
+</a><a href="#h0-3-19" id="h0-3-19" class="i">+                    installer.AppsAndFeaturesEntries.end(),
+</a><a href="#h0-3-20" id="h0-3-20" class="i">+                    [=](AppsAndFeaturesEntry arpEntry) { return Manifest::IsInstallerTypeCompatible(arpEntry.InstallerType, type); });
+</a><a href="#h0-3-21" id="h0-3-21" class="i">+                if (itr != installer.AppsAndFeaturesEntries.end())
+</a>                 {
+<a href="#h0-3-23" id="h0-3-23" class="d">-                    return details::ComparisonResult::Negative;
+</a><a href="#h0-3-24" id="h0-3-24" class="i">+                    return true;
+</a>                 }
+<a href="#h0-3-26" id="h0-3-26" class="i">+
+</a><a href="#h0-3-27" id="h0-3-27" class="i">+                return false;
+</a>             }
+ 
+<a href="#h0-3-30" id="h0-3-30" class="d">-        private:
+</a>             Manifest::InstallerTypeEnum m_installedType;
+         };
+ 
+<a href="#h0-4" id="h0-4" class="h">@@ -782,17 +774,47 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+     ManifestComparator::ManifestComparator(const Execution::Context&amp; context, const Repository::IPackageVersion::Metadata&amp; installationMetadata)
+     {
+<a href="#h0-4-3" id="h0-4-3" class="i">+        // Filters based on installer&#39;s MinOSVersion
+</a>         AddFilter(std::make_unique&lt;OSVersionFilter&gt;());
+<a href="#h0-4-5" id="h0-4-5" class="i">+        // Filters out portable installers if they are not supported by the system
+</a>         AddFilter(std::make_unique&lt;PortableInstallFilter&gt;());
+<a href="#h0-4-7" id="h0-4-7" class="i">+        // Filters based on the scope of a currently installed package
+</a>         AddFilter(InstalledScopeFilter::Create(installationMetadata));
+<a href="#h0-4-9" id="h0-4-9" class="i">+        // Filters based on the market region of the system
+</a>         AddFilter(MarketFilter::Create());
+<a href="#h0-4-11" id="h0-4-11" class="i">+        // Filters based on the installer type compatability, including with AppsAndFeaturesEntry declarations
+</a><a href="#h0-4-12" id="h0-4-12" class="i">+        AddFilter(InstalledTypeFilter::Create(installationMetadata));
+</a> 
+         // Filter order is not important, but comparison order determines priority.
+<a href="#h0-4-15" id="h0-4-15" class="i">+        // Note that all comparators are also filters and their comparison function will only be called on
+</a><a href="#h0-4-16" id="h0-4-16" class="i">+        // installers that both match the required criteria.
+</a><a href="#h0-4-17" id="h0-4-17" class="i">+        // 
+</a><a href="#h0-4-18" id="h0-4-18" class="i">+        // The comparators are ordered by the `IsFirstBetter` method, which uses the following algorithm:
+</a><a href="#h0-4-19" id="h0-4-19" class="i">+        //  - Each comparison between two installers can return one of { Strong, Weak, Negative }
+</a><a href="#h0-4-20" id="h0-4-20" class="i">+        //  - Installers are compared in both directions, going through the list of comparators as defined here
+</a><a href="#h0-4-21" id="h0-4-21" class="i">+        //  - The first Strong result in either direction is given priority
+</a><a href="#h0-4-22" id="h0-4-22" class="i">+        //  - If no Strong results, the first Weak result is used
+</a><a href="#h0-4-23" id="h0-4-23" class="i">+        //  - If all Negative results, then the two installers are equal in priority (meaning the first one in the list is kept as &quot;better&quot;)
+</a><a href="#h0-4-24" id="h0-4-24" class="i">+        // 
+</a>         // TODO: There are improvements to be made here around ordering, especially in the context of implicit vs explicit vs command line preferences.
+<a href="#h0-4-26" id="h0-4-26" class="d">-        AddComparator(InstalledTypeComparator::Create(installationMetadata));
+</a><a href="#h0-4-27" id="h0-4-27" class="i">+
+</a><a href="#h0-4-28" id="h0-4-28" class="i">+        // Filters based on exact matches for requirements or compatible matches for preferences
+</a><a href="#h0-4-29" id="h0-4-29" class="i">+        // Only applies when preference exists:
+</a><a href="#h0-4-30" id="h0-4-30" class="i">+        // Strong if first is compatible and better match than second
+</a><a href="#h0-4-31" id="h0-4-31" class="i">+        // Weak if first is unknown and second is not
+</a>         AddComparator(LocaleComparator::Create(context.Args, installationMetadata));
+<a href="#h0-4-33" id="h0-4-33" class="i">+        // Filters only if a requirement is present and it cannot be satisfied by the installer (including installer types that we can control scope in code)
+</a><a href="#h0-4-34" id="h0-4-34" class="i">+        // Only applies when preference exists:
+</a><a href="#h0-4-35" id="h0-4-35" class="i">+        // Strong if first matches preference and second does not and is not Unknown
+</a><a href="#h0-4-36" id="h0-4-36" class="i">+        // Weak if first matches preference and second is Unknown
+</a>         AddComparator(ScopeComparator::Create(context));
+<a href="#h0-4-38" id="h0-4-38" class="i">+        // Filters architectures out that are not supported or are not in the preferences/requirements/inputs.
+</a><a href="#h0-4-39" id="h0-4-39" class="i">+        // Strong if first equals the earliest architecture in the allowed list and second does not [default means the system architecture]
+</a><a href="#h0-4-40" id="h0-4-40" class="i">+        // Weak if first is better match for system architecture than second
+</a>         AddComparator(MachineArchitectureComparator::Create(context, installationMetadata));
+<a href="#h0-4-42" id="h0-4-42" class="i">+        // Filters installer types out that are not in preferences or requirements.
+</a><a href="#h0-4-43" id="h0-4-43" class="i">+        // Only applies when preference exists:
+</a><a href="#h0-4-44" id="h0-4-44" class="i">+        // Weak if first is in preference list and second is not
+</a>         AddComparator(InstallerTypeComparator::Create(context.Args));
+     }
+ 
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/ManifestComparator.cpp.html">src/AppInstallerCLITests/ManifestComparator.cpp</a> b/<a href="../file/src/AppInstallerCLITests/ManifestComparator.cpp.html">src/AppInstallerCLITests/ManifestComparator.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -249,7 +249,7 @@ TEST_CASE(&quot;ManifestComparator_InstalledTypeCompare&quot;, &quot;[manifest_comparator]&quot;)
+</a>         ManifestComparator mc(ManifestComparatorTestContext{}, metadata);
+         auto [result, inapplicabilities] = mc.GetPreferredInstaller(manifest);
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        RequireInstaller(result, exe);
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        RequireInstaller(result, burn);
+</a>         REQUIRE(inapplicabilities.size() == 0);
+     }
+     SECTION(&quot;Inno Installed&quot;)
+<a href="#h1-1" id="h1-1" class="h">@@ -869,3 +869,20 @@ TEST_CASE(&quot;ManifestComparator_MachineArchitecture_Strong_Scope_Weak&quot;, &quot;[manifest
+</a> 
+     RequireInstaller(result, system);
+ }
+<a href="#h1-1-3" id="h1-1-3" class="i">+
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+TEST_CASE(&quot;ManifestComparator_InstallerCompatibilitySet_Weaker_Than_Architecture&quot;, &quot;[manifest_comparator]&quot;)
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+{
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+    Manifest manifest;
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+    ManifestInstaller target = AddInstaller(manifest, GetSystemArchitecture(), InstallerTypeEnum::Wix, ScopeEnum::Unknown, &quot;&quot;, &quot;&quot;);
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+    ManifestInstaller foil = AddInstaller(manifest, Architecture::Neutral, InstallerTypeEnum::Msi, ScopeEnum::Unknown, &quot;&quot;, &quot;&quot;);
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+
+</a><a href="#h1-1-10" id="h1-1-10" class="i">+    ManifestComparatorTestContext context;
+</a><a href="#h1-1-11" id="h1-1-11" class="i">+
+</a><a href="#h1-1-12" id="h1-1-12" class="i">+    IPackageVersion::Metadata installationMetadata;
+</a><a href="#h1-1-13" id="h1-1-13" class="i">+    installationMetadata[PackageVersionMetadata::InstalledType] = InstallerTypeToString(foil.EffectiveInstallerType());
+</a><a href="#h1-1-14" id="h1-1-14" class="i">+
+</a><a href="#h1-1-15" id="h1-1-15" class="i">+    ManifestComparator mc(context, installationMetadata);
+</a><a href="#h1-1-16" id="h1-1-16" class="i">+    auto [result, inapplicabilities] = mc.GetPreferredInstaller(manifest);
+</a><a href="#h1-1-17" id="h1-1-17" class="i">+
+</a><a href="#h1-1-18" id="h1-1-18" class="i">+    RequireInstaller(result, target);
+</a><a href="#h1-1-19" id="h1-1-19" class="i">+}
+</a></pre>
+</div>
+</body>
+</html>

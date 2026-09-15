@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(mean-server): Implement a TCP server for mean calculation - protohack - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="protohack.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="protohack.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>protohack</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/4957e77896554ffc0b8e0a5657015e4f76f6bfd4.html">4957e77896554ffc0b8e0a5657015e4f76f6bfd4</a>
+<b>parent</b> <a href="../commit/979362c646144a14ec8b98b308668f0a943f7efc.html">979362c646144a14ec8b98b308668f0a943f7efc</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Thu,  2 Apr 2026 14:32:11 +0900
+
+feat(mean-server): Implement a TCP server for mean calculation
+
+<b>Diffstat:</b>
+<table><tr><td class="A">A</td><td><a href="#h0">src/bin/mean.rs</a></td><td> | </td><td class="num">80</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>1 file changed, 80 insertions(+), 0 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/bin/mean.rs.html">src/bin/mean.rs</a> b/<a href="../file/src/bin/mean.rs.html">src/bin/mean.rs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -0,0 +1,80 @@
+</a><a href="#h0-0-0" id="h0-0-0" class="i">+use std::collections::BTreeMap;
+</a><a href="#h0-0-1" id="h0-0-1" class="i">+use tokio::io::{AsyncReadExt, AsyncWriteExt, stdin};
+</a><a href="#h0-0-2" id="h0-0-2" class="i">+use tokio::sync::oneshot;
+</a><a href="#h0-0-3" id="h0-0-3" class="i">+
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+#[tokio::main]
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+async fn main() -&gt; std::io::Result&lt;()&gt; {
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+    let (tx, rx) = oneshot::channel();
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+    tokio::spawn(async move {
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+        let mut reader = stdin();
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+        let mut buffer = [0u8; 1];
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+        loop {
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            if reader.read_exact(&amp;mut buffer).await.is_ok() {
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+                if buffer[0] == b&#39;q&#39; {
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+                    let _ = tx.send(());
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+                    break;
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+                }
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+            }
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+        }
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+    });
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+    let listener = tokio::net::TcpListener::bind(&quot;0.0.0.0:8080&quot;).await?;
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+    println!(&quot;Server started. Press &#39;q&#39; then Enter to stop.&quot;);
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+    tokio::select! {
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+        res = async {
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+            loop {
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+                let (mut socket, _) = listener.accept().await?;
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+                tokio::spawn(async move {
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+                    let (mut rd, mut wr) = socket.split();
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+                    let mut buf = [0u8; 9];
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+                    let mut history = BTreeMap::new();
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+                    loop {
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+                        if rd.read_exact(&amp;mut buf).await.is_err() {
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+                            break;
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+                        }
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+                        match buf[0] {
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+                            b&#39;I&#39; =&gt; {
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+                                let t = i32::from_be_bytes(buf[1..5].try_into().unwrap());
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+                                let p = i32::from_be_bytes(buf[5..9].try_into().unwrap());
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+                                history.insert(t, p);
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+                            }
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+                            b&#39;Q&#39; =&gt; {
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+                                let min = i32::from_be_bytes(buf[1..5].try_into().unwrap());
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+                                let max = i32::from_be_bytes(buf[5..9].try_into().unwrap());
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+                                let avg = calculate_average(&amp;history, min, max);
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+                                if wr.write_all(&amp;avg.to_be_bytes()).await.is_err() {
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+                                    break;
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+                                }
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+                            }
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+                            _ =&gt; break,
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+                        }
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+                    }
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+                });
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+            }
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+            #[allow(unreachable_code)]
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+            Ok::&lt;(), std::io::Error&gt;(())
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+        } =&gt; {
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+            if let Err(e) = res {
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+                eprintln!(&quot;Accept error: {}&quot;, e);
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+            }
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+        },
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+        _ = rx =&gt; {
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+            println!(&quot;Shutdown signal received. Exiting...&quot;);
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+        }
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+    }
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+    Ok(())
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+}
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+fn calculate_average(history: &amp;BTreeMap&lt;i32, i32&gt;, min: i32, max: i32) -&gt; i32 {
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+    if min &gt; max {
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+        return 0;
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+    }
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+    let subset: Vec&lt;_&gt; = history.range(min..=max).map(|(_, &amp;v)| v as i64).collect();
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+    if subset.is_empty() {
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+        return 0;
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+    }
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+    (subset.iter().sum::&lt;i64&gt;() / subset.len() as i64) as i32
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+}
+</a></pre>
+</div>
+</body>
+</html>

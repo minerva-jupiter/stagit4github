@@ -1,0 +1,1674 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Enforce single install across winget processes (#3118) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/741244e0363578bccc7d5e0052ee108d00c7d153.html">741244e0363578bccc7d5e0052ee108d00c7d153</a>
+<b>parent</b> <a href="../commit/dddc0941b89a31aaef360331abf98eb4250c9005.html">dddc0941b89a31aaef360331abf98eb4250c9005</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 30 Mar 2023 17:16:19 -0700
+
+Enforce single install across winget processes (#3118)
+
+This change uses a named mutex to enforce a single install/uninstall operation is occurring for the entire session.  The current behavior is that every process was able to install a single thing at a time, but as we have more usage this could lead to a potential issue.
+
+The mutex is acquired and held for the workflow task that routes out to the installer type specific tasks.  Some installer types are explicitly excluded, as they are known to contain their own synchronization internally.
+
+In addition to the mutex, the ability to set a message to show with the indefinite progress (spinner) was added.  This allows for the message to be removed when the wait is over.  The message was not implemented into the progress bar, nor is it being sent to COM progress.
+
+The COM scheduling was not made aware of the mutex, and so it will execute as it has in the past, blocking on the mutex when appropriate.  This could be improved in the future to enable the parallel capable installer types to operate.  One potential option would be a second installer processing thread that only operated on the excluded types, and thus would never block.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/COMContext.cpp</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/COMContext.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/ChannelStreams.cpp</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/ChannelStreams.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLICore/ExecutionProgress.cpp</a></td><td> | </td><td class="num">39</td><td><span class="i">+++++++++++++++++++++++</span><span class="d">----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerCLICore/ExecutionProgress.h</a></td><td> | </td><td class="num">9</td><td><span class="i">+++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCLICore/ExecutionReporter.cpp</a></td><td> | </td><td class="num">14</td><td><span class="i">++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerCLICore/ExecutionReporter.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/AppInstallerCLICore/TableOutput.h</a></td><td> | </td><td class="num">19</td><td><span class="i">+</span><span class="d">------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">248</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h12">src/AppInstallerCLICore/Workflows/InstallFlow.h</a></td><td> | </td><td class="num">70</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h13">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></td><td> | </td><td class="num">527</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h14">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h15">src/AppInstallerCLITests/InstallFlow.cpp</a></td><td> | </td><td class="num">55</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h16">src/AppInstallerCLITests/Synchronization.cpp</a></td><td> | </td><td class="num">74</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h17">src/AppInstallerCLITests/TestCommon.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h18">src/AppInstallerCLITests/TestCommon.h</a></td><td> | </td><td class="num">4</td><td><span class="i">+++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h19">src/AppInstallerCLITests/WorkflowCommon.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h20">src/AppInstallerCommonCore/Progress.cpp</a></td><td> | </td><td class="num">14</td><td><span class="i">++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h21">src/AppInstallerCommonCore/Public/AppInstallerProgress.h</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h22">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a></td><td> | </td><td class="num">24</td><td><span class="i">++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h23">src/AppInstallerCommonCore/Synchronization.cpp</a></td><td> | </td><td class="num">47</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>24 files changed, 753 insertions(+), 435 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -75,6 +75,7 @@ corecrt
+</a> count&#39;th
+ countof
+ countryregion
+<a href="#h0-0-3" id="h0-0-3" class="i">+CPIL
+</a> cplusplus
+ createmanifestmetadata
+ cswinrt
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/COMContext.cpp.html">src/AppInstallerCLICore/COMContext.cpp</a> b/<a href="../file/src/AppInstallerCLICore/COMContext.cpp.html">src/AppInstallerCLICore/COMContext.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -41,6 +41,11 @@ namespace AppInstaller::CLI::Execution
+</a>         FireCallbacks(ReportType::Progressing, current, maximum, progressType, m_executionStage);
+     }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="i">+    void COMContext::SetProgressMessage(std::string_view)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+    {
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        // TODO: Consider sending message to COM progress
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+    }
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+
+</a>     void COMContext::EndProgress(bool)
+     {
+         FireCallbacks(ReportType::EndProgress, 0, 0, ProgressType::None, m_executionStage);
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/COMContext.h.html">src/AppInstallerCLICore/COMContext.h</a> b/<a href="../file/src/AppInstallerCLICore/COMContext.h.html">src/AppInstallerCLICore/COMContext.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -54,6 +54,7 @@ namespace AppInstaller::CLI::Execution
+</a>         // IProgressSink
+         void BeginProgress() override;
+         void OnProgress(uint64_t current, uint64_t maximum, ProgressType type) override;
+<a href="#h2-0-3" id="h2-0-3" class="i">+        void SetProgressMessage(std::string_view message) override;
+</a>         void EndProgress(bool) override;
+ 
+         //Execution::Context
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/ChannelStreams.cpp.html">src/AppInstallerCLICore/ChannelStreams.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ChannelStreams.cpp.html">src/AppInstallerCLICore/ChannelStreams.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -9,6 +9,19 @@ namespace AppInstaller::CLI::Execution
+</a>     using namespace Settings;
+     using namespace VirtualTerminal;
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+    size_t GetConsoleWidth()
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    {
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        CONSOLE_SCREEN_BUFFER_INFO consoleInfo{};
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &amp;consoleInfo))
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+        {
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+            return static_cast&lt;size_t&gt;(consoleInfo.dwSize.X);
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+        }
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+        else
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+        {
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+            return 120;
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+        }
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+    }
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+
+</a>     BaseStream::BaseStream(std::ostream&amp; out, bool enabled, bool VTEnabled) :
+         m_out(out), m_enabled(enabled), m_VTEnabled(VTEnabled) {}
+ 
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/ChannelStreams.h.html">src/AppInstallerCLICore/ChannelStreams.h</a> b/<a href="../file/src/AppInstallerCLICore/ChannelStreams.h.html">src/AppInstallerCLICore/ChannelStreams.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -11,6 +11,9 @@
+</a> 
+ namespace AppInstaller::CLI::Execution
+ {
+<a href="#h4-0-3" id="h4-0-3" class="i">+    // Gets the current console width.
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+    size_t GetConsoleWidth();
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+
+</a>     // The base stream for all channels.
+     struct BaseStream
+     {
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLICore/ExecutionProgress.cpp.html">src/AppInstallerCLICore/ExecutionProgress.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionProgress.cpp.html">src/AppInstallerCLICore/ExecutionProgress.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -151,6 +151,23 @@ namespace AppInstaller::CLI::Execution
+</a>                 LOG_HR(E_UNEXPECTED);
+             }
+         }
+<a href="#h5-0-3" id="h5-0-3" class="i">+
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+        void ProgressVisualizerBase::ClearLine()
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+        {
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+            if (UseVT())
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+            {
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+                m_out &lt;&lt; TextModification::EraseLineEntirely &lt;&lt; &#39;\r&#39;;
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+            }
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+            else
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+            {
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+                m_out &lt;&lt; &#39;\r&#39; &lt;&lt; std::string(GetConsoleWidth(), &#39; &#39;) &lt;&lt; &#39;\r&#39;;
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+            }
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+        }
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+        void ProgressVisualizerBase::SetMessage(std::string_view message)
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+        {
+</a><a href="#h5-0-18" id="h5-0-18" class="i">+            m_message = message;
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+        }
+</a>     }
+ 
+     void IndefiniteSpinner::ShowSpinner()
+<a href="#h5-1" id="h5-1" class="h">@@ -188,17 +205,19 @@ namespace AppInstaller::CLI::Execution
+</a>             }
+ 
+             // Indent two spaces for the spinner, but three here so that we can overwrite it in the loop.
+<a href="#h5-1-3" id="h5-1-3" class="d">-            m_out &lt;&lt; &quot;   &quot;;
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+            std::string_view indent = &quot;   &quot;;
+</a> 
+             for (size_t i = 0; !m_canceled; ++i)
+             {
+                 constexpr size_t repetitionCount = 20;
+                 ApplyStyle(i % repetitionCount, repetitionCount, true);
+<a href="#h5-1-10" id="h5-1-10" class="d">-                m_out &lt;&lt; &#39;\b&#39; &lt;&lt; spinnerChars[i % ARRAYSIZE(spinnerChars)] &lt;&lt; std::flush;
+</a><a href="#h5-1-11" id="h5-1-11" class="i">+                m_out &lt;&lt; &#39;\r&#39; &lt;&lt; indent &lt;&lt; spinnerChars[i % ARRAYSIZE(spinnerChars)];
+</a><a href="#h5-1-12" id="h5-1-12" class="i">+                m_out.RestoreDefault();
+</a><a href="#h5-1-13" id="h5-1-13" class="i">+                m_out &lt;&lt; &#39; &#39; &lt;&lt; m_message &lt;&lt; std::flush;
+</a>                 Sleep(250);
+             }
+ 
+<a href="#h5-1-17" id="h5-1-17" class="d">-            m_out &lt;&lt; &quot;\b \r&quot;;
+</a><a href="#h5-1-18" id="h5-1-18" class="i">+            ClearLine();
+</a> 
+             if (UseVT())
+             {
+<a href="#h5-2" id="h5-2" class="h">@@ -217,6 +236,7 @@ namespace AppInstaller::CLI::Execution
+</a>             ClearLine();
+         }
+ 
+<a href="#h5-2-3" id="h5-2-3" class="i">+        // TODO: Progress bar does not currently use message
+</a>         if (UseVT())
+         {
+             ShowProgressWithVT(current, maximum, type);
+<a href="#h5-3" id="h5-3" class="h">@@ -255,19 +275,6 @@ namespace AppInstaller::CLI::Execution
+</a>         }
+     }
+ 
+<a href="#h5-3-3" id="h5-3-3" class="d">-    void ProgressBar::ClearLine()
+</a><a href="#h5-3-4" id="h5-3-4" class="d">-    {
+</a><a href="#h5-3-5" id="h5-3-5" class="d">-        if (UseVT())
+</a><a href="#h5-3-6" id="h5-3-6" class="d">-        {
+</a><a href="#h5-3-7" id="h5-3-7" class="d">-            m_out &lt;&lt; TextModification::EraseLineEntirely &lt;&lt; &#39;\r&#39;;
+</a><a href="#h5-3-8" id="h5-3-8" class="d">-        }
+</a><a href="#h5-3-9" id="h5-3-9" class="d">-        else
+</a><a href="#h5-3-10" id="h5-3-10" class="d">-        {
+</a><a href="#h5-3-11" id="h5-3-11" class="d">-            // Best effort when no VT (arbitrary number of spaces that seems to work)
+</a><a href="#h5-3-12" id="h5-3-12" class="d">-            m_out &lt;&lt; &quot;\r                                                              \r&quot;;
+</a><a href="#h5-3-13" id="h5-3-13" class="d">-        }
+</a><a href="#h5-3-14" id="h5-3-14" class="d">-    }
+</a><a href="#h5-3-15" id="h5-3-15" class="d">-
+</a>     void ProgressBar::ShowProgressNoVT(uint64_t current, uint64_t maximum, ProgressType type)
+     {
+         m_out &lt;&lt; &quot;\r  &quot;;
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCLICore/ExecutionProgress.h.html">src/AppInstallerCLICore/ExecutionProgress.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionProgress.h.html">src/AppInstallerCLICore/ExecutionProgress.h</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -27,15 +27,20 @@ namespace AppInstaller::CLI::Execution
+</a> 
+             void SetStyle(AppInstaller::Settings::VisualStyle style) { m_style = style; }
+ 
+<a href="#h6-0-3" id="h6-0-3" class="i">+            void SetMessage(std::string_view message);
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+
+</a>         protected:
+             BaseStream&amp; m_out;
+             Settings::VisualStyle m_style = AppInstaller::Settings::VisualStyle::Accent;
+<a href="#h6-0-8" id="h6-0-8" class="i">+            std::string m_message;
+</a> 
+             bool UseVT() const { return m_enableVT &amp;&amp; m_style != AppInstaller::Settings::VisualStyle::NoVT; }
+ 
+             // Applies the selected visual style.
+             void ApplyStyle(size_t i, size_t max, bool foregroundOnly);
+ 
+<a href="#h6-0-15" id="h6-0-15" class="i">+            void ClearLine();
+</a><a href="#h6-0-16" id="h6-0-16" class="i">+
+</a>         private:
+             bool m_enableVT = false;
+         };
+<a href="#h6-1" id="h6-1" class="h">@@ -70,14 +75,10 @@ namespace AppInstaller::CLI::Execution
+</a> 
+         void EndProgress(bool hideProgressWhenDone);
+ 
+<a href="#h6-1-3" id="h6-1-3" class="d">-        void SetStyle(AppInstaller::Settings::VisualStyle style) { m_style = style; }
+</a><a href="#h6-1-4" id="h6-1-4" class="d">-
+</a>     private:
+         std::atomic&lt;bool&gt; m_isVisible = false;
+         uint64_t m_lastCurrent = 0;
+ 
+<a href="#h6-1-9" id="h6-1-9" class="d">-        void ClearLine();
+</a><a href="#h6-1-10" id="h6-1-10" class="d">-
+</a>         void ShowProgressNoVT(uint64_t current, uint64_t maximum, ProgressType type);
+ 
+         void ShowProgressWithVT(uint64_t current, uint64_t maximum, ProgressType type);
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCLICore/ExecutionReporter.cpp.html">src/AppInstallerCLICore/ExecutionReporter.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionReporter.cpp.html">src/AppInstallerCLICore/ExecutionReporter.cpp</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -216,6 +216,19 @@ namespace AppInstaller::CLI::Execution
+</a>         }
+     }
+ 
+<a href="#h7-0-3" id="h7-0-3" class="i">+    void Reporter::SetProgressMessage(std::string_view message)
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+    {
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+        if (m_spinner)
+</a><a href="#h7-0-6" id="h7-0-6" class="i">+        {
+</a><a href="#h7-0-7" id="h7-0-7" class="i">+            m_spinner-&gt;SetMessage(message);
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+        }
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+
+</a><a href="#h7-0-10" id="h7-0-10" class="i">+        if (m_progressBar)
+</a><a href="#h7-0-11" id="h7-0-11" class="i">+        {
+</a><a href="#h7-0-12" id="h7-0-12" class="i">+            m_progressBar-&gt;SetMessage(message);
+</a><a href="#h7-0-13" id="h7-0-13" class="i">+        }
+</a><a href="#h7-0-14" id="h7-0-14" class="i">+    }
+</a><a href="#h7-0-15" id="h7-0-15" class="i">+
+</a>     void Reporter::BeginProgress()
+     {
+         GetBasicOutputStream() &lt;&lt; VirtualTerminal::Cursor::Visibility::DisableShow;
+<a href="#h7-1" id="h7-1" class="h">@@ -229,6 +242,7 @@ namespace AppInstaller::CLI::Execution
+</a>         {
+             m_progressBar-&gt;EndProgress(hideProgressWhenDone);
+         }
+<a href="#h7-1-3" id="h7-1-3" class="i">+        SetProgressMessage({});
+</a>         GetBasicOutputStream() &lt;&lt; VirtualTerminal::Cursor::Visibility::EnableShow;
+     };
+ 
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerCLICore/ExecutionReporter.h.html">src/AppInstallerCLICore/ExecutionReporter.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionReporter.h.html">src/AppInstallerCLICore/ExecutionReporter.h</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -113,6 +113,7 @@ namespace AppInstaller::CLI::Execution
+</a>         // IProgressSink
+         void BeginProgress() override;
+         void OnProgress(uint64_t current, uint64_t maximum, ProgressType type) override;
+<a href="#h8-0-3" id="h8-0-3" class="i">+        void SetProgressMessage(std::string_view message) override;
+</a>         void EndProgress(bool hideProgressWhenDone) override;
+ 
+         // Runs the given callable of type: auto(IProgressCallback&amp;)
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -209,6 +209,7 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InstallFlowStartingPackageInstall);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallLocationNotProvided);
+         WINGET_DEFINE_RESOURCE_STRINGID(InstallScopeDescription);
+<a href="#h9-0-3" id="h9-0-3" class="i">+        WINGET_DEFINE_RESOURCE_STRINGID(InstallWaitingOnAnother);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(InteractiveArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(InvalidAliasError);
+         WINGET_DEFINE_RESOURCE_STRINGID(InvalidArgumentSpecifierError);
+<b>diff --git a/<a id="h10" href="../file/src/AppInstallerCLICore/TableOutput.h.html">src/AppInstallerCLICore/TableOutput.h</a> b/<a href="../file/src/AppInstallerCLICore/TableOutput.h.html">src/AppInstallerCLICore/TableOutput.h</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -12,23 +12,6 @@
+</a> 
+ namespace AppInstaller::CLI::Execution
+ {
+<a href="#h10-0-3" id="h10-0-3" class="d">-    namespace details
+</a><a href="#h10-0-4" id="h10-0-4" class="d">-    {
+</a><a href="#h10-0-5" id="h10-0-5" class="d">-        // Gets the column width of the console.
+</a><a href="#h10-0-6" id="h10-0-6" class="d">-        inline size_t GetConsoleWidth()
+</a><a href="#h10-0-7" id="h10-0-7" class="d">-        {
+</a><a href="#h10-0-8" id="h10-0-8" class="d">-            CONSOLE_SCREEN_BUFFER_INFO consoleInfo{};
+</a><a href="#h10-0-9" id="h10-0-9" class="d">-            if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &amp;consoleInfo))
+</a><a href="#h10-0-10" id="h10-0-10" class="d">-            {
+</a><a href="#h10-0-11" id="h10-0-11" class="d">-                return static_cast&lt;size_t&gt;(consoleInfo.dwSize.X);
+</a><a href="#h10-0-12" id="h10-0-12" class="d">-            }
+</a><a href="#h10-0-13" id="h10-0-13" class="d">-            else
+</a><a href="#h10-0-14" id="h10-0-14" class="d">-            {
+</a><a href="#h10-0-15" id="h10-0-15" class="d">-                return 120;
+</a><a href="#h10-0-16" id="h10-0-16" class="d">-            }
+</a><a href="#h10-0-17" id="h10-0-17" class="d">-        }
+</a><a href="#h10-0-18" id="h10-0-18" class="d">-    }
+</a><a href="#h10-0-19" id="h10-0-19" class="d">-
+</a>     // Enables output data in a table format.
+     // TODO: Improve for use with sparse data.
+     template &lt;size_t FieldCount&gt;
+<a href="#h10-1" id="h10-1" class="h">@@ -144,7 +127,7 @@ namespace AppInstaller::CLI::Execution
+</a>                 totalRequired += m_columns[i].MaxLength + (m_columns[i].SpaceAfter ? 1 : 0);
+             }
+ 
+<a href="#h10-1-3" id="h10-1-3" class="d">-            size_t consoleWidth = details::GetConsoleWidth();
+</a><a href="#h10-1-4" id="h10-1-4" class="i">+            size_t consoleWidth = GetConsoleWidth();
+</a> 
+             // If the total space would be too big, shrink them.
+             // We don&#39;t want to use the last column, lest we auto-wrap
+<b>diff --git a/<a id="h11" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -21,6 +21,7 @@
+</a> #include &lt;winget/Archive.h&gt;
+ #include &lt;Argument.h&gt;
+ #include &lt;Command.h&gt;
+<a href="#h11-0-3" id="h11-0-3" class="i">+#include &lt;AppInstallerSynchronization.h&gt;
+</a> 
+ using namespace winrt::Windows::ApplicationModel::Store::Preview::InstallControl;
+ using namespace winrt::Windows::Foundation;
+<a href="#h11-1" id="h11-1" class="h">@@ -151,6 +152,135 @@ namespace AppInstaller::CLI::Workflow
+</a>         };
+     }
+ 
+<a href="#h11-1-3" id="h11-1-3" class="i">+    namespace details
+</a><a href="#h11-1-4" id="h11-1-4" class="i">+    {
+</a><a href="#h11-1-5" id="h11-1-5" class="i">+        // Runs the installer via ShellExecute.
+</a><a href="#h11-1-6" id="h11-1-6" class="i">+        // Required Args: None
+</a><a href="#h11-1-7" id="h11-1-7" class="i">+        // Inputs: Installer, InstallerPath
+</a><a href="#h11-1-8" id="h11-1-8" class="i">+        // Outputs: None
+</a><a href="#h11-1-9" id="h11-1-9" class="i">+        void ShellExecuteInstall(Execution::Context&amp; context)
+</a><a href="#h11-1-10" id="h11-1-10" class="i">+        {
+</a><a href="#h11-1-11" id="h11-1-11" class="i">+            context &lt;&lt;
+</a><a href="#h11-1-12" id="h11-1-12" class="i">+                GetInstallerArgs &lt;&lt;
+</a><a href="#h11-1-13" id="h11-1-13" class="i">+                ShellExecuteInstallImpl &lt;&lt;
+</a><a href="#h11-1-14" id="h11-1-14" class="i">+                ReportInstallerResult(&quot;ShellExecute&quot;sv, APPINSTALLER_CLI_ERROR_SHELLEXEC_INSTALL_FAILED);
+</a><a href="#h11-1-15" id="h11-1-15" class="i">+        }
+</a><a href="#h11-1-16" id="h11-1-16" class="i">+
+</a><a href="#h11-1-17" id="h11-1-17" class="i">+        // Runs an MSI installer directly via MSI APIs.
+</a><a href="#h11-1-18" id="h11-1-18" class="i">+        // Required Args: None
+</a><a href="#h11-1-19" id="h11-1-19" class="i">+        // Inputs: Installer, InstallerPath
+</a><a href="#h11-1-20" id="h11-1-20" class="i">+        // Outputs: None
+</a><a href="#h11-1-21" id="h11-1-21" class="i">+        void DirectMSIInstall(Execution::Context&amp; context)
+</a><a href="#h11-1-22" id="h11-1-22" class="i">+        {
+</a><a href="#h11-1-23" id="h11-1-23" class="i">+            context &lt;&lt;
+</a><a href="#h11-1-24" id="h11-1-24" class="i">+                GetInstallerArgs &lt;&lt;
+</a><a href="#h11-1-25" id="h11-1-25" class="i">+                DirectMSIInstallImpl &lt;&lt;
+</a><a href="#h11-1-26" id="h11-1-26" class="i">+                ReportInstallerResult(&quot;MsiInstallProduct&quot;sv, APPINSTALLER_CLI_ERROR_MSI_INSTALL_FAILED);
+</a><a href="#h11-1-27" id="h11-1-27" class="i">+        }
+</a><a href="#h11-1-28" id="h11-1-28" class="i">+
+</a><a href="#h11-1-29" id="h11-1-29" class="i">+        // Deploys the MSIX.
+</a><a href="#h11-1-30" id="h11-1-30" class="i">+        // Required Args: None
+</a><a href="#h11-1-31" id="h11-1-31" class="i">+        // Inputs: Manifest?, Installer || InstallerPath
+</a><a href="#h11-1-32" id="h11-1-32" class="i">+        // Outputs: None
+</a><a href="#h11-1-33" id="h11-1-33" class="i">+        void MsixInstall(Execution::Context&amp; context)
+</a><a href="#h11-1-34" id="h11-1-34" class="i">+        {
+</a><a href="#h11-1-35" id="h11-1-35" class="i">+            std::string uri;
+</a><a href="#h11-1-36" id="h11-1-36" class="i">+            if (context.Contains(Execution::Data::InstallerPath))
+</a><a href="#h11-1-37" id="h11-1-37" class="i">+            {
+</a><a href="#h11-1-38" id="h11-1-38" class="i">+                uri = context.Get&lt;Execution::Data::InstallerPath&gt;().u8string();
+</a><a href="#h11-1-39" id="h11-1-39" class="i">+            }
+</a><a href="#h11-1-40" id="h11-1-40" class="i">+            else
+</a><a href="#h11-1-41" id="h11-1-41" class="i">+            {
+</a><a href="#h11-1-42" id="h11-1-42" class="i">+                uri = context.Get&lt;Execution::Data::Installer&gt;()-&gt;Url;
+</a><a href="#h11-1-43" id="h11-1-43" class="i">+            }
+</a><a href="#h11-1-44" id="h11-1-44" class="i">+
+</a><a href="#h11-1-45" id="h11-1-45" class="i">+            bool isMachineScope = Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine;
+</a><a href="#h11-1-46" id="h11-1-46" class="i">+
+</a><a href="#h11-1-47" id="h11-1-47" class="i">+            // TODO: There was a bug in deployment api if provision api was called in packaged context.
+</a><a href="#h11-1-48" id="h11-1-48" class="i">+            // Remove this check when the OS bug is fixed and back ported.
+</a><a href="#h11-1-49" id="h11-1-49" class="i">+            if (isMachineScope &amp;&amp; Runtime::IsRunningInPackagedContext())
+</a><a href="#h11-1-50" id="h11-1-50" class="i">+            {
+</a><a href="#h11-1-51" id="h11-1-51" class="i">+                context.Reporter.Error() &lt;&lt; Resource::String::InstallFlowReturnCodeSystemNotSupported &lt;&lt; std::endl;
+</a><a href="#h11-1-52" id="h11-1-52" class="i">+                context.Add&lt;Execution::Data::OperationReturnCode&gt;(static_cast&lt;DWORD&gt;(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED));
+</a><a href="#h11-1-53" id="h11-1-53" class="i">+                AICLI_LOG(CLI, Error, &lt;&lt; &quot;Device wide install for msix type is not supported in packaged context.&quot;);
+</a><a href="#h11-1-54" id="h11-1-54" class="i">+                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED);
+</a><a href="#h11-1-55" id="h11-1-55" class="i">+            }
+</a><a href="#h11-1-56" id="h11-1-56" class="i">+
+</a><a href="#h11-1-57" id="h11-1-57" class="i">+            context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowStartingPackageInstall &lt;&lt; std::endl;
+</a><a href="#h11-1-58" id="h11-1-58" class="i">+
+</a><a href="#h11-1-59" id="h11-1-59" class="i">+            bool registrationDeferred = false;
+</a><a href="#h11-1-60" id="h11-1-60" class="i">+
+</a><a href="#h11-1-61" id="h11-1-61" class="i">+            try
+</a><a href="#h11-1-62" id="h11-1-62" class="i">+            {
+</a><a href="#h11-1-63" id="h11-1-63" class="i">+                registrationDeferred = context.Reporter.ExecuteWithProgress([&amp;](IProgressCallback&amp; callback)
+</a><a href="#h11-1-64" id="h11-1-64" class="i">+                    {
+</a><a href="#h11-1-65" id="h11-1-65" class="i">+                        if (isMachineScope)
+</a><a href="#h11-1-66" id="h11-1-66" class="i">+                        {
+</a><a href="#h11-1-67" id="h11-1-67" class="i">+                            return Deployment::AddPackageMachineScope(uri, callback);
+</a><a href="#h11-1-68" id="h11-1-68" class="i">+                        }
+</a><a href="#h11-1-69" id="h11-1-69" class="i">+                        else
+</a><a href="#h11-1-70" id="h11-1-70" class="i">+                        {
+</a><a href="#h11-1-71" id="h11-1-71" class="i">+                            return Deployment::AddPackageWithDeferredFallback(uri, WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerTrusted), callback);
+</a><a href="#h11-1-72" id="h11-1-72" class="i">+                        }
+</a><a href="#h11-1-73" id="h11-1-73" class="i">+                    });
+</a><a href="#h11-1-74" id="h11-1-74" class="i">+            }
+</a><a href="#h11-1-75" id="h11-1-75" class="i">+            catch (const wil::ResultException&amp; re)
+</a><a href="#h11-1-76" id="h11-1-76" class="i">+            {
+</a><a href="#h11-1-77" id="h11-1-77" class="i">+                context.Add&lt;Execution::Data::OperationReturnCode&gt;(re.GetErrorCode());
+</a><a href="#h11-1-78" id="h11-1-78" class="i">+                context &lt;&lt; ReportInstallerResult(&quot;MSIX&quot;sv, re.GetErrorCode(), /* isHResult */ true);
+</a><a href="#h11-1-79" id="h11-1-79" class="i">+                return;
+</a><a href="#h11-1-80" id="h11-1-80" class="i">+            }
+</a><a href="#h11-1-81" id="h11-1-81" class="i">+
+</a><a href="#h11-1-82" id="h11-1-82" class="i">+            if (registrationDeferred)
+</a><a href="#h11-1-83" id="h11-1-83" class="i">+            {
+</a><a href="#h11-1-84" id="h11-1-84" class="i">+                context.Reporter.Warn() &lt;&lt; Resource::String::InstallFlowRegistrationDeferred &lt;&lt; std::endl;
+</a><a href="#h11-1-85" id="h11-1-85" class="i">+            }
+</a><a href="#h11-1-86" id="h11-1-86" class="i">+            else
+</a><a href="#h11-1-87" id="h11-1-87" class="i">+            {
+</a><a href="#h11-1-88" id="h11-1-88" class="i">+                context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowInstallSuccess &lt;&lt; std::endl;
+</a><a href="#h11-1-89" id="h11-1-89" class="i">+            }
+</a><a href="#h11-1-90" id="h11-1-90" class="i">+        }
+</a><a href="#h11-1-91" id="h11-1-91" class="i">+
+</a><a href="#h11-1-92" id="h11-1-92" class="i">+        // Runs the flow for installing a Portable package.
+</a><a href="#h11-1-93" id="h11-1-93" class="i">+        // Required Args: None
+</a><a href="#h11-1-94" id="h11-1-94" class="i">+        // Inputs: Installer, InstallerPath
+</a><a href="#h11-1-95" id="h11-1-95" class="i">+        // Outputs: None
+</a><a href="#h11-1-96" id="h11-1-96" class="i">+        void PortableInstall(Execution::Context&amp; context)
+</a><a href="#h11-1-97" id="h11-1-97" class="i">+        {
+</a><a href="#h11-1-98" id="h11-1-98" class="i">+            context &lt;&lt;
+</a><a href="#h11-1-99" id="h11-1-99" class="i">+                InitializePortableInstaller &lt;&lt;
+</a><a href="#h11-1-100" id="h11-1-100" class="i">+                VerifyPackageAndSourceMatch &lt;&lt;
+</a><a href="#h11-1-101" id="h11-1-101" class="i">+                PortableInstallImpl &lt;&lt;
+</a><a href="#h11-1-102" id="h11-1-102" class="i">+                ReportInstallerResult(&quot;Portable&quot;sv, APPINSTALLER_CLI_ERROR_PORTABLE_INSTALL_FAILED, true);
+</a><a href="#h11-1-103" id="h11-1-103" class="i">+        }
+</a><a href="#h11-1-104" id="h11-1-104" class="i">+
+</a><a href="#h11-1-105" id="h11-1-105" class="i">+        // Runs the flow for installing a package from an archive.
+</a><a href="#h11-1-106" id="h11-1-106" class="i">+        // Required Args: None
+</a><a href="#h11-1-107" id="h11-1-107" class="i">+        // Inputs: Installer, InstallerPath, Manifest
+</a><a href="#h11-1-108" id="h11-1-108" class="i">+        // Outputs: None
+</a><a href="#h11-1-109" id="h11-1-109" class="i">+        void ArchiveInstall(Execution::Context&amp; context)
+</a><a href="#h11-1-110" id="h11-1-110" class="i">+        {
+</a><a href="#h11-1-111" id="h11-1-111" class="i">+            context &lt;&lt;
+</a><a href="#h11-1-112" id="h11-1-112" class="i">+                ScanArchiveFromLocalManifest &lt;&lt;
+</a><a href="#h11-1-113" id="h11-1-113" class="i">+                ExtractFilesFromArchive &lt;&lt;
+</a><a href="#h11-1-114" id="h11-1-114" class="i">+                VerifyAndSetNestedInstaller &lt;&lt;
+</a><a href="#h11-1-115" id="h11-1-115" class="i">+                ExecuteInstallerForType(context.Get&lt;Execution::Data::Installer&gt;().value().NestedInstallerType);
+</a><a href="#h11-1-116" id="h11-1-116" class="i">+        }
+</a><a href="#h11-1-117" id="h11-1-117" class="i">+    }
+</a><a href="#h11-1-118" id="h11-1-118" class="i">+
+</a><a href="#h11-1-119" id="h11-1-119" class="i">+    bool ExemptFromSingleInstallLocking(InstallerTypeEnum type)
+</a><a href="#h11-1-120" id="h11-1-120" class="i">+    {
+</a><a href="#h11-1-121" id="h11-1-121" class="i">+        switch (type)
+</a><a href="#h11-1-122" id="h11-1-122" class="i">+        {
+</a><a href="#h11-1-123" id="h11-1-123" class="i">+            // MSStore installs are always MSIX based; MSIX installs are safe to run in parallel.
+</a><a href="#h11-1-124" id="h11-1-124" class="i">+        case InstallerTypeEnum::Msix:
+</a><a href="#h11-1-125" id="h11-1-125" class="i">+        case InstallerTypeEnum::MSStore:
+</a><a href="#h11-1-126" id="h11-1-126" class="i">+            return true;
+</a><a href="#h11-1-127" id="h11-1-127" class="i">+        default:
+</a><a href="#h11-1-128" id="h11-1-128" class="i">+            return false;
+</a><a href="#h11-1-129" id="h11-1-129" class="i">+        }
+</a><a href="#h11-1-130" id="h11-1-130" class="i">+    }
+</a><a href="#h11-1-131" id="h11-1-131" class="i">+
+</a>     void EnsureApplicableInstaller(Execution::Context&amp; context)
+     {
+         const auto&amp; installer = context.Get&lt;Execution::Data::Installer&gt;();
+<a href="#h11-2" id="h11-2" class="h">@@ -249,6 +379,21 @@ namespace AppInstaller::CLI::Workflow
+</a>         UpdateBehaviorEnum updateBehavior = context.Get&lt;Execution::Data::Installer&gt;().value().UpdateBehavior;
+         bool doUninstallPrevious = isUpdate &amp;&amp; (updateBehavior == UpdateBehaviorEnum::UninstallPrevious || context.Args.Contains(Execution::Args::Type::UninstallPrevious));
+ 
+<a href="#h11-2-3" id="h11-2-3" class="i">+        Synchronization::CrossProcessInstallLock lock;
+</a><a href="#h11-2-4" id="h11-2-4" class="i">+        if (!ExemptFromSingleInstallLocking(m_installerType))
+</a><a href="#h11-2-5" id="h11-2-5" class="i">+        {
+</a><a href="#h11-2-6" id="h11-2-6" class="i">+            // Acquire install lock; if the operation is cancelled it will return false so we will also return.
+</a><a href="#h11-2-7" id="h11-2-7" class="i">+            if (!context.Reporter.ExecuteWithProgress([&amp;](IProgressCallback&amp; callback)
+</a><a href="#h11-2-8" id="h11-2-8" class="i">+                {
+</a><a href="#h11-2-9" id="h11-2-9" class="i">+                    callback.SetProgressMessage(Resource::String::InstallWaitingOnAnother());
+</a><a href="#h11-2-10" id="h11-2-10" class="i">+                    return lock.Acquire(callback);
+</a><a href="#h11-2-11" id="h11-2-11" class="i">+                }))
+</a><a href="#h11-2-12" id="h11-2-12" class="i">+            {
+</a><a href="#h11-2-13" id="h11-2-13" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Abandoning attempt to acquire install lock due to cancellation&quot;);
+</a><a href="#h11-2-14" id="h11-2-14" class="i">+                return;
+</a><a href="#h11-2-15" id="h11-2-15" class="i">+            }
+</a><a href="#h11-2-16" id="h11-2-16" class="i">+        }
+</a><a href="#h11-2-17" id="h11-2-17" class="i">+
+</a>         switch (m_installerType)
+         {
+         case InstallerTypeEnum::Exe:
+<a href="#h11-3" id="h11-3" class="h">@@ -266,15 +411,15 @@ namespace AppInstaller::CLI::Workflow
+</a>             }
+             if (ShouldUseDirectMSIInstall(m_installerType, context.Args.Contains(Execution::Args::Type::Silent)))
+             {
+<a href="#h11-3-3" id="h11-3-3" class="d">-                context &lt;&lt; DirectMSIInstall;
+</a><a href="#h11-3-4" id="h11-3-4" class="i">+                context &lt;&lt; details::DirectMSIInstall;
+</a>             }
+             else
+             {
+<a href="#h11-3-8" id="h11-3-8" class="d">-                context &lt;&lt; ShellExecuteInstall;
+</a><a href="#h11-3-9" id="h11-3-9" class="i">+                context &lt;&lt; details::ShellExecuteInstall;
+</a>             }
+             break;
+         case InstallerTypeEnum::Msix:
+<a href="#h11-3-13" id="h11-3-13" class="d">-            context &lt;&lt; MsixInstall;
+</a><a href="#h11-3-14" id="h11-3-14" class="i">+            context &lt;&lt; details::MsixInstall;
+</a>             break;
+         case InstallerTypeEnum::MSStore:
+             context &lt;&lt;
+<a href="#h11-4" id="h11-4" class="h">@@ -289,10 +434,10 @@ namespace AppInstaller::CLI::Workflow
+</a>                     ExecuteUninstaller;
+                 context.ClearFlags(Execution::ContextFlag::InstallerExecutionUseUpdate);
+             }
+<a href="#h11-4-3" id="h11-4-3" class="d">-            context &lt;&lt; PortableInstall;
+</a><a href="#h11-4-4" id="h11-4-4" class="i">+            context &lt;&lt; details::PortableInstall;
+</a>             break;
+         case InstallerTypeEnum::Zip:
+<a href="#h11-4-7" id="h11-4-7" class="d">-            context &lt;&lt; ArchiveInstall;
+</a><a href="#h11-4-8" id="h11-4-8" class="i">+            context &lt;&lt; details::ArchiveInstall;
+</a>             break;
+         default:
+             THROW_HR(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+<a href="#h11-5" id="h11-5" class="h">@@ -319,99 +464,6 @@ namespace AppInstaller::CLI::Workflow
+</a>         context &lt;&lt; Workflow::ExecuteInstallerForType(context.Get&lt;Execution::Data::Installer&gt;().value().BaseInstallerType);
+     }
+ 
+<a href="#h11-5-3" id="h11-5-3" class="d">-    void ArchiveInstall(Execution::Context&amp; context)
+</a><a href="#h11-5-4" id="h11-5-4" class="d">-    {
+</a><a href="#h11-5-5" id="h11-5-5" class="d">-        context &lt;&lt;
+</a><a href="#h11-5-6" id="h11-5-6" class="d">-            ScanArchiveFromLocalManifest &lt;&lt;
+</a><a href="#h11-5-7" id="h11-5-7" class="d">-            ExtractFilesFromArchive &lt;&lt;
+</a><a href="#h11-5-8" id="h11-5-8" class="d">-            VerifyAndSetNestedInstaller &lt;&lt;
+</a><a href="#h11-5-9" id="h11-5-9" class="d">-            ExecuteInstallerForType(context.Get&lt;Execution::Data::Installer&gt;().value().NestedInstallerType);
+</a><a href="#h11-5-10" id="h11-5-10" class="d">-    }
+</a><a href="#h11-5-11" id="h11-5-11" class="d">-
+</a><a href="#h11-5-12" id="h11-5-12" class="d">-    void ShellExecuteInstall(Execution::Context&amp; context)
+</a><a href="#h11-5-13" id="h11-5-13" class="d">-    {
+</a><a href="#h11-5-14" id="h11-5-14" class="d">-        context &lt;&lt;
+</a><a href="#h11-5-15" id="h11-5-15" class="d">-            GetInstallerArgs &lt;&lt;
+</a><a href="#h11-5-16" id="h11-5-16" class="d">-            ShellExecuteInstallImpl &lt;&lt;
+</a><a href="#h11-5-17" id="h11-5-17" class="d">-            ReportInstallerResult(&quot;ShellExecute&quot;sv, APPINSTALLER_CLI_ERROR_SHELLEXEC_INSTALL_FAILED);
+</a><a href="#h11-5-18" id="h11-5-18" class="d">-    }
+</a><a href="#h11-5-19" id="h11-5-19" class="d">-
+</a><a href="#h11-5-20" id="h11-5-20" class="d">-    void DirectMSIInstall(Execution::Context&amp; context)
+</a><a href="#h11-5-21" id="h11-5-21" class="d">-    {
+</a><a href="#h11-5-22" id="h11-5-22" class="d">-        context &lt;&lt;
+</a><a href="#h11-5-23" id="h11-5-23" class="d">-            GetInstallerArgs &lt;&lt;
+</a><a href="#h11-5-24" id="h11-5-24" class="d">-            DirectMSIInstallImpl &lt;&lt;
+</a><a href="#h11-5-25" id="h11-5-25" class="d">-            ReportInstallerResult(&quot;MsiInstallProduct&quot;sv, APPINSTALLER_CLI_ERROR_MSI_INSTALL_FAILED);
+</a><a href="#h11-5-26" id="h11-5-26" class="d">-    }
+</a><a href="#h11-5-27" id="h11-5-27" class="d">-
+</a><a href="#h11-5-28" id="h11-5-28" class="d">-    void PortableInstall(Execution::Context&amp; context)
+</a><a href="#h11-5-29" id="h11-5-29" class="d">-    {
+</a><a href="#h11-5-30" id="h11-5-30" class="d">-        context &lt;&lt;
+</a><a href="#h11-5-31" id="h11-5-31" class="d">-            InitializePortableInstaller &lt;&lt;
+</a><a href="#h11-5-32" id="h11-5-32" class="d">-            VerifyPackageAndSourceMatch &lt;&lt;
+</a><a href="#h11-5-33" id="h11-5-33" class="d">-            PortableInstallImpl &lt;&lt;
+</a><a href="#h11-5-34" id="h11-5-34" class="d">-            ReportInstallerResult(&quot;Portable&quot;sv, APPINSTALLER_CLI_ERROR_PORTABLE_INSTALL_FAILED, true);
+</a><a href="#h11-5-35" id="h11-5-35" class="d">-    }
+</a><a href="#h11-5-36" id="h11-5-36" class="d">-
+</a><a href="#h11-5-37" id="h11-5-37" class="d">-    void MsixInstall(Execution::Context&amp; context)
+</a><a href="#h11-5-38" id="h11-5-38" class="d">-    {
+</a><a href="#h11-5-39" id="h11-5-39" class="d">-        std::string uri;
+</a><a href="#h11-5-40" id="h11-5-40" class="d">-        if (context.Contains(Execution::Data::InstallerPath))
+</a><a href="#h11-5-41" id="h11-5-41" class="d">-        {
+</a><a href="#h11-5-42" id="h11-5-42" class="d">-            uri = context.Get&lt;Execution::Data::InstallerPath&gt;().u8string();
+</a><a href="#h11-5-43" id="h11-5-43" class="d">-        }
+</a><a href="#h11-5-44" id="h11-5-44" class="d">-        else
+</a><a href="#h11-5-45" id="h11-5-45" class="d">-        {
+</a><a href="#h11-5-46" id="h11-5-46" class="d">-            uri = context.Get&lt;Execution::Data::Installer&gt;()-&gt;Url;
+</a><a href="#h11-5-47" id="h11-5-47" class="d">-        }
+</a><a href="#h11-5-48" id="h11-5-48" class="d">-
+</a><a href="#h11-5-49" id="h11-5-49" class="d">-        bool isMachineScope = Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine;
+</a><a href="#h11-5-50" id="h11-5-50" class="d">-
+</a><a href="#h11-5-51" id="h11-5-51" class="d">-        // TODO: There was a bug in deployment api if provision api was called in packaged context.
+</a><a href="#h11-5-52" id="h11-5-52" class="d">-        // Remove this check when the OS bug is fixed and back ported.
+</a><a href="#h11-5-53" id="h11-5-53" class="d">-        if (isMachineScope &amp;&amp; Runtime::IsRunningInPackagedContext())
+</a><a href="#h11-5-54" id="h11-5-54" class="d">-        {
+</a><a href="#h11-5-55" id="h11-5-55" class="d">-            context.Reporter.Error() &lt;&lt; Resource::String::InstallFlowReturnCodeSystemNotSupported &lt;&lt; std::endl;
+</a><a href="#h11-5-56" id="h11-5-56" class="d">-            context.Add&lt;Execution::Data::OperationReturnCode&gt;(static_cast&lt;DWORD&gt;(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED));
+</a><a href="#h11-5-57" id="h11-5-57" class="d">-            AICLI_LOG(CLI, Error, &lt;&lt; &quot;Device wide install for msix type is not supported in packaged context.&quot;);
+</a><a href="#h11-5-58" id="h11-5-58" class="d">-            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED);
+</a><a href="#h11-5-59" id="h11-5-59" class="d">-        }
+</a><a href="#h11-5-60" id="h11-5-60" class="d">-
+</a><a href="#h11-5-61" id="h11-5-61" class="d">-        context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowStartingPackageInstall &lt;&lt; std::endl;
+</a><a href="#h11-5-62" id="h11-5-62" class="d">-
+</a><a href="#h11-5-63" id="h11-5-63" class="d">-        bool registrationDeferred = false;
+</a><a href="#h11-5-64" id="h11-5-64" class="d">-
+</a><a href="#h11-5-65" id="h11-5-65" class="d">-        try
+</a><a href="#h11-5-66" id="h11-5-66" class="d">-        {
+</a><a href="#h11-5-67" id="h11-5-67" class="d">-            registrationDeferred = context.Reporter.ExecuteWithProgress([&amp;](IProgressCallback&amp; callback)
+</a><a href="#h11-5-68" id="h11-5-68" class="d">-                {
+</a><a href="#h11-5-69" id="h11-5-69" class="d">-                    if (isMachineScope)
+</a><a href="#h11-5-70" id="h11-5-70" class="d">-                    {
+</a><a href="#h11-5-71" id="h11-5-71" class="d">-                        return Deployment::AddPackageMachineScope(uri, callback);
+</a><a href="#h11-5-72" id="h11-5-72" class="d">-                    }
+</a><a href="#h11-5-73" id="h11-5-73" class="d">-                    else
+</a><a href="#h11-5-74" id="h11-5-74" class="d">-                    {
+</a><a href="#h11-5-75" id="h11-5-75" class="d">-                        return Deployment::AddPackageWithDeferredFallback(uri, WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerTrusted), callback);
+</a><a href="#h11-5-76" id="h11-5-76" class="d">-                    }
+</a><a href="#h11-5-77" id="h11-5-77" class="d">-            });
+</a><a href="#h11-5-78" id="h11-5-78" class="d">-        }
+</a><a href="#h11-5-79" id="h11-5-79" class="d">-        catch (const wil::ResultException&amp; re)
+</a><a href="#h11-5-80" id="h11-5-80" class="d">-        {
+</a><a href="#h11-5-81" id="h11-5-81" class="d">-            context.Add&lt;Execution::Data::OperationReturnCode&gt;(re.GetErrorCode());
+</a><a href="#h11-5-82" id="h11-5-82" class="d">-            context &lt;&lt; ReportInstallerResult(&quot;MSIX&quot;sv, re.GetErrorCode(), /* isHResult */ true);
+</a><a href="#h11-5-83" id="h11-5-83" class="d">-            return;
+</a><a href="#h11-5-84" id="h11-5-84" class="d">-        }
+</a><a href="#h11-5-85" id="h11-5-85" class="d">-
+</a><a href="#h11-5-86" id="h11-5-86" class="d">-        if (registrationDeferred)
+</a><a href="#h11-5-87" id="h11-5-87" class="d">-        {
+</a><a href="#h11-5-88" id="h11-5-88" class="d">-            context.Reporter.Warn() &lt;&lt; Resource::String::InstallFlowRegistrationDeferred &lt;&lt; std::endl;
+</a><a href="#h11-5-89" id="h11-5-89" class="d">-        }
+</a><a href="#h11-5-90" id="h11-5-90" class="d">-        else
+</a><a href="#h11-5-91" id="h11-5-91" class="d">-        {
+</a><a href="#h11-5-92" id="h11-5-92" class="d">-            context.Reporter.Info() &lt;&lt; Resource::String::InstallFlowInstallSuccess &lt;&lt; std::endl;
+</a><a href="#h11-5-93" id="h11-5-93" class="d">-        }
+</a><a href="#h11-5-94" id="h11-5-94" class="d">-    }
+</a><a href="#h11-5-95" id="h11-5-95" class="d">-
+</a>     void ReportInstallerResult::operator()(Execution::Context&amp; context) const
+     {
+         DWORD installResult = context.Get&lt;Execution::Data::OperationReturnCode&gt;();
+<b>diff --git a/<a id="h12" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.h.html">src/AppInstallerCLICore/Workflows/InstallFlow.h</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.h.html">src/AppInstallerCLICore/Workflows/InstallFlow.h</a></b>
+<a href="#h12-0" id="h12-0" class="h">@@ -2,6 +2,7 @@
+</a> // Licensed under the MIT License.
+ #pragma once
+ #include &quot;ExecutionContext.h&quot;
+<a href="#h12-0-3" id="h12-0-3" class="i">+#include &lt;winget/Manifest.h&gt;
+</a> 
+ namespace AppInstaller::CLI::Workflow
+ {
+<a href="#h12-1" id="h12-1" class="h">@@ -11,6 +12,45 @@ namespace AppInstaller::CLI::Workflow
+</a>     static constexpr std::string_view ARG_TOKEN_LOGPATH = &quot;&lt;LOGPATH&gt;&quot;sv;
+     static constexpr std::string_view ARG_TOKEN_INSTALLPATH = &quot;&lt;INSTALLPATH&gt;&quot;sv;
+ 
+<a href="#h12-1-3" id="h12-1-3" class="i">+    // Determines if an installer type is allowed to install/uninstall in parallel.
+</a><a href="#h12-1-4" id="h12-1-4" class="i">+    bool ExemptFromSingleInstallLocking(AppInstaller::Manifest::InstallerTypeEnum type);
+</a><a href="#h12-1-5" id="h12-1-5" class="i">+
+</a><a href="#h12-1-6" id="h12-1-6" class="i">+    namespace details
+</a><a href="#h12-1-7" id="h12-1-7" class="i">+    {
+</a><a href="#h12-1-8" id="h12-1-8" class="i">+        // These single type install flows should remain &quot;internal&quot; and only ExecuteInstallerForType should be used externally
+</a><a href="#h12-1-9" id="h12-1-9" class="i">+        // so that all installs can properly handle single install locking.
+</a><a href="#h12-1-10" id="h12-1-10" class="i">+
+</a><a href="#h12-1-11" id="h12-1-11" class="i">+        // Runs the installer via ShellExecute.
+</a><a href="#h12-1-12" id="h12-1-12" class="i">+        // Required Args: None
+</a><a href="#h12-1-13" id="h12-1-13" class="i">+        // Inputs: Installer, InstallerPath
+</a><a href="#h12-1-14" id="h12-1-14" class="i">+        // Outputs: None
+</a><a href="#h12-1-15" id="h12-1-15" class="i">+        void ShellExecuteInstall(Execution::Context&amp; context);
+</a><a href="#h12-1-16" id="h12-1-16" class="i">+
+</a><a href="#h12-1-17" id="h12-1-17" class="i">+        // Runs an MSI installer directly via MSI APIs.
+</a><a href="#h12-1-18" id="h12-1-18" class="i">+        // Required Args: None
+</a><a href="#h12-1-19" id="h12-1-19" class="i">+        // Inputs: Installer, InstallerPath
+</a><a href="#h12-1-20" id="h12-1-20" class="i">+        // Outputs: None
+</a><a href="#h12-1-21" id="h12-1-21" class="i">+        void DirectMSIInstall(Execution::Context&amp; context);
+</a><a href="#h12-1-22" id="h12-1-22" class="i">+
+</a><a href="#h12-1-23" id="h12-1-23" class="i">+        // Deploys the MSIX.
+</a><a href="#h12-1-24" id="h12-1-24" class="i">+        // Required Args: None
+</a><a href="#h12-1-25" id="h12-1-25" class="i">+        // Inputs: Manifest?, Installer || InstallerPath
+</a><a href="#h12-1-26" id="h12-1-26" class="i">+        // Outputs: None
+</a><a href="#h12-1-27" id="h12-1-27" class="i">+        void MsixInstall(Execution::Context&amp; context);
+</a><a href="#h12-1-28" id="h12-1-28" class="i">+
+</a><a href="#h12-1-29" id="h12-1-29" class="i">+        // Runs the flow for installing a Portable package.
+</a><a href="#h12-1-30" id="h12-1-30" class="i">+        // Required Args: None
+</a><a href="#h12-1-31" id="h12-1-31" class="i">+        // Inputs: Installer, InstallerPath
+</a><a href="#h12-1-32" id="h12-1-32" class="i">+        // Outputs: None
+</a><a href="#h12-1-33" id="h12-1-33" class="i">+        void PortableInstall(Execution::Context&amp; context);
+</a><a href="#h12-1-34" id="h12-1-34" class="i">+
+</a><a href="#h12-1-35" id="h12-1-35" class="i">+        // Runs the flow for installing a package from an archive.
+</a><a href="#h12-1-36" id="h12-1-36" class="i">+        // Required Args: None
+</a><a href="#h12-1-37" id="h12-1-37" class="i">+        // Inputs: Installer, InstallerPath, Manifest
+</a><a href="#h12-1-38" id="h12-1-38" class="i">+        // Outputs: None
+</a><a href="#h12-1-39" id="h12-1-39" class="i">+        void ArchiveInstall(Execution::Context&amp; context);
+</a><a href="#h12-1-40" id="h12-1-40" class="i">+    }
+</a><a href="#h12-1-41" id="h12-1-41" class="i">+
+</a>     // Ensures that there is an applicable installer.
+     // Required Args: None
+     // Inputs: Installer
+<a href="#h12-2" id="h12-2" class="h">@@ -61,36 +101,6 @@ namespace AppInstaller::CLI::Workflow
+</a>         Manifest::InstallerTypeEnum m_installerType;
+     };
+ 
+<a href="#h12-2-3" id="h12-2-3" class="d">-    // Runs the installer via ShellExecute.
+</a><a href="#h12-2-4" id="h12-2-4" class="d">-    // Required Args: None
+</a><a href="#h12-2-5" id="h12-2-5" class="d">-    // Inputs: Installer, InstallerPath
+</a><a href="#h12-2-6" id="h12-2-6" class="d">-    // Outputs: None
+</a><a href="#h12-2-7" id="h12-2-7" class="d">-    void ShellExecuteInstall(Execution::Context&amp; context);
+</a><a href="#h12-2-8" id="h12-2-8" class="d">-
+</a><a href="#h12-2-9" id="h12-2-9" class="d">-    // Runs an MSI installer directly via MSI APIs.
+</a><a href="#h12-2-10" id="h12-2-10" class="d">-    // Required Args: None
+</a><a href="#h12-2-11" id="h12-2-11" class="d">-    // Inputs: Installer, InstallerPath
+</a><a href="#h12-2-12" id="h12-2-12" class="d">-    // Outputs: None
+</a><a href="#h12-2-13" id="h12-2-13" class="d">-    void DirectMSIInstall(Execution::Context&amp; context);
+</a><a href="#h12-2-14" id="h12-2-14" class="d">-
+</a><a href="#h12-2-15" id="h12-2-15" class="d">-    // Deploys the MSIX.
+</a><a href="#h12-2-16" id="h12-2-16" class="d">-    // Required Args: None
+</a><a href="#h12-2-17" id="h12-2-17" class="d">-    // Inputs: Manifest?, Installer || InstallerPath
+</a><a href="#h12-2-18" id="h12-2-18" class="d">-    // Outputs: None
+</a><a href="#h12-2-19" id="h12-2-19" class="d">-    void MsixInstall(Execution::Context&amp; context);
+</a><a href="#h12-2-20" id="h12-2-20" class="d">-
+</a><a href="#h12-2-21" id="h12-2-21" class="d">-    // Runs the flow for installing a Portable package.
+</a><a href="#h12-2-22" id="h12-2-22" class="d">-    // Required Args: None
+</a><a href="#h12-2-23" id="h12-2-23" class="d">-    // Inputs: Installer, InstallerPath
+</a><a href="#h12-2-24" id="h12-2-24" class="d">-    // Outputs: None
+</a><a href="#h12-2-25" id="h12-2-25" class="d">-    void PortableInstall(Execution::Context&amp; context);
+</a><a href="#h12-2-26" id="h12-2-26" class="d">-
+</a><a href="#h12-2-27" id="h12-2-27" class="d">-    // Runs the flow for installing a package from an archive.
+</a><a href="#h12-2-28" id="h12-2-28" class="d">-    // Required Args: None
+</a><a href="#h12-2-29" id="h12-2-29" class="d">-    // Inputs: Installer, InstallerPath, Manifest
+</a><a href="#h12-2-30" id="h12-2-30" class="d">-    // Outputs: None
+</a><a href="#h12-2-31" id="h12-2-31" class="d">-    void ArchiveInstall(Execution::Context&amp; context);
+</a><a href="#h12-2-32" id="h12-2-32" class="d">-
+</a>     // Verifies parameters for install to ensure success.
+     // Required Args: None
+     // Inputs: 
+<b>diff --git a/<a id="h13" href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/UninstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/UninstallFlow.cpp</a></b>
+<a href="#h13-0" id="h13-0" class="h">@@ -1,71 +1,73 @@
+</a><a href="#h13-0-0" id="h13-0-0" class="d">-// Copyright (c) Microsoft Corporation.
+</a><a href="#h13-0-1" id="h13-0-1" class="d">-// Licensed under the MIT License.
+</a><a href="#h13-0-2" id="h13-0-2" class="d">-#include &quot;pch.h&quot;
+</a><a href="#h13-0-3" id="h13-0-3" class="d">-#include &quot;UninstallFlow.h&quot;
+</a><a href="#h13-0-4" id="h13-0-4" class="d">-#include &quot;WorkflowBase.h&quot;
+</a><a href="#h13-0-5" id="h13-0-5" class="d">-#include &quot;DependenciesFlow.h&quot;
+</a><a href="#h13-0-6" id="h13-0-6" class="d">-#include &quot;ShellExecuteInstallerHandler.h&quot;
+</a><a href="#h13-0-7" id="h13-0-7" class="d">-#include &quot;AppInstallerMsixInfo.h&quot;
+</a><a href="#h13-0-8" id="h13-0-8" class="i">+// Copyright (c) Microsoft Corporation.
+</a><a href="#h13-0-9" id="h13-0-9" class="i">+// Licensed under the MIT License.
+</a><a href="#h13-0-10" id="h13-0-10" class="i">+#include &quot;pch.h&quot;
+</a><a href="#h13-0-11" id="h13-0-11" class="i">+#include &quot;UninstallFlow.h&quot;
+</a><a href="#h13-0-12" id="h13-0-12" class="i">+#include &quot;InstallFlow.h&quot;
+</a><a href="#h13-0-13" id="h13-0-13" class="i">+#include &quot;WorkflowBase.h&quot;
+</a><a href="#h13-0-14" id="h13-0-14" class="i">+#include &quot;DependenciesFlow.h&quot;
+</a><a href="#h13-0-15" id="h13-0-15" class="i">+#include &quot;ShellExecuteInstallerHandler.h&quot;
+</a><a href="#h13-0-16" id="h13-0-16" class="i">+#include &quot;AppInstallerMsixInfo.h&quot;
+</a> #include &quot;PortableFlow.h&quot;
+<a href="#h13-0-18" id="h13-0-18" class="d">-#include &lt;AppInstallerDeployment.h&gt;
+</a><a href="#h13-0-19" id="h13-0-19" class="d">-
+</a><a href="#h13-0-20" id="h13-0-20" class="d">-using namespace AppInstaller::CLI::Execution;
+</a><a href="#h13-0-21" id="h13-0-21" class="d">-using namespace AppInstaller::Manifest;
+</a><a href="#h13-0-22" id="h13-0-22" class="d">-using namespace AppInstaller::Msix;
+</a><a href="#h13-0-23" id="h13-0-23" class="d">-using namespace AppInstaller::Repository;
+</a><a href="#h13-0-24" id="h13-0-24" class="d">-using namespace AppInstaller::Registry;
+</a><a href="#h13-0-25" id="h13-0-25" class="d">-using namespace AppInstaller::CLI::Portable;
+</a><a href="#h13-0-26" id="h13-0-26" class="d">-using namespace AppInstaller::Utility::literals;
+</a><a href="#h13-0-27" id="h13-0-27" class="d">-
+</a><a href="#h13-0-28" id="h13-0-28" class="d">-namespace AppInstaller::CLI::Workflow
+</a><a href="#h13-0-29" id="h13-0-29" class="d">-{
+</a><a href="#h13-0-30" id="h13-0-30" class="d">-    namespace
+</a><a href="#h13-0-31" id="h13-0-31" class="d">-    {
+</a><a href="#h13-0-32" id="h13-0-32" class="d">-        // Helper for RecordUninstall
+</a><a href="#h13-0-33" id="h13-0-33" class="d">-        struct UninstallCorrelatedSources
+</a><a href="#h13-0-34" id="h13-0-34" class="d">-        {
+</a><a href="#h13-0-35" id="h13-0-35" class="d">-            struct Item
+</a><a href="#h13-0-36" id="h13-0-36" class="d">-            {
+</a><a href="#h13-0-37" id="h13-0-37" class="d">-                Utility::LocIndString Identifier;
+</a><a href="#h13-0-38" id="h13-0-38" class="d">-                Source FromSource;
+</a><a href="#h13-0-39" id="h13-0-39" class="d">-                std::string SourceIdentifier;
+</a><a href="#h13-0-40" id="h13-0-40" class="d">-            };
+</a><a href="#h13-0-41" id="h13-0-41" class="d">-
+</a><a href="#h13-0-42" id="h13-0-42" class="d">-            void AddIfRemoteAndNotPresent(const std::shared_ptr&lt;IPackageVersion&gt;&amp; packageVersion)
+</a><a href="#h13-0-43" id="h13-0-43" class="d">-            {
+</a><a href="#h13-0-44" id="h13-0-44" class="d">-                auto source = packageVersion-&gt;GetSource();
+</a><a href="#h13-0-45" id="h13-0-45" class="d">-                const auto details = source.GetDetails();
+</a><a href="#h13-0-46" id="h13-0-46" class="d">-                if (!source.ContainsAvailablePackages())
+</a><a href="#h13-0-47" id="h13-0-47" class="d">-                {
+</a><a href="#h13-0-48" id="h13-0-48" class="d">-                    return;
+</a><a href="#h13-0-49" id="h13-0-49" class="d">-                }
+</a><a href="#h13-0-50" id="h13-0-50" class="d">-
+</a><a href="#h13-0-51" id="h13-0-51" class="d">-                for (const auto&amp; item : Items)
+</a><a href="#h13-0-52" id="h13-0-52" class="d">-                {
+</a><a href="#h13-0-53" id="h13-0-53" class="d">-                    if (item.SourceIdentifier == details.Identifier)
+</a><a href="#h13-0-54" id="h13-0-54" class="d">-                    {
+</a><a href="#h13-0-55" id="h13-0-55" class="d">-                        return;
+</a><a href="#h13-0-56" id="h13-0-56" class="d">-                    }
+</a><a href="#h13-0-57" id="h13-0-57" class="d">-                }
+</a><a href="#h13-0-58" id="h13-0-58" class="d">-
+</a><a href="#h13-0-59" id="h13-0-59" class="d">-                Items.emplace_back(Item{ packageVersion-&gt;GetProperty(PackageVersionProperty::Id), std::move(source), details.Identifier });
+</a><a href="#h13-0-60" id="h13-0-60" class="d">-            }
+</a><a href="#h13-0-61" id="h13-0-61" class="d">-
+</a><a href="#h13-0-62" id="h13-0-62" class="d">-            std::vector&lt;Item&gt; Items;
+</a><a href="#h13-0-63" id="h13-0-63" class="d">-        };
+</a><a href="#h13-0-64" id="h13-0-64" class="d">-    }
+</a><a href="#h13-0-65" id="h13-0-65" class="d">-
+</a><a href="#h13-0-66" id="h13-0-66" class="i">+#include &lt;AppInstallerDeployment.h&gt;
+</a><a href="#h13-0-67" id="h13-0-67" class="i">+#include &lt;AppInstallerSynchronization.h&gt;
+</a><a href="#h13-0-68" id="h13-0-68" class="i">+
+</a><a href="#h13-0-69" id="h13-0-69" class="i">+using namespace AppInstaller::CLI::Execution;
+</a><a href="#h13-0-70" id="h13-0-70" class="i">+using namespace AppInstaller::Manifest;
+</a><a href="#h13-0-71" id="h13-0-71" class="i">+using namespace AppInstaller::Msix;
+</a><a href="#h13-0-72" id="h13-0-72" class="i">+using namespace AppInstaller::Repository;
+</a><a href="#h13-0-73" id="h13-0-73" class="i">+using namespace AppInstaller::Registry;
+</a><a href="#h13-0-74" id="h13-0-74" class="i">+using namespace AppInstaller::CLI::Portable;
+</a><a href="#h13-0-75" id="h13-0-75" class="i">+using namespace AppInstaller::Utility::literals;
+</a><a href="#h13-0-76" id="h13-0-76" class="i">+
+</a><a href="#h13-0-77" id="h13-0-77" class="i">+namespace AppInstaller::CLI::Workflow
+</a><a href="#h13-0-78" id="h13-0-78" class="i">+{
+</a><a href="#h13-0-79" id="h13-0-79" class="i">+    namespace
+</a><a href="#h13-0-80" id="h13-0-80" class="i">+    {
+</a><a href="#h13-0-81" id="h13-0-81" class="i">+        // Helper for RecordUninstall
+</a><a href="#h13-0-82" id="h13-0-82" class="i">+        struct UninstallCorrelatedSources
+</a><a href="#h13-0-83" id="h13-0-83" class="i">+        {
+</a><a href="#h13-0-84" id="h13-0-84" class="i">+            struct Item
+</a><a href="#h13-0-85" id="h13-0-85" class="i">+            {
+</a><a href="#h13-0-86" id="h13-0-86" class="i">+                Utility::LocIndString Identifier;
+</a><a href="#h13-0-87" id="h13-0-87" class="i">+                Source FromSource;
+</a><a href="#h13-0-88" id="h13-0-88" class="i">+                std::string SourceIdentifier;
+</a><a href="#h13-0-89" id="h13-0-89" class="i">+            };
+</a><a href="#h13-0-90" id="h13-0-90" class="i">+
+</a><a href="#h13-0-91" id="h13-0-91" class="i">+            void AddIfRemoteAndNotPresent(const std::shared_ptr&lt;IPackageVersion&gt;&amp; packageVersion)
+</a><a href="#h13-0-92" id="h13-0-92" class="i">+            {
+</a><a href="#h13-0-93" id="h13-0-93" class="i">+                auto source = packageVersion-&gt;GetSource();
+</a><a href="#h13-0-94" id="h13-0-94" class="i">+                const auto details = source.GetDetails();
+</a><a href="#h13-0-95" id="h13-0-95" class="i">+                if (!source.ContainsAvailablePackages())
+</a><a href="#h13-0-96" id="h13-0-96" class="i">+                {
+</a><a href="#h13-0-97" id="h13-0-97" class="i">+                    return;
+</a><a href="#h13-0-98" id="h13-0-98" class="i">+                }
+</a><a href="#h13-0-99" id="h13-0-99" class="i">+
+</a><a href="#h13-0-100" id="h13-0-100" class="i">+                for (const auto&amp; item : Items)
+</a><a href="#h13-0-101" id="h13-0-101" class="i">+                {
+</a><a href="#h13-0-102" id="h13-0-102" class="i">+                    if (item.SourceIdentifier == details.Identifier)
+</a><a href="#h13-0-103" id="h13-0-103" class="i">+                    {
+</a><a href="#h13-0-104" id="h13-0-104" class="i">+                        return;
+</a><a href="#h13-0-105" id="h13-0-105" class="i">+                    }
+</a><a href="#h13-0-106" id="h13-0-106" class="i">+                }
+</a><a href="#h13-0-107" id="h13-0-107" class="i">+
+</a><a href="#h13-0-108" id="h13-0-108" class="i">+                Items.emplace_back(Item{ packageVersion-&gt;GetProperty(PackageVersionProperty::Id), std::move(source), details.Identifier });
+</a><a href="#h13-0-109" id="h13-0-109" class="i">+            }
+</a><a href="#h13-0-110" id="h13-0-110" class="i">+
+</a><a href="#h13-0-111" id="h13-0-111" class="i">+            std::vector&lt;Item&gt; Items;
+</a><a href="#h13-0-112" id="h13-0-112" class="i">+        };
+</a><a href="#h13-0-113" id="h13-0-113" class="i">+    }
+</a><a href="#h13-0-114" id="h13-0-114" class="i">+
+</a>     void UninstallSinglePackage(Execution::Context&amp; context)
+     {
+<a href="#h13-0-117" id="h13-0-117" class="d">-        context &lt;&lt;
+</a><a href="#h13-0-118" id="h13-0-118" class="d">-            Workflow::GetInstalledPackageVersion &lt;&lt;
+</a><a href="#h13-0-119" id="h13-0-119" class="d">-            Workflow::EnsureSupportForUninstall &lt;&lt;
+</a><a href="#h13-0-120" id="h13-0-120" class="d">-            Workflow::GetUninstallInfo &lt;&lt;
+</a><a href="#h13-0-121" id="h13-0-121" class="d">-            Workflow::GetDependenciesInfoForUninstall &lt;&lt;
+</a><a href="#h13-0-122" id="h13-0-122" class="d">-            Workflow::ReportDependencies(Resource::String::UninstallCommandReportDependencies) &lt;&lt;
+</a><a href="#h13-0-123" id="h13-0-123" class="d">-            Workflow::ReportExecutionStage(ExecutionStage::Execution) &lt;&lt;
+</a><a href="#h13-0-124" id="h13-0-124" class="d">-            Workflow::ExecuteUninstaller &lt;&lt;
+</a><a href="#h13-0-125" id="h13-0-125" class="d">-            Workflow::ReportExecutionStage(ExecutionStage::PostExecution) &lt;&lt;
+</a><a href="#h13-0-126" id="h13-0-126" class="i">+        context &lt;&lt;
+</a><a href="#h13-0-127" id="h13-0-127" class="i">+            Workflow::GetInstalledPackageVersion &lt;&lt;
+</a><a href="#h13-0-128" id="h13-0-128" class="i">+            Workflow::EnsureSupportForUninstall &lt;&lt;
+</a><a href="#h13-0-129" id="h13-0-129" class="i">+            Workflow::GetUninstallInfo &lt;&lt;
+</a><a href="#h13-0-130" id="h13-0-130" class="i">+            Workflow::GetDependenciesInfoForUninstall &lt;&lt;
+</a><a href="#h13-0-131" id="h13-0-131" class="i">+            Workflow::ReportDependencies(Resource::String::UninstallCommandReportDependencies) &lt;&lt;
+</a><a href="#h13-0-132" id="h13-0-132" class="i">+            Workflow::ReportExecutionStage(ExecutionStage::Execution) &lt;&lt;
+</a><a href="#h13-0-133" id="h13-0-133" class="i">+            Workflow::ExecuteUninstaller &lt;&lt;
+</a><a href="#h13-0-134" id="h13-0-134" class="i">+            Workflow::ReportExecutionStage(ExecutionStage::PostExecution) &lt;&lt;
+</a>             Workflow::RecordUninstall;
+     }
+ 
+<a href="#h13-1" id="h13-1" class="h">@@ -117,128 +119,145 @@ namespace AppInstaller::CLI::Workflow
+</a>         }
+     }
+ 
+<a href="#h13-1-3" id="h13-1-3" class="d">-    void GetUninstallInfo(Execution::Context&amp; context)
+</a><a href="#h13-1-4" id="h13-1-4" class="d">-    {
+</a><a href="#h13-1-5" id="h13-1-5" class="d">-        auto installedPackageVersion = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;();
+</a><a href="#h13-1-6" id="h13-1-6" class="d">-        const std::string installedTypeString = installedPackageVersion-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a><a href="#h13-1-7" id="h13-1-7" class="d">-        switch (ConvertToInstallerTypeEnum(installedTypeString))
+</a><a href="#h13-1-8" id="h13-1-8" class="d">-        {
+</a><a href="#h13-1-9" id="h13-1-9" class="d">-        case InstallerTypeEnum::Exe:
+</a><a href="#h13-1-10" id="h13-1-10" class="d">-        case InstallerTypeEnum::Burn:
+</a><a href="#h13-1-11" id="h13-1-11" class="d">-        case InstallerTypeEnum::Inno:
+</a><a href="#h13-1-12" id="h13-1-12" class="d">-        case InstallerTypeEnum::Nullsoft:
+</a><a href="#h13-1-13" id="h13-1-13" class="d">-        {
+</a><a href="#h13-1-14" id="h13-1-14" class="d">-            IPackageVersion::Metadata packageMetadata = installedPackageVersion-&gt;GetMetadata();
+</a><a href="#h13-1-15" id="h13-1-15" class="d">-
+</a><a href="#h13-1-16" id="h13-1-16" class="d">-            // Default to silent unless it is not present or interactivity is requested
+</a><a href="#h13-1-17" id="h13-1-17" class="d">-            auto uninstallCommandItr = packageMetadata.find(PackageVersionMetadata::SilentUninstallCommand);
+</a><a href="#h13-1-18" id="h13-1-18" class="d">-            if (uninstallCommandItr == packageMetadata.end() || context.Args.Contains(Execution::Args::Type::Interactive))
+</a><a href="#h13-1-19" id="h13-1-19" class="d">-            {
+</a><a href="#h13-1-20" id="h13-1-20" class="d">-                auto interactiveItr = packageMetadata.find(PackageVersionMetadata::StandardUninstallCommand);
+</a><a href="#h13-1-21" id="h13-1-21" class="d">-                if (interactiveItr != packageMetadata.end())
+</a><a href="#h13-1-22" id="h13-1-22" class="d">-                {
+</a><a href="#h13-1-23" id="h13-1-23" class="d">-                    uninstallCommandItr = interactiveItr;
+</a><a href="#h13-1-24" id="h13-1-24" class="d">-                }
+</a><a href="#h13-1-25" id="h13-1-25" class="d">-            }
+</a><a href="#h13-1-26" id="h13-1-26" class="d">-
+</a><a href="#h13-1-27" id="h13-1-27" class="d">-            if (uninstallCommandItr == packageMetadata.end())
+</a><a href="#h13-1-28" id="h13-1-28" class="d">-            {
+</a><a href="#h13-1-29" id="h13-1-29" class="d">-                context.Reporter.Error() &lt;&lt; Resource::String::NoUninstallInfoFound &lt;&lt; std::endl;
+</a><a href="#h13-1-30" id="h13-1-30" class="d">-                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_NO_UNINSTALL_INFO_FOUND);
+</a><a href="#h13-1-31" id="h13-1-31" class="d">-            }
+</a><a href="#h13-1-32" id="h13-1-32" class="d">-
+</a><a href="#h13-1-33" id="h13-1-33" class="d">-            context.Add&lt;Execution::Data::UninstallString&gt;(uninstallCommandItr-&gt;second);
+</a><a href="#h13-1-34" id="h13-1-34" class="d">-            break;
+</a><a href="#h13-1-35" id="h13-1-35" class="d">-        }
+</a><a href="#h13-1-36" id="h13-1-36" class="d">-        case InstallerTypeEnum::Msi:
+</a><a href="#h13-1-37" id="h13-1-37" class="d">-        case InstallerTypeEnum::Wix:
+</a><a href="#h13-1-38" id="h13-1-38" class="d">-        {
+</a><a href="#h13-1-39" id="h13-1-39" class="d">-            // Uninstall strings for MSI don&#39;t include UI level (/q) needed to avoid interactivity,
+</a><a href="#h13-1-40" id="h13-1-40" class="d">-            // so we handle them differently.
+</a><a href="#h13-1-41" id="h13-1-41" class="d">-            auto productCodes = installedPackageVersion-&gt;GetMultiProperty(PackageVersionMultiProperty::ProductCode);
+</a><a href="#h13-1-42" id="h13-1-42" class="d">-            if (productCodes.empty())
+</a><a href="#h13-1-43" id="h13-1-43" class="d">-            {
+</a><a href="#h13-1-44" id="h13-1-44" class="d">-                context.Reporter.Error() &lt;&lt; Resource::String::NoUninstallInfoFound &lt;&lt; std::endl;
+</a><a href="#h13-1-45" id="h13-1-45" class="d">-                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_NO_UNINSTALL_INFO_FOUND);
+</a><a href="#h13-1-46" id="h13-1-46" class="d">-            }
+</a><a href="#h13-1-47" id="h13-1-47" class="d">-
+</a><a href="#h13-1-48" id="h13-1-48" class="d">-            context.Add&lt;Execution::Data::ProductCodes&gt;(std::move(productCodes));
+</a><a href="#h13-1-49" id="h13-1-49" class="d">-            break;
+</a><a href="#h13-1-50" id="h13-1-50" class="d">-        }
+</a><a href="#h13-1-51" id="h13-1-51" class="d">-        case InstallerTypeEnum::Msix:
+</a><a href="#h13-1-52" id="h13-1-52" class="d">-        case InstallerTypeEnum::MSStore:
+</a><a href="#h13-1-53" id="h13-1-53" class="d">-        {
+</a><a href="#h13-1-54" id="h13-1-54" class="d">-            auto packageFamilyNames = installedPackageVersion-&gt;GetMultiProperty(PackageVersionMultiProperty::PackageFamilyName);
+</a><a href="#h13-1-55" id="h13-1-55" class="d">-            if (packageFamilyNames.empty())
+</a><a href="#h13-1-56" id="h13-1-56" class="d">-            {
+</a><a href="#h13-1-57" id="h13-1-57" class="d">-                context.Reporter.Error() &lt;&lt; Resource::String::NoUninstallInfoFound &lt;&lt; std::endl;
+</a><a href="#h13-1-58" id="h13-1-58" class="d">-                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_NO_UNINSTALL_INFO_FOUND);
+</a><a href="#h13-1-59" id="h13-1-59" class="d">-            }
+</a><a href="#h13-1-60" id="h13-1-60" class="d">-
+</a><a href="#h13-1-61" id="h13-1-61" class="d">-            context.Add&lt;Execution::Data::PackageFamilyNames&gt;(packageFamilyNames);
+</a><a href="#h13-1-62" id="h13-1-62" class="d">-            break;
+</a><a href="#h13-1-63" id="h13-1-63" class="d">-        }
+</a><a href="#h13-1-64" id="h13-1-64" class="d">-        case InstallerTypeEnum::Portable:
+</a><a href="#h13-1-65" id="h13-1-65" class="d">-        {
+</a><a href="#h13-1-66" id="h13-1-66" class="i">+    void GetUninstallInfo(Execution::Context&amp; context)
+</a><a href="#h13-1-67" id="h13-1-67" class="i">+    {
+</a><a href="#h13-1-68" id="h13-1-68" class="i">+        auto installedPackageVersion = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;();
+</a><a href="#h13-1-69" id="h13-1-69" class="i">+        const std::string installedTypeString = installedPackageVersion-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a><a href="#h13-1-70" id="h13-1-70" class="i">+        switch (ConvertToInstallerTypeEnum(installedTypeString))
+</a><a href="#h13-1-71" id="h13-1-71" class="i">+        {
+</a><a href="#h13-1-72" id="h13-1-72" class="i">+        case InstallerTypeEnum::Exe:
+</a><a href="#h13-1-73" id="h13-1-73" class="i">+        case InstallerTypeEnum::Burn:
+</a><a href="#h13-1-74" id="h13-1-74" class="i">+        case InstallerTypeEnum::Inno:
+</a><a href="#h13-1-75" id="h13-1-75" class="i">+        case InstallerTypeEnum::Nullsoft:
+</a><a href="#h13-1-76" id="h13-1-76" class="i">+        {
+</a><a href="#h13-1-77" id="h13-1-77" class="i">+            IPackageVersion::Metadata packageMetadata = installedPackageVersion-&gt;GetMetadata();
+</a><a href="#h13-1-78" id="h13-1-78" class="i">+
+</a><a href="#h13-1-79" id="h13-1-79" class="i">+            // Default to silent unless it is not present or interactivity is requested
+</a><a href="#h13-1-80" id="h13-1-80" class="i">+            auto uninstallCommandItr = packageMetadata.find(PackageVersionMetadata::SilentUninstallCommand);
+</a><a href="#h13-1-81" id="h13-1-81" class="i">+            if (uninstallCommandItr == packageMetadata.end() || context.Args.Contains(Execution::Args::Type::Interactive))
+</a><a href="#h13-1-82" id="h13-1-82" class="i">+            {
+</a><a href="#h13-1-83" id="h13-1-83" class="i">+                auto interactiveItr = packageMetadata.find(PackageVersionMetadata::StandardUninstallCommand);
+</a><a href="#h13-1-84" id="h13-1-84" class="i">+                if (interactiveItr != packageMetadata.end())
+</a><a href="#h13-1-85" id="h13-1-85" class="i">+                {
+</a><a href="#h13-1-86" id="h13-1-86" class="i">+                    uninstallCommandItr = interactiveItr;
+</a><a href="#h13-1-87" id="h13-1-87" class="i">+                }
+</a><a href="#h13-1-88" id="h13-1-88" class="i">+            }
+</a><a href="#h13-1-89" id="h13-1-89" class="i">+
+</a><a href="#h13-1-90" id="h13-1-90" class="i">+            if (uninstallCommandItr == packageMetadata.end())
+</a><a href="#h13-1-91" id="h13-1-91" class="i">+            {
+</a><a href="#h13-1-92" id="h13-1-92" class="i">+                context.Reporter.Error() &lt;&lt; Resource::String::NoUninstallInfoFound &lt;&lt; std::endl;
+</a><a href="#h13-1-93" id="h13-1-93" class="i">+                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_NO_UNINSTALL_INFO_FOUND);
+</a><a href="#h13-1-94" id="h13-1-94" class="i">+            }
+</a><a href="#h13-1-95" id="h13-1-95" class="i">+
+</a><a href="#h13-1-96" id="h13-1-96" class="i">+            context.Add&lt;Execution::Data::UninstallString&gt;(uninstallCommandItr-&gt;second);
+</a><a href="#h13-1-97" id="h13-1-97" class="i">+            break;
+</a><a href="#h13-1-98" id="h13-1-98" class="i">+        }
+</a><a href="#h13-1-99" id="h13-1-99" class="i">+        case InstallerTypeEnum::Msi:
+</a><a href="#h13-1-100" id="h13-1-100" class="i">+        case InstallerTypeEnum::Wix:
+</a><a href="#h13-1-101" id="h13-1-101" class="i">+        {
+</a><a href="#h13-1-102" id="h13-1-102" class="i">+            // Uninstall strings for MSI don&#39;t include UI level (/q) needed to avoid interactivity,
+</a><a href="#h13-1-103" id="h13-1-103" class="i">+            // so we handle them differently.
+</a>             auto productCodes = installedPackageVersion-&gt;GetMultiProperty(PackageVersionMultiProperty::ProductCode);
+             if (productCodes.empty())
+             {
+                 context.Reporter.Error() &lt;&lt; Resource::String::NoUninstallInfoFound &lt;&lt; std::endl;
+                 AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_NO_UNINSTALL_INFO_FOUND);
+<a href="#h13-1-109" id="h13-1-109" class="d">-            }
+</a><a href="#h13-1-110" id="h13-1-110" class="d">-
+</a><a href="#h13-1-111" id="h13-1-111" class="i">+            }
+</a><a href="#h13-1-112" id="h13-1-112" class="i">+
+</a><a href="#h13-1-113" id="h13-1-113" class="i">+            context.Add&lt;Execution::Data::ProductCodes&gt;(std::move(productCodes));
+</a><a href="#h13-1-114" id="h13-1-114" class="i">+            break;
+</a><a href="#h13-1-115" id="h13-1-115" class="i">+        }
+</a><a href="#h13-1-116" id="h13-1-116" class="i">+        case InstallerTypeEnum::Msix:
+</a><a href="#h13-1-117" id="h13-1-117" class="i">+        case InstallerTypeEnum::MSStore:
+</a><a href="#h13-1-118" id="h13-1-118" class="i">+        {
+</a><a href="#h13-1-119" id="h13-1-119" class="i">+            auto packageFamilyNames = installedPackageVersion-&gt;GetMultiProperty(PackageVersionMultiProperty::PackageFamilyName);
+</a><a href="#h13-1-120" id="h13-1-120" class="i">+            if (packageFamilyNames.empty())
+</a><a href="#h13-1-121" id="h13-1-121" class="i">+            {
+</a><a href="#h13-1-122" id="h13-1-122" class="i">+                context.Reporter.Error() &lt;&lt; Resource::String::NoUninstallInfoFound &lt;&lt; std::endl;
+</a><a href="#h13-1-123" id="h13-1-123" class="i">+                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_NO_UNINSTALL_INFO_FOUND);
+</a><a href="#h13-1-124" id="h13-1-124" class="i">+            }
+</a><a href="#h13-1-125" id="h13-1-125" class="i">+
+</a><a href="#h13-1-126" id="h13-1-126" class="i">+            context.Add&lt;Execution::Data::PackageFamilyNames&gt;(packageFamilyNames);
+</a><a href="#h13-1-127" id="h13-1-127" class="i">+            break;
+</a><a href="#h13-1-128" id="h13-1-128" class="i">+        }
+</a><a href="#h13-1-129" id="h13-1-129" class="i">+        case InstallerTypeEnum::Portable:
+</a><a href="#h13-1-130" id="h13-1-130" class="i">+        {
+</a><a href="#h13-1-131" id="h13-1-131" class="i">+            auto productCodes = installedPackageVersion-&gt;GetMultiProperty(PackageVersionMultiProperty::ProductCode);
+</a><a href="#h13-1-132" id="h13-1-132" class="i">+            if (productCodes.empty())
+</a><a href="#h13-1-133" id="h13-1-133" class="i">+            {
+</a><a href="#h13-1-134" id="h13-1-134" class="i">+                context.Reporter.Error() &lt;&lt; Resource::String::NoUninstallInfoFound &lt;&lt; std::endl;
+</a><a href="#h13-1-135" id="h13-1-135" class="i">+                AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_NO_UNINSTALL_INFO_FOUND);
+</a><a href="#h13-1-136" id="h13-1-136" class="i">+            }
+</a><a href="#h13-1-137" id="h13-1-137" class="i">+
+</a>             const std::string installedScope = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;()-&gt;GetMetadata()[Repository::PackageVersionMetadata::InstalledScope];
+<a href="#h13-1-139" id="h13-1-139" class="d">-            const std::string installedArch = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;()-&gt;GetMetadata()[Repository::PackageVersionMetadata::InstalledArchitecture];
+</a><a href="#h13-1-140" id="h13-1-140" class="d">-            
+</a><a href="#h13-1-141" id="h13-1-141" class="i">+            const std::string installedArch = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;()-&gt;GetMetadata()[Repository::PackageVersionMetadata::InstalledArchitecture];
+</a><a href="#h13-1-142" id="h13-1-142" class="i">+            
+</a>             PortableInstaller portableInstaller = PortableInstaller(
+                 Manifest::ConvertToScopeEnum(installedScope),
+                 Utility::ConvertToArchitectureEnum(installedArch),
+<a href="#h13-1-146" id="h13-1-146" class="d">-                productCodes[0]);
+</a><a href="#h13-1-147" id="h13-1-147" class="d">-            context.Add&lt;Execution::Data::PortableInstaller&gt;(std::move(portableInstaller));
+</a><a href="#h13-1-148" id="h13-1-148" class="d">-            break;
+</a><a href="#h13-1-149" id="h13-1-149" class="d">-        }
+</a><a href="#h13-1-150" id="h13-1-150" class="d">-        default:
+</a><a href="#h13-1-151" id="h13-1-151" class="d">-            THROW_HR(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+</a><a href="#h13-1-152" id="h13-1-152" class="d">-        }
+</a><a href="#h13-1-153" id="h13-1-153" class="d">-    }
+</a><a href="#h13-1-154" id="h13-1-154" class="d">-
+</a><a href="#h13-1-155" id="h13-1-155" class="d">-    void ExecuteUninstaller(Execution::Context&amp; context)
+</a><a href="#h13-1-156" id="h13-1-156" class="d">-    {
+</a><a href="#h13-1-157" id="h13-1-157" class="d">-        const std::string installedTypeString = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;()-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a><a href="#h13-1-158" id="h13-1-158" class="d">-        switch (ConvertToInstallerTypeEnum(installedTypeString))
+</a><a href="#h13-1-159" id="h13-1-159" class="d">-        {
+</a><a href="#h13-1-160" id="h13-1-160" class="d">-        case InstallerTypeEnum::Exe:
+</a><a href="#h13-1-161" id="h13-1-161" class="d">-        case InstallerTypeEnum::Burn:
+</a><a href="#h13-1-162" id="h13-1-162" class="d">-        case InstallerTypeEnum::Inno:
+</a><a href="#h13-1-163" id="h13-1-163" class="d">-        case InstallerTypeEnum::Nullsoft:
+</a><a href="#h13-1-164" id="h13-1-164" class="d">-            context &lt;&lt;
+</a><a href="#h13-1-165" id="h13-1-165" class="d">-                Workflow::ShellExecuteUninstallImpl &lt;&lt;
+</a><a href="#h13-1-166" id="h13-1-166" class="d">-                ReportUninstallerResult(&quot;UninstallString&quot;, APPINSTALLER_CLI_ERROR_EXEC_UNINSTALL_COMMAND_FAILED);
+</a><a href="#h13-1-167" id="h13-1-167" class="d">-            break;
+</a><a href="#h13-1-168" id="h13-1-168" class="d">-        case InstallerTypeEnum::Msi:
+</a><a href="#h13-1-169" id="h13-1-169" class="d">-        case InstallerTypeEnum::Wix:
+</a><a href="#h13-1-170" id="h13-1-170" class="d">-            context &lt;&lt;
+</a><a href="#h13-1-171" id="h13-1-171" class="d">-                Workflow::ShellExecuteMsiExecUninstall &lt;&lt;
+</a><a href="#h13-1-172" id="h13-1-172" class="d">-                ReportUninstallerResult(&quot;MsiExec&quot;, APPINSTALLER_CLI_ERROR_EXEC_UNINSTALL_COMMAND_FAILED);
+</a><a href="#h13-1-173" id="h13-1-173" class="d">-            break;
+</a><a href="#h13-1-174" id="h13-1-174" class="d">-        case InstallerTypeEnum::Msix:
+</a><a href="#h13-1-175" id="h13-1-175" class="d">-        case InstallerTypeEnum::MSStore:
+</a><a href="#h13-1-176" id="h13-1-176" class="d">-            context &lt;&lt; Workflow::MsixUninstall;
+</a><a href="#h13-1-177" id="h13-1-177" class="d">-            break;
+</a><a href="#h13-1-178" id="h13-1-178" class="d">-        case InstallerTypeEnum::Portable:
+</a><a href="#h13-1-179" id="h13-1-179" class="d">-            context &lt;&lt;
+</a><a href="#h13-1-180" id="h13-1-180" class="d">-                Workflow::PortableUninstallImpl &lt;&lt;
+</a><a href="#h13-1-181" id="h13-1-181" class="d">-                ReportUninstallerResult(&quot;PortableUninstall&quot;sv, APPINSTALLER_CLI_ERROR_PORTABLE_UNINSTALL_FAILED, true);
+</a><a href="#h13-1-182" id="h13-1-182" class="d">-            break;
+</a><a href="#h13-1-183" id="h13-1-183" class="d">-        default:
+</a><a href="#h13-1-184" id="h13-1-184" class="d">-        THROW_HR(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+</a><a href="#h13-1-185" id="h13-1-185" class="d">-        }
+</a><a href="#h13-1-186" id="h13-1-186" class="d">-    }
+</a><a href="#h13-1-187" id="h13-1-187" class="d">-
+</a><a href="#h13-1-188" id="h13-1-188" class="d">-    void MsixUninstall(Execution::Context&amp; context)
+</a><a href="#h13-1-189" id="h13-1-189" class="d">-    {
+</a><a href="#h13-1-190" id="h13-1-190" class="d">-        bool isMachineScope = Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine;
+</a><a href="#h13-1-191" id="h13-1-191" class="d">-
+</a><a href="#h13-1-192" id="h13-1-192" class="i">+                productCodes[0]);
+</a><a href="#h13-1-193" id="h13-1-193" class="i">+            context.Add&lt;Execution::Data::PortableInstaller&gt;(std::move(portableInstaller));
+</a><a href="#h13-1-194" id="h13-1-194" class="i">+            break;
+</a><a href="#h13-1-195" id="h13-1-195" class="i">+        }
+</a><a href="#h13-1-196" id="h13-1-196" class="i">+        default:
+</a><a href="#h13-1-197" id="h13-1-197" class="i">+            THROW_HR(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+</a><a href="#h13-1-198" id="h13-1-198" class="i">+        }
+</a><a href="#h13-1-199" id="h13-1-199" class="i">+    }
+</a><a href="#h13-1-200" id="h13-1-200" class="i">+
+</a><a href="#h13-1-201" id="h13-1-201" class="i">+    void ExecuteUninstaller(Execution::Context&amp; context)
+</a><a href="#h13-1-202" id="h13-1-202" class="i">+    {
+</a><a href="#h13-1-203" id="h13-1-203" class="i">+        const std::string installedTypeString = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;()-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a><a href="#h13-1-204" id="h13-1-204" class="i">+        InstallerTypeEnum installerType = ConvertToInstallerTypeEnum(installedTypeString);
+</a><a href="#h13-1-205" id="h13-1-205" class="i">+
+</a><a href="#h13-1-206" id="h13-1-206" class="i">+        Synchronization::CrossProcessInstallLock lock;
+</a><a href="#h13-1-207" id="h13-1-207" class="i">+        if (!ExemptFromSingleInstallLocking(installerType))
+</a><a href="#h13-1-208" id="h13-1-208" class="i">+        {
+</a><a href="#h13-1-209" id="h13-1-209" class="i">+            // Acquire install lock; if the operation is cancelled it will return false so we will also return.
+</a><a href="#h13-1-210" id="h13-1-210" class="i">+            if (!context.Reporter.ExecuteWithProgress([&amp;](IProgressCallback&amp; callback)
+</a><a href="#h13-1-211" id="h13-1-211" class="i">+                {
+</a><a href="#h13-1-212" id="h13-1-212" class="i">+                    callback.SetProgressMessage(Resource::String::InstallWaitingOnAnother());
+</a><a href="#h13-1-213" id="h13-1-213" class="i">+                    return lock.Acquire(callback);
+</a><a href="#h13-1-214" id="h13-1-214" class="i">+                }))
+</a><a href="#h13-1-215" id="h13-1-215" class="i">+            {
+</a><a href="#h13-1-216" id="h13-1-216" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Abandoning attempt to acquire install lock due to cancellation&quot;);
+</a><a href="#h13-1-217" id="h13-1-217" class="i">+                return;
+</a><a href="#h13-1-218" id="h13-1-218" class="i">+            }
+</a><a href="#h13-1-219" id="h13-1-219" class="i">+        }
+</a><a href="#h13-1-220" id="h13-1-220" class="i">+
+</a><a href="#h13-1-221" id="h13-1-221" class="i">+        switch (installerType)
+</a><a href="#h13-1-222" id="h13-1-222" class="i">+        {
+</a><a href="#h13-1-223" id="h13-1-223" class="i">+        case InstallerTypeEnum::Exe:
+</a><a href="#h13-1-224" id="h13-1-224" class="i">+        case InstallerTypeEnum::Burn:
+</a><a href="#h13-1-225" id="h13-1-225" class="i">+        case InstallerTypeEnum::Inno:
+</a><a href="#h13-1-226" id="h13-1-226" class="i">+        case InstallerTypeEnum::Nullsoft:
+</a><a href="#h13-1-227" id="h13-1-227" class="i">+            context &lt;&lt;
+</a><a href="#h13-1-228" id="h13-1-228" class="i">+                Workflow::ShellExecuteUninstallImpl &lt;&lt;
+</a><a href="#h13-1-229" id="h13-1-229" class="i">+                ReportUninstallerResult(&quot;UninstallString&quot;, APPINSTALLER_CLI_ERROR_EXEC_UNINSTALL_COMMAND_FAILED);
+</a><a href="#h13-1-230" id="h13-1-230" class="i">+            break;
+</a><a href="#h13-1-231" id="h13-1-231" class="i">+        case InstallerTypeEnum::Msi:
+</a><a href="#h13-1-232" id="h13-1-232" class="i">+        case InstallerTypeEnum::Wix:
+</a><a href="#h13-1-233" id="h13-1-233" class="i">+            context &lt;&lt;
+</a><a href="#h13-1-234" id="h13-1-234" class="i">+                Workflow::ShellExecuteMsiExecUninstall &lt;&lt;
+</a><a href="#h13-1-235" id="h13-1-235" class="i">+                ReportUninstallerResult(&quot;MsiExec&quot;, APPINSTALLER_CLI_ERROR_EXEC_UNINSTALL_COMMAND_FAILED);
+</a><a href="#h13-1-236" id="h13-1-236" class="i">+            break;
+</a><a href="#h13-1-237" id="h13-1-237" class="i">+        case InstallerTypeEnum::Msix:
+</a><a href="#h13-1-238" id="h13-1-238" class="i">+        case InstallerTypeEnum::MSStore:
+</a><a href="#h13-1-239" id="h13-1-239" class="i">+            context &lt;&lt; Workflow::MsixUninstall;
+</a><a href="#h13-1-240" id="h13-1-240" class="i">+            break;
+</a><a href="#h13-1-241" id="h13-1-241" class="i">+        case InstallerTypeEnum::Portable:
+</a><a href="#h13-1-242" id="h13-1-242" class="i">+            context &lt;&lt;
+</a><a href="#h13-1-243" id="h13-1-243" class="i">+                Workflow::PortableUninstallImpl &lt;&lt;
+</a><a href="#h13-1-244" id="h13-1-244" class="i">+                ReportUninstallerResult(&quot;PortableUninstall&quot;sv, APPINSTALLER_CLI_ERROR_PORTABLE_UNINSTALL_FAILED, true);
+</a><a href="#h13-1-245" id="h13-1-245" class="i">+            break;
+</a><a href="#h13-1-246" id="h13-1-246" class="i">+        default:
+</a><a href="#h13-1-247" id="h13-1-247" class="i">+        THROW_HR(HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED));
+</a><a href="#h13-1-248" id="h13-1-248" class="i">+        }
+</a><a href="#h13-1-249" id="h13-1-249" class="i">+    }
+</a><a href="#h13-1-250" id="h13-1-250" class="i">+
+</a><a href="#h13-1-251" id="h13-1-251" class="i">+    void MsixUninstall(Execution::Context&amp; context)
+</a><a href="#h13-1-252" id="h13-1-252" class="i">+    {
+</a><a href="#h13-1-253" id="h13-1-253" class="i">+        bool isMachineScope = Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine;
+</a><a href="#h13-1-254" id="h13-1-254" class="i">+
+</a>         // TODO: There was a bug in deployment api if deprovision api was called in packaged context.
+         // Remove this check when the OS bug is fixed and back ported.
+         if (isMachineScope &amp;&amp; Runtime::IsRunningInPackagedContext())
+<a href="#h13-2" id="h13-2" class="h">@@ -247,66 +266,66 @@ namespace AppInstaller::CLI::Workflow
+</a>             context.Add&lt;Execution::Data::OperationReturnCode&gt;(static_cast&lt;DWORD&gt;(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED));
+             AICLI_LOG(CLI, Error, &lt;&lt; &quot;Device wide uninstall for msix type is not supported in packaged context.&quot;);
+             AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_INSTALL_SYSTEM_NOT_SUPPORTED);
+<a href="#h13-2-3" id="h13-2-3" class="d">-        }
+</a><a href="#h13-2-4" id="h13-2-4" class="d">-
+</a><a href="#h13-2-5" id="h13-2-5" class="d">-        const auto&amp; packageFamilyNames = context.Get&lt;Execution::Data::PackageFamilyNames&gt;();
+</a><a href="#h13-2-6" id="h13-2-6" class="d">-        context.Reporter.Info() &lt;&lt; Resource::String::UninstallFlowStartingPackageUninstall &lt;&lt; std::endl;
+</a><a href="#h13-2-7" id="h13-2-7" class="d">-
+</a><a href="#h13-2-8" id="h13-2-8" class="d">-        for (const auto&amp; packageFamilyName : packageFamilyNames)
+</a><a href="#h13-2-9" id="h13-2-9" class="d">-        {
+</a><a href="#h13-2-10" id="h13-2-10" class="d">-            auto packageFullName = Msix::GetPackageFullNameFromFamilyName(packageFamilyName);
+</a><a href="#h13-2-11" id="h13-2-11" class="d">-            if (!packageFullName.has_value())
+</a><a href="#h13-2-12" id="h13-2-12" class="d">-            {
+</a><a href="#h13-2-13" id="h13-2-13" class="d">-                AICLI_LOG(CLI, Warning, &lt;&lt; &quot;No package found with family name: &quot; &lt;&lt; packageFamilyName);
+</a><a href="#h13-2-14" id="h13-2-14" class="d">-                continue;
+</a><a href="#h13-2-15" id="h13-2-15" class="d">-            }
+</a><a href="#h13-2-16" id="h13-2-16" class="d">-
+</a><a href="#h13-2-17" id="h13-2-17" class="d">-            AICLI_LOG(CLI, Info, &lt;&lt; &quot;Removing MSIX package: &quot; &lt;&lt; packageFullName.value());
+</a><a href="#h13-2-18" id="h13-2-18" class="d">-            try
+</a><a href="#h13-2-19" id="h13-2-19" class="d">-            {
+</a><a href="#h13-2-20" id="h13-2-20" class="d">-                if (isMachineScope)
+</a><a href="#h13-2-21" id="h13-2-21" class="d">-                {
+</a><a href="#h13-2-22" id="h13-2-22" class="d">-                    context.Reporter.ExecuteWithProgress(std::bind(Deployment::RemovePackageMachineScope, packageFamilyName, packageFullName.value(), std::placeholders::_1));
+</a><a href="#h13-2-23" id="h13-2-23" class="d">-                }
+</a><a href="#h13-2-24" id="h13-2-24" class="d">-                else
+</a><a href="#h13-2-25" id="h13-2-25" class="d">-                {
+</a><a href="#h13-2-26" id="h13-2-26" class="d">-                    context.Reporter.ExecuteWithProgress(std::bind(Deployment::RemovePackage, packageFullName.value(), winrt::Windows::Management::Deployment::RemovalOptions::None, std::placeholders::_1));
+</a><a href="#h13-2-27" id="h13-2-27" class="d">-                }
+</a><a href="#h13-2-28" id="h13-2-28" class="d">-            }
+</a><a href="#h13-2-29" id="h13-2-29" class="i">+        }
+</a><a href="#h13-2-30" id="h13-2-30" class="i">+
+</a><a href="#h13-2-31" id="h13-2-31" class="i">+        const auto&amp; packageFamilyNames = context.Get&lt;Execution::Data::PackageFamilyNames&gt;();
+</a><a href="#h13-2-32" id="h13-2-32" class="i">+        context.Reporter.Info() &lt;&lt; Resource::String::UninstallFlowStartingPackageUninstall &lt;&lt; std::endl;
+</a><a href="#h13-2-33" id="h13-2-33" class="i">+
+</a><a href="#h13-2-34" id="h13-2-34" class="i">+        for (const auto&amp; packageFamilyName : packageFamilyNames)
+</a><a href="#h13-2-35" id="h13-2-35" class="i">+        {
+</a><a href="#h13-2-36" id="h13-2-36" class="i">+            auto packageFullName = Msix::GetPackageFullNameFromFamilyName(packageFamilyName);
+</a><a href="#h13-2-37" id="h13-2-37" class="i">+            if (!packageFullName.has_value())
+</a><a href="#h13-2-38" id="h13-2-38" class="i">+            {
+</a><a href="#h13-2-39" id="h13-2-39" class="i">+                AICLI_LOG(CLI, Warning, &lt;&lt; &quot;No package found with family name: &quot; &lt;&lt; packageFamilyName);
+</a><a href="#h13-2-40" id="h13-2-40" class="i">+                continue;
+</a><a href="#h13-2-41" id="h13-2-41" class="i">+            }
+</a><a href="#h13-2-42" id="h13-2-42" class="i">+
+</a><a href="#h13-2-43" id="h13-2-43" class="i">+            AICLI_LOG(CLI, Info, &lt;&lt; &quot;Removing MSIX package: &quot; &lt;&lt; packageFullName.value());
+</a><a href="#h13-2-44" id="h13-2-44" class="i">+            try
+</a><a href="#h13-2-45" id="h13-2-45" class="i">+            {
+</a><a href="#h13-2-46" id="h13-2-46" class="i">+                if (isMachineScope)
+</a><a href="#h13-2-47" id="h13-2-47" class="i">+                {
+</a><a href="#h13-2-48" id="h13-2-48" class="i">+                    context.Reporter.ExecuteWithProgress(std::bind(Deployment::RemovePackageMachineScope, packageFamilyName, packageFullName.value(), std::placeholders::_1));
+</a><a href="#h13-2-49" id="h13-2-49" class="i">+                }
+</a><a href="#h13-2-50" id="h13-2-50" class="i">+                else
+</a><a href="#h13-2-51" id="h13-2-51" class="i">+                {
+</a><a href="#h13-2-52" id="h13-2-52" class="i">+                    context.Reporter.ExecuteWithProgress(std::bind(Deployment::RemovePackage, packageFullName.value(), winrt::Windows::Management::Deployment::RemovalOptions::None, std::placeholders::_1));
+</a><a href="#h13-2-53" id="h13-2-53" class="i">+                }
+</a><a href="#h13-2-54" id="h13-2-54" class="i">+            }
+</a>             catch (const wil::ResultException&amp; re)
+             {
+                 context.Add&lt;Execution::Data::OperationReturnCode&gt;(re.GetErrorCode());
+                 context &lt;&lt; ReportUninstallerResult(&quot;MSIXUninstall&quot;sv, re.GetErrorCode(), /* isHResult */ true);
+                 return;
+<a href="#h13-2-60" id="h13-2-60" class="d">-            }
+</a><a href="#h13-2-61" id="h13-2-61" class="d">-        }
+</a><a href="#h13-2-62" id="h13-2-62" class="d">-
+</a><a href="#h13-2-63" id="h13-2-63" class="d">-        context.Reporter.Info() &lt;&lt; Resource::String::UninstallFlowUninstallSuccess &lt;&lt; std::endl;
+</a><a href="#h13-2-64" id="h13-2-64" class="d">-    }
+</a><a href="#h13-2-65" id="h13-2-65" class="d">-
+</a><a href="#h13-2-66" id="h13-2-66" class="d">-    void RecordUninstall(Context&amp; context)
+</a><a href="#h13-2-67" id="h13-2-67" class="d">-    {
+</a><a href="#h13-2-68" id="h13-2-68" class="d">-        // In order to report an uninstall to every correlated tracking catalog, we first need to find them all.
+</a><a href="#h13-2-69" id="h13-2-69" class="d">-        auto package = context.Get&lt;Data::Package&gt;();
+</a><a href="#h13-2-70" id="h13-2-70" class="d">-        UninstallCorrelatedSources correlatedSources;
+</a><a href="#h13-2-71" id="h13-2-71" class="d">-
+</a><a href="#h13-2-72" id="h13-2-72" class="d">-        // Start with the installed version
+</a><a href="#h13-2-73" id="h13-2-73" class="d">-        correlatedSources.AddIfRemoteAndNotPresent(package-&gt;GetInstalledVersion());
+</a><a href="#h13-2-74" id="h13-2-74" class="d">-
+</a><a href="#h13-2-75" id="h13-2-75" class="d">-        // Then look through all available versions
+</a><a href="#h13-2-76" id="h13-2-76" class="d">-        for (const auto&amp; versionKey : package-&gt;GetAvailableVersionKeys())
+</a><a href="#h13-2-77" id="h13-2-77" class="d">-        {
+</a><a href="#h13-2-78" id="h13-2-78" class="d">-            correlatedSources.AddIfRemoteAndNotPresent(package-&gt;GetAvailableVersion(versionKey));
+</a><a href="#h13-2-79" id="h13-2-79" class="d">-        }
+</a><a href="#h13-2-80" id="h13-2-80" class="d">-
+</a><a href="#h13-2-81" id="h13-2-81" class="d">-        // Finally record the uninstall for each found value
+</a><a href="#h13-2-82" id="h13-2-82" class="d">-        for (const auto&amp; item : correlatedSources.Items)
+</a><a href="#h13-2-83" id="h13-2-83" class="d">-        {
+</a><a href="#h13-2-84" id="h13-2-84" class="d">-            auto trackingCatalog = item.FromSource.GetTrackingCatalog();
+</a><a href="#h13-2-85" id="h13-2-85" class="d">-            trackingCatalog.RecordUninstall(item.Identifier);
+</a><a href="#h13-2-86" id="h13-2-86" class="d">-        }
+</a><a href="#h13-2-87" id="h13-2-87" class="d">-    }
+</a><a href="#h13-2-88" id="h13-2-88" class="d">-
+</a><a href="#h13-2-89" id="h13-2-89" class="i">+            }
+</a><a href="#h13-2-90" id="h13-2-90" class="i">+        }
+</a><a href="#h13-2-91" id="h13-2-91" class="i">+
+</a><a href="#h13-2-92" id="h13-2-92" class="i">+        context.Reporter.Info() &lt;&lt; Resource::String::UninstallFlowUninstallSuccess &lt;&lt; std::endl;
+</a><a href="#h13-2-93" id="h13-2-93" class="i">+    }
+</a><a href="#h13-2-94" id="h13-2-94" class="i">+
+</a><a href="#h13-2-95" id="h13-2-95" class="i">+    void RecordUninstall(Context&amp; context)
+</a><a href="#h13-2-96" id="h13-2-96" class="i">+    {
+</a><a href="#h13-2-97" id="h13-2-97" class="i">+        // In order to report an uninstall to every correlated tracking catalog, we first need to find them all.
+</a><a href="#h13-2-98" id="h13-2-98" class="i">+        auto package = context.Get&lt;Data::Package&gt;();
+</a><a href="#h13-2-99" id="h13-2-99" class="i">+        UninstallCorrelatedSources correlatedSources;
+</a><a href="#h13-2-100" id="h13-2-100" class="i">+
+</a><a href="#h13-2-101" id="h13-2-101" class="i">+        // Start with the installed version
+</a><a href="#h13-2-102" id="h13-2-102" class="i">+        correlatedSources.AddIfRemoteAndNotPresent(package-&gt;GetInstalledVersion());
+</a><a href="#h13-2-103" id="h13-2-103" class="i">+
+</a><a href="#h13-2-104" id="h13-2-104" class="i">+        // Then look through all available versions
+</a><a href="#h13-2-105" id="h13-2-105" class="i">+        for (const auto&amp; versionKey : package-&gt;GetAvailableVersionKeys())
+</a><a href="#h13-2-106" id="h13-2-106" class="i">+        {
+</a><a href="#h13-2-107" id="h13-2-107" class="i">+            correlatedSources.AddIfRemoteAndNotPresent(package-&gt;GetAvailableVersion(versionKey));
+</a><a href="#h13-2-108" id="h13-2-108" class="i">+        }
+</a><a href="#h13-2-109" id="h13-2-109" class="i">+
+</a><a href="#h13-2-110" id="h13-2-110" class="i">+        // Finally record the uninstall for each found value
+</a><a href="#h13-2-111" id="h13-2-111" class="i">+        for (const auto&amp; item : correlatedSources.Items)
+</a><a href="#h13-2-112" id="h13-2-112" class="i">+        {
+</a><a href="#h13-2-113" id="h13-2-113" class="i">+            auto trackingCatalog = item.FromSource.GetTrackingCatalog();
+</a><a href="#h13-2-114" id="h13-2-114" class="i">+            trackingCatalog.RecordUninstall(item.Identifier);
+</a><a href="#h13-2-115" id="h13-2-115" class="i">+        }
+</a><a href="#h13-2-116" id="h13-2-116" class="i">+    }
+</a><a href="#h13-2-117" id="h13-2-117" class="i">+
+</a>     void ReportUninstallerResult::operator()(Execution::Context&amp; context) const
+     {
+         DWORD uninstallResult = context.Get&lt;Execution::Data::OperationReturnCode&gt;();
+<a href="#h13-3" id="h13-3" class="h">@@ -347,25 +366,25 @@ namespace AppInstaller::CLI::Workflow
+</a>         }
+     }
+ 
+<a href="#h13-3-3" id="h13-3-3" class="d">-    void EnsureSupportForUninstall(Execution::Context&amp; context)
+</a><a href="#h13-3-4" id="h13-3-4" class="d">-    {
+</a><a href="#h13-3-5" id="h13-3-5" class="d">-        auto installedPackageVersion = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;();
+</a><a href="#h13-3-6" id="h13-3-6" class="d">-        const std::string installedTypeString = installedPackageVersion-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a><a href="#h13-3-7" id="h13-3-7" class="d">-        auto installedType = ConvertToInstallerTypeEnum(installedTypeString);
+</a><a href="#h13-3-8" id="h13-3-8" class="d">-        if (installedType == InstallerTypeEnum::Portable)
+</a><a href="#h13-3-9" id="h13-3-9" class="d">-        {
+</a><a href="#h13-3-10" id="h13-3-10" class="d">-            const std::string installedScope = installedPackageVersion-&gt;GetMetadata()[Repository::PackageVersionMetadata::InstalledScope];
+</a><a href="#h13-3-11" id="h13-3-11" class="d">-            if (Manifest::ConvertToScopeEnum(installedScope) == Manifest::ScopeEnum::Machine)
+</a><a href="#h13-3-12" id="h13-3-12" class="d">-            {
+</a><a href="#h13-3-13" id="h13-3-13" class="d">-                context &lt;&lt; EnsureRunningAsAdmin;
+</a><a href="#h13-3-14" id="h13-3-14" class="d">-            }
+</a><a href="#h13-3-15" id="h13-3-15" class="d">-        }
+</a><a href="#h13-3-16" id="h13-3-16" class="d">-        else if (installedType == InstallerTypeEnum::Msix)
+</a><a href="#h13-3-17" id="h13-3-17" class="d">-        {
+</a><a href="#h13-3-18" id="h13-3-18" class="d">-            if (Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine)
+</a><a href="#h13-3-19" id="h13-3-19" class="d">-            {
+</a><a href="#h13-3-20" id="h13-3-20" class="d">-                context &lt;&lt; EnsureRunningAsAdmin;
+</a><a href="#h13-3-21" id="h13-3-21" class="d">-            }
+</a><a href="#h13-3-22" id="h13-3-22" class="d">-        }
+</a><a href="#h13-3-23" id="h13-3-23" class="i">+    void EnsureSupportForUninstall(Execution::Context&amp; context)
+</a><a href="#h13-3-24" id="h13-3-24" class="i">+    {
+</a><a href="#h13-3-25" id="h13-3-25" class="i">+        auto installedPackageVersion = context.Get&lt;Execution::Data::InstalledPackageVersion&gt;();
+</a><a href="#h13-3-26" id="h13-3-26" class="i">+        const std::string installedTypeString = installedPackageVersion-&gt;GetMetadata()[PackageVersionMetadata::InstalledType];
+</a><a href="#h13-3-27" id="h13-3-27" class="i">+        auto installedType = ConvertToInstallerTypeEnum(installedTypeString);
+</a><a href="#h13-3-28" id="h13-3-28" class="i">+        if (installedType == InstallerTypeEnum::Portable)
+</a><a href="#h13-3-29" id="h13-3-29" class="i">+        {
+</a><a href="#h13-3-30" id="h13-3-30" class="i">+            const std::string installedScope = installedPackageVersion-&gt;GetMetadata()[Repository::PackageVersionMetadata::InstalledScope];
+</a><a href="#h13-3-31" id="h13-3-31" class="i">+            if (Manifest::ConvertToScopeEnum(installedScope) == Manifest::ScopeEnum::Machine)
+</a><a href="#h13-3-32" id="h13-3-32" class="i">+            {
+</a><a href="#h13-3-33" id="h13-3-33" class="i">+                context &lt;&lt; EnsureRunningAsAdmin;
+</a><a href="#h13-3-34" id="h13-3-34" class="i">+            }
+</a><a href="#h13-3-35" id="h13-3-35" class="i">+        }
+</a><a href="#h13-3-36" id="h13-3-36" class="i">+        else if (installedType == InstallerTypeEnum::Msix)
+</a><a href="#h13-3-37" id="h13-3-37" class="i">+        {
+</a><a href="#h13-3-38" id="h13-3-38" class="i">+            if (Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine)
+</a><a href="#h13-3-39" id="h13-3-39" class="i">+            {
+</a><a href="#h13-3-40" id="h13-3-40" class="i">+                context &lt;&lt; EnsureRunningAsAdmin;
+</a><a href="#h13-3-41" id="h13-3-41" class="i">+            }
+</a><a href="#h13-3-42" id="h13-3-42" class="i">+        }
+</a>     }
+<a href="#h13-3-44" id="h13-3-44" class="d">-}
+</a><a href="#h13-3-45" id="h13-3-45" class="i">+}
+</a><b>diff --git a/<a id="h14" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h14-0" id="h14-0" class="h">@@ -1821,4 +1821,7 @@ Please specify one of them using the --source option to proceed.&lt;/value&gt;
+</a>     &lt;value&gt;Reboot required to fully enable the Windows Feature(s); proceeding due to --force&lt;/value&gt;
+     &lt;comment&gt;&quot;Windows Feature(s)&quot; is the name of the options Windows features setting.&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h14-0-3" id="h14-0-3" class="i">+  &lt;data name=&quot;InstallWaitingOnAnother&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h14-0-4" id="h14-0-4" class="i">+    &lt;value&gt;Waiting for another install/uninstall to complete...&lt;/value&gt;
+</a><a href="#h14-0-5" id="h14-0-5" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h15" href="../file/src/AppInstallerCLITests/InstallFlow.cpp.html">src/AppInstallerCLITests/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLITests/InstallFlow.cpp.html">src/AppInstallerCLITests/InstallFlow.cpp</a></b>
+<a href="#h15-0" id="h15-0" class="h">@@ -5,6 +5,7 @@
+</a> #include &quot;TestHooks.h&quot;
+ #include &lt;AppInstallerFileLogger.h&gt;
+ #include &lt;AppInstallerStrings.h&gt;
+<a href="#h15-0-3" id="h15-0-3" class="i">+#include &lt;AppInstallerSynchronization.h&gt;
+</a> #include &lt;Commands/InstallCommand.h&gt;
+ #include &lt;Commands/UninstallCommand.h&gt;
+ #include &lt;winget/AdminSettings.h&gt;
+<a href="#h15-1" id="h15-1" class="h">@@ -1151,4 +1152,55 @@ TEST_CASE(&quot;InstallFlow_InstallMultiple_SearchFailed&quot;, &quot;[InstallFlow][workflow][M
+</a>     INFO(installOutput.str());
+ 
+     REQUIRE_TERMINATED_WITH(context, APPINSTALLER_CLI_ERROR_NOT_ALL_QUERIES_FOUND_SINGLE);
+<a href="#h15-1-3" id="h15-1-3" class="d">-}</a><a href="#h15-1-4" id="h15-1-4" class="d">-
+\ No newline at end of file
+</a><a href="#h15-1-5" id="h15-1-5" class="i">+}
+</a><a href="#h15-1-6" id="h15-1-6" class="i">+
+</a><a href="#h15-1-7" id="h15-1-7" class="i">+TEST_CASE(&quot;InstallFlow_InstallAcquiresLock&quot;, &quot;[InstallFlow][workflow]&quot;)
+</a><a href="#h15-1-8" id="h15-1-8" class="i">+{
+</a><a href="#h15-1-9" id="h15-1-9" class="i">+    TestCommon::TempFile installResultPath(&quot;TestExeInstalled.txt&quot;);
+</a><a href="#h15-1-10" id="h15-1-10" class="i">+
+</a><a href="#h15-1-11" id="h15-1-11" class="i">+    std::ostringstream installOutput;
+</a><a href="#h15-1-12" id="h15-1-12" class="i">+    TestContext context{ installOutput, std::cin };
+</a><a href="#h15-1-13" id="h15-1-13" class="i">+    auto previousThreadGlobals = context.SetForCurrentThread();
+</a><a href="#h15-1-14" id="h15-1-14" class="i">+    OverrideForOpenSource(context, CreateTestSource({ TSR::TestQuery_ReturnOne }), true);
+</a><a href="#h15-1-15" id="h15-1-15" class="i">+    OverrideForShellExecute(context);
+</a><a href="#h15-1-16" id="h15-1-16" class="i">+    context.Args.AddArg(Execution::Args::Type::Query, TSR::TestQuery_ReturnOne.Query);
+</a><a href="#h15-1-17" id="h15-1-17" class="i">+
+</a><a href="#h15-1-18" id="h15-1-18" class="i">+    wil::unique_event enteredShellExecute;
+</a><a href="#h15-1-19" id="h15-1-19" class="i">+    enteredShellExecute.create();
+</a><a href="#h15-1-20" id="h15-1-20" class="i">+    wil::unique_event canLeaveShellExecute;
+</a><a href="#h15-1-21" id="h15-1-21" class="i">+    canLeaveShellExecute.create();
+</a><a href="#h15-1-22" id="h15-1-22" class="i">+    AppInstaller::ProgressCallback progress;
+</a><a href="#h15-1-23" id="h15-1-23" class="i">+
+</a><a href="#h15-1-24" id="h15-1-24" class="i">+    context.Override({ ShellExecuteInstallImpl, [&amp;](TestContext&amp; context)
+</a><a href="#h15-1-25" id="h15-1-25" class="i">+        {
+</a><a href="#h15-1-26" id="h15-1-26" class="i">+            enteredShellExecute.SetEvent();
+</a><a href="#h15-1-27" id="h15-1-27" class="i">+            canLeaveShellExecute.wait(500);
+</a><a href="#h15-1-28" id="h15-1-28" class="i">+            ShellExecuteInstallImpl(context);
+</a><a href="#h15-1-29" id="h15-1-29" class="i">+        }});
+</a><a href="#h15-1-30" id="h15-1-30" class="i">+
+</a><a href="#h15-1-31" id="h15-1-31" class="i">+    {
+</a><a href="#h15-1-32" id="h15-1-32" class="i">+        std::thread otherThread([&amp;]() {
+</a><a href="#h15-1-33" id="h15-1-33" class="i">+            InstallCommand install({});
+</a><a href="#h15-1-34" id="h15-1-34" class="i">+            install.Execute(context);
+</a><a href="#h15-1-35" id="h15-1-35" class="i">+            });
+</a><a href="#h15-1-36" id="h15-1-36" class="i">+
+</a><a href="#h15-1-37" id="h15-1-37" class="i">+        REQUIRE(enteredShellExecute.wait(5000));
+</a><a href="#h15-1-38" id="h15-1-38" class="i">+
+</a><a href="#h15-1-39" id="h15-1-39" class="i">+        AppInstaller::Synchronization::CrossProcessInstallLock mainThreadLock;
+</a><a href="#h15-1-40" id="h15-1-40" class="i">+        REQUIRE(!mainThreadLock.TryAcquireNoWait());
+</a><a href="#h15-1-41" id="h15-1-41" class="i">+
+</a><a href="#h15-1-42" id="h15-1-42" class="i">+        canLeaveShellExecute.SetEvent();
+</a><a href="#h15-1-43" id="h15-1-43" class="i">+        otherThread.join();
+</a><a href="#h15-1-44" id="h15-1-44" class="i">+    }
+</a><a href="#h15-1-45" id="h15-1-45" class="i">+
+</a><a href="#h15-1-46" id="h15-1-46" class="i">+    INFO(installOutput.str());
+</a><a href="#h15-1-47" id="h15-1-47" class="i">+
+</a><a href="#h15-1-48" id="h15-1-48" class="i">+    // Verify Installer is called and parameters are passed in.
+</a><a href="#h15-1-49" id="h15-1-49" class="i">+    REQUIRE(std::filesystem::exists(installResultPath.GetPath()));
+</a><a href="#h15-1-50" id="h15-1-50" class="i">+    std::ifstream installResultFile(installResultPath.GetPath());
+</a><a href="#h15-1-51" id="h15-1-51" class="i">+    REQUIRE(installResultFile.is_open());
+</a><a href="#h15-1-52" id="h15-1-52" class="i">+    std::string installResultStr;
+</a><a href="#h15-1-53" id="h15-1-53" class="i">+    std::getline(installResultFile, installResultStr);
+</a><a href="#h15-1-54" id="h15-1-54" class="i">+    REQUIRE(installResultStr.find(&quot;/custom&quot;) != std::string::npos);
+</a><a href="#h15-1-55" id="h15-1-55" class="i">+    REQUIRE(installResultStr.find(&quot;/silentwithprogress&quot;) != std::string::npos);
+</a><a href="#h15-1-56" id="h15-1-56" class="i">+}
+</a><b>diff --git a/<a id="h16" href="../file/src/AppInstallerCLITests/Synchronization.cpp.html">src/AppInstallerCLITests/Synchronization.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Synchronization.cpp.html">src/AppInstallerCLITests/Synchronization.cpp</a></b>
+<a href="#h16-0" id="h16-0" class="h">@@ -23,8 +23,7 @@ TEST_CASE(&quot;CPRWL_MultipleReaders&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>     // In the event of bugs, we don&#39;t want to block the test waiting forever
+     otherThread.detach();
+ 
+<a href="#h16-0-3" id="h16-0-3" class="d">-    // Wait up to a second for the other thread to do one thing...
+</a><a href="#h16-0-4" id="h16-0-4" class="d">-    REQUIRE(signal.wait(1000));
+</a><a href="#h16-0-5" id="h16-0-5" class="i">+    REQUIRE(signal.wait(500));
+</a> }
+ 
+ TEST_CASE(&quot;CPRWL_WriterBlocksReader&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+<a href="#h16-1" id="h16-1" class="h">@@ -44,11 +43,11 @@ TEST_CASE(&quot;CPRWL_WriterBlocksReader&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>         // In the event of bugs, we don&#39;t want to block the test waiting forever
+         otherThread.detach();
+ 
+<a href="#h16-1-3" id="h16-1-3" class="d">-        REQUIRE(!signal.wait(1000));
+</a><a href="#h16-1-4" id="h16-1-4" class="i">+        REQUIRE(!signal.wait(500));
+</a>     }
+ 
+     // Upon release of the writer, the other thread should signal
+<a href="#h16-1-8" id="h16-1-8" class="d">-    REQUIRE(signal.wait(1000));
+</a><a href="#h16-1-9" id="h16-1-9" class="i">+    REQUIRE(signal.wait(500));
+</a> }
+ 
+ TEST_CASE(&quot;CPRWL_ReaderBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+<a href="#h16-2" id="h16-2" class="h">@@ -68,11 +67,11 @@ TEST_CASE(&quot;CPRWL_ReaderBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>         // In the event of bugs, we don&#39;t want to block the test waiting forever
+         otherThread.detach();
+ 
+<a href="#h16-2-3" id="h16-2-3" class="d">-        REQUIRE(!signal.wait(1000));
+</a><a href="#h16-2-4" id="h16-2-4" class="i">+        REQUIRE(!signal.wait(500));
+</a>     }
+ 
+     // Upon release of the writer, the other thread should signal
+<a href="#h16-2-8" id="h16-2-8" class="d">-    REQUIRE(signal.wait(1000));
+</a><a href="#h16-2-9" id="h16-2-9" class="i">+    REQUIRE(signal.wait(500));
+</a> }
+ 
+ TEST_CASE(&quot;CPRWL_WriterBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+<a href="#h16-3" id="h16-3" class="h">@@ -92,11 +91,11 @@ TEST_CASE(&quot;CPRWL_WriterBlocksWriter&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>         // In the event of bugs, we don&#39;t want to block the test waiting forever
+         otherThread.detach();
+ 
+<a href="#h16-3-3" id="h16-3-3" class="d">-        REQUIRE(!signal.wait(1000));
+</a><a href="#h16-3-4" id="h16-3-4" class="i">+        REQUIRE(!signal.wait(500));
+</a>     }
+ 
+     // Upon release of the writer, the other thread should signal
+<a href="#h16-3-8" id="h16-3-8" class="d">-    REQUIRE(signal.wait(1000));
+</a><a href="#h16-3-9" id="h16-3-9" class="i">+    REQUIRE(signal.wait(500));
+</a> }
+ 
+ TEST_CASE(&quot;CPRWL_CancelEndsWait&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+<a href="#h16-4" id="h16-4" class="h">@@ -116,10 +115,65 @@ TEST_CASE(&quot;CPRWL_CancelEndsWait&quot;, &quot;[CrossProcessReaderWriteLock]&quot;)
+</a>     // In the event of bugs, we don&#39;t want to block the test waiting forever
+     otherThread.detach();
+ 
+<a href="#h16-4-3" id="h16-4-3" class="d">-    REQUIRE(!signal.wait(1000));
+</a><a href="#h16-4-4" id="h16-4-4" class="i">+    REQUIRE(!signal.wait(500));
+</a> 
+     progress.Cancel();
+ 
+     // Upon release of the writer, the other thread should signal
+<a href="#h16-4-9" id="h16-4-9" class="d">-    REQUIRE(signal.wait(1000));
+</a><a href="#h16-4-10" id="h16-4-10" class="i">+    REQUIRE(signal.wait(500));
+</a><a href="#h16-4-11" id="h16-4-11" class="i">+}
+</a><a href="#h16-4-12" id="h16-4-12" class="i">+
+</a><a href="#h16-4-13" id="h16-4-13" class="i">+TEST_CASE(&quot;CPIL_BlocksOthers&quot;, &quot;[CrossProcessInstallLock]&quot;)
+</a><a href="#h16-4-14" id="h16-4-14" class="i">+{
+</a><a href="#h16-4-15" id="h16-4-15" class="i">+    wil::unique_event signal;
+</a><a href="#h16-4-16" id="h16-4-16" class="i">+    signal.create();
+</a><a href="#h16-4-17" id="h16-4-17" class="i">+    AppInstaller::ProgressCallback progress;
+</a><a href="#h16-4-18" id="h16-4-18" class="i">+
+</a><a href="#h16-4-19" id="h16-4-19" class="i">+    {
+</a><a href="#h16-4-20" id="h16-4-20" class="i">+        CrossProcessInstallLock mainThreadLock;
+</a><a href="#h16-4-21" id="h16-4-21" class="i">+        mainThreadLock.Acquire(progress);
+</a><a href="#h16-4-22" id="h16-4-22" class="i">+
+</a><a href="#h16-4-23" id="h16-4-23" class="i">+        std::thread otherThread([&amp;signal, &amp;progress]() {
+</a><a href="#h16-4-24" id="h16-4-24" class="i">+            CrossProcessInstallLock otherThreadLock;
+</a><a href="#h16-4-25" id="h16-4-25" class="i">+            otherThreadLock.Acquire(progress);
+</a><a href="#h16-4-26" id="h16-4-26" class="i">+            signal.SetEvent();
+</a><a href="#h16-4-27" id="h16-4-27" class="i">+            });
+</a><a href="#h16-4-28" id="h16-4-28" class="i">+        // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h16-4-29" id="h16-4-29" class="i">+        otherThread.detach();
+</a><a href="#h16-4-30" id="h16-4-30" class="i">+
+</a><a href="#h16-4-31" id="h16-4-31" class="i">+        REQUIRE(!signal.wait(500));
+</a><a href="#h16-4-32" id="h16-4-32" class="i">+    }
+</a><a href="#h16-4-33" id="h16-4-33" class="i">+
+</a><a href="#h16-4-34" id="h16-4-34" class="i">+    // Upon release of the writer, the other thread should signal
+</a><a href="#h16-4-35" id="h16-4-35" class="i">+    REQUIRE(signal.wait(500));
+</a><a href="#h16-4-36" id="h16-4-36" class="i">+}
+</a><a href="#h16-4-37" id="h16-4-37" class="i">+
+</a><a href="#h16-4-38" id="h16-4-38" class="i">+TEST_CASE(&quot;CPIL_CancelEndsWait&quot;, &quot;[CrossProcessInstallLock]&quot;)
+</a><a href="#h16-4-39" id="h16-4-39" class="i">+{
+</a><a href="#h16-4-40" id="h16-4-40" class="i">+    wil::unique_event signal;
+</a><a href="#h16-4-41" id="h16-4-41" class="i">+    signal.create();
+</a><a href="#h16-4-42" id="h16-4-42" class="i">+    AppInstaller::ProgressCallback progress;
+</a><a href="#h16-4-43" id="h16-4-43" class="i">+
+</a><a href="#h16-4-44" id="h16-4-44" class="i">+    CrossProcessInstallLock mainThreadLock;
+</a><a href="#h16-4-45" id="h16-4-45" class="i">+    mainThreadLock.Acquire(progress);
+</a><a href="#h16-4-46" id="h16-4-46" class="i">+
+</a><a href="#h16-4-47" id="h16-4-47" class="i">+    std::optional&lt;bool&gt; otherThreadAcquireResult = std::nullopt;
+</a><a href="#h16-4-48" id="h16-4-48" class="i">+
+</a><a href="#h16-4-49" id="h16-4-49" class="i">+    std::thread otherThread([&amp;]() {
+</a><a href="#h16-4-50" id="h16-4-50" class="i">+        CrossProcessInstallLock otherThreadLock;
+</a><a href="#h16-4-51" id="h16-4-51" class="i">+        otherThreadAcquireResult = otherThreadLock.Acquire(progress);
+</a><a href="#h16-4-52" id="h16-4-52" class="i">+        signal.SetEvent();
+</a><a href="#h16-4-53" id="h16-4-53" class="i">+        });
+</a><a href="#h16-4-54" id="h16-4-54" class="i">+    // In the event of bugs, we don&#39;t want to block the test waiting forever
+</a><a href="#h16-4-55" id="h16-4-55" class="i">+    otherThread.detach();
+</a><a href="#h16-4-56" id="h16-4-56" class="i">+
+</a><a href="#h16-4-57" id="h16-4-57" class="i">+    REQUIRE(!signal.wait(500));
+</a><a href="#h16-4-58" id="h16-4-58" class="i">+
+</a><a href="#h16-4-59" id="h16-4-59" class="i">+    progress.Cancel();
+</a><a href="#h16-4-60" id="h16-4-60" class="i">+
+</a><a href="#h16-4-61" id="h16-4-61" class="i">+    // Upon release of the writer, the other thread should signal
+</a><a href="#h16-4-62" id="h16-4-62" class="i">+    REQUIRE(signal.wait(500));
+</a><a href="#h16-4-63" id="h16-4-63" class="i">+
+</a><a href="#h16-4-64" id="h16-4-64" class="i">+    REQUIRE(otherThreadAcquireResult.has_value());
+</a><a href="#h16-4-65" id="h16-4-65" class="i">+    REQUIRE(!otherThreadAcquireResult.value());
+</a> }
+<b>diff --git a/<a id="h17" href="../file/src/AppInstallerCLITests/TestCommon.cpp.html">src/AppInstallerCLITests/TestCommon.cpp</a> b/<a href="../file/src/AppInstallerCLITests/TestCommon.cpp.html">src/AppInstallerCLITests/TestCommon.cpp</a></b>
+<a href="#h17-0" id="h17-0" class="h">@@ -162,6 +162,10 @@ namespace TestCommon
+</a>         }
+     }
+ 
+<a href="#h17-0-3" id="h17-0-3" class="i">+    void TestProgress::SetProgressMessage(std::string_view)
+</a><a href="#h17-0-4" id="h17-0-4" class="i">+    {
+</a><a href="#h17-0-5" id="h17-0-5" class="i">+    }
+</a><a href="#h17-0-6" id="h17-0-6" class="i">+
+</a>     void TestProgress::BeginProgress()
+     {
+     }
+<b>diff --git a/<a id="h18" href="../file/src/AppInstallerCLITests/TestCommon.h.html">src/AppInstallerCLITests/TestCommon.h</a> b/<a href="../file/src/AppInstallerCLITests/TestCommon.h.html">src/AppInstallerCLITests/TestCommon.h</a></b>
+<a href="#h18-0" id="h18-0" class="h">@@ -100,7 +100,9 @@ namespace TestCommon
+</a>         void BeginProgress() override;
+         
+         void OnProgress(uint64_t current, uint64_t maximum, AppInstaller::ProgressType type) override;
+<a href="#h18-0-3" id="h18-0-3" class="d">-        
+</a><a href="#h18-0-4" id="h18-0-4" class="i">+
+</a><a href="#h18-0-5" id="h18-0-5" class="i">+        void SetProgressMessage(std::string_view message) override;
+</a><a href="#h18-0-6" id="h18-0-6" class="i">+
+</a>         void EndProgress(bool) override;
+ 
+         bool IsCancelled() override;
+<b>diff --git a/<a id="h19" href="../file/src/AppInstallerCLITests/WorkflowCommon.cpp.html">src/AppInstallerCLITests/WorkflowCommon.cpp</a> b/<a href="../file/src/AppInstallerCLITests/WorkflowCommon.cpp.html">src/AppInstallerCLITests/WorkflowCommon.cpp</a></b>
+<a href="#h19-0" id="h19-0" class="h">@@ -565,7 +565,7 @@ namespace TestCommon
+</a> 
+     void OverrideForPortableInstall(TestContext&amp; context)
+     {
+<a href="#h19-0-3" id="h19-0-3" class="d">-        context.Override({ PortableInstall, [](TestContext&amp;)
+</a><a href="#h19-0-4" id="h19-0-4" class="i">+        context.Override({ Workflow::details::PortableInstall, [](TestContext&amp;)
+</a>         {
+             std::filesystem::path temp = std::filesystem::temp_directory_path();
+             temp /= &quot;TestPortableInstalled.txt&quot;;
+<a href="#h19-1" id="h19-1" class="h">@@ -628,7 +628,7 @@ namespace TestCommon
+</a> 
+     void OverrideForMSIX(TestContext&amp; context)
+     {
+<a href="#h19-1-3" id="h19-1-3" class="d">-        context.Override({ MsixInstall, [](TestContext&amp; context)
+</a><a href="#h19-1-4" id="h19-1-4" class="i">+        context.Override({ Workflow::details::MsixInstall, [](TestContext&amp; context)
+</a>         {
+             std::filesystem::path temp = std::filesystem::temp_directory_path();
+             temp /= &quot;TestMsixInstalled.txt&quot;;
+<b>diff --git a/<a id="h20" href="../file/src/AppInstallerCommonCore/Progress.cpp.html">src/AppInstallerCommonCore/Progress.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Progress.cpp.html">src/AppInstallerCommonCore/Progress.cpp</a></b>
+<a href="#h20-0" id="h20-0" class="h">@@ -27,6 +27,15 @@ namespace AppInstaller
+</a>         }
+     }
+ 
+<a href="#h20-0-3" id="h20-0-3" class="i">+    void ProgressCallback::SetProgressMessage(std::string_view message)
+</a><a href="#h20-0-4" id="h20-0-4" class="i">+    {
+</a><a href="#h20-0-5" id="h20-0-5" class="i">+        IProgressSink* sink = GetSink();
+</a><a href="#h20-0-6" id="h20-0-6" class="i">+        if (sink)
+</a><a href="#h20-0-7" id="h20-0-7" class="i">+        {
+</a><a href="#h20-0-8" id="h20-0-8" class="i">+            sink-&gt;SetProgressMessage(message);
+</a><a href="#h20-0-9" id="h20-0-9" class="i">+        }
+</a><a href="#h20-0-10" id="h20-0-10" class="i">+    }
+</a><a href="#h20-0-11" id="h20-0-11" class="i">+
+</a>     void ProgressCallback::EndProgress(bool hideProgressWhenDone)
+     {
+         IProgressSink* sink = GetSink();
+<a href="#h20-1" id="h20-1" class="h">@@ -85,6 +94,11 @@ namespace AppInstaller
+</a>         m_baseCallback.OnProgress(m_rangeMin + (m_rangeMax - m_rangeMin) * current / maximum, m_globalMax, type);
+     }
+ 
+<a href="#h20-1-3" id="h20-1-3" class="i">+    void PartialPercentProgressCallback::SetProgressMessage(std::string_view message)
+</a><a href="#h20-1-4" id="h20-1-4" class="i">+    {
+</a><a href="#h20-1-5" id="h20-1-5" class="i">+        m_baseCallback.SetProgressMessage(message);
+</a><a href="#h20-1-6" id="h20-1-6" class="i">+    }
+</a><a href="#h20-1-7" id="h20-1-7" class="i">+
+</a>     void PartialPercentProgressCallback::EndProgress(bool)
+     {
+         THROW_HR(E_NOTIMPL);
+<b>diff --git a/<a id="h21" href="../file/src/AppInstallerCommonCore/Public/AppInstallerProgress.h.html">src/AppInstallerCommonCore/Public/AppInstallerProgress.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerProgress.h.html">src/AppInstallerCommonCore/Public/AppInstallerProgress.h</a></b>
+<a href="#h21-0" id="h21-0" class="h">@@ -4,6 +4,7 @@
+</a> #include &lt;wil/resource.h&gt;
+ #include &lt;atomic&gt;
+ #include &lt;functional&gt;
+<a href="#h21-0-3" id="h21-0-3" class="i">+#include &lt;string_view&gt;
+</a> 
+ namespace AppInstaller
+ {
+<a href="#h21-1" id="h21-1" class="h">@@ -35,6 +36,9 @@ namespace AppInstaller
+</a>         // If maximum is 0, the maximum is unknown.
+         virtual void OnProgress(uint64_t current, uint64_t maximum, ProgressType type) = 0;
+ 
+<a href="#h21-1-3" id="h21-1-3" class="i">+        // Sets a message for the current progress state.
+</a><a href="#h21-1-4" id="h21-1-4" class="i">+        virtual void SetProgressMessage(std::string_view message) = 0;
+</a><a href="#h21-1-5" id="h21-1-5" class="i">+
+</a>         // Called as progress begins.
+         virtual void BeginProgress() = 0;
+ 
+<a href="#h21-2" id="h21-2" class="h">@@ -65,6 +69,8 @@ namespace AppInstaller
+</a> 
+         void OnProgress(uint64_t current, uint64_t maximum, ProgressType type) override;
+ 
+<a href="#h21-2-3" id="h21-2-3" class="i">+        void SetProgressMessage(std::string_view message) override;
+</a><a href="#h21-2-4" id="h21-2-4" class="i">+
+</a>         void EndProgress(bool hideProgressWhenDone) override;
+ 
+         bool IsCancelled() override;
+<a href="#h21-3" id="h21-3" class="h">@@ -90,6 +96,8 @@ namespace AppInstaller
+</a> 
+         void OnProgress(uint64_t current, uint64_t maximum, ProgressType type) override;
+ 
+<a href="#h21-3-3" id="h21-3-3" class="i">+        void SetProgressMessage(std::string_view message) override;
+</a><a href="#h21-3-4" id="h21-3-4" class="i">+
+</a>         void EndProgress(bool hideProgressWhenDone) override;
+ 
+         [[nodiscard]] IProgressCallback::CancelFunctionRemoval SetCancellationFunction(std::function&lt;void()&gt;&amp;&amp; f) override;
+<b>diff --git a/<a id="h22" href="../file/src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h.html">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a> b/<a href="../file/src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h.html">src/AppInstallerCommonCore/Public/AppInstallerSynchronization.h</a></b>
+<a href="#h22-0" id="h22-0" class="h">@@ -55,4 +55,28 @@ namespace AppInstaller::Synchronization
+</a> 
+         std::vector&lt;wil::unique_mutex&gt; m_mutexesHeld;
+     };
+<a href="#h22-0-3" id="h22-0-3" class="i">+
+</a><a href="#h22-0-4" id="h22-0-4" class="i">+    // This lock is used to prevent multiple winget related processes from attempting to install (or uninstall) at the same time.
+</a><a href="#h22-0-5" id="h22-0-5" class="i">+    struct CrossProcessInstallLock
+</a><a href="#h22-0-6" id="h22-0-6" class="i">+    {
+</a><a href="#h22-0-7" id="h22-0-7" class="i">+        CrossProcessInstallLock();
+</a><a href="#h22-0-8" id="h22-0-8" class="i">+
+</a><a href="#h22-0-9" id="h22-0-9" class="i">+        // Acquires the lock; cancellation is enabled via the progress object.
+</a><a href="#h22-0-10" id="h22-0-10" class="i">+        // Returns true when the lock is acquired and false if the wait is cancelled.
+</a><a href="#h22-0-11" id="h22-0-11" class="i">+        bool Acquire(IProgressCallback&amp; progress);
+</a><a href="#h22-0-12" id="h22-0-12" class="i">+
+</a><a href="#h22-0-13" id="h22-0-13" class="i">+        // Optionally release the lock before destroying the object.
+</a><a href="#h22-0-14" id="h22-0-14" class="i">+        void Release();
+</a><a href="#h22-0-15" id="h22-0-15" class="i">+
+</a><a href="#h22-0-16" id="h22-0-16" class="i">+        // Attempts to acquire the mutex without a wait.
+</a><a href="#h22-0-17" id="h22-0-17" class="i">+        // Returns true if it was able, false if not.
+</a><a href="#h22-0-18" id="h22-0-18" class="i">+        bool TryAcquireNoWait();
+</a><a href="#h22-0-19" id="h22-0-19" class="i">+
+</a><a href="#h22-0-20" id="h22-0-20" class="i">+        // Indicates whether the lock is held.
+</a><a href="#h22-0-21" id="h22-0-21" class="i">+        operator bool() const;
+</a><a href="#h22-0-22" id="h22-0-22" class="i">+
+</a><a href="#h22-0-23" id="h22-0-23" class="i">+    private:
+</a><a href="#h22-0-24" id="h22-0-24" class="i">+        wil::unique_mutex m_mutex;
+</a><a href="#h22-0-25" id="h22-0-25" class="i">+        wil::mutex_release_scope_exit m_lock;
+</a><a href="#h22-0-26" id="h22-0-26" class="i">+    };
+</a> }
+<b>diff --git a/<a id="h23" href="../file/src/AppInstallerCommonCore/Synchronization.cpp.html">src/AppInstallerCommonCore/Synchronization.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Synchronization.cpp.html">src/AppInstallerCommonCore/Synchronization.cpp</a></b>
+<a href="#h23-0" id="h23-0" class="h">@@ -20,6 +20,9 @@ namespace AppInstaller::Synchronization
+</a>     // Arbitrary limit that should not ever cause a problem (theoretically 1 per process)
+     constexpr size_t s_CrossProcessReaderWriteLock_MaxReaders = 8;
+ 
+<a href="#h23-0-3" id="h23-0-3" class="i">+    // The amount of time that we wait in between checking for cancellation
+</a><a href="#h23-0-4" id="h23-0-4" class="i">+    constexpr std::chrono::milliseconds s_CrossProcessInstallLock_WaitLoopTime = 250ms;
+</a><a href="#h23-0-5" id="h23-0-5" class="i">+
+</a>     namespace
+     {
+         wil::unique_mutex OpenControlMutex(const std::wstring&amp; name)
+<a href="#h23-1" id="h23-1" class="h">@@ -259,4 +262,48 @@ namespace AppInstaller::Synchronization
+</a> 
+         return result;
+     }
+<a href="#h23-1-3" id="h23-1-3" class="i">+
+</a><a href="#h23-1-4" id="h23-1-4" class="i">+    CrossProcessInstallLock::CrossProcessInstallLock()
+</a><a href="#h23-1-5" id="h23-1-5" class="i">+    {
+</a><a href="#h23-1-6" id="h23-1-6" class="i">+        m_mutex.create(L&quot;WinGetCrossProcessInstallLock&quot;, 0, SYNCHRONIZE);
+</a><a href="#h23-1-7" id="h23-1-7" class="i">+    }
+</a><a href="#h23-1-8" id="h23-1-8" class="i">+
+</a><a href="#h23-1-9" id="h23-1-9" class="i">+    bool CrossProcessInstallLock::Acquire(IProgressCallback&amp; progress)
+</a><a href="#h23-1-10" id="h23-1-10" class="i">+    {
+</a><a href="#h23-1-11" id="h23-1-11" class="i">+        while (!progress.IsCancelled())
+</a><a href="#h23-1-12" id="h23-1-12" class="i">+        {
+</a><a href="#h23-1-13" id="h23-1-13" class="i">+            auto lock = m_mutex.acquire(nullptr, static_cast&lt;DWORD&gt;(std::chrono::duration_cast&lt;std::chrono::milliseconds&gt;(s_CrossProcessInstallLock_WaitLoopTime).count()));
+</a><a href="#h23-1-14" id="h23-1-14" class="i">+
+</a><a href="#h23-1-15" id="h23-1-15" class="i">+            if (lock)
+</a><a href="#h23-1-16" id="h23-1-16" class="i">+            {
+</a><a href="#h23-1-17" id="h23-1-17" class="i">+                m_lock = std::move(lock);
+</a><a href="#h23-1-18" id="h23-1-18" class="i">+                return true;
+</a><a href="#h23-1-19" id="h23-1-19" class="i">+            }
+</a><a href="#h23-1-20" id="h23-1-20" class="i">+        }
+</a><a href="#h23-1-21" id="h23-1-21" class="i">+
+</a><a href="#h23-1-22" id="h23-1-22" class="i">+        return false;
+</a><a href="#h23-1-23" id="h23-1-23" class="i">+    }
+</a><a href="#h23-1-24" id="h23-1-24" class="i">+
+</a><a href="#h23-1-25" id="h23-1-25" class="i">+    void CrossProcessInstallLock::Release()
+</a><a href="#h23-1-26" id="h23-1-26" class="i">+    {
+</a><a href="#h23-1-27" id="h23-1-27" class="i">+        m_lock.reset();
+</a><a href="#h23-1-28" id="h23-1-28" class="i">+    }
+</a><a href="#h23-1-29" id="h23-1-29" class="i">+
+</a><a href="#h23-1-30" id="h23-1-30" class="i">+    bool CrossProcessInstallLock::TryAcquireNoWait()
+</a><a href="#h23-1-31" id="h23-1-31" class="i">+    {
+</a><a href="#h23-1-32" id="h23-1-32" class="i">+        auto lock = m_mutex.acquire(nullptr, 0);
+</a><a href="#h23-1-33" id="h23-1-33" class="i">+
+</a><a href="#h23-1-34" id="h23-1-34" class="i">+        if (lock)
+</a><a href="#h23-1-35" id="h23-1-35" class="i">+        {
+</a><a href="#h23-1-36" id="h23-1-36" class="i">+            m_lock = std::move(lock);
+</a><a href="#h23-1-37" id="h23-1-37" class="i">+            return true;
+</a><a href="#h23-1-38" id="h23-1-38" class="i">+        }
+</a><a href="#h23-1-39" id="h23-1-39" class="i">+
+</a><a href="#h23-1-40" id="h23-1-40" class="i">+        return false;
+</a><a href="#h23-1-41" id="h23-1-41" class="i">+    }
+</a><a href="#h23-1-42" id="h23-1-42" class="i">+
+</a><a href="#h23-1-43" id="h23-1-43" class="i">+    CrossProcessInstallLock::operator bool() const
+</a><a href="#h23-1-44" id="h23-1-44" class="i">+    {
+</a><a href="#h23-1-45" id="h23-1-45" class="i">+        return static_cast&lt;bool&gt;(m_lock);
+</a><a href="#h23-1-46" id="h23-1-46" class="i">+    }
+</a> }
+</pre>
+</div>
+</body>
+</html>

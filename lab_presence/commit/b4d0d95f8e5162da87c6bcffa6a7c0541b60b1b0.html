@@ -1,0 +1,1935 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(nfc): implement nfc sender client and member directory lookup - lab_presence - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="lab_presence.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="lab_presence.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>lab_presence</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/b4d0d95f8e5162da87c6bcffa6a7c0541b60b1b0.html">b4d0d95f8e5162da87c6bcffa6a7c0541b60b1b0</a>
+<b>parent</b> <a href="../commit/4bcc69534030ceb2b7fefee87c2307dabf453813.html">4bcc69534030ceb2b7fefee87c2307dabf453813</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Sat, 25 Jul 2026 17:58:54 +0900
+
+feat(nfc): implement nfc sender client and member directory lookup
+
+Implement the NFC sender application logic to poll for NFC cards, map card serial numbers to user IDs via a directory, and toggle user presence statuses through the lab core API. Also update shared data structures and add comprehensive integration tests.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.env</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">Cargo.lock</a></td><td> | </td><td class="num">804</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">lab_core/Cargo.toml</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">lab_core/src/auth.rs</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">lab_core/src/main.rs</a></td><td> | </td><td class="num">87</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">nfc_sender/Cargo.toml</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">nfc_sender/src/main.rs</a></td><td> | </td><td class="num">235</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">shared/src/lib.rs</a></td><td> | </td><td class="num">50</td><td><span class="i">+++++++++++++++++++++++++++++++</span><span class="d">-------------------</span></td></tr>
+</table></pre><pre>8 files changed, 1010 insertions(+), 181 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.env.html">.env</a> b/<a href="../file/.env.html">.env</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -1,2 +1,6 @@
+</a><a href="#h0-0-0" id="h0-0-0" class="i">+CORE_URL=&quot;https://localhost:8443&quot;
+</a> SALT=&quot;your_secure_salt_here&quot;
+ ALLOWED_DEVICES=&#39;{&quot;nfc&quot;: &quot;nfc&quot;, &quot;remote&quot;: &quot;remote&quot;}&#39;
+<a href="#h0-0-3" id="h0-0-3" class="i">+MEMBER_DIRECTORY=&#39;{
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+    [{&quot;id&quot;:&quot;s241033&quot;,&quot;card_serial_number&quot;:&quot;123456789&quot;}]
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+}&#39;
+</a><b>diff --git a/<a id="h1" href="../file/Cargo.lock.html">Cargo.lock</a> b/<a href="../file/Cargo.lock.html">Cargo.lock</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -8,7 +8,7 @@ version = &quot;0.5.2&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;5f7b0a21988c1bf877cf4759ef5ddaac04c1c9fe808c9142ecb78ba97d97a28a&quot;
+ dependencies = [
+<a href="#h1-0-3" id="h1-0-3" class="d">- &quot;bitflags&quot;,
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+ &quot;bitflags 2.13.1&quot;,
+</a>  &quot;bytes&quot;,
+  &quot;futures-core&quot;,
+  &quot;futures-sink&quot;,
+<a href="#h1-1" id="h1-1" class="h">@@ -30,8 +30,8 @@ dependencies = [
+</a>  &quot;actix-service&quot;,
+  &quot;actix-tls&quot;,
+  &quot;actix-utils&quot;,
+<a href="#h1-1-3" id="h1-1-3" class="d">- &quot;base64&quot;,
+</a><a href="#h1-1-4" id="h1-1-4" class="d">- &quot;bitflags&quot;,
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+ &quot;base64 0.22.1&quot;,
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+ &quot;bitflags 2.13.1&quot;,
+</a>  &quot;brotli&quot;,
+  &quot;bytes&quot;,
+  &quot;bytestring&quot;,
+<a href="#h1-2" id="h1-2" class="h">@@ -40,8 +40,8 @@ dependencies = [
+</a>  &quot;flate2&quot;,
+  &quot;foldhash&quot;,
+  &quot;futures-core&quot;,
+<a href="#h1-2-3" id="h1-2-3" class="d">- &quot;h2&quot;,
+</a><a href="#h1-2-4" id="h1-2-4" class="d">- &quot;http&quot;,
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+ &quot;h2 0.3.27&quot;,
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+ &quot;http 0.2.12&quot;,
+</a>  &quot;httparse&quot;,
+  &quot;httpdate&quot;,
+  &quot;itoa&quot;,
+<a href="#h1-3" id="h1-3" class="h">@@ -66,7 +66,7 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;e01ed3140b2f8d422c68afa1ed2e85d996ea619c988ac834d255db32138655cb&quot;
+ dependencies = [
+  &quot;quote&quot;,
+<a href="#h1-3-3" id="h1-3-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-4" id="h1-4" class="h">@@ -77,7 +77,7 @@ checksum = &quot;14f8c75c51892f18d9c46150c5ac7beb81c95f78c8b83a634d49f4ca32551fe7&quot;
+</a> dependencies = [
+  &quot;bytestring&quot;,
+  &quot;cfg-if&quot;,
+<a href="#h1-4-3" id="h1-4-3" class="d">- &quot;http&quot;,
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+ &quot;http 0.2.12&quot;,
+</a>  &quot;regex&quot;,
+  &quot;regex-lite&quot;,
+  &quot;serde&quot;,
+<a href="#h1-5" id="h1-5" class="h">@@ -169,13 +169,13 @@ dependencies = [
+</a>  &quot;bytes&quot;,
+  &quot;bytestring&quot;,
+  &quot;cfg-if&quot;,
+<a href="#h1-5-3" id="h1-5-3" class="d">- &quot;cookie&quot;,
+</a><a href="#h1-5-4" id="h1-5-4" class="i">+ &quot;cookie 0.16.2&quot;,
+</a>  &quot;derive_more&quot;,
+  &quot;encoding_rs&quot;,
+  &quot;foldhash&quot;,
+  &quot;futures-core&quot;,
+  &quot;futures-util&quot;,
+<a href="#h1-5-10" id="h1-5-10" class="d">- &quot;impl-more 0.3.1&quot;,
+</a><a href="#h1-5-11" id="h1-5-11" class="i">+ &quot;impl-more 0.3.5&quot;,
+</a>  &quot;itoa&quot;,
+  &quot;language-tags&quot;,
+  &quot;log&quot;,
+<a href="#h1-6" id="h1-6" class="h">@@ -188,7 +188,7 @@ dependencies = [
+</a>  &quot;serde_json&quot;,
+  &quot;serde_urlencoded&quot;,
+  &quot;smallvec&quot;,
+<a href="#h1-6-3" id="h1-6-3" class="d">- &quot;socket2 0.6.4&quot;,
+</a><a href="#h1-6-4" id="h1-6-4" class="i">+ &quot;socket2 0.6.5&quot;,
+</a>  &quot;time&quot;,
+  &quot;tracing&quot;,
+  &quot;url&quot;,
+<a href="#h1-7" id="h1-7" class="h">@@ -203,7 +203,7 @@ dependencies = [
+</a>  &quot;actix-router&quot;,
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-7-3" id="h1-7-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-7-4" id="h1-7-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-8" id="h1-8" class="h">@@ -237,6 +237,56 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-8-3" id="h1-8-3" class="i">+name = &quot;anstream&quot;
+</a><a href="#h1-8-4" id="h1-8-4" class="i">+version = &quot;1.0.0&quot;
+</a><a href="#h1-8-5" id="h1-8-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-8-6" id="h1-8-6" class="i">+checksum = &quot;824a212faf96e9acacdbd09febd34438f8f711fb84e09a8916013cd7815ca28d&quot;
+</a><a href="#h1-8-7" id="h1-8-7" class="i">+dependencies = [
+</a><a href="#h1-8-8" id="h1-8-8" class="i">+ &quot;anstyle&quot;,
+</a><a href="#h1-8-9" id="h1-8-9" class="i">+ &quot;anstyle-parse&quot;,
+</a><a href="#h1-8-10" id="h1-8-10" class="i">+ &quot;anstyle-query&quot;,
+</a><a href="#h1-8-11" id="h1-8-11" class="i">+ &quot;anstyle-wincon&quot;,
+</a><a href="#h1-8-12" id="h1-8-12" class="i">+ &quot;colorchoice&quot;,
+</a><a href="#h1-8-13" id="h1-8-13" class="i">+ &quot;is_terminal_polyfill&quot;,
+</a><a href="#h1-8-14" id="h1-8-14" class="i">+ &quot;utf8parse&quot;,
+</a><a href="#h1-8-15" id="h1-8-15" class="i">+]
+</a><a href="#h1-8-16" id="h1-8-16" class="i">+
+</a><a href="#h1-8-17" id="h1-8-17" class="i">+[[package]]
+</a><a href="#h1-8-18" id="h1-8-18" class="i">+name = &quot;anstyle&quot;
+</a><a href="#h1-8-19" id="h1-8-19" class="i">+version = &quot;1.0.14&quot;
+</a><a href="#h1-8-20" id="h1-8-20" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-8-21" id="h1-8-21" class="i">+checksum = &quot;940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000&quot;
+</a><a href="#h1-8-22" id="h1-8-22" class="i">+
+</a><a href="#h1-8-23" id="h1-8-23" class="i">+[[package]]
+</a><a href="#h1-8-24" id="h1-8-24" class="i">+name = &quot;anstyle-parse&quot;
+</a><a href="#h1-8-25" id="h1-8-25" class="i">+version = &quot;1.0.0&quot;
+</a><a href="#h1-8-26" id="h1-8-26" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-8-27" id="h1-8-27" class="i">+checksum = &quot;52ce7f38b242319f7cabaa6813055467063ecdc9d355bbb4ce0c68908cd8130e&quot;
+</a><a href="#h1-8-28" id="h1-8-28" class="i">+dependencies = [
+</a><a href="#h1-8-29" id="h1-8-29" class="i">+ &quot;utf8parse&quot;,
+</a><a href="#h1-8-30" id="h1-8-30" class="i">+]
+</a><a href="#h1-8-31" id="h1-8-31" class="i">+
+</a><a href="#h1-8-32" id="h1-8-32" class="i">+[[package]]
+</a><a href="#h1-8-33" id="h1-8-33" class="i">+name = &quot;anstyle-query&quot;
+</a><a href="#h1-8-34" id="h1-8-34" class="i">+version = &quot;1.1.5&quot;
+</a><a href="#h1-8-35" id="h1-8-35" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-8-36" id="h1-8-36" class="i">+checksum = &quot;40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc&quot;
+</a><a href="#h1-8-37" id="h1-8-37" class="i">+dependencies = [
+</a><a href="#h1-8-38" id="h1-8-38" class="i">+ &quot;windows-sys 0.61.2&quot;,
+</a><a href="#h1-8-39" id="h1-8-39" class="i">+]
+</a><a href="#h1-8-40" id="h1-8-40" class="i">+
+</a><a href="#h1-8-41" id="h1-8-41" class="i">+[[package]]
+</a><a href="#h1-8-42" id="h1-8-42" class="i">+name = &quot;anstyle-wincon&quot;
+</a><a href="#h1-8-43" id="h1-8-43" class="i">+version = &quot;3.0.11&quot;
+</a><a href="#h1-8-44" id="h1-8-44" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-8-45" id="h1-8-45" class="i">+checksum = &quot;291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d&quot;
+</a><a href="#h1-8-46" id="h1-8-46" class="i">+dependencies = [
+</a><a href="#h1-8-47" id="h1-8-47" class="i">+ &quot;anstyle&quot;,
+</a><a href="#h1-8-48" id="h1-8-48" class="i">+ &quot;once_cell_polyfill&quot;,
+</a><a href="#h1-8-49" id="h1-8-49" class="i">+ &quot;windows-sys 0.61.2&quot;,
+</a><a href="#h1-8-50" id="h1-8-50" class="i">+]
+</a><a href="#h1-8-51" id="h1-8-51" class="i">+
+</a><a href="#h1-8-52" id="h1-8-52" class="i">+[[package]]
+</a> name = &quot;asn1-rs&quot;
+ version = &quot;0.7.2&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-9" id="h1-9" class="h">@@ -260,7 +310,7 @@ checksum = &quot;3109e49b1e4909e9db6515a30c633684d68cdeaa252f215214cb4fa1a5bfee2c&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-9-3" id="h1-9-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-9-4" id="h1-9-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a>  &quot;synstructure&quot;,
+ ]
+ 
+<a href="#h1-10" id="h1-10" class="h">@@ -272,10 +322,26 @@ checksum = &quot;7b18050c2cd6fe86c3a76584ef5e0baf286d038cda203eb6223df2cc413565f7&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-10-3" id="h1-10-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-10-4" id="h1-10-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a><a href="#h1-10-5" id="h1-10-5" class="i">+]
+</a><a href="#h1-10-6" id="h1-10-6" class="i">+
+</a><a href="#h1-10-7" id="h1-10-7" class="i">+[[package]]
+</a><a href="#h1-10-8" id="h1-10-8" class="i">+name = &quot;assert-json-diff&quot;
+</a><a href="#h1-10-9" id="h1-10-9" class="i">+version = &quot;2.0.2&quot;
+</a><a href="#h1-10-10" id="h1-10-10" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-10-11" id="h1-10-11" class="i">+checksum = &quot;47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12&quot;
+</a><a href="#h1-10-12" id="h1-10-12" class="i">+dependencies = [
+</a><a href="#h1-10-13" id="h1-10-13" class="i">+ &quot;serde&quot;,
+</a><a href="#h1-10-14" id="h1-10-14" class="i">+ &quot;serde_json&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-10-18" id="h1-10-18" class="i">+name = &quot;atomic-waker&quot;
+</a><a href="#h1-10-19" id="h1-10-19" class="i">+version = &quot;1.1.2&quot;
+</a><a href="#h1-10-20" id="h1-10-20" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-10-21" id="h1-10-21" class="i">+checksum = &quot;1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0&quot;
+</a><a href="#h1-10-22" id="h1-10-22" class="i">+
+</a><a href="#h1-10-23" id="h1-10-23" class="i">+[[package]]
+</a> name = &quot;autocfg&quot;
+ version = &quot;1.5.1&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-11" id="h1-11" class="h">@@ -283,9 +349,9 @@ checksum = &quot;f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53&quot;
+</a> 
+ [[package]]
+ name = &quot;aws-lc-rs&quot;
+<a href="#h1-11-3" id="h1-11-3" class="d">-version = &quot;1.17.1&quot;
+</a><a href="#h1-11-4" id="h1-11-4" class="i">+version = &quot;1.17.3&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-11-6" id="h1-11-6" class="d">-checksum = &quot;4342d8937fc7e5dd9b1c60292261c0670c882a2cd1719cfc11b1af41731e32ad&quot;
+</a><a href="#h1-11-7" id="h1-11-7" class="i">+checksum = &quot;00bdb5da18dac48ca2cc7cd4a98e533e8635a58e2361d13a1a4ee3888e0d72f1&quot;
+</a> dependencies = [
+  &quot;aws-lc-sys&quot;,
+  &quot;zeroize&quot;,
+<a href="#h1-12" id="h1-12" class="h">@@ -293,9 +359,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;aws-lc-sys&quot;
+<a href="#h1-12-3" id="h1-12-3" class="d">-version = &quot;0.42.0&quot;
+</a><a href="#h1-12-4" id="h1-12-4" class="i">+version = &quot;0.43.0&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-12-6" id="h1-12-6" class="d">-checksum = &quot;6d9ceb1da931507a12f4fccea479dccd00da1943e1b4ae72d8e502d707361444&quot;
+</a><a href="#h1-12-7" id="h1-12-7" class="i">+checksum = &quot;43103168cc76fe62678a375e722fc9cb3a0146159ac5828bc4f0dfd755c2224c&quot;
+</a> dependencies = [
+  &quot;cc&quot;,
+  &quot;cmake&quot;,
+<a href="#h1-13" id="h1-13" class="h">@@ -311,6 +377,12 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6&quot;
+ 
+ [[package]]
+<a href="#h1-13-3" id="h1-13-3" class="i">+name = &quot;base64&quot;
+</a><a href="#h1-13-4" id="h1-13-4" class="i">+version = &quot;0.23.0&quot;
+</a><a href="#h1-13-5" id="h1-13-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-13-6" id="h1-13-6" class="i">+checksum = &quot;b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9&quot;
+</a><a href="#h1-13-7" id="h1-13-7" class="i">+
+</a><a href="#h1-13-8" id="h1-13-8" class="i">+[[package]]
+</a> name = &quot;bit-vec&quot;
+ version = &quot;0.9.1&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-14" id="h1-14" class="h">@@ -321,9 +393,15 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;bitflags&quot;
+<a href="#h1-14-3" id="h1-14-3" class="d">-version = &quot;2.13.0&quot;
+</a><a href="#h1-14-4" id="h1-14-4" class="i">+version = &quot;1.3.2&quot;
+</a><a href="#h1-14-5" id="h1-14-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-14-6" id="h1-14-6" class="i">+checksum = &quot;bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a&quot;
+</a><a href="#h1-14-7" id="h1-14-7" class="i">+
+</a><a href="#h1-14-8" id="h1-14-8" class="i">+[[package]]
+</a><a href="#h1-14-9" id="h1-14-9" class="i">+name = &quot;bitflags&quot;
+</a><a href="#h1-14-10" id="h1-14-10" class="i">+version = &quot;2.13.1&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-14-12" id="h1-14-12" class="d">-checksum = &quot;b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8&quot;
+</a><a href="#h1-14-13" id="h1-14-13" class="i">+checksum = &quot;b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da&quot;
+</a> 
+ [[package]]
+ name = &quot;block-buffer&quot;
+<a href="#h1-15" id="h1-15" class="h">@@ -357,9 +435,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;bytes&quot;
+<a href="#h1-15-3" id="h1-15-3" class="d">-version = &quot;1.12.0&quot;
+</a><a href="#h1-15-4" id="h1-15-4" class="i">+version = &quot;1.12.1&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-15-6" id="h1-15-6" class="d">-checksum = &quot;8ae3f5d315924270530207e2a68396c3cc547f6dca3fbdca317cfb1a51edb593&quot;
+</a><a href="#h1-15-7" id="h1-15-7" class="i">+checksum = &quot;fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04&quot;
+</a> 
+ [[package]]
+ name = &quot;bytestring&quot;
+<a href="#h1-16" id="h1-16" class="h">@@ -372,9 +450,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;cc&quot;
+<a href="#h1-16-3" id="h1-16-3" class="d">-version = &quot;1.2.65&quot;
+</a><a href="#h1-16-4" id="h1-16-4" class="i">+version = &quot;1.4.0&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-16-6" id="h1-16-6" class="d">-checksum = &quot;e228eec9be7c17ccb640b59b36a5cd805ea2a564a4c5e162c2f659fea30d3b96&quot;
+</a><a href="#h1-16-7" id="h1-16-7" class="i">+checksum = &quot;5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9&quot;
+</a> dependencies = [
+  &quot;find-msvc-tools&quot;,
+  &quot;jobserver&quot;,
+<a href="#h1-17" id="h1-17" class="h">@@ -409,6 +487,12 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-17-3" id="h1-17-3" class="i">+name = &quot;colorchoice&quot;
+</a><a href="#h1-17-4" id="h1-17-4" class="i">+version = &quot;1.0.5&quot;
+</a><a href="#h1-17-5" id="h1-17-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-17-6" id="h1-17-6" class="i">+checksum = &quot;1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570&quot;
+</a><a href="#h1-17-7" id="h1-17-7" class="i">+
+</a><a href="#h1-17-8" id="h1-17-8" class="i">+[[package]]
+</a> name = &quot;const-oid&quot;
+ version = &quot;0.10.2&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-18" id="h1-18" class="h">@@ -435,6 +519,35 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-18-3" id="h1-18-3" class="i">+name = &quot;cookie&quot;
+</a><a href="#h1-18-4" id="h1-18-4" class="i">+version = &quot;0.18.1&quot;
+</a><a href="#h1-18-5" id="h1-18-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-18-6" id="h1-18-6" class="i">+checksum = &quot;4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747&quot;
+</a><a href="#h1-18-7" id="h1-18-7" class="i">+dependencies = [
+</a><a href="#h1-18-8" id="h1-18-8" class="i">+ &quot;percent-encoding&quot;,
+</a><a href="#h1-18-9" id="h1-18-9" class="i">+ &quot;time&quot;,
+</a><a href="#h1-18-10" id="h1-18-10" class="i">+ &quot;version_check&quot;,
+</a><a href="#h1-18-11" id="h1-18-11" class="i">+]
+</a><a href="#h1-18-12" id="h1-18-12" class="i">+
+</a><a href="#h1-18-13" id="h1-18-13" class="i">+[[package]]
+</a><a href="#h1-18-14" id="h1-18-14" class="i">+name = &quot;cookie_store&quot;
+</a><a href="#h1-18-15" id="h1-18-15" class="i">+version = &quot;0.22.1&quot;
+</a><a href="#h1-18-16" id="h1-18-16" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-18-17" id="h1-18-17" class="i">+checksum = &quot;15b2c103cf610ec6cae3da84a766285b42fd16aad564758459e6ecf128c75206&quot;
+</a><a href="#h1-18-18" id="h1-18-18" class="i">+dependencies = [
+</a><a href="#h1-18-19" id="h1-18-19" class="i">+ &quot;cookie 0.18.1&quot;,
+</a><a href="#h1-18-20" id="h1-18-20" class="i">+ &quot;document-features&quot;,
+</a><a href="#h1-18-21" id="h1-18-21" class="i">+ &quot;idna&quot;,
+</a><a href="#h1-18-22" id="h1-18-22" class="i">+ &quot;indexmap&quot;,
+</a><a href="#h1-18-23" id="h1-18-23" class="i">+ &quot;log&quot;,
+</a><a href="#h1-18-24" id="h1-18-24" class="i">+ &quot;serde&quot;,
+</a><a href="#h1-18-25" id="h1-18-25" class="i">+ &quot;serde_derive&quot;,
+</a><a href="#h1-18-26" id="h1-18-26" class="i">+ &quot;serde_json&quot;,
+</a><a href="#h1-18-27" id="h1-18-27" class="i">+ &quot;time&quot;,
+</a><a href="#h1-18-28" id="h1-18-28" class="i">+ &quot;url&quot;,
+</a><a href="#h1-18-29" id="h1-18-29" class="i">+]
+</a><a href="#h1-18-30" id="h1-18-30" class="i">+
+</a><a href="#h1-18-31" id="h1-18-31" class="i">+[[package]]
+</a> name = &quot;cpufeatures&quot;
+ version = &quot;0.3.0&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-19" id="h1-19" class="h">@@ -468,6 +581,55 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8&quot;
+ 
+ [[package]]
+<a href="#h1-19-3" id="h1-19-3" class="i">+name = &quot;deadpool&quot;
+</a><a href="#h1-19-4" id="h1-19-4" class="i">+version = &quot;0.12.3&quot;
+</a><a href="#h1-19-5" id="h1-19-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-19-6" id="h1-19-6" class="i">+checksum = &quot;0be2b1d1d6ec8d846f05e137292d0b89133caf95ef33695424c09568bdd39b1b&quot;
+</a><a href="#h1-19-7" id="h1-19-7" class="i">+dependencies = [
+</a><a href="#h1-19-8" id="h1-19-8" class="i">+ &quot;deadpool-runtime&quot;,
+</a><a href="#h1-19-9" id="h1-19-9" class="i">+ &quot;lazy_static&quot;,
+</a><a href="#h1-19-10" id="h1-19-10" class="i">+ &quot;num_cpus&quot;,
+</a><a href="#h1-19-11" id="h1-19-11" class="i">+ &quot;tokio&quot;,
+</a><a href="#h1-19-12" id="h1-19-12" class="i">+]
+</a><a href="#h1-19-13" id="h1-19-13" class="i">+
+</a><a href="#h1-19-14" id="h1-19-14" class="i">+[[package]]
+</a><a href="#h1-19-15" id="h1-19-15" class="i">+name = &quot;deadpool-runtime&quot;
+</a><a href="#h1-19-16" id="h1-19-16" class="i">+version = &quot;0.1.4&quot;
+</a><a href="#h1-19-17" id="h1-19-17" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-19-18" id="h1-19-18" class="i">+checksum = &quot;092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b&quot;
+</a><a href="#h1-19-19" id="h1-19-19" class="i">+
+</a><a href="#h1-19-20" id="h1-19-20" class="i">+[[package]]
+</a><a href="#h1-19-21" id="h1-19-21" class="i">+name = &quot;defmt&quot;
+</a><a href="#h1-19-22" id="h1-19-22" class="i">+version = &quot;1.1.1&quot;
+</a><a href="#h1-19-23" id="h1-19-23" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-19-24" id="h1-19-24" class="i">+checksum = &quot;e2953bfe4f93bbd20cc71198842756f77d161884c99ebbabc41d80231ded88d1&quot;
+</a><a href="#h1-19-25" id="h1-19-25" class="i">+dependencies = [
+</a><a href="#h1-19-26" id="h1-19-26" class="i">+ &quot;bitflags 1.3.2&quot;,
+</a><a href="#h1-19-27" id="h1-19-27" class="i">+ &quot;defmt-macros&quot;,
+</a><a href="#h1-19-28" id="h1-19-28" class="i">+]
+</a><a href="#h1-19-29" id="h1-19-29" class="i">+
+</a><a href="#h1-19-30" id="h1-19-30" class="i">+[[package]]
+</a><a href="#h1-19-31" id="h1-19-31" class="i">+name = &quot;defmt-macros&quot;
+</a><a href="#h1-19-32" id="h1-19-32" class="i">+version = &quot;1.1.1&quot;
+</a><a href="#h1-19-33" id="h1-19-33" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-19-34" id="h1-19-34" class="i">+checksum = &quot;bad9c72e7ca2137e0dc3813245a0d282fd6daad32fd800af018306a9169b5fe8&quot;
+</a><a href="#h1-19-35" id="h1-19-35" class="i">+dependencies = [
+</a><a href="#h1-19-36" id="h1-19-36" class="i">+ &quot;defmt-parser&quot;,
+</a><a href="#h1-19-37" id="h1-19-37" class="i">+ &quot;proc-macro2&quot;,
+</a><a href="#h1-19-38" id="h1-19-38" class="i">+ &quot;quote&quot;,
+</a><a href="#h1-19-39" id="h1-19-39" class="i">+ &quot;syn 2.0.119&quot;,
+</a><a href="#h1-19-40" id="h1-19-40" class="i">+]
+</a><a href="#h1-19-41" id="h1-19-41" class="i">+
+</a><a href="#h1-19-42" id="h1-19-42" class="i">+[[package]]
+</a><a href="#h1-19-43" id="h1-19-43" class="i">+name = &quot;defmt-parser&quot;
+</a><a href="#h1-19-44" id="h1-19-44" class="i">+version = &quot;1.0.0&quot;
+</a><a href="#h1-19-45" id="h1-19-45" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-19-46" id="h1-19-46" class="i">+checksum = &quot;10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e&quot;
+</a><a href="#h1-19-47" id="h1-19-47" class="i">+dependencies = [
+</a><a href="#h1-19-48" id="h1-19-48" class="i">+ &quot;thiserror&quot;,
+</a><a href="#h1-19-49" id="h1-19-49" class="i">+]
+</a><a href="#h1-19-50" id="h1-19-50" class="i">+
+</a><a href="#h1-19-51" id="h1-19-51" class="i">+[[package]]
+</a> name = &quot;der-parser&quot;
+ version = &quot;10.0.0&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-20" id="h1-20" class="h">@@ -506,7 +668,7 @@ dependencies = [
+</a>  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+  &quot;rustc_version&quot;,
+<a href="#h1-20-3" id="h1-20-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-20-4" id="h1-20-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a>  &quot;unicode-xid&quot;,
+ ]
+ 
+<a href="#h1-21" id="h1-21" class="h">@@ -529,7 +691,16 @@ checksum = &quot;1ac70aa55017e108007fbaf5aa0f54b021c98f92ff8af59d42eda9da96e3dd4f&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-21-3" id="h1-21-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-21-4" id="h1-21-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a><a href="#h1-21-5" id="h1-21-5" class="i">+]
+</a><a href="#h1-21-6" id="h1-21-6" class="i">+
+</a><a href="#h1-21-7" id="h1-21-7" class="i">+[[package]]
+</a><a href="#h1-21-8" id="h1-21-8" class="i">+name = &quot;document-features&quot;
+</a><a href="#h1-21-9" id="h1-21-9" class="i">+version = &quot;0.2.12&quot;
+</a><a href="#h1-21-10" id="h1-21-10" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-21-11" id="h1-21-11" class="i">+checksum = &quot;d4b8a88685455ed29a21542a33abd9cb6510b6b129abadabdcef0f4c55bc8f61&quot;
+</a><a href="#h1-21-12" id="h1-21-12" class="i">+dependencies = [
+</a><a href="#h1-21-13" id="h1-21-13" class="i">+ &quot;litrs&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-22" id="h1-22" class="h">@@ -539,6 +710,12 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;77c90badedccf4105eca100756a0b1289e191f6fcbdadd3cee1d2f614f97da8f&quot;
+ 
+ [[package]]
+<a href="#h1-22-3" id="h1-22-3" class="i">+name = &quot;dotenvy&quot;
+</a><a href="#h1-22-4" id="h1-22-4" class="i">+version = &quot;0.15.7&quot;
+</a><a href="#h1-22-5" id="h1-22-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-22-6" id="h1-22-6" class="i">+checksum = &quot;1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b&quot;
+</a><a href="#h1-22-7" id="h1-22-7" class="i">+
+</a><a href="#h1-22-8" id="h1-22-8" class="i">+[[package]]
+</a> name = &quot;dunce&quot;
+ version = &quot;1.0.5&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-23" id="h1-23" class="h">@@ -554,16 +731,26 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-23-3" id="h1-23-3" class="d">-name = &quot;env_logger&quot;
+</a><a href="#h1-23-4" id="h1-23-4" class="d">-version = &quot;0.10.2&quot;
+</a><a href="#h1-23-5" id="h1-23-5" class="i">+name = &quot;env_filter&quot;
+</a><a href="#h1-23-6" id="h1-23-6" class="i">+version = &quot;2.0.0&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-23-8" id="h1-23-8" class="d">-checksum = &quot;4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580&quot;
+</a><a href="#h1-23-9" id="h1-23-9" class="i">+checksum = &quot;900d271a03799a1ee8d1ca9b19893b48ca674a9284fefcfb85f05e74ed314217&quot;
+</a> dependencies = [
+<a href="#h1-23-11" id="h1-23-11" class="d">- &quot;humantime&quot;,
+</a><a href="#h1-23-12" id="h1-23-12" class="d">- &quot;is-terminal&quot;,
+</a>  &quot;log&quot;,
+  &quot;regex&quot;,
+<a href="#h1-23-15" id="h1-23-15" class="d">- &quot;termcolor&quot;,
+</a><a href="#h1-23-16" id="h1-23-16" class="i">+]
+</a><a href="#h1-23-17" id="h1-23-17" class="i">+
+</a><a href="#h1-23-18" id="h1-23-18" class="i">+[[package]]
+</a><a href="#h1-23-19" id="h1-23-19" class="i">+name = &quot;env_logger&quot;
+</a><a href="#h1-23-20" id="h1-23-20" class="i">+version = &quot;0.11.11&quot;
+</a><a href="#h1-23-21" id="h1-23-21" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-23-22" id="h1-23-22" class="i">+checksum = &quot;de671bd27a75a797dc9ae289ba1e77276e75e2026408aab65185384e2d5cd3f6&quot;
+</a><a href="#h1-23-23" id="h1-23-23" class="i">+dependencies = [
+</a><a href="#h1-23-24" id="h1-23-24" class="i">+ &quot;anstream&quot;,
+</a><a href="#h1-23-25" id="h1-23-25" class="i">+ &quot;anstyle&quot;,
+</a><a href="#h1-23-26" id="h1-23-26" class="i">+ &quot;env_filter&quot;,
+</a><a href="#h1-23-27" id="h1-23-27" class="i">+ &quot;jiff&quot;,
+</a><a href="#h1-23-28" id="h1-23-28" class="i">+ &quot;log&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-24" id="h1-24" class="h">@@ -626,31 +813,89 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c&quot;
+ 
+ [[package]]
+<a href="#h1-24-3" id="h1-24-3" class="i">+name = &quot;futures&quot;
+</a><a href="#h1-24-4" id="h1-24-4" class="i">+version = &quot;0.3.33&quot;
+</a><a href="#h1-24-5" id="h1-24-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-24-6" id="h1-24-6" class="i">+checksum = &quot;a88cf1f829d945f548cf8fec32c61b1f202b6d93b45848602fc02af4b12ad218&quot;
+</a><a href="#h1-24-7" id="h1-24-7" class="i">+dependencies = [
+</a><a href="#h1-24-8" id="h1-24-8" class="i">+ &quot;futures-channel&quot;,
+</a><a href="#h1-24-9" id="h1-24-9" class="i">+ &quot;futures-core&quot;,
+</a><a href="#h1-24-10" id="h1-24-10" class="i">+ &quot;futures-executor&quot;,
+</a><a href="#h1-24-11" id="h1-24-11" class="i">+ &quot;futures-io&quot;,
+</a><a href="#h1-24-12" id="h1-24-12" class="i">+ &quot;futures-sink&quot;,
+</a><a href="#h1-24-13" id="h1-24-13" class="i">+ &quot;futures-task&quot;,
+</a><a href="#h1-24-14" id="h1-24-14" class="i">+ &quot;futures-util&quot;,
+</a><a href="#h1-24-15" id="h1-24-15" class="i">+]
+</a><a href="#h1-24-16" id="h1-24-16" class="i">+
+</a><a href="#h1-24-17" id="h1-24-17" class="i">+[[package]]
+</a><a href="#h1-24-18" id="h1-24-18" class="i">+name = &quot;futures-channel&quot;
+</a><a href="#h1-24-19" id="h1-24-19" class="i">+version = &quot;0.3.33&quot;
+</a><a href="#h1-24-20" id="h1-24-20" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-24-21" id="h1-24-21" class="i">+checksum = &quot;262590f4fe6afeb0bc83be1daa64e52657fe185690a958af7f3ad0e92085c5ae&quot;
+</a><a href="#h1-24-22" id="h1-24-22" class="i">+dependencies = [
+</a><a href="#h1-24-23" id="h1-24-23" class="i">+ &quot;futures-core&quot;,
+</a><a href="#h1-24-24" id="h1-24-24" class="i">+ &quot;futures-sink&quot;,
+</a><a href="#h1-24-25" id="h1-24-25" class="i">+]
+</a><a href="#h1-24-26" id="h1-24-26" class="i">+
+</a><a href="#h1-24-27" id="h1-24-27" class="i">+[[package]]
+</a> name = &quot;futures-core&quot;
+<a href="#h1-24-29" id="h1-24-29" class="d">-version = &quot;0.3.32&quot;
+</a><a href="#h1-24-30" id="h1-24-30" class="i">+version = &quot;0.3.33&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-24-32" id="h1-24-32" class="d">-checksum = &quot;7e3450815272ef58cec6d564423f6e755e25379b217b0bc688e295ba24df6b1d&quot;
+</a><a href="#h1-24-33" id="h1-24-33" class="i">+checksum = &quot;2cd50c473c80f6d7c3670a752354b8e569b1a7cbfdc0419ec88e5edad85e0dc7&quot;
+</a><a href="#h1-24-34" id="h1-24-34" class="i">+
+</a><a href="#h1-24-35" id="h1-24-35" class="i">+[[package]]
+</a><a href="#h1-24-36" id="h1-24-36" class="i">+name = &quot;futures-executor&quot;
+</a><a href="#h1-24-37" id="h1-24-37" class="i">+version = &quot;0.3.33&quot;
+</a><a href="#h1-24-38" id="h1-24-38" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-24-39" id="h1-24-39" class="i">+checksum = &quot;6754879cc9f2c66f88c6e5c35344bb0bdb0708b0352b1201815667c7eabc7458&quot;
+</a><a href="#h1-24-40" id="h1-24-40" class="i">+dependencies = [
+</a><a href="#h1-24-41" id="h1-24-41" class="i">+ &quot;futures-core&quot;,
+</a><a href="#h1-24-42" id="h1-24-42" class="i">+ &quot;futures-task&quot;,
+</a><a href="#h1-24-43" id="h1-24-43" class="i">+ &quot;futures-util&quot;,
+</a><a href="#h1-24-44" id="h1-24-44" class="i">+]
+</a><a href="#h1-24-45" id="h1-24-45" class="i">+
+</a><a href="#h1-24-46" id="h1-24-46" class="i">+[[package]]
+</a><a href="#h1-24-47" id="h1-24-47" class="i">+name = &quot;futures-io&quot;
+</a><a href="#h1-24-48" id="h1-24-48" class="i">+version = &quot;0.3.33&quot;
+</a><a href="#h1-24-49" id="h1-24-49" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-24-50" id="h1-24-50" class="i">+checksum = &quot;4577ecaa3c4f96589d473f679a71b596316f6641bc350038b962a5daf0085d7a&quot;
+</a><a href="#h1-24-51" id="h1-24-51" class="i">+
+</a><a href="#h1-24-52" id="h1-24-52" class="i">+[[package]]
+</a><a href="#h1-24-53" id="h1-24-53" class="i">+name = &quot;futures-macro&quot;
+</a><a href="#h1-24-54" id="h1-24-54" class="i">+version = &quot;0.3.33&quot;
+</a><a href="#h1-24-55" id="h1-24-55" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-24-56" id="h1-24-56" class="i">+checksum = &quot;2d6d3cde68c518367be28956066ddfef33813991b77a55005a69dae04bf3b10b&quot;
+</a><a href="#h1-24-57" id="h1-24-57" class="i">+dependencies = [
+</a><a href="#h1-24-58" id="h1-24-58" class="i">+ &quot;proc-macro2&quot;,
+</a><a href="#h1-24-59" id="h1-24-59" class="i">+ &quot;quote&quot;,
+</a><a href="#h1-24-60" id="h1-24-60" class="i">+ &quot;syn 2.0.119&quot;,
+</a><a href="#h1-24-61" id="h1-24-61" class="i">+]
+</a> 
+ [[package]]
+ name = &quot;futures-sink&quot;
+<a href="#h1-24-65" id="h1-24-65" class="d">-version = &quot;0.3.32&quot;
+</a><a href="#h1-24-66" id="h1-24-66" class="i">+version = &quot;0.3.33&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-24-68" id="h1-24-68" class="d">-checksum = &quot;c39754e157331b013978ec91992bde1ac089843443c49cbc7f46150b0fad0893&quot;
+</a><a href="#h1-24-69" id="h1-24-69" class="i">+checksum = &quot;e34418ac499d6305c2fb5ad0ed2f6ac998c5f8ca209b4510f7f94242c647e307&quot;
+</a> 
+ [[package]]
+ name = &quot;futures-task&quot;
+<a href="#h1-24-73" id="h1-24-73" class="d">-version = &quot;0.3.32&quot;
+</a><a href="#h1-24-74" id="h1-24-74" class="i">+version = &quot;0.3.33&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-24-76" id="h1-24-76" class="d">-checksum = &quot;037711b3d59c33004d3856fbdc83b99d4ff37a24768fa1be9ce3538a1cde4393&quot;
+</a><a href="#h1-24-77" id="h1-24-77" class="i">+checksum = &quot;b231ed28831efb4a61a08580c4bc233ec56bc009f4cd8f52da2c3cb97df0c109&quot;
+</a> 
+ [[package]]
+ name = &quot;futures-util&quot;
+<a href="#h1-24-81" id="h1-24-81" class="d">-version = &quot;0.3.32&quot;
+</a><a href="#h1-24-82" id="h1-24-82" class="i">+version = &quot;0.3.33&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-24-84" id="h1-24-84" class="d">-checksum = &quot;389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6&quot;
+</a><a href="#h1-24-85" id="h1-24-85" class="i">+checksum = &quot;a77a90a256fce34da66415271e30f94ee91c57b04b8a2c042d9cf3220179deaa&quot;
+</a> dependencies = [
+<a href="#h1-24-87" id="h1-24-87" class="i">+ &quot;futures-channel&quot;,
+</a>  &quot;futures-core&quot;,
+<a href="#h1-24-89" id="h1-24-89" class="i">+ &quot;futures-io&quot;,
+</a><a href="#h1-24-90" id="h1-24-90" class="i">+ &quot;futures-macro&quot;,
+</a><a href="#h1-24-91" id="h1-24-91" class="i">+ &quot;futures-sink&quot;,
+</a>  &quot;futures-task&quot;,
+<a href="#h1-24-93" id="h1-24-93" class="i">+ &quot;memchr&quot;,
+</a>  &quot;pin-project-lite&quot;,
+  &quot;slab&quot;,
+ ]
+<a href="#h1-25" id="h1-25" class="h">@@ -668,25 +913,13 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;getrandom&quot;
+<a href="#h1-25-3" id="h1-25-3" class="d">-version = &quot;0.3.4&quot;
+</a><a href="#h1-25-4" id="h1-25-4" class="d">-source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-25-5" id="h1-25-5" class="d">-checksum = &quot;899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd&quot;
+</a><a href="#h1-25-6" id="h1-25-6" class="d">-dependencies = [
+</a><a href="#h1-25-7" id="h1-25-7" class="d">- &quot;cfg-if&quot;,
+</a><a href="#h1-25-8" id="h1-25-8" class="d">- &quot;libc&quot;,
+</a><a href="#h1-25-9" id="h1-25-9" class="d">- &quot;r-efi 5.3.0&quot;,
+</a><a href="#h1-25-10" id="h1-25-10" class="d">- &quot;wasip2&quot;,
+</a><a href="#h1-25-11" id="h1-25-11" class="d">-]
+</a><a href="#h1-25-12" id="h1-25-12" class="d">-
+</a><a href="#h1-25-13" id="h1-25-13" class="d">-[[package]]
+</a><a href="#h1-25-14" id="h1-25-14" class="d">-name = &quot;getrandom&quot;
+</a> version = &quot;0.4.3&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099&quot;
+ dependencies = [
+  &quot;cfg-if&quot;,
+  &quot;libc&quot;,
+<a href="#h1-25-21" id="h1-25-21" class="d">- &quot;r-efi 6.0.0&quot;,
+</a><a href="#h1-25-22" id="h1-25-22" class="i">+ &quot;r-efi&quot;,
+</a>  &quot;rand_core&quot;,
+ ]
+ 
+<a href="#h1-26" id="h1-26" class="h">@@ -701,7 +934,26 @@ dependencies = [
+</a>  &quot;futures-core&quot;,
+  &quot;futures-sink&quot;,
+  &quot;futures-util&quot;,
+<a href="#h1-26-3" id="h1-26-3" class="d">- &quot;http&quot;,
+</a><a href="#h1-26-4" id="h1-26-4" class="i">+ &quot;http 0.2.12&quot;,
+</a><a href="#h1-26-5" id="h1-26-5" class="i">+ &quot;indexmap&quot;,
+</a><a href="#h1-26-6" id="h1-26-6" class="i">+ &quot;slab&quot;,
+</a><a href="#h1-26-7" id="h1-26-7" class="i">+ &quot;tokio&quot;,
+</a><a href="#h1-26-8" id="h1-26-8" class="i">+ &quot;tokio-util&quot;,
+</a><a href="#h1-26-9" id="h1-26-9" class="i">+ &quot;tracing&quot;,
+</a><a href="#h1-26-10" id="h1-26-10" class="i">+]
+</a><a href="#h1-26-11" id="h1-26-11" class="i">+
+</a><a href="#h1-26-12" id="h1-26-12" class="i">+[[package]]
+</a><a href="#h1-26-13" id="h1-26-13" class="i">+name = &quot;h2&quot;
+</a><a href="#h1-26-14" id="h1-26-14" class="i">+version = &quot;0.4.15&quot;
+</a><a href="#h1-26-15" id="h1-26-15" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-26-16" id="h1-26-16" class="i">+checksum = &quot;6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155&quot;
+</a><a href="#h1-26-17" id="h1-26-17" class="i">+dependencies = [
+</a><a href="#h1-26-18" id="h1-26-18" class="i">+ &quot;atomic-waker&quot;,
+</a><a href="#h1-26-19" id="h1-26-19" class="i">+ &quot;bytes&quot;,
+</a><a href="#h1-26-20" id="h1-26-20" class="i">+ &quot;fnv&quot;,
+</a><a href="#h1-26-21" id="h1-26-21" class="i">+ &quot;futures-core&quot;,
+</a><a href="#h1-26-22" id="h1-26-22" class="i">+ &quot;futures-sink&quot;,
+</a><a href="#h1-26-23" id="h1-26-23" class="i">+ &quot;http 1.4.2&quot;,
+</a>  &quot;indexmap&quot;,
+  &quot;slab&quot;,
+  &quot;tokio&quot;,
+<a href="#h1-27" id="h1-27" class="h">@@ -733,6 +985,39 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-27-3" id="h1-27-3" class="i">+name = &quot;http&quot;
+</a><a href="#h1-27-4" id="h1-27-4" class="i">+version = &quot;1.4.2&quot;
+</a><a href="#h1-27-5" id="h1-27-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-27-6" id="h1-27-6" class="i">+checksum = &quot;6970f50e31d6fc17d3fa27329444bfa74e196cf62e95052a3f6fee181dba6425&quot;
+</a><a href="#h1-27-7" id="h1-27-7" class="i">+dependencies = [
+</a><a href="#h1-27-8" id="h1-27-8" class="i">+ &quot;bytes&quot;,
+</a><a href="#h1-27-9" id="h1-27-9" class="i">+ &quot;itoa&quot;,
+</a><a href="#h1-27-10" id="h1-27-10" class="i">+]
+</a><a href="#h1-27-11" id="h1-27-11" class="i">+
+</a><a href="#h1-27-12" id="h1-27-12" class="i">+[[package]]
+</a><a href="#h1-27-13" id="h1-27-13" class="i">+name = &quot;http-body&quot;
+</a><a href="#h1-27-14" id="h1-27-14" class="i">+version = &quot;1.1.0&quot;
+</a><a href="#h1-27-15" id="h1-27-15" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-27-16" id="h1-27-16" class="i">+checksum = &quot;ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c&quot;
+</a><a href="#h1-27-17" id="h1-27-17" class="i">+dependencies = [
+</a><a href="#h1-27-18" id="h1-27-18" class="i">+ &quot;bytes&quot;,
+</a><a href="#h1-27-19" id="h1-27-19" class="i">+ &quot;http 1.4.2&quot;,
+</a><a href="#h1-27-20" id="h1-27-20" class="i">+]
+</a><a href="#h1-27-21" id="h1-27-21" class="i">+
+</a><a href="#h1-27-22" id="h1-27-22" class="i">+[[package]]
+</a><a href="#h1-27-23" id="h1-27-23" class="i">+name = &quot;http-body-util&quot;
+</a><a href="#h1-27-24" id="h1-27-24" class="i">+version = &quot;0.1.4&quot;
+</a><a href="#h1-27-25" id="h1-27-25" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-27-26" id="h1-27-26" class="i">+checksum = &quot;e9f41fd6a08e4d4ec69df65976da761afd5ad5e58a9d4acb46bd1c953a9e3ff2&quot;
+</a><a href="#h1-27-27" id="h1-27-27" class="i">+dependencies = [
+</a><a href="#h1-27-28" id="h1-27-28" class="i">+ &quot;bytes&quot;,
+</a><a href="#h1-27-29" id="h1-27-29" class="i">+ &quot;futures-core&quot;,
+</a><a href="#h1-27-30" id="h1-27-30" class="i">+ &quot;http 1.4.2&quot;,
+</a><a href="#h1-27-31" id="h1-27-31" class="i">+ &quot;http-body&quot;,
+</a><a href="#h1-27-32" id="h1-27-32" class="i">+ &quot;pin-project-lite&quot;,
+</a><a href="#h1-27-33" id="h1-27-33" class="i">+]
+</a><a href="#h1-27-34" id="h1-27-34" class="i">+
+</a><a href="#h1-27-35" id="h1-27-35" class="i">+[[package]]
+</a> name = &quot;httparse&quot;
+ version = &quot;1.10.1&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-28" id="h1-28" class="h">@@ -745,12 +1030,6 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9&quot;
+ 
+ [[package]]
+<a href="#h1-28-3" id="h1-28-3" class="d">-name = &quot;humantime&quot;
+</a><a href="#h1-28-4" id="h1-28-4" class="d">-version = &quot;2.4.0&quot;
+</a><a href="#h1-28-5" id="h1-28-5" class="d">-source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-28-6" id="h1-28-6" class="d">-checksum = &quot;15cdd26707701c53297e2fa6afb323d55fbc1d0810c3aec078ae3ef0424c3c15&quot;
+</a><a href="#h1-28-7" id="h1-28-7" class="d">-
+</a><a href="#h1-28-8" id="h1-28-8" class="d">-[[package]]
+</a> name = &quot;hybrid-array&quot;
+ version = &quot;0.4.13&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-29" id="h1-29" class="h">@@ -760,6 +1039,42 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-29-3" id="h1-29-3" class="i">+name = &quot;hyper&quot;
+</a><a href="#h1-29-4" id="h1-29-4" class="i">+version = &quot;1.11.0&quot;
+</a><a href="#h1-29-5" id="h1-29-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-29-6" id="h1-29-6" class="i">+checksum = &quot;d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72&quot;
+</a><a href="#h1-29-7" id="h1-29-7" class="i">+dependencies = [
+</a><a href="#h1-29-8" id="h1-29-8" class="i">+ &quot;atomic-waker&quot;,
+</a><a href="#h1-29-9" id="h1-29-9" class="i">+ &quot;bytes&quot;,
+</a><a href="#h1-29-10" id="h1-29-10" class="i">+ &quot;futures-channel&quot;,
+</a><a href="#h1-29-11" id="h1-29-11" class="i">+ &quot;futures-core&quot;,
+</a><a href="#h1-29-12" id="h1-29-12" class="i">+ &quot;h2 0.4.15&quot;,
+</a><a href="#h1-29-13" id="h1-29-13" class="i">+ &quot;http 1.4.2&quot;,
+</a><a href="#h1-29-14" id="h1-29-14" class="i">+ &quot;http-body&quot;,
+</a><a href="#h1-29-15" id="h1-29-15" class="i">+ &quot;httparse&quot;,
+</a><a href="#h1-29-16" id="h1-29-16" class="i">+ &quot;httpdate&quot;,
+</a><a href="#h1-29-17" id="h1-29-17" class="i">+ &quot;itoa&quot;,
+</a><a href="#h1-29-18" id="h1-29-18" class="i">+ &quot;pin-project-lite&quot;,
+</a><a href="#h1-29-19" id="h1-29-19" class="i">+ &quot;smallvec&quot;,
+</a><a href="#h1-29-20" id="h1-29-20" class="i">+ &quot;tokio&quot;,
+</a><a href="#h1-29-21" id="h1-29-21" class="i">+ &quot;want&quot;,
+</a><a href="#h1-29-22" id="h1-29-22" class="i">+]
+</a><a href="#h1-29-23" id="h1-29-23" class="i">+
+</a><a href="#h1-29-24" id="h1-29-24" class="i">+[[package]]
+</a><a href="#h1-29-25" id="h1-29-25" class="i">+name = &quot;hyper-util&quot;
+</a><a href="#h1-29-26" id="h1-29-26" class="i">+version = &quot;0.1.20&quot;
+</a><a href="#h1-29-27" id="h1-29-27" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-29-28" id="h1-29-28" class="i">+checksum = &quot;96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0&quot;
+</a><a href="#h1-29-29" id="h1-29-29" class="i">+dependencies = [
+</a><a href="#h1-29-30" id="h1-29-30" class="i">+ &quot;bytes&quot;,
+</a><a href="#h1-29-31" id="h1-29-31" class="i">+ &quot;http 1.4.2&quot;,
+</a><a href="#h1-29-32" id="h1-29-32" class="i">+ &quot;http-body&quot;,
+</a><a href="#h1-29-33" id="h1-29-33" class="i">+ &quot;hyper&quot;,
+</a><a href="#h1-29-34" id="h1-29-34" class="i">+ &quot;pin-project-lite&quot;,
+</a><a href="#h1-29-35" id="h1-29-35" class="i">+ &quot;tokio&quot;,
+</a><a href="#h1-29-36" id="h1-29-36" class="i">+]
+</a><a href="#h1-29-37" id="h1-29-37" class="i">+
+</a><a href="#h1-29-38" id="h1-29-38" class="i">+[[package]]
+</a> name = &quot;icu_collections&quot;
+ version = &quot;2.2.0&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-30" id="h1-30" class="h">@@ -870,9 +1185,9 @@ checksum = &quot;e8a5a9a0ff0086c7a148acb942baaabeadf9504d10400b5a05645853729b9cd2&quot;
+</a> 
+ [[package]]
+ name = &quot;impl-more&quot;
+<a href="#h1-30-3" id="h1-30-3" class="d">-version = &quot;0.3.1&quot;
+</a><a href="#h1-30-4" id="h1-30-4" class="i">+version = &quot;0.3.5&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-30-6" id="h1-30-6" class="d">-checksum = &quot;35a84fd5aa25fae5c0f4a33d9cac2ca017fc622cbd089be2229993514990f870&quot;
+</a><a href="#h1-30-7" id="h1-30-7" class="i">+checksum = &quot;277ff51754a3f68f12f58446c5d006aa8baa4914ea273cce24a599cfaff33d4f&quot;
+</a> 
+ [[package]]
+ name = &quot;indexmap&quot;
+<a href="#h1-31" id="h1-31" class="h">@@ -885,15 +1200,10 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-31-3" id="h1-31-3" class="d">-name = &quot;is-terminal&quot;
+</a><a href="#h1-31-4" id="h1-31-4" class="d">-version = &quot;0.4.17&quot;
+</a><a href="#h1-31-5" id="h1-31-5" class="i">+name = &quot;is_terminal_polyfill&quot;
+</a><a href="#h1-31-6" id="h1-31-6" class="i">+version = &quot;1.70.2&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-31-8" id="h1-31-8" class="d">-checksum = &quot;3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46&quot;
+</a><a href="#h1-31-9" id="h1-31-9" class="d">-dependencies = [
+</a><a href="#h1-31-10" id="h1-31-10" class="d">- &quot;hermit-abi&quot;,
+</a><a href="#h1-31-11" id="h1-31-11" class="d">- &quot;libc&quot;,
+</a><a href="#h1-31-12" id="h1-31-12" class="d">- &quot;windows-sys 0.61.2&quot;,
+</a><a href="#h1-31-13" id="h1-31-13" class="d">-]
+</a><a href="#h1-31-14" id="h1-31-14" class="i">+checksum = &quot;a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695&quot;
+</a> 
+ [[package]]
+ name = &quot;itoa&quot;
+<a href="#h1-32" id="h1-32" class="h">@@ -902,12 +1212,48 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682&quot;
+ 
+ [[package]]
+<a href="#h1-32-3" id="h1-32-3" class="i">+name = &quot;jiff&quot;
+</a><a href="#h1-32-4" id="h1-32-4" class="i">+version = &quot;0.2.34&quot;
+</a><a href="#h1-32-5" id="h1-32-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-32-6" id="h1-32-6" class="i">+checksum = &quot;e184d09547b80eb7e20d141ba2fb1fbac843ca53f4cf1b31210adc4c1adc6e16&quot;
+</a><a href="#h1-32-7" id="h1-32-7" class="i">+dependencies = [
+</a><a href="#h1-32-8" id="h1-32-8" class="i">+ &quot;defmt&quot;,
+</a><a href="#h1-32-9" id="h1-32-9" class="i">+ &quot;jiff-core&quot;,
+</a><a href="#h1-32-10" id="h1-32-10" class="i">+ &quot;jiff-static&quot;,
+</a><a href="#h1-32-11" id="h1-32-11" class="i">+ &quot;log&quot;,
+</a><a href="#h1-32-12" id="h1-32-12" class="i">+ &quot;portable-atomic&quot;,
+</a><a href="#h1-32-13" id="h1-32-13" class="i">+ &quot;portable-atomic-util&quot;,
+</a><a href="#h1-32-14" id="h1-32-14" class="i">+ &quot;serde_core&quot;,
+</a><a href="#h1-32-15" id="h1-32-15" class="i">+]
+</a><a href="#h1-32-16" id="h1-32-16" class="i">+
+</a><a href="#h1-32-17" id="h1-32-17" class="i">+[[package]]
+</a><a href="#h1-32-18" id="h1-32-18" class="i">+name = &quot;jiff-core&quot;
+</a><a href="#h1-32-19" id="h1-32-19" class="i">+version = &quot;0.1.0&quot;
+</a><a href="#h1-32-20" id="h1-32-20" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-32-21" id="h1-32-21" class="i">+checksum = &quot;7feca88439efe53da3754500c1851dedf3cb36c524dd5cf8225cc0794de95d09&quot;
+</a><a href="#h1-32-22" id="h1-32-22" class="i">+dependencies = [
+</a><a href="#h1-32-23" id="h1-32-23" class="i">+ &quot;defmt&quot;,
+</a><a href="#h1-32-24" id="h1-32-24" class="i">+]
+</a><a href="#h1-32-25" id="h1-32-25" class="i">+
+</a><a href="#h1-32-26" id="h1-32-26" class="i">+[[package]]
+</a><a href="#h1-32-27" id="h1-32-27" class="i">+name = &quot;jiff-static&quot;
+</a><a href="#h1-32-28" id="h1-32-28" class="i">+version = &quot;0.2.34&quot;
+</a><a href="#h1-32-29" id="h1-32-29" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-32-30" id="h1-32-30" class="i">+checksum = &quot;323da076b7a6faf914dc677cb05a4b907742ff7375c8322c9e7f5061e5e0e9de&quot;
+</a><a href="#h1-32-31" id="h1-32-31" class="i">+dependencies = [
+</a><a href="#h1-32-32" id="h1-32-32" class="i">+ &quot;jiff-core&quot;,
+</a><a href="#h1-32-33" id="h1-32-33" class="i">+ &quot;proc-macro2&quot;,
+</a><a href="#h1-32-34" id="h1-32-34" class="i">+ &quot;quote&quot;,
+</a><a href="#h1-32-35" id="h1-32-35" class="i">+ &quot;syn 2.0.119&quot;,
+</a><a href="#h1-32-36" id="h1-32-36" class="i">+]
+</a><a href="#h1-32-37" id="h1-32-37" class="i">+
+</a><a href="#h1-32-38" id="h1-32-38" class="i">+[[package]]
+</a> name = &quot;jobserver&quot;
+<a href="#h1-32-40" id="h1-32-40" class="d">-version = &quot;0.1.34&quot;
+</a><a href="#h1-32-41" id="h1-32-41" class="i">+version = &quot;0.1.35&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-32-43" id="h1-32-43" class="d">-checksum = &quot;9afb3de4395d6b3e67a780b6de64b51c978ecf11cb9a462c66be7d4ca9039d33&quot;
+</a><a href="#h1-32-44" id="h1-32-44" class="i">+checksum = &quot;1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3&quot;
+</a> dependencies = [
+<a href="#h1-32-46" id="h1-32-46" class="d">- &quot;getrandom 0.3.4&quot;,
+</a><a href="#h1-32-47" id="h1-32-47" class="i">+ &quot;getrandom 0.4.3&quot;,
+</a>  &quot;libc&quot;,
+ ]
+ 
+<a href="#h1-33" id="h1-33" class="h">@@ -916,7 +1262,7 @@ name = &quot;lab_core&quot;
+</a> version = &quot;0.1.0&quot;
+ dependencies = [
+  &quot;actix-web&quot;,
+<a href="#h1-33-3" id="h1-33-3" class="d">- &quot;base64&quot;,
+</a><a href="#h1-33-4" id="h1-33-4" class="i">+ &quot;base64 0.23.0&quot;,
+</a>  &quot;dotenv&quot;,
+  &quot;env_logger&quot;,
+  &quot;log&quot;,
+<a href="#h1-34" id="h1-34" class="h">@@ -943,9 +1289,9 @@ checksum = &quot;bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe&quot;
+</a> 
+ [[package]]
+ name = &quot;libc&quot;
+<a href="#h1-34-3" id="h1-34-3" class="d">-version = &quot;0.2.186&quot;
+</a><a href="#h1-34-4" id="h1-34-4" class="i">+version = &quot;0.2.189&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-34-6" id="h1-34-6" class="d">-checksum = &quot;68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66&quot;
+</a><a href="#h1-34-7" id="h1-34-7" class="i">+checksum = &quot;3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2&quot;
+</a> 
+ [[package]]
+ name = &quot;litemap&quot;
+<a href="#h1-35" id="h1-35" class="h">@@ -954,6 +1300,12 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0&quot;
+ 
+ [[package]]
+<a href="#h1-35-3" id="h1-35-3" class="i">+name = &quot;litrs&quot;
+</a><a href="#h1-35-4" id="h1-35-4" class="i">+version = &quot;1.0.0&quot;
+</a><a href="#h1-35-5" id="h1-35-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-35-6" id="h1-35-6" class="i">+checksum = &quot;11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092&quot;
+</a><a href="#h1-35-7" id="h1-35-7" class="i">+
+</a><a href="#h1-35-8" id="h1-35-8" class="i">+[[package]]
+</a> name = &quot;local-channel&quot;
+ version = &quot;0.1.5&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-36" id="h1-36" class="h">@@ -987,9 +1339,9 @@ checksum = &quot;0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad&quot;
+</a> 
+ [[package]]
+ name = &quot;memchr&quot;
+<a href="#h1-36-3" id="h1-36-3" class="d">-version = &quot;2.8.2&quot;
+</a><a href="#h1-36-4" id="h1-36-4" class="i">+version = &quot;2.8.3&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-36-6" id="h1-36-6" class="d">-checksum = &quot;88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4&quot;
+</a><a href="#h1-36-7" id="h1-36-7" class="i">+checksum = &quot;cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98&quot;
+</a> 
+ [[package]]
+ name = &quot;mime&quot;
+<a href="#h1-37" id="h1-37" class="h">@@ -1015,9 +1367,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;mio&quot;
+<a href="#h1-37-3" id="h1-37-3" class="d">-version = &quot;1.2.1&quot;
+</a><a href="#h1-37-4" id="h1-37-4" class="i">+version = &quot;1.2.2&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-37-6" id="h1-37-6" class="d">-checksum = &quot;02bd0af71c67b473010cbbc60715ee815645a4dc942899111f494b4b737d6fda&quot;
+</a><a href="#h1-37-7" id="h1-37-7" class="i">+checksum = &quot;30d65c71f1ce40ab09135ce117d742b9f8a19ff91a41a8b57ed50bc2de59c427&quot;
+</a> dependencies = [
+  &quot;libc&quot;,
+  &quot;log&quot;,
+<a href="#h1-38" id="h1-38" class="h">@@ -1028,6 +1380,15 @@ dependencies = [
+</a> [[package]]
+ name = &quot;nfc_sender&quot;
+ version = &quot;0.1.0&quot;
+<a href="#h1-38-3" id="h1-38-3" class="i">+dependencies = [
+</a><a href="#h1-38-4" id="h1-38-4" class="i">+ &quot;dotenvy&quot;,
+</a><a href="#h1-38-5" id="h1-38-5" class="i">+ &quot;pcsc&quot;,
+</a><a href="#h1-38-6" id="h1-38-6" class="i">+ &quot;serde_json&quot;,
+</a><a href="#h1-38-7" id="h1-38-7" class="i">+ &quot;shared&quot;,
+</a><a href="#h1-38-8" id="h1-38-8" class="i">+ &quot;tokio&quot;,
+</a><a href="#h1-38-9" id="h1-38-9" class="i">+ &quot;ureq&quot;,
+</a><a href="#h1-38-10" id="h1-38-10" class="i">+ &quot;wiremock&quot;,
+</a><a href="#h1-38-11" id="h1-38-11" class="i">+]
+</a> 
+ [[package]]
+ name = &quot;nom&quot;
+<a href="#h1-39" id="h1-39" class="h">@@ -1074,6 +1435,16 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-39-3" id="h1-39-3" class="i">+name = &quot;num_cpus&quot;
+</a><a href="#h1-39-4" id="h1-39-4" class="i">+version = &quot;1.17.0&quot;
+</a><a href="#h1-39-5" id="h1-39-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-39-6" id="h1-39-6" class="i">+checksum = &quot;91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b&quot;
+</a><a href="#h1-39-7" id="h1-39-7" class="i">+dependencies = [
+</a><a href="#h1-39-8" id="h1-39-8" class="i">+ &quot;hermit-abi&quot;,
+</a><a href="#h1-39-9" id="h1-39-9" class="i">+ &quot;libc&quot;,
+</a><a href="#h1-39-10" id="h1-39-10" class="i">+]
+</a><a href="#h1-39-11" id="h1-39-11" class="i">+
+</a><a href="#h1-39-12" id="h1-39-12" class="i">+[[package]]
+</a> name = &quot;oid-registry&quot;
+ version = &quot;0.8.1&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-40" id="h1-40" class="h">@@ -1089,6 +1460,12 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50&quot;
+ 
+ [[package]]
+<a href="#h1-40-3" id="h1-40-3" class="i">+name = &quot;once_cell_polyfill&quot;
+</a><a href="#h1-40-4" id="h1-40-4" class="i">+version = &quot;1.70.2&quot;
+</a><a href="#h1-40-5" id="h1-40-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-40-6" id="h1-40-6" class="i">+checksum = &quot;384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe&quot;
+</a><a href="#h1-40-7" id="h1-40-7" class="i">+
+</a><a href="#h1-40-8" id="h1-40-8" class="i">+[[package]]
+</a> name = &quot;parking_lot&quot;
+ version = &quot;0.12.5&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-41" id="h1-41" class="h">@@ -1112,12 +1489,31 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-41-3" id="h1-41-3" class="i">+name = &quot;pcsc&quot;
+</a><a href="#h1-41-4" id="h1-41-4" class="i">+version = &quot;2.9.0&quot;
+</a><a href="#h1-41-5" id="h1-41-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-41-6" id="h1-41-6" class="i">+checksum = &quot;7dd833ecf8967e65934c49d3521a175929839bf6d0e497f3bd0d3a2ca08943da&quot;
+</a><a href="#h1-41-7" id="h1-41-7" class="i">+dependencies = [
+</a><a href="#h1-41-8" id="h1-41-8" class="i">+ &quot;bitflags 2.13.1&quot;,
+</a><a href="#h1-41-9" id="h1-41-9" class="i">+ &quot;pcsc-sys&quot;,
+</a><a href="#h1-41-10" id="h1-41-10" class="i">+]
+</a><a href="#h1-41-11" id="h1-41-11" class="i">+
+</a><a href="#h1-41-12" id="h1-41-12" class="i">+[[package]]
+</a><a href="#h1-41-13" id="h1-41-13" class="i">+name = &quot;pcsc-sys&quot;
+</a><a href="#h1-41-14" id="h1-41-14" class="i">+version = &quot;1.3.0&quot;
+</a><a href="#h1-41-15" id="h1-41-15" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-41-16" id="h1-41-16" class="i">+checksum = &quot;e14ef017e15d2e5592a9e39a346c1dbaea5120bab7ed7106b210ef58ebd97003&quot;
+</a><a href="#h1-41-17" id="h1-41-17" class="i">+dependencies = [
+</a><a href="#h1-41-18" id="h1-41-18" class="i">+ &quot;pkg-config&quot;,
+</a><a href="#h1-41-19" id="h1-41-19" class="i">+]
+</a><a href="#h1-41-20" id="h1-41-20" class="i">+
+</a><a href="#h1-41-21" id="h1-41-21" class="i">+[[package]]
+</a> name = &quot;pem&quot;
+ version = &quot;3.0.6&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be&quot;
+ dependencies = [
+<a href="#h1-41-27" id="h1-41-27" class="d">- &quot;base64&quot;,
+</a><a href="#h1-41-28" id="h1-41-28" class="i">+ &quot;base64 0.22.1&quot;,
+</a>  &quot;serde_core&quot;,
+ ]
+ 
+<a href="#h1-42" id="h1-42" class="h">@@ -1140,6 +1536,21 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e&quot;
+ 
+ [[package]]
+<a href="#h1-42-3" id="h1-42-3" class="i">+name = &quot;portable-atomic&quot;
+</a><a href="#h1-42-4" id="h1-42-4" class="i">+version = &quot;1.14.0&quot;
+</a><a href="#h1-42-5" id="h1-42-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-42-6" id="h1-42-6" class="i">+checksum = &quot;3d20d5497ef88037a52ff98267d066e7f11fcc5e99bbfbd58a42336193aacec3&quot;
+</a><a href="#h1-42-7" id="h1-42-7" class="i">+
+</a><a href="#h1-42-8" id="h1-42-8" class="i">+[[package]]
+</a><a href="#h1-42-9" id="h1-42-9" class="i">+name = &quot;portable-atomic-util&quot;
+</a><a href="#h1-42-10" id="h1-42-10" class="i">+version = &quot;0.2.7&quot;
+</a><a href="#h1-42-11" id="h1-42-11" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-42-12" id="h1-42-12" class="i">+checksum = &quot;c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618&quot;
+</a><a href="#h1-42-13" id="h1-42-13" class="i">+dependencies = [
+</a><a href="#h1-42-14" id="h1-42-14" class="i">+ &quot;portable-atomic&quot;,
+</a><a href="#h1-42-15" id="h1-42-15" class="i">+]
+</a><a href="#h1-42-16" id="h1-42-16" class="i">+
+</a><a href="#h1-42-17" id="h1-42-17" class="i">+[[package]]
+</a> name = &quot;potential_utf&quot;
+ version = &quot;0.1.5&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-43" id="h1-43" class="h">@@ -1156,30 +1567,24 @@ checksum = &quot;439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391&quot;
+</a> 
+ [[package]]
+ name = &quot;proc-macro2&quot;
+<a href="#h1-43-3" id="h1-43-3" class="d">-version = &quot;1.0.106&quot;
+</a><a href="#h1-43-4" id="h1-43-4" class="i">+version = &quot;1.0.107&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-43-6" id="h1-43-6" class="d">-checksum = &quot;8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934&quot;
+</a><a href="#h1-43-7" id="h1-43-7" class="i">+checksum = &quot;985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9&quot;
+</a> dependencies = [
+  &quot;unicode-ident&quot;,
+ ]
+ 
+ [[package]]
+ name = &quot;quote&quot;
+<a href="#h1-43-14" id="h1-43-14" class="d">-version = &quot;1.0.46&quot;
+</a><a href="#h1-43-15" id="h1-43-15" class="i">+version = &quot;1.0.47&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-43-17" id="h1-43-17" class="d">-checksum = &quot;dfbc457d0c7a0759a614551b11a6409e5951f6c7537be1f1b7682b9ae9230368&quot;
+</a><a href="#h1-43-18" id="h1-43-18" class="i">+checksum = &quot;1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+ ]
+ 
+ [[package]]
+ name = &quot;r-efi&quot;
+<a href="#h1-43-25" id="h1-43-25" class="d">-version = &quot;5.3.0&quot;
+</a><a href="#h1-43-26" id="h1-43-26" class="d">-source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-43-27" id="h1-43-27" class="d">-checksum = &quot;69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f&quot;
+</a><a href="#h1-43-28" id="h1-43-28" class="d">-
+</a><a href="#h1-43-29" id="h1-43-29" class="d">-[[package]]
+</a><a href="#h1-43-30" id="h1-43-30" class="d">-name = &quot;r-efi&quot;
+</a> version = &quot;6.0.0&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf&quot;
+<a href="#h1-44" id="h1-44" class="h">@@ -1221,14 +1626,14 @@ version = &quot;0.5.18&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d&quot;
+ dependencies = [
+<a href="#h1-44-3" id="h1-44-3" class="d">- &quot;bitflags&quot;,
+</a><a href="#h1-44-4" id="h1-44-4" class="i">+ &quot;bitflags 2.13.1&quot;,
+</a> ]
+ 
+ [[package]]
+ name = &quot;regex&quot;
+<a href="#h1-44-9" id="h1-44-9" class="d">-version = &quot;1.12.4&quot;
+</a><a href="#h1-44-10" id="h1-44-10" class="i">+version = &quot;1.13.1&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-44-12" id="h1-44-12" class="d">-checksum = &quot;f1292b7759ae1cb9ec195452d1390a074f0cd8541ab7a5a8c31cd6db45d4a6ba&quot;
+</a><a href="#h1-44-13" id="h1-44-13" class="i">+checksum = &quot;f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d&quot;
+</a> dependencies = [
+  &quot;aho-corasick&quot;,
+  &quot;memchr&quot;,
+<a href="#h1-45" id="h1-45" class="h">@@ -1238,9 +1643,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;regex-automata&quot;
+<a href="#h1-45-3" id="h1-45-3" class="d">-version = &quot;0.4.14&quot;
+</a><a href="#h1-45-4" id="h1-45-4" class="i">+version = &quot;0.4.16&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-45-6" id="h1-45-6" class="d">-checksum = &quot;6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f&quot;
+</a><a href="#h1-45-7" id="h1-45-7" class="i">+checksum = &quot;8fcfdb36bda0c880c5931cdc7a2bcdc8ba4556847b9d912bca70bc94708711ad&quot;
+</a> dependencies = [
+  &quot;aho-corasick&quot;,
+  &quot;memchr&quot;,
+<a href="#h1-46" id="h1-46" class="h">@@ -1293,13 +1698,14 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;rustls&quot;
+<a href="#h1-46-3" id="h1-46-3" class="d">-version = &quot;0.23.41&quot;
+</a><a href="#h1-46-4" id="h1-46-4" class="i">+version = &quot;0.23.42&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-46-6" id="h1-46-6" class="d">-checksum = &quot;6b92b125634d9b795e7beca796cc790df15a7fb38323bf3196fda83292d06b1f&quot;
+</a><a href="#h1-46-7" id="h1-46-7" class="i">+checksum = &quot;3c54fcab019b409d04215d3a17cb438fd7fbf192ee61461f20f4fe18704bc138&quot;
+</a> dependencies = [
+  &quot;aws-lc-rs&quot;,
+  &quot;log&quot;,
+  &quot;once_cell&quot;,
+<a href="#h1-46-12" id="h1-46-12" class="i">+ &quot;ring&quot;,
+</a>  &quot;rustls-pki-types&quot;,
+  &quot;rustls-webpki&quot;,
+  &quot;subtle&quot;,
+<a href="#h1-47" id="h1-47" class="h">@@ -1317,9 +1723,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;rustls-pki-types&quot;
+<a href="#h1-47-3" id="h1-47-3" class="d">-version = &quot;1.15.0&quot;
+</a><a href="#h1-47-4" id="h1-47-4" class="i">+version = &quot;1.15.1&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-47-6" id="h1-47-6" class="d">-checksum = &quot;764899a24af3980067ee14bc143654f297b22eaebfe3c7b6b211920a5a59b046&quot;
+</a><a href="#h1-47-7" id="h1-47-7" class="i">+checksum = &quot;2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96&quot;
+</a> dependencies = [
+  &quot;zeroize&quot;,
+ ]
+<a href="#h1-48" id="h1-48" class="h">@@ -1356,9 +1762,9 @@ checksum = &quot;8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd&quot;
+</a> 
+ [[package]]
+ name = &quot;serde&quot;
+<a href="#h1-48-3" id="h1-48-3" class="d">-version = &quot;1.0.228&quot;
+</a><a href="#h1-48-4" id="h1-48-4" class="i">+version = &quot;1.0.229&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-48-6" id="h1-48-6" class="d">-checksum = &quot;9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e&quot;
+</a><a href="#h1-48-7" id="h1-48-7" class="i">+checksum = &quot;4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba&quot;
+</a> dependencies = [
+  &quot;serde_core&quot;,
+  &quot;serde_derive&quot;,
+<a href="#h1-49" id="h1-49" class="h">@@ -1366,29 +1772,29 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;serde_core&quot;
+<a href="#h1-49-3" id="h1-49-3" class="d">-version = &quot;1.0.228&quot;
+</a><a href="#h1-49-4" id="h1-49-4" class="i">+version = &quot;1.0.229&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-49-6" id="h1-49-6" class="d">-checksum = &quot;41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad&quot;
+</a><a href="#h1-49-7" id="h1-49-7" class="i">+checksum = &quot;67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48&quot;
+</a> dependencies = [
+  &quot;serde_derive&quot;,
+ ]
+ 
+ [[package]]
+ name = &quot;serde_derive&quot;
+<a href="#h1-49-14" id="h1-49-14" class="d">-version = &quot;1.0.228&quot;
+</a><a href="#h1-49-15" id="h1-49-15" class="i">+version = &quot;1.0.229&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-49-17" id="h1-49-17" class="d">-checksum = &quot;d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79&quot;
+</a><a href="#h1-49-18" id="h1-49-18" class="i">+checksum = &quot;e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-49-22" id="h1-49-22" class="d">- &quot;syn&quot;,
+</a><a href="#h1-49-23" id="h1-49-23" class="i">+ &quot;syn 3.0.3&quot;,
+</a> ]
+ 
+ [[package]]
+ name = &quot;serde_json&quot;
+<a href="#h1-49-28" id="h1-49-28" class="d">-version = &quot;1.0.150&quot;
+</a><a href="#h1-49-29" id="h1-49-29" class="i">+version = &quot;1.0.151&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-49-31" id="h1-49-31" class="d">-checksum = &quot;e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9&quot;
+</a><a href="#h1-49-32" id="h1-49-32" class="i">+checksum = &quot;c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14&quot;
+</a> dependencies = [
+  &quot;itoa&quot;,
+  &quot;memchr&quot;,
+<a href="#h1-50" id="h1-50" class="h">@@ -1459,9 +1865,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;simd-adler32&quot;
+<a href="#h1-50-3" id="h1-50-3" class="d">-version = &quot;0.3.9&quot;
+</a><a href="#h1-50-4" id="h1-50-4" class="i">+version = &quot;0.3.10&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-50-6" id="h1-50-6" class="d">-checksum = &quot;703d5c7ef118737c72f1af64ad2f6f8c5e1921f818cdcb97b8fe6fc69bf66214&quot;
+</a><a href="#h1-50-7" id="h1-50-7" class="i">+checksum = &quot;3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea&quot;
+</a> 
+ [[package]]
+ name = &quot;slab&quot;
+<a href="#h1-51" id="h1-51" class="h">@@ -1487,9 +1893,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;socket2&quot;
+<a href="#h1-51-3" id="h1-51-3" class="d">-version = &quot;0.6.4&quot;
+</a><a href="#h1-51-4" id="h1-51-4" class="i">+version = &quot;0.6.5&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-51-6" id="h1-51-6" class="d">-checksum = &quot;52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51&quot;
+</a><a href="#h1-51-7" id="h1-51-7" class="i">+checksum = &quot;c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4&quot;
+</a> dependencies = [
+  &quot;libc&quot;,
+  &quot;windows-sys 0.61.2&quot;,
+<a href="#h1-52" id="h1-52" class="h">@@ -1509,9 +1915,9 @@ checksum = &quot;13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292&quot;
+</a> 
+ [[package]]
+ name = &quot;syn&quot;
+<a href="#h1-52-3" id="h1-52-3" class="d">-version = &quot;2.0.118&quot;
+</a><a href="#h1-52-4" id="h1-52-4" class="i">+version = &quot;2.0.119&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-52-6" id="h1-52-6" class="d">-checksum = &quot;1b9ae57f904213ebb649ce6895b8a66c66f0203b9319718f69a5612a065b1422&quot;
+</a><a href="#h1-52-7" id="h1-52-7" class="i">+checksum = &quot;872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-53" id="h1-53" class="h">@@ -1519,50 +1925,52 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-53-3" id="h1-53-3" class="d">-name = &quot;synstructure&quot;
+</a><a href="#h1-53-4" id="h1-53-4" class="d">-version = &quot;0.13.2&quot;
+</a><a href="#h1-53-5" id="h1-53-5" class="i">+name = &quot;syn&quot;
+</a><a href="#h1-53-6" id="h1-53-6" class="i">+version = &quot;3.0.3&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-53-8" id="h1-53-8" class="d">-checksum = &quot;728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2&quot;
+</a><a href="#h1-53-9" id="h1-53-9" class="i">+checksum = &quot;53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-53-13" id="h1-53-13" class="d">- &quot;syn&quot;,
+</a><a href="#h1-53-14" id="h1-53-14" class="i">+ &quot;unicode-ident&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-53-18" id="h1-53-18" class="d">-name = &quot;termcolor&quot;
+</a><a href="#h1-53-19" id="h1-53-19" class="d">-version = &quot;1.4.1&quot;
+</a><a href="#h1-53-20" id="h1-53-20" class="i">+name = &quot;synstructure&quot;
+</a><a href="#h1-53-21" id="h1-53-21" class="i">+version = &quot;0.13.2&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-53-23" id="h1-53-23" class="d">-checksum = &quot;06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755&quot;
+</a><a href="#h1-53-24" id="h1-53-24" class="i">+checksum = &quot;728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2&quot;
+</a> dependencies = [
+<a href="#h1-53-26" id="h1-53-26" class="d">- &quot;winapi-util&quot;,
+</a><a href="#h1-53-27" id="h1-53-27" class="i">+ &quot;proc-macro2&quot;,
+</a><a href="#h1-53-28" id="h1-53-28" class="i">+ &quot;quote&quot;,
+</a><a href="#h1-53-29" id="h1-53-29" class="i">+ &quot;syn 2.0.119&quot;,
+</a> ]
+ 
+ [[package]]
+ name = &quot;thiserror&quot;
+<a href="#h1-53-34" id="h1-53-34" class="d">-version = &quot;2.0.18&quot;
+</a><a href="#h1-53-35" id="h1-53-35" class="i">+version = &quot;2.0.19&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-53-37" id="h1-53-37" class="d">-checksum = &quot;4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4&quot;
+</a><a href="#h1-53-38" id="h1-53-38" class="i">+checksum = &quot;09a43598840e33d5b0331f38c5e30d13bb11c11210a4b58f0d9b18a5a5eefcd9&quot;
+</a> dependencies = [
+  &quot;thiserror-impl&quot;,
+ ]
+ 
+ [[package]]
+ name = &quot;thiserror-impl&quot;
+<a href="#h1-53-45" id="h1-53-45" class="d">-version = &quot;2.0.18&quot;
+</a><a href="#h1-53-46" id="h1-53-46" class="i">+version = &quot;2.0.19&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-53-48" id="h1-53-48" class="d">-checksum = &quot;ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5&quot;
+</a><a href="#h1-53-49" id="h1-53-49" class="i">+checksum = &quot;43cbfe0cf76104d42a574802844187e84a305e531ed54455f11fbde0f10541cd&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-53-53" id="h1-53-53" class="d">- &quot;syn&quot;,
+</a><a href="#h1-53-54" id="h1-53-54" class="i">+ &quot;syn 3.0.3&quot;,
+</a> ]
+ 
+ [[package]]
+ name = &quot;time&quot;
+<a href="#h1-53-59" id="h1-53-59" class="d">-version = &quot;0.3.53&quot;
+</a><a href="#h1-53-60" id="h1-53-60" class="i">+version = &quot;0.3.54&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-53-62" id="h1-53-62" class="d">-checksum = &quot;18dfaaeddcb932337b5e7866ee7d0ce9b76d2fd092997146f187ec09b4558a50&quot;
+</a><a href="#h1-53-63" id="h1-53-63" class="i">+checksum = &quot;3e1d5e639ff6bab73cb6885cc7e7b1de96c3f32c68ec55f3952614bec1092244&quot;
+</a> dependencies = [
+  &quot;deranged&quot;,
+  &quot;num-conv&quot;,
+<a href="#h1-54" id="h1-54" class="h">@@ -1580,9 +1988,9 @@ checksum = &quot;9e1c906769ad99c88eaa54e728060edef082f8e358ff32030cb7c7d315e81109&quot;
+</a> 
+ [[package]]
+ name = &quot;time-macros&quot;
+<a href="#h1-54-3" id="h1-54-3" class="d">-version = &quot;0.2.31&quot;
+</a><a href="#h1-54-4" id="h1-54-4" class="i">+version = &quot;0.2.32&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-54-6" id="h1-54-6" class="d">-checksum = &quot;c431b87111666e491a90baa837f914fb45cd5dc3c268591b0220ff5057f2085f&quot;
+</a><a href="#h1-54-7" id="h1-54-7" class="i">+checksum = &quot;7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85&quot;
+</a> dependencies = [
+  &quot;num-conv&quot;,
+  &quot;time-core&quot;,
+<a href="#h1-55" id="h1-55" class="h">@@ -1600,9 +2008,9 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;tokio&quot;
+<a href="#h1-55-3" id="h1-55-3" class="d">-version = &quot;1.52.3&quot;
+</a><a href="#h1-55-4" id="h1-55-4" class="i">+version = &quot;1.53.1&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-55-6" id="h1-55-6" class="d">-checksum = &quot;8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe&quot;
+</a><a href="#h1-55-7" id="h1-55-7" class="i">+checksum = &quot;202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed&quot;
+</a> dependencies = [
+  &quot;bytes&quot;,
+  &quot;libc&quot;,
+<a href="#h1-56" id="h1-56" class="h">@@ -1610,11 +2018,23 @@ dependencies = [
+</a>  &quot;parking_lot&quot;,
+  &quot;pin-project-lite&quot;,
+  &quot;signal-hook-registry&quot;,
+<a href="#h1-56-3" id="h1-56-3" class="d">- &quot;socket2 0.6.4&quot;,
+</a><a href="#h1-56-4" id="h1-56-4" class="i">+ &quot;socket2 0.6.5&quot;,
+</a><a href="#h1-56-5" id="h1-56-5" class="i">+ &quot;tokio-macros&quot;,
+</a>  &quot;windows-sys 0.61.2&quot;,
+ ]
+ 
+ [[package]]
+<a href="#h1-56-10" id="h1-56-10" class="i">+name = &quot;tokio-macros&quot;
+</a><a href="#h1-56-11" id="h1-56-11" class="i">+version = &quot;2.7.1&quot;
+</a><a href="#h1-56-12" id="h1-56-12" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-56-13" id="h1-56-13" class="i">+checksum = &quot;6328af13490e73a9b4694030fafd93f8c8c6a9dede33e821c3fc63eddf8042ba&quot;
+</a><a href="#h1-56-14" id="h1-56-14" class="i">+dependencies = [
+</a><a href="#h1-56-15" id="h1-56-15" class="i">+ &quot;proc-macro2&quot;,
+</a><a href="#h1-56-16" id="h1-56-16" class="i">+ &quot;quote&quot;,
+</a><a href="#h1-56-17" id="h1-56-17" class="i">+ &quot;syn 2.0.119&quot;,
+</a><a href="#h1-56-18" id="h1-56-18" class="i">+]
+</a><a href="#h1-56-19" id="h1-56-19" class="i">+
+</a><a href="#h1-56-20" id="h1-56-20" class="i">+[[package]]
+</a> name = &quot;tokio-rustls&quot;
+ version = &quot;0.26.4&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-57" id="h1-57" class="h">@@ -1626,13 +2046,14 @@ dependencies = [
+</a> 
+ [[package]]
+ name = &quot;tokio-util&quot;
+<a href="#h1-57-3" id="h1-57-3" class="d">-version = &quot;0.7.18&quot;
+</a><a href="#h1-57-4" id="h1-57-4" class="i">+version = &quot;0.7.19&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-57-6" id="h1-57-6" class="d">-checksum = &quot;9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098&quot;
+</a><a href="#h1-57-7" id="h1-57-7" class="i">+checksum = &quot;494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52&quot;
+</a> dependencies = [
+  &quot;bytes&quot;,
+  &quot;futures-core&quot;,
+  &quot;futures-sink&quot;,
+<a href="#h1-57-12" id="h1-57-12" class="i">+ &quot;libc&quot;,
+</a>  &quot;pin-project-lite&quot;,
+  &quot;tokio&quot;,
+ ]
+<a href="#h1-58" id="h1-58" class="h">@@ -1657,7 +2078,7 @@ checksum = &quot;7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-58-3" id="h1-58-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-58-4" id="h1-58-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-59" id="h1-59" class="h">@@ -1670,6 +2091,12 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-59-3" id="h1-59-3" class="i">+name = &quot;try-lock&quot;
+</a><a href="#h1-59-4" id="h1-59-4" class="i">+version = &quot;0.2.5&quot;
+</a><a href="#h1-59-5" id="h1-59-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-59-6" id="h1-59-6" class="i">+checksum = &quot;e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b&quot;
+</a><a href="#h1-59-7" id="h1-59-7" class="i">+
+</a><a href="#h1-59-8" id="h1-59-8" class="i">+[[package]]
+</a> name = &quot;typenum&quot;
+ version = &quot;1.20.1&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-60" id="h1-60" class="h">@@ -1700,6 +2127,38 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1&quot;
+ 
+ [[package]]
+<a href="#h1-60-3" id="h1-60-3" class="i">+name = &quot;ureq&quot;
+</a><a href="#h1-60-4" id="h1-60-4" class="i">+version = &quot;3.3.0&quot;
+</a><a href="#h1-60-5" id="h1-60-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-60-6" id="h1-60-6" class="i">+checksum = &quot;dea7109cdcd5864d4eeb1b58a1648dc9bf520360d7af16ec26d0a9354bafcfc0&quot;
+</a><a href="#h1-60-7" id="h1-60-7" class="i">+dependencies = [
+</a><a href="#h1-60-8" id="h1-60-8" class="i">+ &quot;base64 0.22.1&quot;,
+</a><a href="#h1-60-9" id="h1-60-9" class="i">+ &quot;cookie_store&quot;,
+</a><a href="#h1-60-10" id="h1-60-10" class="i">+ &quot;flate2&quot;,
+</a><a href="#h1-60-11" id="h1-60-11" class="i">+ &quot;log&quot;,
+</a><a href="#h1-60-12" id="h1-60-12" class="i">+ &quot;percent-encoding&quot;,
+</a><a href="#h1-60-13" id="h1-60-13" class="i">+ &quot;rustls&quot;,
+</a><a href="#h1-60-14" id="h1-60-14" class="i">+ &quot;rustls-pki-types&quot;,
+</a><a href="#h1-60-15" id="h1-60-15" class="i">+ &quot;serde&quot;,
+</a><a href="#h1-60-16" id="h1-60-16" class="i">+ &quot;serde_json&quot;,
+</a><a href="#h1-60-17" id="h1-60-17" class="i">+ &quot;ureq-proto&quot;,
+</a><a href="#h1-60-18" id="h1-60-18" class="i">+ &quot;utf8-zero&quot;,
+</a><a href="#h1-60-19" id="h1-60-19" class="i">+ &quot;webpki-roots&quot;,
+</a><a href="#h1-60-20" id="h1-60-20" class="i">+]
+</a><a href="#h1-60-21" id="h1-60-21" class="i">+
+</a><a href="#h1-60-22" id="h1-60-22" class="i">+[[package]]
+</a><a href="#h1-60-23" id="h1-60-23" class="i">+name = &quot;ureq-proto&quot;
+</a><a href="#h1-60-24" id="h1-60-24" class="i">+version = &quot;0.6.0&quot;
+</a><a href="#h1-60-25" id="h1-60-25" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-60-26" id="h1-60-26" class="i">+checksum = &quot;e994ba84b0bd1b1b0cf92878b7ef898a5c1760108fe7b6010327e274917a808c&quot;
+</a><a href="#h1-60-27" id="h1-60-27" class="i">+dependencies = [
+</a><a href="#h1-60-28" id="h1-60-28" class="i">+ &quot;base64 0.22.1&quot;,
+</a><a href="#h1-60-29" id="h1-60-29" class="i">+ &quot;http 1.4.2&quot;,
+</a><a href="#h1-60-30" id="h1-60-30" class="i">+ &quot;httparse&quot;,
+</a><a href="#h1-60-31" id="h1-60-31" class="i">+ &quot;log&quot;,
+</a><a href="#h1-60-32" id="h1-60-32" class="i">+]
+</a><a href="#h1-60-33" id="h1-60-33" class="i">+
+</a><a href="#h1-60-34" id="h1-60-34" class="i">+[[package]]
+</a> name = &quot;url&quot;
+ version = &quot;2.5.8&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-61" id="h1-61" class="h">@@ -1712,39 +2171,51 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h1-61-3" id="h1-61-3" class="i">+name = &quot;utf8-zero&quot;
+</a><a href="#h1-61-4" id="h1-61-4" class="i">+version = &quot;0.8.1&quot;
+</a><a href="#h1-61-5" id="h1-61-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-61-6" id="h1-61-6" class="i">+checksum = &quot;b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e&quot;
+</a><a href="#h1-61-7" id="h1-61-7" class="i">+
+</a><a href="#h1-61-8" id="h1-61-8" class="i">+[[package]]
+</a> name = &quot;utf8_iter&quot;
+ version = &quot;1.0.4&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be&quot;
+ 
+ [[package]]
+<a href="#h1-61-15" id="h1-61-15" class="i">+name = &quot;utf8parse&quot;
+</a><a href="#h1-61-16" id="h1-61-16" class="i">+version = &quot;0.2.2&quot;
+</a><a href="#h1-61-17" id="h1-61-17" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h1-61-18" id="h1-61-18" class="i">+checksum = &quot;06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821&quot;
+</a><a href="#h1-61-19" id="h1-61-19" class="i">+
+</a><a href="#h1-61-20" id="h1-61-20" class="i">+[[package]]
+</a> name = &quot;version_check&quot;
+ version = &quot;0.9.5&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a&quot;
+ 
+ [[package]]
+<a href="#h1-61-27" id="h1-61-27" class="d">-name = &quot;wasi&quot;
+</a><a href="#h1-61-28" id="h1-61-28" class="d">-version = &quot;0.11.1+wasi-snapshot-preview1&quot;
+</a><a href="#h1-61-29" id="h1-61-29" class="i">+name = &quot;want&quot;
+</a><a href="#h1-61-30" id="h1-61-30" class="i">+version = &quot;0.3.1&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-61-32" id="h1-61-32" class="d">-checksum = &quot;ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b&quot;
+</a><a href="#h1-61-33" id="h1-61-33" class="i">+checksum = &quot;bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e&quot;
+</a><a href="#h1-61-34" id="h1-61-34" class="i">+dependencies = [
+</a><a href="#h1-61-35" id="h1-61-35" class="i">+ &quot;try-lock&quot;,
+</a><a href="#h1-61-36" id="h1-61-36" class="i">+]
+</a> 
+ [[package]]
+<a href="#h1-61-39" id="h1-61-39" class="d">-name = &quot;wasip2&quot;
+</a><a href="#h1-61-40" id="h1-61-40" class="d">-version = &quot;1.0.4+wasi-0.2.12&quot;
+</a><a href="#h1-61-41" id="h1-61-41" class="i">+name = &quot;wasi&quot;
+</a><a href="#h1-61-42" id="h1-61-42" class="i">+version = &quot;0.11.1+wasi-snapshot-preview1&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-61-44" id="h1-61-44" class="d">-checksum = &quot;b67efb37e106e55ce722a510d6b5f9c17f083e5fc79afc2badeb12cc313d9487&quot;
+</a><a href="#h1-61-45" id="h1-61-45" class="d">-dependencies = [
+</a><a href="#h1-61-46" id="h1-61-46" class="d">- &quot;wit-bindgen&quot;,
+</a><a href="#h1-61-47" id="h1-61-47" class="d">-]
+</a><a href="#h1-61-48" id="h1-61-48" class="i">+checksum = &quot;ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b&quot;
+</a> 
+ [[package]]
+<a href="#h1-61-51" id="h1-61-51" class="d">-name = &quot;winapi-util&quot;
+</a><a href="#h1-61-52" id="h1-61-52" class="d">-version = &quot;0.1.11&quot;
+</a><a href="#h1-61-53" id="h1-61-53" class="i">+name = &quot;webpki-roots&quot;
+</a><a href="#h1-61-54" id="h1-61-54" class="i">+version = &quot;1.0.9&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-61-56" id="h1-61-56" class="d">-checksum = &quot;c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22&quot;
+</a><a href="#h1-61-57" id="h1-61-57" class="i">+checksum = &quot;7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a&quot;
+</a> dependencies = [
+<a href="#h1-61-59" id="h1-61-59" class="d">- &quot;windows-sys 0.61.2&quot;,
+</a><a href="#h1-61-60" id="h1-61-60" class="i">+ &quot;rustls-pki-types&quot;,
+</a> ]
+ 
+ [[package]]
+<a href="#h1-62" id="h1-62" class="h">@@ -1836,10 +2307,27 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec&quot;
+ 
+ [[package]]
+<a href="#h1-62-3" id="h1-62-3" class="d">-name = &quot;wit-bindgen&quot;
+</a><a href="#h1-62-4" id="h1-62-4" class="d">-version = &quot;0.57.1&quot;
+</a><a href="#h1-62-5" id="h1-62-5" class="i">+name = &quot;wiremock&quot;
+</a><a href="#h1-62-6" id="h1-62-6" class="i">+version = &quot;0.6.5&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-62-8" id="h1-62-8" class="d">-checksum = &quot;1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e&quot;
+</a><a href="#h1-62-9" id="h1-62-9" class="i">+checksum = &quot;08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031&quot;
+</a><a href="#h1-62-10" id="h1-62-10" class="i">+dependencies = [
+</a><a href="#h1-62-11" id="h1-62-11" class="i">+ &quot;assert-json-diff&quot;,
+</a><a href="#h1-62-12" id="h1-62-12" class="i">+ &quot;base64 0.22.1&quot;,
+</a><a href="#h1-62-13" id="h1-62-13" class="i">+ &quot;deadpool&quot;,
+</a><a href="#h1-62-14" id="h1-62-14" class="i">+ &quot;futures&quot;,
+</a><a href="#h1-62-15" id="h1-62-15" class="i">+ &quot;http 1.4.2&quot;,
+</a><a href="#h1-62-16" id="h1-62-16" class="i">+ &quot;http-body-util&quot;,
+</a><a href="#h1-62-17" id="h1-62-17" class="i">+ &quot;hyper&quot;,
+</a><a href="#h1-62-18" id="h1-62-18" class="i">+ &quot;hyper-util&quot;,
+</a><a href="#h1-62-19" id="h1-62-19" class="i">+ &quot;log&quot;,
+</a><a href="#h1-62-20" id="h1-62-20" class="i">+ &quot;once_cell&quot;,
+</a><a href="#h1-62-21" id="h1-62-21" class="i">+ &quot;regex&quot;,
+</a><a href="#h1-62-22" id="h1-62-22" class="i">+ &quot;serde&quot;,
+</a><a href="#h1-62-23" id="h1-62-23" class="i">+ &quot;serde_json&quot;,
+</a><a href="#h1-62-24" id="h1-62-24" class="i">+ &quot;tokio&quot;,
+</a><a href="#h1-62-25" id="h1-62-25" class="i">+ &quot;url&quot;,
+</a><a href="#h1-62-26" id="h1-62-26" class="i">+]
+</a> 
+ [[package]]
+ name = &quot;writeable&quot;
+<a href="#h1-63" id="h1-63" class="h">@@ -1894,7 +2382,7 @@ checksum = &quot;de844c262c8848816172cef550288e7dc6c7b7814b4ee56b3e1553f275f1858e&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-63-3" id="h1-63-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-63-4" id="h1-63-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a>  &quot;synstructure&quot;,
+ ]
+ 
+<a href="#h1-64" id="h1-64" class="h">@@ -1915,7 +2403,7 @@ checksum = &quot;11532158c46691caf0f2593ea8358fed6bbf68a0315e80aae9bd41fbade684a1&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-64-3" id="h1-64-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-64-4" id="h1-64-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a>  &quot;synstructure&quot;,
+ ]
+ 
+<a href="#h1-65" id="h1-65" class="h">@@ -1955,14 +2443,14 @@ checksum = &quot;625dc425cab0dca6dc3c3319506e6593dcb08a9f387ea3b284dbd52a92c40555&quot;
+</a> dependencies = [
+  &quot;proc-macro2&quot;,
+  &quot;quote&quot;,
+<a href="#h1-65-3" id="h1-65-3" class="d">- &quot;syn&quot;,
+</a><a href="#h1-65-4" id="h1-65-4" class="i">+ &quot;syn 2.0.119&quot;,
+</a> ]
+ 
+ [[package]]
+ name = &quot;zmij&quot;
+<a href="#h1-65-9" id="h1-65-9" class="d">-version = &quot;1.0.21&quot;
+</a><a href="#h1-65-10" id="h1-65-10" class="i">+version = &quot;1.0.23&quot;
+</a> source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h1-65-12" id="h1-65-12" class="d">-checksum = &quot;b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa&quot;
+</a><a href="#h1-65-13" id="h1-65-13" class="i">+checksum = &quot;29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b&quot;
+</a> 
+ [[package]]
+ name = &quot;zstd&quot;
+<b>diff --git a/<a id="h2" href="../file/lab_core/Cargo.toml.html">lab_core/Cargo.toml</a> b/<a href="../file/lab_core/Cargo.toml.html">lab_core/Cargo.toml</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -11,7 +11,7 @@ rustls-pemfile = &quot;2&quot;
+</a> serde = { version = &quot;1&quot;, features = [&quot;derive&quot;] }
+ serde_json = { version = &quot;1&quot; }
+ log = &quot;0.4&quot;
+<a href="#h2-0-3" id="h2-0-3" class="d">-env_logger = &quot;0.10&quot;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+env_logger = &quot;0.11&quot;
+</a> rcgen = &quot;0&quot;
+ dotenv = &quot;0&quot;
+ base64 = &quot;0&quot;
+<b>diff --git a/<a id="h3" href="../file/lab_core/src/auth.rs.html">lab_core/src/auth.rs</a> b/<a href="../file/lab_core/src/auth.rs.html">lab_core/src/auth.rs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -9,6 +9,7 @@ use std::env;
+</a> use std::future::{Ready, ready};
+ 
+ pub struct AuthenticatedDevice {
+<a href="#h3-0-3" id="h3-0-3" class="i">+    #[allow(dead_code)]
+</a>     pub device_id: String,
+ }
+ 
+<b>diff --git a/<a id="h4" href="../file/lab_core/src/main.rs.html">lab_core/src/main.rs</a> b/<a href="../file/lab_core/src/main.rs.html">lab_core/src/main.rs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -26,7 +26,7 @@ async fn index(req: HttpRequest) -&gt; HttpResponse {
+</a> 
+     HttpResponse::Ok().content_type(ContentType::html()).body(
+         &quot;&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;body&gt;\
+<a href="#h4-0-3" id="h4-0-3" class="d">-            &lt;p&gt;Welcome to your TLS-secured homepage!&lt;/p&gt;\
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+            &lt;h1&gt;Lab Presence&lt;/h1&gt;\
+</a>         &lt;/body&gt;&lt;/html&gt;&quot;,
+     )
+ }
+<a href="#h4-1" id="h4-1" class="h">@@ -164,3 +164,88 @@ async fn put_presence(
+</a>         HttpResponse::Ok().json(serde_json::json!({}))
+     }
+ }
+<a href="#h4-1-3" id="h4-1-3" class="i">+
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+#[cfg(test)]
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+mod tests {
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+    use super::*;
+</a><a href="#h4-1-7" id="h4-1-7" class="i">+    use actix_web::{App, test, web};
+</a><a href="#h4-1-8" id="h4-1-8" class="i">+    use shared::{LoginRequest, LoginResponse, PresenceUpdateRequest};
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+
+</a><a href="#h4-1-10" id="h4-1-10" class="i">+    #[actix_web::test]
+</a><a href="#h4-1-11" id="h4-1-11" class="i">+    async fn test_auth_and_presence_flow() {
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+        let state = web::Data::new(AppState {
+</a><a href="#h4-1-13" id="h4-1-13" class="i">+            presences: Mutex::new(HashMap::new()),
+</a><a href="#h4-1-14" id="h4-1-14" class="i">+            tokens: Mutex::new(HashMap::new()),
+</a><a href="#h4-1-15" id="h4-1-15" class="i">+        });
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+
+</a><a href="#h4-1-17" id="h4-1-17" class="i">+        let app = test::init_service(
+</a><a href="#h4-1-18" id="h4-1-18" class="i">+            App::new()
+</a><a href="#h4-1-19" id="h4-1-19" class="i">+                .app_data(state.clone())
+</a><a href="#h4-1-20" id="h4-1-20" class="i">+                .service(login)
+</a><a href="#h4-1-21" id="h4-1-21" class="i">+                .service(get_presence)
+</a><a href="#h4-1-22" id="h4-1-22" class="i">+                .service(put_presence),
+</a><a href="#h4-1-23" id="h4-1-23" class="i">+        )
+</a><a href="#h4-1-24" id="h4-1-24" class="i">+        .await;
+</a><a href="#h4-1-25" id="h4-1-25" class="i">+
+</a><a href="#h4-1-26" id="h4-1-26" class="i">+        let invalid_login_req = test::TestRequest::post()
+</a><a href="#h4-1-27" id="h4-1-27" class="i">+            .uri(&quot;/api/v1/login&quot;)
+</a><a href="#h4-1-28" id="h4-1-28" class="i">+            .set_json(&amp;LoginRequest {
+</a><a href="#h4-1-29" id="h4-1-29" class="i">+                device_id: &quot;nfc_reader_01&quot;.to_string(),
+</a><a href="#h4-1-30" id="h4-1-30" class="i">+                device_secret: &quot;wrong_secret&quot;.to_string(),
+</a><a href="#h4-1-31" id="h4-1-31" class="i">+            })
+</a><a href="#h4-1-32" id="h4-1-32" class="i">+            .to_request();
+</a><a href="#h4-1-33" id="h4-1-33" class="i">+
+</a><a href="#h4-1-34" id="h4-1-34" class="i">+        let resp = test::call_service(&amp;app, invalid_login_req).await;
+</a><a href="#h4-1-35" id="h4-1-35" class="i">+        assert_eq!(resp.status(), 403);
+</a><a href="#h4-1-36" id="h4-1-36" class="i">+
+</a><a href="#h4-1-37" id="h4-1-37" class="i">+        let valid_login_req = test::TestRequest::post()
+</a><a href="#h4-1-38" id="h4-1-38" class="i">+            .uri(&quot;/api/v1/login&quot;)
+</a><a href="#h4-1-39" id="h4-1-39" class="i">+            .set_json(&amp;LoginRequest {
+</a><a href="#h4-1-40" id="h4-1-40" class="i">+                device_id: &quot;nfc&quot;.to_string(),
+</a><a href="#h4-1-41" id="h4-1-41" class="i">+                device_secret: &quot;nfc&quot;.to_string(),
+</a><a href="#h4-1-42" id="h4-1-42" class="i">+            })
+</a><a href="#h4-1-43" id="h4-1-43" class="i">+            .to_request();
+</a><a href="#h4-1-44" id="h4-1-44" class="i">+
+</a><a href="#h4-1-45" id="h4-1-45" class="i">+        let resp = test::call_service(&amp;app, valid_login_req).await;
+</a><a href="#h4-1-46" id="h4-1-46" class="i">+        assert_eq!(resp.status(), 200);
+</a><a href="#h4-1-47" id="h4-1-47" class="i">+
+</a><a href="#h4-1-48" id="h4-1-48" class="i">+        let login_res: LoginResponse = test::read_body_json(resp).await;
+</a><a href="#h4-1-49" id="h4-1-49" class="i">+        let token = login_res.access_token;
+</a><a href="#h4-1-50" id="h4-1-50" class="i">+        assert!(!token.is_empty());
+</a><a href="#h4-1-51" id="h4-1-51" class="i">+
+</a><a href="#h4-1-52" id="h4-1-52" class="i">+        let unauth_put_req = test::TestRequest::put()
+</a><a href="#h4-1-53" id="h4-1-53" class="i">+            .uri(&quot;/api/v1/presence/user_hash_123/status&quot;)
+</a><a href="#h4-1-54" id="h4-1-54" class="i">+            .set_json(&amp;PresenceUpdateRequest {
+</a><a href="#h4-1-55" id="h4-1-55" class="i">+                presence: &quot;online&quot;.to_string(),
+</a><a href="#h4-1-56" id="h4-1-56" class="i">+                status_msg: &quot;In Lab&quot;.to_string(),
+</a><a href="#h4-1-57" id="h4-1-57" class="i">+            })
+</a><a href="#h4-1-58" id="h4-1-58" class="i">+            .to_request();
+</a><a href="#h4-1-59" id="h4-1-59" class="i">+
+</a><a href="#h4-1-60" id="h4-1-60" class="i">+        let resp = test::call_service(&amp;app, unauth_put_req).await;
+</a><a href="#h4-1-61" id="h4-1-61" class="i">+        assert_eq!(resp.status(), 403);
+</a><a href="#h4-1-62" id="h4-1-62" class="i">+
+</a><a href="#h4-1-63" id="h4-1-63" class="i">+        let auth_put_req = test::TestRequest::put()
+</a><a href="#h4-1-64" id="h4-1-64" class="i">+            .uri(&quot;/api/v1/presence/user_hash_123/status&quot;)
+</a><a href="#h4-1-65" id="h4-1-65" class="i">+            .insert_header((&quot;Authorization&quot;, format!(&quot;Bearer {}&quot;, token)))
+</a><a href="#h4-1-66" id="h4-1-66" class="i">+            .set_json(&amp;PresenceUpdateRequest {
+</a><a href="#h4-1-67" id="h4-1-67" class="i">+                presence: &quot;online&quot;.to_string(),
+</a><a href="#h4-1-68" id="h4-1-68" class="i">+                status_msg: &quot;In Lab&quot;.to_string(),
+</a><a href="#h4-1-69" id="h4-1-69" class="i">+            })
+</a><a href="#h4-1-70" id="h4-1-70" class="i">+            .to_request();
+</a><a href="#h4-1-71" id="h4-1-71" class="i">+
+</a><a href="#h4-1-72" id="h4-1-72" class="i">+        let resp = test::call_service(&amp;app, auth_put_req).await;
+</a><a href="#h4-1-73" id="h4-1-73" class="i">+        assert_eq!(resp.status(), 200);
+</a><a href="#h4-1-74" id="h4-1-74" class="i">+
+</a><a href="#h4-1-75" id="h4-1-75" class="i">+        let get_req = test::TestRequest::get()
+</a><a href="#h4-1-76" id="h4-1-76" class="i">+            .uri(&quot;/api/v1/presence/user_hash_123/status&quot;)
+</a><a href="#h4-1-77" id="h4-1-77" class="i">+            .insert_header((&quot;Authorization&quot;, format!(&quot;Bearer {}&quot;, token)))
+</a><a href="#h4-1-78" id="h4-1-78" class="i">+            .to_request();
+</a><a href="#h4-1-79" id="h4-1-79" class="i">+
+</a><a href="#h4-1-80" id="h4-1-80" class="i">+        let resp = test::call_service(&amp;app, get_req).await;
+</a><a href="#h4-1-81" id="h4-1-81" class="i">+        assert_eq!(resp.status(), 200);
+</a><a href="#h4-1-82" id="h4-1-82" class="i">+
+</a><a href="#h4-1-83" id="h4-1-83" class="i">+        let presence_res: PresenceResponse = test::read_body_json(resp).await;
+</a><a href="#h4-1-84" id="h4-1-84" class="i">+        assert_eq!(presence_res.presence, &quot;online&quot;);
+</a><a href="#h4-1-85" id="h4-1-85" class="i">+        assert_eq!(presence_res.status_msg, &quot;In Lab&quot;);
+</a><a href="#h4-1-86" id="h4-1-86" class="i">+    }
+</a><a href="#h4-1-87" id="h4-1-87" class="i">+}
+</a><b>diff --git a/<a id="h5" href="../file/nfc_sender/Cargo.toml.html">nfc_sender/Cargo.toml</a> b/<a href="../file/nfc_sender/Cargo.toml.html">nfc_sender/Cargo.toml</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -4,3 +4,11 @@ version = &quot;0.1.0&quot;
+</a> edition = &quot;2024&quot;
+ 
+ [dependencies]
+<a href="#h5-0-3" id="h5-0-3" class="i">+shared = { path = &quot;../shared&quot; }
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+ureq = { version = &quot;3&quot;, features = [&quot;json&quot;] }
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+pcsc = { version = &quot;2&quot; }
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+dotenvy = { version = &quot;0&quot;}
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+serde_json = { version = &quot;1&quot; }
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+tokio = { version = &quot;1&quot;, features = [&quot;fs&quot;] }
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+wiremock = { version = &quot;0.6.5&quot; }
+</a><b>diff --git a/<a id="h6" href="../file/nfc_sender/src/main.rs.html">nfc_sender/src/main.rs</a> b/<a href="../file/nfc_sender/src/main.rs.html">nfc_sender/src/main.rs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -1,3 +1,234 @@
+</a><a href="#h6-0-0" id="h6-0-0" class="d">-fn main() {
+</a><a href="#h6-0-1" id="h6-0-1" class="d">-    println!(&quot;Hello, world!&quot;);
+</a><a href="#h6-0-2" id="h6-0-2" class="i">+use pcsc::{Context, Protocols, Scope, ShareMode};
+</a><a href="#h6-0-3" id="h6-0-3" class="i">+use shared::{MemberDirectory, UserId};
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+use std::thread::sleep;
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+use std::time::Duration;
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+
+</a><a href="#h6-0-7" id="h6-0-7" class="i">+struct NfcSender {
+</a><a href="#h6-0-8" id="h6-0-8" class="i">+    core_url: String,
+</a><a href="#h6-0-9" id="h6-0-9" class="i">+    token: String,
+</a><a href="#h6-0-10" id="h6-0-10" class="i">+    member_directory: MemberDirectory,
+</a><a href="#h6-0-11" id="h6-0-11" class="i">+}
+</a><a href="#h6-0-12" id="h6-0-12" class="i">+
+</a><a href="#h6-0-13" id="h6-0-13" class="i">+impl NfcSender {
+</a><a href="#h6-0-14" id="h6-0-14" class="i">+    fn new() -&gt; Self {
+</a><a href="#h6-0-15" id="h6-0-15" class="i">+        Self {
+</a><a href="#h6-0-16" id="h6-0-16" class="i">+            core_url: String::new(),
+</a><a href="#h6-0-17" id="h6-0-17" class="i">+            token: String::new(),
+</a><a href="#h6-0-18" id="h6-0-18" class="i">+            member_directory: MemberDirectory::new(vec![]),
+</a><a href="#h6-0-19" id="h6-0-19" class="i">+        }
+</a><a href="#h6-0-20" id="h6-0-20" class="i">+    }
+</a><a href="#h6-0-21" id="h6-0-21" class="i">+    fn init(&amp;mut self) -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h6-0-22" id="h6-0-22" class="i">+        self.core_url =
+</a><a href="#h6-0-23" id="h6-0-23" class="i">+            std::env::var(&quot;CORE_URL&quot;).unwrap_or_else(|_| &quot;https://localhost:8443&quot;.to_string());
+</a><a href="#h6-0-24" id="h6-0-24" class="i">+        self.member_directory = serde_json::from_str(&amp;std::env::var(&quot;MEMBER_DIRECTORY&quot;)?)?;
+</a><a href="#h6-0-25" id="h6-0-25" class="i">+        let allowed_devices: serde_json::Value =
+</a><a href="#h6-0-26" id="h6-0-26" class="i">+            serde_json::from_str(&amp;std::env::var(&quot;ALLOWED_DEVICES&quot;)?)?;
+</a><a href="#h6-0-27" id="h6-0-27" class="i">+        let secret: &amp;str = allowed_devices[&quot;nfc&quot;]
+</a><a href="#h6-0-28" id="h6-0-28" class="i">+            .as_str()
+</a><a href="#h6-0-29" id="h6-0-29" class="i">+            .ok_or(&quot;ALLOWED_DEVICES.nfc is not a string or missing&quot;)?;
+</a><a href="#h6-0-30" id="h6-0-30" class="i">+        self.login(secret.to_string())?;
+</a><a href="#h6-0-31" id="h6-0-31" class="i">+        Ok(())
+</a><a href="#h6-0-32" id="h6-0-32" class="i">+    }
+</a><a href="#h6-0-33" id="h6-0-33" class="i">+
+</a><a href="#h6-0-34" id="h6-0-34" class="i">+    fn login(&amp;mut self, secret: String) -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h6-0-35" id="h6-0-35" class="i">+        let login_request = shared::LoginRequest {
+</a><a href="#h6-0-36" id="h6-0-36" class="i">+            device_id: &quot;nfc&quot;.to_string(),
+</a><a href="#h6-0-37" id="h6-0-37" class="i">+            device_secret: secret,
+</a><a href="#h6-0-38" id="h6-0-38" class="i">+        };
+</a><a href="#h6-0-39" id="h6-0-39" class="i">+        let response: shared::LoginResponse =
+</a><a href="#h6-0-40" id="h6-0-40" class="i">+            ureq::post(&amp;format!(&quot;{}/api/v1/login&quot;, self.core_url))
+</a><a href="#h6-0-41" id="h6-0-41" class="i">+                .send_json(login_request)?
+</a><a href="#h6-0-42" id="h6-0-42" class="i">+                .body_mut()
+</a><a href="#h6-0-43" id="h6-0-43" class="i">+                .read_json::&lt;shared::LoginResponse&gt;()?;
+</a><a href="#h6-0-44" id="h6-0-44" class="i">+        self.token = response.access_token;
+</a><a href="#h6-0-45" id="h6-0-45" class="i">+        Ok(())
+</a><a href="#h6-0-46" id="h6-0-46" class="i">+    }
+</a><a href="#h6-0-47" id="h6-0-47" class="i">+    fn update_presence(&amp;self, user_id: &amp;UserId, presence: &amp;str) -&gt; Result&lt;(), ureq::Error&gt; {
+</a><a href="#h6-0-48" id="h6-0-48" class="i">+        let request_body = shared::PresenceUpdateRequest {
+</a><a href="#h6-0-49" id="h6-0-49" class="i">+            presence: presence.to_string(),
+</a><a href="#h6-0-50" id="h6-0-50" class="i">+            status_msg: &quot;NFC toggle request sent&quot;.to_string(),
+</a><a href="#h6-0-51" id="h6-0-51" class="i">+        };
+</a><a href="#h6-0-52" id="h6-0-52" class="i">+        let _ = ureq::put(&amp;format!(
+</a><a href="#h6-0-53" id="h6-0-53" class="i">+            &quot;{}/api/v1/presence/{}/status&quot;,
+</a><a href="#h6-0-54" id="h6-0-54" class="i">+            self.core_url, user_id.id
+</a><a href="#h6-0-55" id="h6-0-55" class="i">+        ))
+</a><a href="#h6-0-56" id="h6-0-56" class="i">+        .header(&quot;Authorization&quot;, &amp;format!(&quot;Bearer {}&quot;, self.token))
+</a><a href="#h6-0-57" id="h6-0-57" class="i">+        .send_json(request_body)?;
+</a><a href="#h6-0-58" id="h6-0-58" class="i">+        Ok(())
+</a><a href="#h6-0-59" id="h6-0-59" class="i">+    }
+</a><a href="#h6-0-60" id="h6-0-60" class="i">+    fn get_presence(&amp;self, user_id: &amp;UserId) -&gt; Result&lt;String, ureq::Error&gt; {
+</a><a href="#h6-0-61" id="h6-0-61" class="i">+        let now_presence_res = ureq::get(&amp;format!(
+</a><a href="#h6-0-62" id="h6-0-62" class="i">+            &quot;{}/api/v1/presence/{}/status&quot;,
+</a><a href="#h6-0-63" id="h6-0-63" class="i">+            self.core_url, user_id.id
+</a><a href="#h6-0-64" id="h6-0-64" class="i">+        ))
+</a><a href="#h6-0-65" id="h6-0-65" class="i">+        .header(&quot;Authorization&quot;, &amp;format!(&quot;Bearer {}&quot;, self.token))
+</a><a href="#h6-0-66" id="h6-0-66" class="i">+        .call()?
+</a><a href="#h6-0-67" id="h6-0-67" class="i">+        .body_mut()
+</a><a href="#h6-0-68" id="h6-0-68" class="i">+        .read_json::&lt;shared::PresenceResponse&gt;()?;
+</a><a href="#h6-0-69" id="h6-0-69" class="i">+        Ok(now_presence_res.presence)
+</a><a href="#h6-0-70" id="h6-0-70" class="i">+    }
+</a><a href="#h6-0-71" id="h6-0-71" class="i">+    fn toggled_presence(presence: &amp;str) -&gt; &amp;&#39;static str {
+</a><a href="#h6-0-72" id="h6-0-72" class="i">+        if presence == &quot;inLab&quot; {
+</a><a href="#h6-0-73" id="h6-0-73" class="i">+            &quot;offline&quot;
+</a><a href="#h6-0-74" id="h6-0-74" class="i">+        } else {
+</a><a href="#h6-0-75" id="h6-0-75" class="i">+            &quot;inLab&quot;
+</a><a href="#h6-0-76" id="h6-0-76" class="i">+        }
+</a><a href="#h6-0-77" id="h6-0-77" class="i">+    }
+</a><a href="#h6-0-78" id="h6-0-78" class="i">+}
+</a><a href="#h6-0-79" id="h6-0-79" class="i">+fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h6-0-80" id="h6-0-80" class="i">+    let _ = dotenvy::dotenv();
+</a><a href="#h6-0-81" id="h6-0-81" class="i">+    let ctx = Context::establish(Scope::User)?;
+</a><a href="#h6-0-82" id="h6-0-82" class="i">+
+</a><a href="#h6-0-83" id="h6-0-83" class="i">+    let mut nfc_sender: NfcSender = NfcSender::new();
+</a><a href="#h6-0-84" id="h6-0-84" class="i">+    nfc_sender.init()?;
+</a><a href="#h6-0-85" id="h6-0-85" class="i">+
+</a><a href="#h6-0-86" id="h6-0-86" class="i">+    println!(&quot;NFC sender has started...&quot;);
+</a><a href="#h6-0-87" id="h6-0-87" class="i">+
+</a><a href="#h6-0-88" id="h6-0-88" class="i">+    loop {
+</a><a href="#h6-0-89" id="h6-0-89" class="i">+        let mut readers_buf = [0u8; 2048];
+</a><a href="#h6-0-90" id="h6-0-90" class="i">+        let mut readers = match ctx.list_readers(&amp;mut readers_buf) {
+</a><a href="#h6-0-91" id="h6-0-91" class="i">+            Ok(r) =&gt; r,
+</a><a href="#h6-0-92" id="h6-0-92" class="i">+            Err(_) =&gt; {
+</a><a href="#h6-0-93" id="h6-0-93" class="i">+                sleep(Duration::from_secs(1));
+</a><a href="#h6-0-94" id="h6-0-94" class="i">+                continue;
+</a><a href="#h6-0-95" id="h6-0-95" class="i">+            }
+</a><a href="#h6-0-96" id="h6-0-96" class="i">+        };
+</a><a href="#h6-0-97" id="h6-0-97" class="i">+
+</a><a href="#h6-0-98" id="h6-0-98" class="i">+        let reader_name = match readers.next() {
+</a><a href="#h6-0-99" id="h6-0-99" class="i">+            Some(name) =&gt; name,
+</a><a href="#h6-0-100" id="h6-0-100" class="i">+            None =&gt; {
+</a><a href="#h6-0-101" id="h6-0-101" class="i">+                sleep(Duration::from_secs(1));
+</a><a href="#h6-0-102" id="h6-0-102" class="i">+                continue;
+</a><a href="#h6-0-103" id="h6-0-103" class="i">+            }
+</a><a href="#h6-0-104" id="h6-0-104" class="i">+        };
+</a><a href="#h6-0-105" id="h6-0-105" class="i">+
+</a><a href="#h6-0-106" id="h6-0-106" class="i">+        if let Ok(card) = ctx.connect(reader_name, ShareMode::Shared, Protocols::ANY) {
+</a><a href="#h6-0-107" id="h6-0-107" class="i">+            let felica_poll_cmd = [
+</a><a href="#h6-0-108" id="h6-0-108" class="i">+                0xFF, 0x00, 0x00, 0x00, 0x08, 0xD4, 0x40, 0x01, 0x00, 0xFF, 0xFF, 0x01, 0x00,
+</a><a href="#h6-0-109" id="h6-0-109" class="i">+            ];
+</a><a href="#h6-0-110" id="h6-0-110" class="i">+            let mut rapdu_buf = [0u8; 258];
+</a><a href="#h6-0-111" id="h6-0-111" class="i">+
+</a><a href="#h6-0-112" id="h6-0-112" class="i">+            if let Ok(rapdu) = card.transmit(&amp;felica_poll_cmd, &amp;mut rapdu_buf) {
+</a><a href="#h6-0-113" id="h6-0-113" class="i">+                if rapdu.len() &gt;= 18 {
+</a><a href="#h6-0-114" id="h6-0-114" class="i">+                    let idm_bytes = &amp;rapdu[10..18];
+</a><a href="#h6-0-115" id="h6-0-115" class="i">+                    let idm_str = idm_bytes
+</a><a href="#h6-0-116" id="h6-0-116" class="i">+                        .iter()
+</a><a href="#h6-0-117" id="h6-0-117" class="i">+                        .map(|b| format!(&quot;{:02X}&quot;, b))
+</a><a href="#h6-0-118" id="h6-0-118" class="i">+                        .collect::&lt;String&gt;();
+</a><a href="#h6-0-119" id="h6-0-119" class="i">+
+</a><a href="#h6-0-120" id="h6-0-120" class="i">+                    if let Ok(user_id) = nfc_sender.member_directory.inquire(&amp;idm_str) {
+</a><a href="#h6-0-121" id="h6-0-121" class="i">+                        if let Ok(current_presence) = nfc_sender.get_presence(&amp;user_id) {
+</a><a href="#h6-0-122" id="h6-0-122" class="i">+                            let toggled = NfcSender::toggled_presence(&amp;current_presence);
+</a><a href="#h6-0-123" id="h6-0-123" class="i">+                            let _ = nfc_sender.update_presence(&amp;user_id, toggled);
+</a><a href="#h6-0-124" id="h6-0-124" class="i">+                        }
+</a><a href="#h6-0-125" id="h6-0-125" class="i">+                    }
+</a><a href="#h6-0-126" id="h6-0-126" class="i">+
+</a><a href="#h6-0-127" id="h6-0-127" class="i">+                    sleep(Duration::from_secs(2));
+</a><a href="#h6-0-128" id="h6-0-128" class="i">+                }
+</a><a href="#h6-0-129" id="h6-0-129" class="i">+            }
+</a><a href="#h6-0-130" id="h6-0-130" class="i">+        }
+</a><a href="#h6-0-131" id="h6-0-131" class="i">+
+</a><a href="#h6-0-132" id="h6-0-132" class="i">+        sleep(Duration::from_millis(500));
+</a><a href="#h6-0-133" id="h6-0-133" class="i">+    }
+</a><a href="#h6-0-134" id="h6-0-134" class="i">+}
+</a><a href="#h6-0-135" id="h6-0-135" class="i">+#[cfg(test)]
+</a><a href="#h6-0-136" id="h6-0-136" class="i">+mod tests {
+</a><a href="#h6-0-137" id="h6-0-137" class="i">+    use super::*;
+</a><a href="#h6-0-138" id="h6-0-138" class="i">+
+</a><a href="#h6-0-139" id="h6-0-139" class="i">+    fn extract_idm(rapdu: &amp;[u8]) -&gt; Option&lt;String&gt; {
+</a><a href="#h6-0-140" id="h6-0-140" class="i">+        if rapdu.len() &lt; 18 {
+</a><a href="#h6-0-141" id="h6-0-141" class="i">+            return None;
+</a><a href="#h6-0-142" id="h6-0-142" class="i">+        }
+</a><a href="#h6-0-143" id="h6-0-143" class="i">+        Some(
+</a><a href="#h6-0-144" id="h6-0-144" class="i">+            rapdu[10..18]
+</a><a href="#h6-0-145" id="h6-0-145" class="i">+                .iter()
+</a><a href="#h6-0-146" id="h6-0-146" class="i">+                .map(|b| format!(&quot;{:02X}&quot;, b))
+</a><a href="#h6-0-147" id="h6-0-147" class="i">+                .collect::&lt;String&gt;(),
+</a><a href="#h6-0-148" id="h6-0-148" class="i">+        )
+</a><a href="#h6-0-149" id="h6-0-149" class="i">+    }
+</a><a href="#h6-0-150" id="h6-0-150" class="i">+
+</a><a href="#h6-0-151" id="h6-0-151" class="i">+    #[test]
+</a><a href="#h6-0-152" id="h6-0-152" class="i">+    fn test_toggled_presence_in_lab_to_offline() {
+</a><a href="#h6-0-153" id="h6-0-153" class="i">+        let current = &quot;inLab&quot;;
+</a><a href="#h6-0-154" id="h6-0-154" class="i">+        let next = NfcSender::toggled_presence(current);
+</a><a href="#h6-0-155" id="h6-0-155" class="i">+        assert_eq!(next, &quot;offline&quot;);
+</a><a href="#h6-0-156" id="h6-0-156" class="i">+    }
+</a><a href="#h6-0-157" id="h6-0-157" class="i">+
+</a><a href="#h6-0-158" id="h6-0-158" class="i">+    #[test]
+</a><a href="#h6-0-159" id="h6-0-159" class="i">+    fn test_toggled_presence_offline_to_in_lab() {
+</a><a href="#h6-0-160" id="h6-0-160" class="i">+        let current = &quot;offline&quot;;
+</a><a href="#h6-0-161" id="h6-0-161" class="i">+        let next = NfcSender::toggled_presence(current);
+</a><a href="#h6-0-162" id="h6-0-162" class="i">+        assert_eq!(next, &quot;inLab&quot;);
+</a><a href="#h6-0-163" id="h6-0-163" class="i">+    }
+</a><a href="#h6-0-164" id="h6-0-164" class="i">+
+</a><a href="#h6-0-165" id="h6-0-165" class="i">+    #[test]
+</a><a href="#h6-0-166" id="h6-0-166" class="i">+    fn test_toggled_presence_unknown_status_defaults_to_in_lab() {
+</a><a href="#h6-0-167" id="h6-0-167" class="i">+        let current = &quot;unknown&quot;;
+</a><a href="#h6-0-168" id="h6-0-168" class="i">+        let next = NfcSender::toggled_presence(current);
+</a><a href="#h6-0-169" id="h6-0-169" class="i">+        assert_eq!(next, &quot;inLab&quot;);
+</a><a href="#h6-0-170" id="h6-0-170" class="i">+    }
+</a><a href="#h6-0-171" id="h6-0-171" class="i">+
+</a><a href="#h6-0-172" id="h6-0-172" class="i">+    #[test]
+</a><a href="#h6-0-173" id="h6-0-173" class="i">+    fn test_extract_idm_valid_rapdu() {
+</a><a href="#h6-0-174" id="h6-0-174" class="i">+        let mut rapdu = vec![0u8; 18];
+</a><a href="#h6-0-175" id="h6-0-175" class="i">+        rapdu[10..18].copy_from_slice(&amp;[0x01, 0x2E, 0x3F, 0x4A, 0x5B, 0x6C, 0x7D, 0x8E]);
+</a><a href="#h6-0-176" id="h6-0-176" class="i">+
+</a><a href="#h6-0-177" id="h6-0-177" class="i">+        let idm = extract_idm(&amp;rapdu);
+</a><a href="#h6-0-178" id="h6-0-178" class="i">+        assert_eq!(idm, Some(&quot;012E3F4A5B6C7D8E&quot;.to_string()));
+</a><a href="#h6-0-179" id="h6-0-179" class="i">+    }
+</a><a href="#h6-0-180" id="h6-0-180" class="i">+
+</a><a href="#h6-0-181" id="h6-0-181" class="i">+    #[test]
+</a><a href="#h6-0-182" id="h6-0-182" class="i">+    fn test_extract_idm_short_rapdu_returns_none() {
+</a><a href="#h6-0-183" id="h6-0-183" class="i">+        let rapdu = vec![0u8; 17];
+</a><a href="#h6-0-184" id="h6-0-184" class="i">+        let idm = extract_idm(&amp;rapdu);
+</a><a href="#h6-0-185" id="h6-0-185" class="i">+        assert_eq!(idm, None);
+</a><a href="#h6-0-186" id="h6-0-186" class="i">+    }
+</a><a href="#h6-0-187" id="h6-0-187" class="i">+}
+</a><a href="#h6-0-188" id="h6-0-188" class="i">+#[cfg(test)]
+</a><a href="#h6-0-189" id="h6-0-189" class="i">+mod integration_tests {
+</a><a href="#h6-0-190" id="h6-0-190" class="i">+    use super::*;
+</a><a href="#h6-0-191" id="h6-0-191" class="i">+    use wiremock::matchers::{header, method, path};
+</a><a href="#h6-0-192" id="h6-0-192" class="i">+    use wiremock::{Mock, MockServer, ResponseTemplate};
+</a><a href="#h6-0-193" id="h6-0-193" class="i">+
+</a><a href="#h6-0-194" id="h6-0-194" class="i">+    #[tokio::test]
+</a><a href="#h6-0-195" id="h6-0-195" class="i">+    async fn test_nfc_sender_api_flow() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h6-0-196" id="h6-0-196" class="i">+        let mock_server = MockServer::start().await;
+</a><a href="#h6-0-197" id="h6-0-197" class="i">+
+</a><a href="#h6-0-198" id="h6-0-198" class="i">+        Mock::given(method(&quot;GET&quot;))
+</a><a href="#h6-0-199" id="h6-0-199" class="i">+            .and(path(&quot;/api/v1/presence/user_123/status&quot;))
+</a><a href="#h6-0-200" id="h6-0-200" class="i">+            .and(header(&quot;Authorization&quot;, &quot;Bearer mock_token&quot;))
+</a><a href="#h6-0-201" id="h6-0-201" class="i">+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+</a><a href="#h6-0-202" id="h6-0-202" class="i">+                &quot;presence&quot;: &quot;inLab&quot;,
+</a><a href="#h6-0-203" id="h6-0-203" class="i">+                &quot;status_msg&quot;: &quot;NFC toggle request sent&quot;,
+</a><a href="#h6-0-204" id="h6-0-204" class="i">+                &quot;timestamp&quot;: 1625097600
+</a><a href="#h6-0-205" id="h6-0-205" class="i">+            })))
+</a><a href="#h6-0-206" id="h6-0-206" class="i">+            .mount(&amp;mock_server)
+</a><a href="#h6-0-207" id="h6-0-207" class="i">+            .await;
+</a><a href="#h6-0-208" id="h6-0-208" class="i">+
+</a><a href="#h6-0-209" id="h6-0-209" class="i">+        Mock::given(method(&quot;PUT&quot;))
+</a><a href="#h6-0-210" id="h6-0-210" class="i">+            .and(path(&quot;/api/v1/presence/user_123/status&quot;))
+</a><a href="#h6-0-211" id="h6-0-211" class="i">+            .and(header(&quot;Authorization&quot;, &quot;Bearer mock_token&quot;))
+</a><a href="#h6-0-212" id="h6-0-212" class="i">+            .respond_with(ResponseTemplate::new(200))
+</a><a href="#h6-0-213" id="h6-0-213" class="i">+            .mount(&amp;mock_server)
+</a><a href="#h6-0-214" id="h6-0-214" class="i">+            .await;
+</a><a href="#h6-0-215" id="h6-0-215" class="i">+
+</a><a href="#h6-0-216" id="h6-0-216" class="i">+        let sender = NfcSender {
+</a><a href="#h6-0-217" id="h6-0-217" class="i">+            core_url: mock_server.uri(),
+</a><a href="#h6-0-218" id="h6-0-218" class="i">+            token: &quot;mock_token&quot;.to_string(),
+</a><a href="#h6-0-219" id="h6-0-219" class="i">+            member_directory: MemberDirectory::new(vec![]),
+</a><a href="#h6-0-220" id="h6-0-220" class="i">+        };
+</a><a href="#h6-0-221" id="h6-0-221" class="i">+
+</a><a href="#h6-0-222" id="h6-0-222" class="i">+        let dummy_user = UserId {
+</a><a href="#h6-0-223" id="h6-0-223" class="i">+            id: &quot;user_123&quot;.to_string(),
+</a><a href="#h6-0-224" id="h6-0-224" class="i">+        };
+</a><a href="#h6-0-225" id="h6-0-225" class="i">+
+</a><a href="#h6-0-226" id="h6-0-226" class="i">+        let presence = sender.get_presence(&amp;dummy_user)?;
+</a><a href="#h6-0-227" id="h6-0-227" class="i">+        assert_eq!(presence, &quot;inLab&quot;);
+</a><a href="#h6-0-228" id="h6-0-228" class="i">+
+</a><a href="#h6-0-229" id="h6-0-229" class="i">+        let toggled = NfcSender::toggled_presence(&amp;presence);
+</a><a href="#h6-0-230" id="h6-0-230" class="i">+        let update_res = sender.update_presence(&amp;dummy_user, toggled);
+</a><a href="#h6-0-231" id="h6-0-231" class="i">+        assert!(update_res.is_ok());
+</a><a href="#h6-0-232" id="h6-0-232" class="i">+
+</a><a href="#h6-0-233" id="h6-0-233" class="i">+        Ok(())
+</a><a href="#h6-0-234" id="h6-0-234" class="i">+    }
+</a> }
+<b>diff --git a/<a id="h7" href="../file/shared/src/lib.rs.html">shared/src/lib.rs</a> b/<a href="../file/shared/src/lib.rs.html">shared/src/lib.rs</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -1,6 +1,4 @@
+</a><a href="#h7-0-0" id="h7-0-0" class="d">-use dotenv::dotenv;
+</a> use serde::{Deserialize, Serialize};
+<a href="#h7-0-2" id="h7-0-2" class="d">-use sha2::Digest;
+</a> use std::error::Error;
+ 
+ #[derive(Serialize, Deserialize, Clone)]
+<a href="#h7-1" id="h7-1" class="h">@@ -63,38 +61,52 @@ impl LabPresence {
+</a>     }
+ }
+ 
+<a href="#h7-1-3" id="h7-1-3" class="i">+#[derive(Serialize, Deserialize, Debug, Clone)]
+</a> pub struct UserId {
+     pub id: String,
+ }
+<a href="#h7-1-7" id="h7-1-7" class="d">-impl UserId {
+</a><a href="#h7-1-8" id="h7-1-8" class="d">-    pub fn get_id(idm: String) -&gt; Result&lt;Self, Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h7-1-9" id="h7-1-9" class="d">-        let _ = dotenv();
+</a><a href="#h7-1-10" id="h7-1-10" class="d">-        let salt = std::env::var(&quot;SALT&quot;)?;
+</a><a href="#h7-1-11" id="h7-1-11" class="d">-        let mut hasher = sha2::Sha256::new();
+</a><a href="#h7-1-12" id="h7-1-12" class="d">-        hasher.update(idm.as_bytes());
+</a><a href="#h7-1-13" id="h7-1-13" class="d">-        hasher.update(salt.as_bytes());
+</a><a href="#h7-1-14" id="h7-1-14" class="d">-        let result = hasher
+</a><a href="#h7-1-15" id="h7-1-15" class="d">-            .finalize()
+</a><a href="#h7-1-16" id="h7-1-16" class="d">-            .iter()
+</a><a href="#h7-1-17" id="h7-1-17" class="d">-            .map(|b| format!(&quot;{:02x}&quot;, b))
+</a><a href="#h7-1-18" id="h7-1-18" class="d">-            .collect::&lt;String&gt;();
+</a> 
+<a href="#h7-1-20" id="h7-1-20" class="d">-        Ok(Self { id: result })
+</a><a href="#h7-1-21" id="h7-1-21" class="i">+#[derive(Serialize, Deserialize, Debug, Clone)]
+</a><a href="#h7-1-22" id="h7-1-22" class="i">+pub struct User {
+</a><a href="#h7-1-23" id="h7-1-23" class="i">+    pub id: UserId,
+</a><a href="#h7-1-24" id="h7-1-24" class="i">+    pub card_serial_number: String,
+</a><a href="#h7-1-25" id="h7-1-25" class="i">+}
+</a><a href="#h7-1-26" id="h7-1-26" class="i">+
+</a><a href="#h7-1-27" id="h7-1-27" class="i">+#[derive(Serialize, Deserialize)]
+</a><a href="#h7-1-28" id="h7-1-28" class="i">+pub struct MemberDirectory {
+</a><a href="#h7-1-29" id="h7-1-29" class="i">+    pub users: Vec&lt;User&gt;,
+</a><a href="#h7-1-30" id="h7-1-30" class="i">+}
+</a><a href="#h7-1-31" id="h7-1-31" class="i">+impl MemberDirectory {
+</a><a href="#h7-1-32" id="h7-1-32" class="i">+    pub fn new(users: Vec&lt;User&gt;) -&gt; Self {
+</a><a href="#h7-1-33" id="h7-1-33" class="i">+        Self { users }
+</a><a href="#h7-1-34" id="h7-1-34" class="i">+    }
+</a><a href="#h7-1-35" id="h7-1-35" class="i">+    pub fn init_from_env() -&gt; Result&lt;Self, Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h7-1-36" id="h7-1-36" class="i">+        let member_directory = std::env::var(&quot;MEMBER_DIRECTORY&quot;)?;
+</a><a href="#h7-1-37" id="h7-1-37" class="i">+        let users: Vec&lt;User&gt; = serde_json::from_str(&amp;member_directory)?;
+</a><a href="#h7-1-38" id="h7-1-38" class="i">+        Ok(Self::new(users))
+</a><a href="#h7-1-39" id="h7-1-39" class="i">+    }
+</a><a href="#h7-1-40" id="h7-1-40" class="i">+    pub fn inquire(&amp;self, card_serial_number: &amp;str) -&gt; Result&lt;UserId, Box&lt;dyn std::error::Error&gt;&gt; {
+</a><a href="#h7-1-41" id="h7-1-41" class="i">+        self.users
+</a><a href="#h7-1-42" id="h7-1-42" class="i">+            .iter()
+</a><a href="#h7-1-43" id="h7-1-43" class="i">+            .find(|u| u.card_serial_number == card_serial_number)
+</a><a href="#h7-1-44" id="h7-1-44" class="i">+            .map(|u| u.id.clone())
+</a><a href="#h7-1-45" id="h7-1-45" class="i">+            .ok_or_else(|| &quot;User not found&quot;.into())
+</a>     }
+ }
+<a href="#h7-1-48" id="h7-1-48" class="d">-#[derive(Deserialize)]
+</a><a href="#h7-1-49" id="h7-1-49" class="i">+
+</a><a href="#h7-1-50" id="h7-1-50" class="i">+#[derive(Serialize, Deserialize)]
+</a> pub struct LoginRequest {
+     pub device_id: String,
+     pub device_secret: String,
+ }
+ 
+<a href="#h7-1-56" id="h7-1-56" class="d">-#[derive(Serialize)]
+</a><a href="#h7-1-57" id="h7-1-57" class="i">+#[derive(Serialize, Deserialize)]
+</a> pub struct LoginResponse {
+     pub access_token: String,
+     pub expires_in: u32,
+ }
+ 
+<a href="#h7-1-63" id="h7-1-63" class="d">-#[derive(Serialize)]
+</a><a href="#h7-1-64" id="h7-1-64" class="i">+#[derive(Serialize, Deserialize)]
+</a> pub struct PresenceResponse {
+     pub presence: String,
+     pub status_msg: String,
+<a href="#h7-2" id="h7-2" class="h">@@ -107,7 +119,7 @@ pub struct PresenceUpdateRequest {
+</a>     pub status_msg: String,
+ }
+ 
+<a href="#h7-2-3" id="h7-2-3" class="d">-#[derive(Serialize)]
+</a><a href="#h7-2-4" id="h7-2-4" class="i">+#[derive(Serialize, Deserialize)]
+</a> pub struct ErrorResponse {
+     pub errcode: String,
+     pub error: String,
+</pre>
+</div>
+</body>
+</html>

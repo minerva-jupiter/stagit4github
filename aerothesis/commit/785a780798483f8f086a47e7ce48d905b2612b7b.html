@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat: implement physical bore resonance and reed coupling - aerothesis - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>aerothesis</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/785a780798483f8f086a47e7ce48d905b2612b7b.html">785a780798483f8f086a47e7ce48d905b2612b7b</a>
+<b>parent</b> <a href="../commit/be7f9f1d8db68ad55ec89c80a49f3192d767d962.html">be7f9f1d8db68ad55ec89c80a49f3192d767d962</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Wed, 17 Jun 2026 21:33:12 +0900
+
+feat: implement physical bore resonance and reed coupling
+
+- Introduce `Bore` struct for digital waveguide physical modeling, featuring non-linear dissipative boundary conditions
+- Implement `Reed` struct for mass-spring-damper oscillator coupling
+- Integrate `rustfft` for frequency domain analysis in CLI
+- Update `Aerothesis` plugin to use full physical modeling synthesis instead of simple oscillation
+- Add `OscillationType` and `BoundaryType` enums for user-configurable synthesis modes
+- Update project metadata to reflect transition to an instrument plugin
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">Cargo.lock</a></td><td> | </td><td class="num">73</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">Cargo.toml</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">README.md</a></td><td> | </td><td class="num">221</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/lib.rs</a></td><td> | </td><td class="num">289</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/main.rs</a></td><td> | </td><td class="num">76</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------</span></td></tr>
+</table></pre><pre>5 files changed, 575 insertions(+), 85 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/Cargo.lock.html">Cargo.lock</a> b/<a href="../file/Cargo.lock.html">Cargo.lock</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -22,6 +22,7 @@ name = &quot;aerothesis&quot;
+</a> version = &quot;0.1.0&quot;
+ dependencies = [
+  &quot;nih_plug&quot;,
+<a href="#h0-0-3" id="h0-0-3" class="i">+ &quot;rustfft&quot;,
+</a>  &quot;textplots&quot;,
+ ]
+ 
+<a href="#h0-1" id="h0-1" class="h">@@ -70,6 +71,12 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h0-1-3" id="h0-1-3" class="i">+name = &quot;autocfg&quot;
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+version = &quot;1.5.1&quot;
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+checksum = &quot;f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53&quot;
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+[[package]]
+</a> name = &quot;backtrace&quot;
+ version = &quot;0.3.76&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h0-2" id="h0-2" class="h">@@ -431,12 +438,39 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h0-2-3" id="h0-2-3" class="i">+name = &quot;num-complex&quot;
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+version = &quot;0.4.6&quot;
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+checksum = &quot;73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495&quot;
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+dependencies = [
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+ &quot;num-traits&quot;,
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+]
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+[[package]]
+</a> name = &quot;num-conv&quot;
+ version = &quot;0.2.2&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+ checksum = &quot;521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441&quot;
+ 
+ [[package]]
+<a href="#h0-2-18" id="h0-2-18" class="i">+name = &quot;num-integer&quot;
+</a><a href="#h0-2-19" id="h0-2-19" class="i">+version = &quot;0.1.46&quot;
+</a><a href="#h0-2-20" id="h0-2-20" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-2-21" id="h0-2-21" class="i">+checksum = &quot;7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f&quot;
+</a><a href="#h0-2-22" id="h0-2-22" class="i">+dependencies = [
+</a><a href="#h0-2-23" id="h0-2-23" class="i">+ &quot;num-traits&quot;,
+</a><a href="#h0-2-24" id="h0-2-24" class="i">+]
+</a><a href="#h0-2-25" id="h0-2-25" class="i">+
+</a><a href="#h0-2-26" id="h0-2-26" class="i">+[[package]]
+</a><a href="#h0-2-27" id="h0-2-27" class="i">+name = &quot;num-traits&quot;
+</a><a href="#h0-2-28" id="h0-2-28" class="i">+version = &quot;0.2.19&quot;
+</a><a href="#h0-2-29" id="h0-2-29" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-2-30" id="h0-2-30" class="i">+checksum = &quot;071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841&quot;
+</a><a href="#h0-2-31" id="h0-2-31" class="i">+dependencies = [
+</a><a href="#h0-2-32" id="h0-2-32" class="i">+ &quot;autocfg&quot;,
+</a><a href="#h0-2-33" id="h0-2-33" class="i">+]
+</a><a href="#h0-2-34" id="h0-2-34" class="i">+
+</a><a href="#h0-2-35" id="h0-2-35" class="i">+[[package]]
+</a> name = &quot;num_threads&quot;
+ version = &quot;0.1.7&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h0-3" id="h0-3" class="h">@@ -505,6 +539,15 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391&quot;
+ 
+ [[package]]
+<a href="#h0-3-3" id="h0-3-3" class="i">+name = &quot;primal-check&quot;
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+version = &quot;0.3.4&quot;
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+checksum = &quot;dc0d895b311e3af9902528fbb8f928688abbd95872819320517cc24ca6b2bd08&quot;
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+dependencies = [
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+ &quot;num-integer&quot;,
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+]
+</a><a href="#h0-3-10" id="h0-3-10" class="i">+
+</a><a href="#h0-3-11" id="h0-3-11" class="i">+[[package]]
+</a> name = &quot;proc-macro2&quot;
+ version = &quot;1.0.106&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h0-4" id="h0-4" class="h">@@ -562,6 +605,20 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;b50b8869d9fc858ce7266cce0194bd74df58b9d0e3f6df3a9fc8eb470d95c09d&quot;
+ 
+ [[package]]
+<a href="#h0-4-3" id="h0-4-3" class="i">+name = &quot;rustfft&quot;
+</a><a href="#h0-4-4" id="h0-4-4" class="i">+version = &quot;6.4.1&quot;
+</a><a href="#h0-4-5" id="h0-4-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-4-6" id="h0-4-6" class="i">+checksum = &quot;21db5f9893e91f41798c88680037dba611ca6674703c1a18601b01a72c8adb89&quot;
+</a><a href="#h0-4-7" id="h0-4-7" class="i">+dependencies = [
+</a><a href="#h0-4-8" id="h0-4-8" class="i">+ &quot;num-complex&quot;,
+</a><a href="#h0-4-9" id="h0-4-9" class="i">+ &quot;num-integer&quot;,
+</a><a href="#h0-4-10" id="h0-4-10" class="i">+ &quot;num-traits&quot;,
+</a><a href="#h0-4-11" id="h0-4-11" class="i">+ &quot;primal-check&quot;,
+</a><a href="#h0-4-12" id="h0-4-12" class="i">+ &quot;strength_reduce&quot;,
+</a><a href="#h0-4-13" id="h0-4-13" class="i">+ &quot;transpose&quot;,
+</a><a href="#h0-4-14" id="h0-4-14" class="i">+]
+</a><a href="#h0-4-15" id="h0-4-15" class="i">+
+</a><a href="#h0-4-16" id="h0-4-16" class="i">+[[package]]
+</a> name = &quot;scopeguard&quot;
+ version = &quot;1.2.0&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h0-5" id="h0-5" class="h">@@ -656,6 +713,12 @@ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a> checksum = &quot;8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90&quot;
+ 
+ [[package]]
+<a href="#h0-5-3" id="h0-5-3" class="i">+name = &quot;strength_reduce&quot;
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+version = &quot;0.2.4&quot;
+</a><a href="#h0-5-5" id="h0-5-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-5-6" id="h0-5-6" class="i">+checksum = &quot;fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82&quot;
+</a><a href="#h0-5-7" id="h0-5-7" class="i">+
+</a><a href="#h0-5-8" id="h0-5-8" class="i">+[[package]]
+</a> name = &quot;syn&quot;
+ version = &quot;1.0.109&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<a href="#h0-6" id="h0-6" class="h">@@ -784,6 +847,16 @@ dependencies = [
+</a> ]
+ 
+ [[package]]
+<a href="#h0-6-3" id="h0-6-3" class="i">+name = &quot;transpose&quot;
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+version = &quot;0.2.3&quot;
+</a><a href="#h0-6-5" id="h0-6-5" class="i">+source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+</a><a href="#h0-6-6" id="h0-6-6" class="i">+checksum = &quot;1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e&quot;
+</a><a href="#h0-6-7" id="h0-6-7" class="i">+dependencies = [
+</a><a href="#h0-6-8" id="h0-6-8" class="i">+ &quot;num-integer&quot;,
+</a><a href="#h0-6-9" id="h0-6-9" class="i">+ &quot;strength_reduce&quot;,
+</a><a href="#h0-6-10" id="h0-6-10" class="i">+]
+</a><a href="#h0-6-11" id="h0-6-11" class="i">+
+</a><a href="#h0-6-12" id="h0-6-12" class="i">+[[package]]
+</a> name = &quot;unicode-ident&quot;
+ version = &quot;1.0.24&quot;
+ source = &quot;registry+https://github.com/rust-lang/crates.io-index&quot;
+<b>diff --git a/<a id="h1" href="../file/Cargo.toml.html">Cargo.toml</a> b/<a href="../file/Cargo.toml.html">Cargo.toml</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -20,6 +20,7 @@ crate-type = [&quot;cdylib&quot;, &quot;rlib&quot;]
+</a> # Uncomment the below line to disable the on-by-default VST3 feature to remove
+ # the GPL compatibility requirement
+ nih_plug = { git = &quot;https://github.com/robbert-vdh/nih-plug.git&quot;, default-features = false, features = [&quot;assert_process_allocs&quot;] }
+<a href="#h1-0-3" id="h1-0-3" class="i">+rustfft = &quot;6.4.1&quot;
+</a> textplots = &quot;0.8.7&quot;
+ 
+ [profile.release]
+<b>diff --git a/<a id="h2" href="../file/README.md.html">README.md</a> b/<a href="../file/README.md.html">README.md</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -14,87 +14,107 @@ Purpose of this repository is creating an expressive wind synthesizer, like real
+</a> 
+ ### Architecture
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-#### Temporary oscillation
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+#### Primary oscillation
+</a> 
+ This parts play a role of generating sounds like the reed on a saxophone or the lips on a trumpet.
+ 
+ &lt;details&gt;
+ &lt;summary&gt;TL;DR Derivation of the simulation formula&lt;/summary&gt;
+ 
+<a href="#h2-0-11" id="h2-0-11" class="d">-## Derivation of the simulation formula
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+```markdown
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+## Physical Modeling and Discretization Process
+</a> 
+<a href="#h2-0-15" id="h2-0-15" class="d">-### 1. Continuous-Time Physical Equations
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+This plugin simulates the sound generation mechanism of a reed instrument (or lip-reed instrument) by coupling a continuous-time mechanical oscillator with a non-linear fluid dynamics engine.
+</a> 
+<a href="#h2-0-18" id="h2-0-18" class="d">-#### Mechanical Oscillator (Reed Dynamics)
+</a><a href="#h2-0-19" id="h2-0-19" class="d">-
+</a><a href="#h2-0-20" id="h2-0-20" class="d">-The mechanical movement of the reed is modeled as a damped mass-spring system driven by an external fluid force $f(t)$:
+</a><a href="#h2-0-21" id="h2-0-21" class="d">-
+</a><a href="#h2-0-22" id="h2-0-22" class="d">-$$m \frac{d^2 x(t)}{dt^2} + r \frac{dx(t)}{dt} + k x(t) = f(t)$$
+</a><a href="#h2-0-23" id="h2-0-23" class="d">-
+</a><a href="#h2-0-24" id="h2-0-24" class="d">-Where:
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+---
+</a> 
+<a href="#h2-0-27" id="h2-0-27" class="d">-* $m$: Effective mass of the reed.
+</a><a href="#h2-0-28" id="h2-0-28" class="d">-* $r$: Mechanical damping.
+</a><a href="#h2-0-29" id="h2-0-29" class="d">-* $k$: Stiffness (restoring force coefficient).
+</a><a href="#h2-0-30" id="h2-0-30" class="d">-* $x(t)$: Reed displacement ($x=0$ at rest, $x=2.0$ represents complete channel closure).
+</a><a href="#h2-0-31" id="h2-0-31" class="i">+### 1. Fluid Dynamics Discretization &amp; Velocity Derivation
+</a> 
+<a href="#h2-0-33" id="h2-0-33" class="d">-#### Fluid Dynamics (Pressure-Velocity Relation)
+</a><a href="#h2-0-34" id="h2-0-34" class="i">+#### Continuous-Time Fluid Equation
+</a> 
+<a href="#h2-0-36" id="h2-0-36" class="d">-The airflow through the reed gap incorporates both the pressure drop across the orifice (Bernoulli&#39;s principle) and the acoustic/fluid inertia of the air mass within the channel:
+</a><a href="#h2-0-37" id="h2-0-37" class="i">+The pressure drop $P(t)$ across the orifice incorporates both the acoustic/fluid inertia of the air mass within the channel and Bernoulli&#39;s principle:
+</a> 
+<a href="#h2-0-39" id="h2-0-39" class="d">-$$\rho L \frac{dv_f(t)}{dt} + \frac{\rho}{4 g(t)^2} v_f(t)^2 = P(t)$$
+</a><a href="#h2-0-40" id="h2-0-40" class="i">+$$P(t) = \rho L \frac{dv_f(t)}{dt} + B(t) v_f(t)^2$$
+</a> 
+ Where:
+ 
+ * $\rho$: Air density ($1.2 \text{ kg/m}^3$).
+ * $L$: Effective length of the fluid column.
+ * $v_f(t)$: Fluid flow velocity.
+<a href="#h2-0-47" id="h2-0-47" class="d">-* $P(t)$: Driving breath pressure.
+</a><a href="#h2-0-48" id="h2-0-48" class="d">-* $g(t) = \max(2.0 - x(t), \epsilon)$: Dynamic aperture (gap width, clamped with a tiny $\epsilon$ to prevent division by zero).
+</a><a href="#h2-0-49" id="h2-0-49" class="i">+* $B(t) = \frac{\rho}{4 g(t)^2}$: Geometry-dependent flow resistance coefficient ($g(t)$ is the dynamic aperture).
+</a><a href="#h2-0-50" id="h2-0-50" class="i">+
+</a><a href="#h2-0-51" id="h2-0-51" class="i">+#### Bilinear Transform (Trapezoidal Integration)
+</a><a href="#h2-0-52" id="h2-0-52" class="i">+
+</a><a href="#h2-0-53" id="h2-0-53" class="i">+To discretize the derivative term, we apply the bilinear transform, which is mathematically equivalent to the trapezoidal rule. The derivative of fluid velocity at step $n$ is approximated as:
+</a><a href="#h2-0-54" id="h2-0-54" class="i">+
+</a><a href="#h2-0-55" id="h2-0-55" class="i">+$$\frac{dv_f(t)}{dt} \approx \frac{2}{T} (v_f[n] - v_f[n-1]) - \left.\frac{dv_f(t)}{dt}\right|_{n-1}$$
+</a><a href="#h2-0-56" id="h2-0-56" class="i">+
+</a><a href="#h2-0-57" id="h2-0-57" class="i">+Substituting the continuous fluid equation at step $n-1$ into the historic derivative term yields:
+</a><a href="#h2-0-58" id="h2-0-58" class="i">+
+</a><a href="#h2-0-59" id="h2-0-59" class="i">+$$\frac{dv_f(t)}{dt} \approx \frac{2}{T} (v_f[n] - v_f[n-1]) - \frac{1}{\rho L} \left( P[n-1] - B[n-1] v_f[n-1]^2 \right)$$
+</a><a href="#h2-0-60" id="h2-0-60" class="i">+
+</a><a href="#h2-0-61" id="h2-0-61" class="i">+Substituting this approximation back into the continuous-time equation at step $n$:
+</a><a href="#h2-0-62" id="h2-0-62" class="i">+
+</a><a href="#h2-0-63" id="h2-0-63" class="i">+$$P[n] = \rho L \left[ \frac{2}{T} (v_f[n] - v_f[n-1]) - \frac{1}{\rho L} \left( P[n-1] - B[n-1] v_f[n-1]^2 \right) \right] + B[n] v_f[n]^2$$
+</a><a href="#h2-0-64" id="h2-0-64" class="i">+
+</a><a href="#h2-0-65" id="h2-0-65" class="i">+Expanding and organizing the equation into a quadratic form with respect to the current velocity $v_f[n]$:
+</a><a href="#h2-0-66" id="h2-0-66" class="i">+
+</a><a href="#h2-0-67" id="h2-0-67" class="i">+$$B[n] v_f[n]^2 + \left( \frac{2\rho L}{T} \right) v_f[n] - \left[ P[n] + P[n-1] + \frac{2\rho L}{T} v_f[n-1] - B[n-1] v_f[n-1]^2 \right] = 0$$
+</a><a href="#h2-0-68" id="h2-0-68" class="i">+
+</a><a href="#h2-0-69" id="h2-0-69" class="i">+#### Analytical Solution for Discrete Fluid Velocity
+</a><a href="#h2-0-70" id="h2-0-70" class="i">+
+</a><a href="#h2-0-71" id="h2-0-71" class="i">+To solve for the physically valid (positive) root of this quadratic equation, let:
+</a><a href="#h2-0-72" id="h2-0-72" class="i">+
+</a><a href="#h2-0-73" id="h2-0-73" class="i">+* $A = \frac{2\rho L}{T}$
+</a><a href="#h2-0-74" id="h2-0-74" class="i">+* $C[n-1] = P[n] + P[n-1] + A v_f[n-1] - B[n-1] v_f[n-1]^2$
+</a><a href="#h2-0-75" id="h2-0-75" class="i">+
+</a><a href="#h2-0-76" id="h2-0-76" class="i">+Applying the quadratic formula explicitly determines the discrete fluid velocity $v_f[n]$ at the current time-step:
+</a> 
+<a href="#h2-0-78" id="h2-0-78" class="d">-#### Aeroelastic Coupling (Fluid Force)
+</a><a href="#h2-0-79" id="h2-0-79" class="i">+$$v_f[n] = \frac{-A + \sqrt{A^2 + 4 B[n] C[n-1]}}{2 B[n]}$$
+</a> 
+<a href="#h2-0-81" id="h2-0-81" class="d">-The aerodynamic force $f(t)$ acting on the surface of the reed depends on the dynamic pressure and the geometry of the channel:
+</a><a href="#h2-0-82" id="h2-0-82" class="i">+#### Mapping to Fluid Force $f[n]$
+</a> 
+<a href="#h2-0-84" id="h2-0-84" class="d">-$$f(t) = \pm \frac{1}{2} \rho v_f(t)^2 g(t)$$
+</a><a href="#h2-0-85" id="h2-0-85" class="i">+The calculated velocity $v_f[n]$ is immediately mapped to the aerodynamic force $f[n]$ acting on the reed surface based on the selected instrument mode:
+</a> 
+<a href="#h2-0-87" id="h2-0-87" class="d">-* **$\boldsymbol{+}$ (Positive Sign):** `SingleReed` Mode (Saxophone/Clarinet). The high velocity creates suction (Bernoulli effect) that pulls the reed toward closure.
+</a><a href="#h2-0-88" id="h2-0-88" class="d">-* **$\boldsymbol{-}$ (Negative Sign):** `LipReed` Mode (Trumpet/Brass). The pressure pushes the lips outward to open the channel.
+</a><a href="#h2-0-89" id="h2-0-89" class="i">+$$f[n] = \pm \frac{1}{2} \rho v_f[n]^2 g[n]$$
+</a><a href="#h2-0-90" id="h2-0-90" class="i">+
+</a><a href="#h2-0-91" id="h2-0-91" class="i">+* **$\boldsymbol{+}$ (Positive Sign):** `SingleReed` Mode (Saxophone). The high velocity creates suction (Bernoulli effect) that pulls the reed toward closure.
+</a><a href="#h2-0-92" id="h2-0-92" class="i">+* **$\boldsymbol{-}$ (Negative Sign):** `LipReed` Mode (Trumpet). The pressure pushes the lips outward to open the channel.
+</a> 
+ ---
+ 
+<a href="#h2-0-96" id="h2-0-96" class="d">-### 2. Discretization via Bilinear Transform
+</a><a href="#h2-0-97" id="h2-0-97" class="i">+### 2. Mechanical Oscillator Discretization
+</a> 
+<a href="#h2-0-99" id="h2-0-99" class="d">-To compute this system inside a digital signal processor at sampling interval $T = 1 / f_s$, we map the continuous differential equations to discrete difference equations using the **Bilinear Transform (Tustin&#39;s Method)**.
+</a><a href="#h2-0-100" id="h2-0-100" class="i">+#### Continuous-Time Mechanical Equation
+</a> 
+<a href="#h2-0-102" id="h2-0-102" class="d">-The continuous derivative operator in the Laplace domain, $s$, is substituted by the discrete variable $z$ using the trapezoidal integration approximation:
+</a><a href="#h2-0-103" id="h2-0-103" class="i">+The movement of the mechanical reed is modeled as a damped mass-spring system driven by the derived fluid force $f(t)$:
+</a> 
+<a href="#h2-0-105" id="h2-0-105" class="d">-$$s \approx \frac{2}{T} \frac{1 - z^{-1}}{1 + z^{-1}}$$
+</a><a href="#h2-0-106" id="h2-0-106" class="i">+$$m \frac{d^2 x(t)}{dt^2} + r \frac{dx(t)}{dt} + k x(t) = f(t)$$
+</a> 
+<a href="#h2-0-108" id="h2-0-108" class="d">-Applying this to the second-order derivative ($s^2$) yields:
+</a><a href="#h2-0-109" id="h2-0-109" class="i">+Where $m$ is the effective mass, $r$ is the mechanical damping, $k$ is the stiffness, and $x(t)$ is the displacement.
+</a> 
+<a href="#h2-0-111" id="h2-0-111" class="d">-$$s^2 \approx \frac{4}{T^2} \frac{1 - 2z^{-1} + z^{-2}}{1 + 2z^{-1} + z^{-2}}$$
+</a><a href="#h2-0-112" id="h2-0-112" class="i">+#### Bilinear Transform of the Oscillator
+</a> 
+<a href="#h2-0-114" id="h2-0-114" class="d">-#### Derivation of the Discrete Difference Equation
+</a><a href="#h2-0-115" id="h2-0-115" class="i">+We map the continuous differential system to the discrete $z$-domain by substituting the complex frequency $s$ via Tustin&#39;s method:
+</a><a href="#h2-0-116" id="h2-0-116" class="i">+
+</a><a href="#h2-0-117" id="h2-0-117" class="i">+$$s \approx \frac{2}{T} \frac{1 - z^{-1}}{1 + z^{-1}}$$
+</a> 
+<a href="#h2-0-119" id="h2-0-119" class="d">-Substituting these into the mechanical transfer function $H(s) = \frac{X(s)}{F(s)} = \frac{1}{ms^2 + rs + k}$ gives:
+</a><a href="#h2-0-120" id="h2-0-120" class="i">+Applying this substitution to the second-order mechanical transfer function $H(s) = \frac{X(s)}{F(s)} = \frac{1}{ms^2 + rs + k}$ yields:
+</a> 
+ $$\frac{X(z)}{F(z)} = \frac{1}{m \left(\frac{4}{T^2} \frac{1 - 2z^{-1} + z^{-2}}{1 + 2z^{-1} + z^{-2}}\right) + r \left(\frac{2}{T} \frac{1 - z^{-1}}{1 + z^{-1}}\right) + k}$$
+ 
+<a href="#h2-0-124" id="h2-0-124" class="d">-Multiplying both the numerator and denominator by $(1 + 2z^{-1} + z^{-2})$ and grouping identical powers of $z^{-1}$, we clear the fraction fractions. To eliminate $1/T^2$ fractions and maximize numerical precision in single-precision floating-point math (`f32`), we multiply the entire equation by $T^2$:
+</a><a href="#h2-0-125" id="h2-0-125" class="i">+Multiplying both the numerator and denominator by $(1 + 2z^{-1} + z^{-2})$ and scaling the entire equation by $T^2$ to eliminate fractional sampling intervals ensures maximum numerical precision in single-precision floating-point math (`f32`):
+</a> 
+ $$\frac{X(z)}{F(z)} = \frac{T^2 (1 + 2z^{-1} + z^{-2})}{(4m + 2rT + kT^2) + (-8m + 2kT^2)z^{-1} + (4m - 2rT + kT^2)z^{-2}}$$
+ 
+<a href="#h2-0-129" id="h2-0-129" class="d">-Thus, we obtain the standard **Direct Form I** difference equation coefficients:
+</a><a href="#h2-0-130" id="h2-0-130" class="i">+This defines the standard **Direct Form I** difference equation coefficients:
+</a> 
+<a href="#h2-0-132" id="h2-0-132" class="d">-* $b_0 = T^2$
+</a><a href="#h2-0-133" id="h2-0-133" class="d">-* $b_1 = 2T^2$
+</a><a href="#h2-0-134" id="h2-0-134" class="d">-* $b_2 = T^2$
+</a><a href="#h2-0-135" id="h2-0-135" class="i">+* $b_0 = T^2, \quad b_1 = 2T^2, \quad b_2 = T^2$
+</a> * $a_0 = 4m + 2rT + kT^2$
+ * $a_1 = -8m + 2kT^2$
+ * $a_2 = 4m - 2rT + kT^2$
+ 
+<a href="#h2-0-140" id="h2-0-140" class="d">-The dynamic calculation of the exact displacement $x[n]$ at the current time-step is explicitly resolved as:
+</a><a href="#h2-0-141" id="h2-0-141" class="i">+The exact discrete displacement $x[n]$ at the current time-step is calculated as:
+</a> 
+ $$x[n] = \frac{b_0 f[n] + b_1 f[n-1] + b_2 f[n-2] - a_1 x[n-1] - a_2 x[n-2]}{a_0}$$
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -102,42 +122,131 @@ $$x[n] = \frac{b_0 f[n] + b_1 f[n-1] + b_2 f[n-2] - a_1 x[n-1] - a_2 x[n-2]}{a_0
+</a> 
+ ### 3. Proof of Approximation Validity and Stability
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-We prove that this discrete equation is a highly appropriate mathematical approximation of the continuous physical system $x(t)$ based on three criteria.
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-
+</a> #### Proof A: Frequency Mapping Consistency
+ 
+<a href="#h2-1-7" id="h2-1-7" class="d">-The Bilinear Transform maps the entire continuous imaginary axis ($s = j\Omega$) onto the discrete unit circle ($z = e^{j\omega T}$). The mapping relationship is exactly:
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+The Bilinear Transform maps the continuous imaginary axis ($s = j\Omega$) onto the discrete unit circle ($z = e^{j\omega T}$) via the exact relationship:
+</a> 
+ $$\Omega = \frac{2}{T} \tan\left(\frac{\omega T}{2}\right)$$
+ 
+<a href="#h2-1-12" id="h2-1-12" class="d">-For audio rates where the natural resonant frequency of the reed $\Omega_0 = \sqrt{k/m}$ satisfies $\Omega_0 \ll \frac{2}{T}$ (highly true since reed resonances are typically below $5\text{ kHz}$ and $T^{-1} = 44.1\text{ kHz}$), the Taylor expansion of the tangent function yields:
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+For audio rates where the natural resonant frequency of the reed $\Omega_0 = \sqrt{k/m}$ satisfies $\Omega_0 \ll \frac{2}{T}$ (highly true since reed resonances are typically below $5\text{ kHz}$ and $T^{-1} = 44.1\text{ kHz}$), the Taylor expansion of the tangent function yields $\Omega \approx \omega$. This proves that the discrete resonance matches the continuous physical spectrum without severe high-frequency warping in the audible band.
+</a> 
+<a href="#h2-1-15" id="h2-1-15" class="d">-$$\Omega \approx \frac{2}{T} \left( \frac{\omega T}{2} \right) = \omega$$
+</a><a href="#h2-1-16" id="h2-1-16" class="i">+#### Proof B: Unconditional Numerical Stability
+</a> 
+<a href="#h2-1-18" id="h2-1-18" class="d">-This proves that in the audible band, the discrete frequency spectrum matches the physical continuous resonance behavior without severe warping.
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+A physical reed system is passive and absorbs/dissipates energy via $r$. The continuous system poles lie in the Left-Half of the s-plane ($\text{Re}(s) = \sigma &lt; 0$) because $m, r, k &gt; 0$. Under the bilinear mapping:
+</a> 
+<a href="#h2-1-21" id="h2-1-21" class="d">-#### Proof B: Unconditional Numerical Stability (Passivity Preservation)
+</a><a href="#h2-1-22" id="h2-1-22" class="i">+$$|z|^2 = \left| \frac{1 + \frac{T}{2}s}{1 - \frac{T}{2}s} \right|^2 = \frac{(1 + \frac{T}{2}\sigma)^2 + (\frac{T}{2}\Omega)^2}{(1 - \frac{T}{2}\sigma)^2 + (\frac{T}{2}\Omega)^2}$$
+</a> 
+<a href="#h2-1-24" id="h2-1-24" class="d">-A physical reed is a passive system that absorbs and dissipates energy via $r$. For a system to be stable in the discrete domain, its poles must lie strictly inside the unit circle ($|z| &lt; 1$).
+</a><a href="#h2-1-25" id="h2-1-25" class="i">+Since $\sigma &lt; 0$, $(1 + \frac{T}{2}\sigma)^2 &lt; (1 - \frac{T}{2}\sigma)^2$, mathematically guaranteeing $|z| &lt; 1$.
+</a> 
+<a href="#h2-1-27" id="h2-1-27" class="d">-The continuous system poles lie in the Left-Half of the s-plane ($\text{Re}(s) &lt; 0$) because $m, r, k &gt; 0$. Under the bilinear mapping:
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+&gt; **Conclusion:** The system remains **unconditionally stable** regardless of real-time sampling rate modifications or aggressive parameter modulation ($m, k, r$ adjustments via bite intensity), eliminating numerical explosion risks common in forward-Euler methods.
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+```
+</a> 
+<a href="#h2-1-31" id="h2-1-31" class="d">-$$z = \frac{1 + \frac{T}{2}s}{1 - \frac{T}{2}s}$$
+</a><a href="#h2-1-32" id="h2-1-32" class="i">+&lt;/details&gt;
+</a> 
+<a href="#h2-1-34" id="h2-1-34" class="d">-Taking the magnitude squared when $\text{Re}(s) = \sigma &lt; 0$:
+</a><a href="#h2-1-35" id="h2-1-35" class="i">+x(,f and v_f) formuler is 
+</a><a href="#h2-1-36" id="h2-1-36" class="i">+
+</a><a href="#h2-1-37" id="h2-1-37" class="i">+$$x[n] = \frac{b_0 f[n] + b_1 f[n-1] + b_2 f[n-2] - a_1 x[n-1] - a_2 x[n-2]}{a_0}$$
+</a> 
+<a href="#h2-1-39" id="h2-1-39" class="d">-$$|z|^2 = \frac{(1 + \frac{T}{2}\sigma)^2 + (\frac{T}{2}\Omega)^2}{(1 - \frac{T}{2}\sigma)^2 + (\frac{T}{2}\Omega)^2}$$
+</a><a href="#h2-1-40" id="h2-1-40" class="i">+$$f[n] = \pm \frac{1}{2} \rho v_f[n]^2 g[n]$$
+</a> 
+<a href="#h2-1-42" id="h2-1-42" class="d">-Since $\sigma &lt; 0$, it is mathematically guaranteed that $(1 + \frac{T}{2}\sigma)^2 &lt; (1 - \frac{T}{2}\sigma)^2$, which proves $|z| &lt; 1$.
+</a><a href="#h2-1-43" id="h2-1-43" class="i">+$$v_f[n] = \frac{-\alpha + \sqrt{\alpha^2 + 4 B[n] \Gamma[n-1]}}{2 B[n]}$$
+</a> 
+<a href="#h2-1-45" id="h2-1-45" class="d">-&gt; **Conclusion:** The algorithm is **unconditionally stable** regardless of sample rate modifications or sudden physical parameter adjustments ($m, k, r$ modulation via bite intensity), eliminating numerical explosion risks inherent in explicit forward-Euler methods.
+</a><a href="#h2-1-46" id="h2-1-46" class="i">+#### Resonance Part
+</a> 
+<a href="#h2-1-48" id="h2-1-48" class="d">-#### Proof C: Order of Accuracy (Trapezoidal Match)
+</a><a href="#h2-1-49" id="h2-1-49" class="i">+&lt;details&gt;
+</a><a href="#h2-1-50" id="h2-1-50" class="i">+&lt;summary&gt;Physical Modeling of Boundary Dissipation in Open-Ended Acoustic Tubes&lt;/summary&gt;
+</a><a href="#h2-1-51" id="h2-1-51" class="i">+
+</a><a href="#h2-1-52" id="h2-1-52" class="i">+This document provides the theoretical background, mathematical derivation, and discrete-time modeling of the acoustic reflection and energy dissipation at the open end (bell) of a resonant tube. Rather than using an empirical low-pass filter to attenuate high-frequency components, this model derives the high-frequency decay directly from the **physical mechanics of particle motion and nonlinear aerodynamic resistance** at the boundary.
+</a><a href="#h2-1-53" id="h2-1-53" class="i">+
+</a><a href="#h2-1-54" id="h2-1-54" class="i">+---
+</a><a href="#h2-1-55" id="h2-1-55" class="i">+
+</a><a href="#h2-1-56" id="h2-1-56" class="i">+## 1. Physical Phenomenon: Open-End Reflection and Turbulence
+</a><a href="#h2-1-57" id="h2-1-57" class="i">+
+</a><a href="#h2-1-58" id="h2-1-58" class="i">+When an acoustic wave propagating inside a tube reaches an open end, it transitions from a highly constrained, one-dimensional channel to a free, unconstrained three-dimensional space.
+</a><a href="#h2-1-59" id="h2-1-59" class="i">+
+</a><a href="#h2-1-60" id="h2-1-60" class="i">+1. **Inertial Overshoot:** As a high-pressure (condensation) wave arrives at the exit, the air particles are suddenly liberated and accelerate outward into the ambient atmosphere. Due to their mass (inertia), these particles overshoot, evacuation the region just inside the exit. This creates a local localized low-pressure (rarefaction) zone, which propagates back into the tube as a phase-inverted ($-1$) reflection.
+</a><a href="#h2-1-61" id="h2-1-61" class="i">+2. **Nonlinear Energy Dissipation ($v|v|$ Loss):** When air particles exhaust violently out of the tube orifice, the sharp edge causes flow separation, generating **local vortices and turbulence**. In fluid dynamics, this rapid change in cross-sectional area converts kinetic energy into unrecoverable thermal and acoustic radiation losses. The pressure drop $\Delta P$ across such an orifice is dominated by dynamic pressure, meaning it is proportional to the **square of the particle velocity** ($v^2$).
+</a><a href="#h2-1-62" id="h2-1-62" class="i">+
+</a><a href="#h2-1-63" id="h2-1-63" class="i">+---
+</a><a href="#h2-1-64" id="h2-1-64" class="i">+
+</a><a href="#h2-1-65" id="h2-1-65" class="i">+## 2. Continuous-Time Governing Equation
+</a><a href="#h2-1-66" id="h2-1-66" class="i">+
+</a><a href="#h2-1-67" id="h2-1-67" class="i">+We model the air plug at the open end as an effective acoustic mass (inertial slug) $M_e$ subject to a nonlinear aerodynamic resistance proportional to $v|v|$ to ensure that the damping force always opposes the direction of flow.
+</a><a href="#h2-1-68" id="h2-1-68" class="i">+
+</a><a href="#h2-1-69" id="h2-1-69" class="i">+Let $p_{total}(t)$ be the total acoustic pressure at the boundary, $S$ be the cross-sectional area of the tube, and $v(t)$ be the acoustic particle velocity. The force balance equation at the boundary $x = L$ is formulated as follows:
+</a><a href="#h2-1-70" id="h2-1-70" class="i">+
+</a><a href="#h2-1-71" id="h2-1-71" class="i">+$$S \cdot p_{total}(t) = M_e \frac{dv(t)}{dt} + r_{loss} v(t) |v(t)|$$
+</a><a href="#h2-1-72" id="h2-1-72" class="i">+
+</a><a href="#h2-1-73" id="h2-1-73" class="i">+Where:
+</a><a href="#h2-1-74" id="h2-1-74" class="i">+
+</a><a href="#h2-1-75" id="h2-1-75" class="i">+* $M_e = \rho_0 S \Delta L$ is the effective mass of the air plug (where $\Delta L \approx 0.613 \cdot \text{radius}$ is the open-end boundary correction length).
+</a><a href="#h2-1-76" id="h2-1-76" class="i">+* $r_{loss} = \frac{1}{2} \rho_0 S$ is the nonlinear loss coefficient derived from the dynamic pressure dissipation rate.
+</a><a href="#h2-1-77" id="h2-1-77" class="i">+* $\rho_0$ is the ambient air density.
+</a><a href="#h2-1-78" id="h2-1-78" class="i">+
+</a><a href="#h2-1-79" id="h2-1-79" class="i">+---
+</a><a href="#h2-1-80" id="h2-1-80" class="i">+
+</a><a href="#h2-1-81" id="h2-1-81" class="i">+## 3. Boundary Coupling with Digital Waveguide
+</a><a href="#h2-1-82" id="h2-1-82" class="i">+
+</a><a href="#h2-1-83" id="h2-1-83" class="i">+In a digital waveguide framework, the total pressure $p_{total}$ at the boundary is the sum of the incoming progressive wave (right-going wave $p^+$) and the reflected wave (left-going wave $p^-$):
+</a><a href="#h2-1-84" id="h2-1-84" class="i">+
+</a><a href="#h2-1-85" id="h2-1-85" class="i">+$$p_{total}(t) = p^+(t) + p^-(t)$$
+</a><a href="#h2-1-86" id="h2-1-86" class="i">+
+</a><a href="#h2-1-87" id="h2-1-87" class="i">+The particle velocity $v(t)$ is related to these traveling components via the characteristic acoustic impedance of the tube, $Z_0 = \frac{\rho_0 c}{S}$:
+</a><a href="#h2-1-88" id="h2-1-88" class="i">+
+</a><a href="#h2-1-89" id="h2-1-89" class="i">+$$v(t) = \frac{1}{Z_0} \left( p^+(t) - p^-(t) \right)$$
+</a><a href="#h2-1-90" id="h2-1-90" class="i">+
+</a><a href="#h2-1-91" id="h2-1-91" class="i">+By rewriting the reflected wave $p^-(t)$ in terms of the current velocity and the incident wave, we eliminate the algebraic loop:
+</a><a href="#h2-1-92" id="h2-1-92" class="i">+
+</a><a href="#h2-1-93" id="h2-1-93" class="i">+$$p^-(t) = p^+(t) - Z_0 v(t)$$
+</a><a href="#h2-1-94" id="h2-1-94" class="i">+
+</a><a href="#h2-1-95" id="h2-1-95" class="i">+Substituting this back into the total pressure equation yields:
+</a><a href="#h2-1-96" id="h2-1-96" class="i">+
+</a><a href="#h2-1-97" id="h2-1-97" class="i">+$$p_{total}(t) = 2p^+(t) - Z_0 v(t)$$
+</a><a href="#h2-1-98" id="h2-1-98" class="i">+
+</a><a href="#h2-1-99" id="h2-1-99" class="i">+---
+</a><a href="#h2-1-100" id="h2-1-100" class="i">+
+</a><a href="#h2-1-101" id="h2-1-101" class="i">+## 4. Discrete-Time Derivation via Backward Euler Discretization
+</a><a href="#h2-1-102" id="h2-1-102" class="i">+
+</a><a href="#h2-1-103" id="h2-1-103" class="i">+To solve the differential equation numerically without implicit algebraic loops, we apply a first-order Backward Euler finite difference approximation to the derivative term:
+</a><a href="#h2-1-104" id="h2-1-104" class="i">+
+</a><a href="#h2-1-105" id="h2-1-105" class="i">+$$\frac{dv(t)}{dt} \approx \frac{v[n] - v[n-1]}{T}$$
+</a><a href="#h2-1-106" id="h2-1-106" class="i">+
+</a><a href="#h2-1-107" id="h2-1-107" class="i">+Where $T = 1/f_s$ is the sampling period. Substituting the discrete derivative and the impedance-coupled total pressure into the continuous governing equation gives:
+</a><a href="#h2-1-108" id="h2-1-108" class="i">+
+</a><a href="#h2-1-109" id="h2-1-109" class="i">+$$S \left( 2p^+[n] - Z_0 v[n] \right) = M_e \left( \frac{v[n] - v[n-1]}{T} \right) + r_{loss} v[n] |v[n]|$$
+</a><a href="#h2-1-110" id="h2-1-110" class="i">+
+</a><a href="#h2-1-111" id="h2-1-111" class="i">+Assuming a positive outward flow ($v[n] &gt; 0 \implies v[n]|v[n]| = v[n]^2$) during the primary exhaust cycle, we collect terms to form a standard quadratic equation with respect to the current velocity $v[n]$:
+</a><a href="#h2-1-112" id="h2-1-112" class="i">+
+</a><a href="#h2-1-113" id="h2-1-113" class="i">+$$r_{loss} v[n]^2 + \left( \frac{M_e}{T} + S Z_0 \right) v[n] - \left( 2S p^+[n] + \frac{M_e}{T} v[n-1] \right) = 0$$
+</a><a href="#h2-1-114" id="h2-1-114" class="i">+
+</a><a href="#h2-1-115" id="h2-1-115" class="i">+Let us define the discrete time-invariant and time-varying coefficients as:
+</a><a href="#h2-1-116" id="h2-1-116" class="i">+
+</a><a href="#h2-1-117" id="h2-1-117" class="i">+$$\begin{aligned}
+</a><a href="#h2-1-118" id="h2-1-118" class="i">+A_{bc} &amp;= r_{loss} \\
+</a><a href="#h2-1-119" id="h2-1-119" class="i">+B_{bc} &amp;= \frac{M_e}{T} + S Z_0 \\
+</a><a href="#h2-1-120" id="h2-1-120" class="i">+C_{bc}[n] &amp;= 2S p^+[n] + \frac{M_e}{T} v[n-1]
+</a><a href="#h2-1-121" id="h2-1-121" class="i">+\end{aligned}$$
+</a><a href="#h2-1-122" id="h2-1-122" class="i">+
+</a><a href="#h2-1-123" id="h2-1-123" class="i">+The equation reduces to:
+</a><a href="#h2-1-124" id="h2-1-124" class="i">+
+</a><a href="#h2-1-125" id="h2-1-125" class="i">+$$A_{bc} v[n]^2 + B_{bc} v[n] - C_{bc}[n] = 0$$
+</a><a href="#h2-1-126" id="h2-1-126" class="i">+
+</a><a href="#h2-1-127" id="h2-1-127" class="i">+Applying the quadratic formula yields the explicit, stable algebraic solution for the particle velocity at the current sample step $n$:
+</a><a href="#h2-1-128" id="h2-1-128" class="i">+
+</a><a href="#h2-1-129" id="h2-1-129" class="i">+$$v[n] = \frac{-B_{bc} + \sqrt{B_{bc}^2 + 4 A_{bc} C_{bc}[n]}}{2 A_{bc}}$$
+</a><a href="#h2-1-130" id="h2-1-130" class="i">+
+</a><a href="#h2-1-131" id="h2-1-131" class="i">+Once $v[n]$ is evaluated, the true physical reflected wave $p^-[n]$ injected back into the delay line is determined deterministically:
+</a><a href="#h2-1-132" id="h2-1-132" class="i">+
+</a><a href="#h2-1-133" id="h2-1-133" class="i">+$$p^-[n] = p^+[n] - Z_0 v[n]$$
+</a><a href="#h2-1-134" id="h2-1-134" class="i">+
+</a><a href="#h2-1-135" id="h2-1-135" class="i">+---
+</a> 
+<a href="#h2-1-137" id="h2-1-137" class="d">-The bilinear transform is mathematically isomorphic to the trapezoidal integration rule. The local truncation error ($LTE$) of a trapezoidal approximation for a state vector $\mathbf{X}$ is bounded by:
+</a><a href="#h2-1-138" id="h2-1-138" class="i">+## 5. Why This Causes High-Frequency Decay
+</a> 
+<a href="#h2-1-140" id="h2-1-140" class="d">-$$LTE = \mathcal{O}(T^3)$$
+</a><a href="#h2-1-141" id="h2-1-141" class="i">+This mathematical formulation inherently explains why higher frequencies experience more severe damping without artificially implementing a digital filter:
+</a> 
+<a href="#h2-1-143" id="h2-1-143" class="d">-Accumulated over a global simulation window, the overall approximation error scales as $\mathcal{O}(T^2)$ (Second-order accurate). Compared to standard first-order Euler methods ($\mathcal{O}(T)$), this guarantees that high-frequency physical transcripts (such as rapid transients during attacks or lip-buzzing regimes) are preserved with minimal numerical artificial damping.
+</a><a href="#h2-1-144" id="h2-1-144" class="i">+1. **Velocity-Dependent Damping:** High-frequency components undergo rapid structural changes over time ($\frac{dv}{dt}$ is large), forcing higher transient particle velocities $v[n]$.
+</a><a href="#h2-1-145" id="h2-1-145" class="i">+2. **Quadratic Penalty:** Because the dissipative term scales with $v[n]^2$, these high-velocity, high-frequency transients encounter a nonlinearly magnified resistance compared to slow, low-frequency pressure oscillations.
+</a><a href="#h2-1-146" id="h2-1-146" class="i">+3. **Impedance Matching Shift:** At low velocities, the quadratic term vanishes, and the system matches an ideal open boundary, achieving an inversion coefficient close to $-1$. At high velocities, the effective boundary impedance changes due to $r_{loss}v^2$, allowing energy to escape into the environment as radiation or heat rather than reflecting back into the pipe.
+</a> 
+ &lt;/details&gt;
+<b>diff --git a/<a id="h3" href="../file/src/lib.rs.html">src/lib.rs</a> b/<a href="../file/src/lib.rs.html">src/lib.rs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -5,6 +5,190 @@ use std::sync::Arc;
+</a> // https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
+ // started
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+const RHO: f32 = 1.2;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+const C_SPEED: f32 = 340.0;
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+const RADIUS: f32 = 0.015;
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+pub struct Bore {
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+    pub delay_buffer: Vec&lt;f32&gt;,
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+    pub pointer: usize,
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+    pub z0: f32,
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+    pub m_e: f32,
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+    pub r_loss: f32,
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+    pub v_prev: f32,
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+}
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+impl Bore {
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+    pub fn new(target_freq: f32, sample_rate: f32, boundary_type: BoundaryType) -&gt; Self {
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+        let wavelength_factor = match boundary_type {
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+            BoundaryType::NonlinearDissipative =&gt; 2.0,
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+            BoundaryType::Fixed =&gt; 1.0,
+</a><a href="#h3-0-21" id="h3-0-21" class="i">+        };
+</a><a href="#h3-0-22" id="h3-0-22" class="i">+        let delay_samples = (sample_rate / (target_freq * wavelength_factor)).round() as usize;
+</a><a href="#h3-0-23" id="h3-0-23" class="i">+        let s = std::f32::consts::PI * RADIUS * RADIUS;
+</a><a href="#h3-0-24" id="h3-0-24" class="i">+        let z0 = (RHO * C_SPEED) / s;
+</a><a href="#h3-0-25" id="h3-0-25" class="i">+        let delta_l = 0.613 * RADIUS;
+</a><a href="#h3-0-26" id="h3-0-26" class="i">+        let m_e = RHO * s * delta_l;
+</a><a href="#h3-0-27" id="h3-0-27" class="i">+        let r_loss = 0.5 * RHO * s;
+</a><a href="#h3-0-28" id="h3-0-28" class="i">+
+</a><a href="#h3-0-29" id="h3-0-29" class="i">+        Self {
+</a><a href="#h3-0-30" id="h3-0-30" class="i">+            delay_buffer: vec![0.0; delay_samples],
+</a><a href="#h3-0-31" id="h3-0-31" class="i">+            pointer: 0,
+</a><a href="#h3-0-32" id="h3-0-32" class="i">+            z0,
+</a><a href="#h3-0-33" id="h3-0-33" class="i">+            m_e,
+</a><a href="#h3-0-34" id="h3-0-34" class="i">+            r_loss,
+</a><a href="#h3-0-35" id="h3-0-35" class="i">+            v_prev: 0.0,
+</a><a href="#h3-0-36" id="h3-0-36" class="i">+        }
+</a><a href="#h3-0-37" id="h3-0-37" class="i">+    }
+</a><a href="#h3-0-38" id="h3-0-38" class="i">+
+</a><a href="#h3-0-39" id="h3-0-39" class="i">+    pub fn set_frequency(
+</a><a href="#h3-0-40" id="h3-0-40" class="i">+        &amp;mut self,
+</a><a href="#h3-0-41" id="h3-0-41" class="i">+        target_freq: f32,
+</a><a href="#h3-0-42" id="h3-0-42" class="i">+        sample_rate: f32,
+</a><a href="#h3-0-43" id="h3-0-43" class="i">+        boundary_type: BoundaryType,
+</a><a href="#h3-0-44" id="h3-0-44" class="i">+    ) {
+</a><a href="#h3-0-45" id="h3-0-45" class="i">+        let wavelength_factor = match boundary_type {
+</a><a href="#h3-0-46" id="h3-0-46" class="i">+            BoundaryType::NonlinearDissipative =&gt; 2.0,
+</a><a href="#h3-0-47" id="h3-0-47" class="i">+            BoundaryType::Fixed =&gt; 1.0,
+</a><a href="#h3-0-48" id="h3-0-48" class="i">+        };
+</a><a href="#h3-0-49" id="h3-0-49" class="i">+        let delay_samples = (sample_rate / (target_freq * wavelength_factor)).round() as usize;
+</a><a href="#h3-0-50" id="h3-0-50" class="i">+        if delay_samples != self.delay_buffer.len() &amp;&amp; delay_samples &gt; 0 {
+</a><a href="#h3-0-51" id="h3-0-51" class="i">+            self.delay_buffer.resize(delay_samples, 0.0);
+</a><a href="#h3-0-52" id="h3-0-52" class="i">+            if self.pointer &gt;= delay_samples {
+</a><a href="#h3-0-53" id="h3-0-53" class="i">+                self.pointer = 0;
+</a><a href="#h3-0-54" id="h3-0-54" class="i">+            }
+</a><a href="#h3-0-55" id="h3-0-55" class="i">+        }
+</a><a href="#h3-0-56" id="h3-0-56" class="i">+    }
+</a><a href="#h3-0-57" id="h3-0-57" class="i">+
+</a><a href="#h3-0-58" id="h3-0-58" class="i">+    pub fn step(&amp;mut self, p_plus_in: f32, t: f32, boundary_type: BoundaryType) -&gt; f32 {
+</a><a href="#h3-0-59" id="h3-0-59" class="i">+        if self.delay_buffer.is_empty() {
+</a><a href="#h3-0-60" id="h3-0-60" class="i">+            return 0.0;
+</a><a href="#h3-0-61" id="h3-0-61" class="i">+        }
+</a><a href="#h3-0-62" id="h3-0-62" class="i">+
+</a><a href="#h3-0-63" id="h3-0-63" class="i">+        let p_minus_out = self.delay_buffer[self.pointer];
+</a><a href="#h3-0-64" id="h3-0-64" class="i">+
+</a><a href="#h3-0-65" id="h3-0-65" class="i">+        let p_minus_reflected = match boundary_type {
+</a><a href="#h3-0-66" id="h3-0-66" class="i">+            BoundaryType::NonlinearDissipative =&gt; {
+</a><a href="#h3-0-67" id="h3-0-67" class="i">+                let s = std::f32::consts::PI * RADIUS * RADIUS;
+</a><a href="#h3-0-68" id="h3-0-68" class="i">+                let b_bc = (self.m_e / t) + (s * self.z0);
+</a><a href="#h3-0-69" id="h3-0-69" class="i">+                let c_bc = 2.0 * s * p_plus_in + (self.m_e / t) * self.v_prev;
+</a><a href="#h3-0-70" id="h3-0-70" class="i">+
+</a><a href="#h3-0-71" id="h3-0-71" class="i">+                let discriminant = (b_bc * b_bc + 4.0 * self.r_loss * c_bc).max(0.0);
+</a><a href="#h3-0-72" id="h3-0-72" class="i">+                let v_current = (-b_bc + discriminant.sqrt()) / (2.0 * self.r_loss);
+</a><a href="#h3-0-73" id="h3-0-73" class="i">+
+</a><a href="#h3-0-74" id="h3-0-74" class="i">+                let res = p_plus_in - self.z0 * v_current;
+</a><a href="#h3-0-75" id="h3-0-75" class="i">+                self.v_prev = v_current;
+</a><a href="#h3-0-76" id="h3-0-76" class="i">+                res
+</a><a href="#h3-0-77" id="h3-0-77" class="i">+            }
+</a><a href="#h3-0-78" id="h3-0-78" class="i">+            BoundaryType::Fixed =&gt; p_plus_in,
+</a><a href="#h3-0-79" id="h3-0-79" class="i">+        };
+</a><a href="#h3-0-80" id="h3-0-80" class="i">+
+</a><a href="#h3-0-81" id="h3-0-81" class="i">+        self.delay_buffer[self.pointer] = p_minus_reflected;
+</a><a href="#h3-0-82" id="h3-0-82" class="i">+        self.pointer = (self.pointer + 1) % self.delay_buffer.len();
+</a><a href="#h3-0-83" id="h3-0-83" class="i">+
+</a><a href="#h3-0-84" id="h3-0-84" class="i">+        p_minus_out
+</a><a href="#h3-0-85" id="h3-0-85" class="i">+    }
+</a><a href="#h3-0-86" id="h3-0-86" class="i">+
+</a><a href="#h3-0-87" id="h3-0-87" class="i">+    pub fn reset(&amp;mut self) {
+</a><a href="#h3-0-88" id="h3-0-88" class="i">+        for val in self.delay_buffer.iter_mut() {
+</a><a href="#h3-0-89" id="h3-0-89" class="i">+            *val = 0.0;
+</a><a href="#h3-0-90" id="h3-0-90" class="i">+        }
+</a><a href="#h3-0-91" id="h3-0-91" class="i">+        self.pointer = 0;
+</a><a href="#h3-0-92" id="h3-0-92" class="i">+        self.v_prev = 0.0;
+</a><a href="#h3-0-93" id="h3-0-93" class="i">+    }
+</a><a href="#h3-0-94" id="h3-0-94" class="i">+}
+</a><a href="#h3-0-95" id="h3-0-95" class="i">+
+</a><a href="#h3-0-96" id="h3-0-96" class="i">+pub struct Reed {
+</a><a href="#h3-0-97" id="h3-0-97" class="i">+    pub x_prev1: f32,
+</a><a href="#h3-0-98" id="h3-0-98" class="i">+    pub x_prev2: f32,
+</a><a href="#h3-0-99" id="h3-0-99" class="i">+    pub f_prev1: f32,
+</a><a href="#h3-0-100" id="h3-0-100" class="i">+    pub f_prev2: f32,
+</a><a href="#h3-0-101" id="h3-0-101" class="i">+    pub vf_prev1: f32,
+</a><a href="#h3-0-102" id="h3-0-102" class="i">+}
+</a><a href="#h3-0-103" id="h3-0-103" class="i">+
+</a><a href="#h3-0-104" id="h3-0-104" class="i">+impl Reed {
+</a><a href="#h3-0-105" id="h3-0-105" class="i">+    pub fn new() -&gt; Self {
+</a><a href="#h3-0-106" id="h3-0-106" class="i">+        Self {
+</a><a href="#h3-0-107" id="h3-0-107" class="i">+            x_prev1: 0.0,
+</a><a href="#h3-0-108" id="h3-0-108" class="i">+            x_prev2: 0.0,
+</a><a href="#h3-0-109" id="h3-0-109" class="i">+            f_prev1: 0.0,
+</a><a href="#h3-0-110" id="h3-0-110" class="i">+            f_prev2: 0.0,
+</a><a href="#h3-0-111" id="h3-0-111" class="i">+            vf_prev1: 0.0,
+</a><a href="#h3-0-112" id="h3-0-112" class="i">+        }
+</a><a href="#h3-0-113" id="h3-0-113" class="i">+    }
+</a><a href="#h3-0-114" id="h3-0-114" class="i">+
+</a><a href="#h3-0-115" id="h3-0-115" class="i">+    pub fn step(
+</a><a href="#h3-0-116" id="h3-0-116" class="i">+        &amp;mut self,
+</a><a href="#h3-0-117" id="h3-0-117" class="i">+        p_total: f32,
+</a><a href="#h3-0-118" id="h3-0-118" class="i">+        oscillation_type: OscillationType,
+</a><a href="#h3-0-119" id="h3-0-119" class="i">+        sample_rate: f32,
+</a><a href="#h3-0-120" id="h3-0-120" class="i">+        params: &amp;AerothesisParams,
+</a><a href="#h3-0-121" id="h3-0-121" class="i">+        v_bite: f32,
+</a><a href="#h3-0-122" id="h3-0-122" class="i">+    ) -&gt; (f32, f32) {
+</a><a href="#h3-0-123" id="h3-0-123" class="i">+        let t = 1.0 / sample_rate;
+</a><a href="#h3-0-124" id="h3-0-124" class="i">+        const EPS: f32 = 1e-5;
+</a><a href="#h3-0-125" id="h3-0-125" class="i">+
+</a><a href="#h3-0-126" id="h3-0-126" class="i">+        let gap_curr = (2.0 - self.x_prev1).max(EPS);
+</a><a href="#h3-0-127" id="h3-0-127" class="i">+        let b_curr = RHO / (4.0 * gap_curr * gap_curr);
+</a><a href="#h3-0-128" id="h3-0-128" class="i">+        let a_fluid = (RHO * params.reed_length.value()) / t;
+</a><a href="#h3-0-129" id="h3-0-129" class="i">+
+</a><a href="#h3-0-130" id="h3-0-130" class="i">+        let c_prev = p_total - b_curr * (self.vf_prev1 * self.vf_prev1);
+</a><a href="#h3-0-131" id="h3-0-131" class="i">+        let discriminant =
+</a><a href="#h3-0-132" id="h3-0-132" class="i">+            (a_fluid * a_fluid + 4.0 * b_curr * (a_fluid * self.vf_prev1 + c_prev)).max(0.0);
+</a><a href="#h3-0-133" id="h3-0-133" class="i">+        let vf_current = (-a_fluid + discriminant.sqrt()) / (2.0 * b_curr);
+</a><a href="#h3-0-134" id="h3-0-134" class="i">+
+</a><a href="#h3-0-135" id="h3-0-135" class="i">+        let mut f_current = if self.x_prev1 &gt;= 2.0 {
+</a><a href="#h3-0-136" id="h3-0-136" class="i">+            0.0
+</a><a href="#h3-0-137" id="h3-0-137" class="i">+        } else {
+</a><a href="#h3-0-138" id="h3-0-138" class="i">+            0.5 * RHO * (vf_current * vf_current) * gap_curr
+</a><a href="#h3-0-139" id="h3-0-139" class="i">+        };
+</a><a href="#h3-0-140" id="h3-0-140" class="i">+
+</a><a href="#h3-0-141" id="h3-0-141" class="i">+        if oscillation_type == OscillationType::LipReed {
+</a><a href="#h3-0-142" id="h3-0-142" class="i">+            f_current = -f_current;
+</a><a href="#h3-0-143" id="h3-0-143" class="i">+        }
+</a><a href="#h3-0-144" id="h3-0-144" class="i">+
+</a><a href="#h3-0-145" id="h3-0-145" class="i">+        let m = params.base_mass.value() * (1.0 - params.bite_mass_scale.value() * v_bite);
+</a><a href="#h3-0-146" id="h3-0-146" class="i">+        let r = params.base_damping.value() * (1.0 + params.bite_damping_scale.value() * v_bite);
+</a><a href="#h3-0-147" id="h3-0-147" class="i">+        let k =
+</a><a href="#h3-0-148" id="h3-0-148" class="i">+            params.base_stiffness.value() * (1.0 + params.bite_stiffness_scale.value() * v_bite);
+</a><a href="#h3-0-149" id="h3-0-149" class="i">+
+</a><a href="#h3-0-150" id="h3-0-150" class="i">+        let b0 = t * t;
+</a><a href="#h3-0-151" id="h3-0-151" class="i">+        let b1 = 2.0 * t * t;
+</a><a href="#h3-0-152" id="h3-0-152" class="i">+        let b2 = t * t;
+</a><a href="#h3-0-153" id="h3-0-153" class="i">+
+</a><a href="#h3-0-154" id="h3-0-154" class="i">+        let a0 = 4.0 * m + 2.0 * r * t + k * t * t;
+</a><a href="#h3-0-155" id="h3-0-155" class="i">+        let a1 = -8.0 * m + 2.0 * k * t * t;
+</a><a href="#h3-0-156" id="h3-0-156" class="i">+        let a2 = 4.0 * m - 2.0 * r * t + k * t * t;
+</a><a href="#h3-0-157" id="h3-0-157" class="i">+
+</a><a href="#h3-0-158" id="h3-0-158" class="i">+        let mut x_n = (b0 * f_current + b1 * self.f_prev1 + b2 * self.f_prev2
+</a><a href="#h3-0-159" id="h3-0-159" class="i">+            - a1 * self.x_prev1
+</a><a href="#h3-0-160" id="h3-0-160" class="i">+            - a2 * self.x_prev2)
+</a><a href="#h3-0-161" id="h3-0-161" class="i">+            / a0;
+</a><a href="#h3-0-162" id="h3-0-162" class="i">+
+</a><a href="#h3-0-163" id="h3-0-163" class="i">+        if x_n &gt;= 2.0 {
+</a><a href="#h3-0-164" id="h3-0-164" class="i">+            x_n = 2.0;
+</a><a href="#h3-0-165" id="h3-0-165" class="i">+        } else if x_n &lt; 0.0 {
+</a><a href="#h3-0-166" id="h3-0-166" class="i">+            x_n = 0.0;
+</a><a href="#h3-0-167" id="h3-0-167" class="i">+        }
+</a><a href="#h3-0-168" id="h3-0-168" class="i">+
+</a><a href="#h3-0-169" id="h3-0-169" class="i">+        self.x_prev2 = self.x_prev1;
+</a><a href="#h3-0-170" id="h3-0-170" class="i">+        self.x_prev1 = x_n;
+</a><a href="#h3-0-171" id="h3-0-171" class="i">+        self.f_prev2 = self.f_prev1;
+</a><a href="#h3-0-172" id="h3-0-172" class="i">+        self.f_prev1 = f_current;
+</a><a href="#h3-0-173" id="h3-0-173" class="i">+        self.vf_prev1 = vf_current;
+</a><a href="#h3-0-174" id="h3-0-174" class="i">+
+</a><a href="#h3-0-175" id="h3-0-175" class="i">+        (x_n, vf_current)
+</a><a href="#h3-0-176" id="h3-0-176" class="i">+    }
+</a><a href="#h3-0-177" id="h3-0-177" class="i">+
+</a><a href="#h3-0-178" id="h3-0-178" class="i">+    pub fn reset(&amp;mut self) {
+</a><a href="#h3-0-179" id="h3-0-179" class="i">+        self.x_prev1 = 0.0;
+</a><a href="#h3-0-180" id="h3-0-180" class="i">+        self.x_prev2 = 0.0;
+</a><a href="#h3-0-181" id="h3-0-181" class="i">+        self.f_prev1 = 0.0;
+</a><a href="#h3-0-182" id="h3-0-182" class="i">+        self.f_prev2 = 0.0;
+</a><a href="#h3-0-183" id="h3-0-183" class="i">+        self.vf_prev1 = 0.0;
+</a><a href="#h3-0-184" id="h3-0-184" class="i">+    }
+</a><a href="#h3-0-185" id="h3-0-185" class="i">+}
+</a><a href="#h3-0-186" id="h3-0-186" class="i">+
+</a> pub struct Aerothesis {
+     pub params: Arc&lt;AerothesisParams&gt;,
+ 
+<a href="#h3-1" id="h3-1" class="h">@@ -21,16 +205,29 @@ pub struct Aerothesis {
+</a>     pub v_bite: f32,
+ 
+     pub v_fluid_prev: f32,
+<a href="#h3-1-3" id="h3-1-3" class="i">+
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+    pub bore: Bore,
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+    pub reed: Reed,
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+    pub p_minus: f32,
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+    pub current_frequency: f32,
+</a> }
+ 
+ #[derive(Enum, PartialEq, Clone, Copy)]
+<a href="#h3-1-11" id="h3-1-11" class="d">-pub enum InstrumentType {
+</a><a href="#h3-1-12" id="h3-1-12" class="i">+pub enum OscillationType {
+</a>     #[name = &quot;Single Reed&quot;]
+     SingleReed,
+<a href="#h3-1-15" id="h3-1-15" class="d">-    #[name = &quot;Rip Reed&quot;]
+</a><a href="#h3-1-16" id="h3-1-16" class="i">+    #[name = &quot;Lip Reed&quot;]
+</a>     LipReed,
+ }
+ 
+<a href="#h3-1-20" id="h3-1-20" class="i">+#[derive(Enum, PartialEq, Clone, Copy)]
+</a><a href="#h3-1-21" id="h3-1-21" class="i">+pub enum BoundaryType {
+</a><a href="#h3-1-22" id="h3-1-22" class="i">+    #[name = &quot;Nonlinear Dissipative&quot;]
+</a><a href="#h3-1-23" id="h3-1-23" class="i">+    NonlinearDissipative,
+</a><a href="#h3-1-24" id="h3-1-24" class="i">+    #[name = &quot;Fixed End&quot;]
+</a><a href="#h3-1-25" id="h3-1-25" class="i">+    Fixed,
+</a><a href="#h3-1-26" id="h3-1-26" class="i">+}
+</a><a href="#h3-1-27" id="h3-1-27" class="i">+
+</a> #[derive(Params)]
+ pub struct AerothesisParams {
+     /// The parameter&#39;s ID is used to identify the parameter in the wrappred plugin API. As long as
+<a href="#h3-2" id="h3-2" class="h">@@ -40,8 +237,14 @@ pub struct AerothesisParams {
+</a>     #[id = &quot;gain&quot;]
+     pub gain: FloatParam,
+ 
+<a href="#h3-2-3" id="h3-2-3" class="d">-    #[id = &quot;instrument_type&quot;]
+</a><a href="#h3-2-4" id="h3-2-4" class="d">-    pub instrument_type: EnumParam&lt;InstrumentType&gt;,
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+    #[id = &quot;output_gain&quot;]
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+    pub output_gain: FloatParam,
+</a><a href="#h3-2-7" id="h3-2-7" class="i">+
+</a><a href="#h3-2-8" id="h3-2-8" class="i">+    #[id = &quot;oscillation_type&quot;]
+</a><a href="#h3-2-9" id="h3-2-9" class="i">+    pub oscillation_type: EnumParam&lt;OscillationType&gt;,
+</a><a href="#h3-2-10" id="h3-2-10" class="i">+
+</a><a href="#h3-2-11" id="h3-2-11" class="i">+    #[id = &quot;boundary_type&quot;]
+</a><a href="#h3-2-12" id="h3-2-12" class="i">+    pub boundary_type: EnumParam&lt;BoundaryType&gt;,
+</a> 
+     #[id = &quot;ReedLength&quot;]
+     pub reed_length: FloatParam,
+<a href="#h3-3" id="h3-3" class="h">@@ -73,18 +276,26 @@ pub struct AerothesisParams {
+</a> 
+ impl Default for Aerothesis {
+     fn default() -&gt; Self {
+<a href="#h3-3-3" id="h3-3-3" class="i">+        let sample_rate = 44100.0;
+</a><a href="#h3-3-4" id="h3-3-4" class="i">+        let target_freq = 220.0;
+</a><a href="#h3-3-5" id="h3-3-5" class="i">+        let params = Arc::new(AerothesisParams::default());
+</a>         Self {
+<a href="#h3-3-7" id="h3-3-7" class="d">-            params: Arc::new(AerothesisParams::default()),
+</a><a href="#h3-3-8" id="h3-3-8" class="i">+            bore: Bore::new(target_freq, sample_rate, params.boundary_type.value()),
+</a><a href="#h3-3-9" id="h3-3-9" class="i">+            params,
+</a>             x_prev: 0.0,
+             x_prev2: 0.0,
+             v_prev: 0.0,
+             f_prev: 0.0,
+             f_prev2: 0.0,
+<a href="#h3-3-15" id="h3-3-15" class="d">-            sample_rate: 44100.0,
+</a><a href="#h3-3-16" id="h3-3-16" class="i">+            sample_rate,
+</a> 
+<a href="#h3-3-18" id="h3-3-18" class="d">-            v_breath: 0.1,
+</a><a href="#h3-3-19" id="h3-3-19" class="i">+            v_breath: 0.0,
+</a>             v_bite: 0.0,
+             v_fluid_prev: 0.0,
+<a href="#h3-3-22" id="h3-3-22" class="i">+
+</a><a href="#h3-3-23" id="h3-3-23" class="i">+            reed: Reed::new(),
+</a><a href="#h3-3-24" id="h3-3-24" class="i">+            p_minus: 0.0,
+</a><a href="#h3-3-25" id="h3-3-25" class="i">+            current_frequency: target_freq,
+</a>         }
+     }
+ }
+<a href="#h3-4" id="h3-4" class="h">@@ -116,7 +327,19 @@ impl Default for AerothesisParams {
+</a>             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+ 
+<a href="#h3-4-3" id="h3-4-3" class="d">-            instrument_type: EnumParam::new(&quot;Instrument Type&quot;, InstrumentType::SingleReed),
+</a><a href="#h3-4-4" id="h3-4-4" class="i">+            output_gain: FloatParam::new(
+</a><a href="#h3-4-5" id="h3-4-5" class="i">+                &quot;Output Gain&quot;,
+</a><a href="#h3-4-6" id="h3-4-6" class="i">+                0.01,
+</a><a href="#h3-4-7" id="h3-4-7" class="i">+                FloatRange::Skewed {
+</a><a href="#h3-4-8" id="h3-4-8" class="i">+                    min: 0.0,
+</a><a href="#h3-4-9" id="h3-4-9" class="i">+                    max: 1.0,
+</a><a href="#h3-4-10" id="h3-4-10" class="i">+                    factor: 0.2,
+</a><a href="#h3-4-11" id="h3-4-11" class="i">+                },
+</a><a href="#h3-4-12" id="h3-4-12" class="i">+            ),
+</a><a href="#h3-4-13" id="h3-4-13" class="i">+
+</a><a href="#h3-4-14" id="h3-4-14" class="i">+            oscillation_type: EnumParam::new(&quot;Oscillation Type&quot;, OscillationType::SingleReed),
+</a><a href="#h3-4-15" id="h3-4-15" class="i">+
+</a><a href="#h3-4-16" id="h3-4-16" class="i">+            boundary_type: EnumParam::new(&quot;Boundary Type&quot;, BoundaryType::NonlinearDissipative),
+</a> 
+             reed_length: FloatParam::new(
+                 &quot;Reed Length&quot;,
+<a href="#h3-5" id="h3-5" class="h">@@ -356,12 +579,21 @@ impl Plugin for Aerothesis {
+</a>         _context: &amp;mut impl InitContext&lt;Self&gt;,
+     ) -&gt; bool {
+         self.sample_rate = buffer_config.sample_rate;
+<a href="#h3-5-3" id="h3-5-3" class="i">+        self.bore = Bore::new(
+</a><a href="#h3-5-4" id="h3-5-4" class="i">+            self.current_frequency,
+</a><a href="#h3-5-5" id="h3-5-5" class="i">+            self.sample_rate,
+</a><a href="#h3-5-6" id="h3-5-6" class="i">+            self.params.boundary_type.value(),
+</a><a href="#h3-5-7" id="h3-5-7" class="i">+        );
+</a>         true
+     }
+ 
+     fn reset(&amp;mut self) {
+         // Reset buffers and envelopes here. This can be called from the audio thread and may not
+         // allocate. You can remove this function if you do not need it.
+<a href="#h3-5-14" id="h3-5-14" class="i">+        self.bore.reset();
+</a><a href="#h3-5-15" id="h3-5-15" class="i">+        self.reed.reset();
+</a><a href="#h3-5-16" id="h3-5-16" class="i">+        self.p_minus = 0.0;
+</a><a href="#h3-5-17" id="h3-5-17" class="i">+        self.v_breath = 0.0;
+</a>     }
+ 
+     fn process(
+<a href="#h3-6" id="h3-6" class="h">@@ -384,18 +616,52 @@ impl Plugin for Aerothesis {
+</a>                         self.v_bite = value;
+                     }
+                 }
+<a href="#h3-6-3" id="h3-6-3" class="i">+                NoteEvent::NoteOn { note, .. } =&gt; {
+</a><a href="#h3-6-4" id="h3-6-4" class="i">+                    self.current_frequency = util::midi_note_to_freq(note);
+</a><a href="#h3-6-5" id="h3-6-5" class="i">+                    self.bore.set_frequency(
+</a><a href="#h3-6-6" id="h3-6-6" class="i">+                        self.current_frequency,
+</a><a href="#h3-6-7" id="h3-6-7" class="i">+                        self.sample_rate,
+</a><a href="#h3-6-8" id="h3-6-8" class="i">+                        self.params.boundary_type.value(),
+</a><a href="#h3-6-9" id="h3-6-9" class="i">+                    );
+</a><a href="#h3-6-10" id="h3-6-10" class="i">+                }
+</a>                 _ =&gt; (),
+             }
+         }
+ 
+<a href="#h3-6-15" id="h3-6-15" class="i">+        let t = 1.0 / self.sample_rate;
+</a><a href="#h3-6-16" id="h3-6-16" class="i">+
+</a>         for channel_samples in buffer.iter_samples() {
+             let gain = self.params.gain.smoothed.next();
+ 
+<a href="#h3-6-20" id="h3-6-20" class="d">-            let x_n = self.step();
+</a><a href="#h3-6-21" id="h3-6-21" class="d">-            self.v_fluid_prev = self.vf();
+</a><a href="#h3-6-22" id="h3-6-22" class="i">+            let p_total = self.v_breath + self.p_minus;
+</a><a href="#h3-6-23" id="h3-6-23" class="i">+            let (x_n, vf_n) = self.reed.step(
+</a><a href="#h3-6-24" id="h3-6-24" class="i">+                p_total,
+</a><a href="#h3-6-25" id="h3-6-25" class="i">+                self.params.oscillation_type.value(),
+</a><a href="#h3-6-26" id="h3-6-26" class="i">+                self.sample_rate,
+</a><a href="#h3-6-27" id="h3-6-27" class="i">+                &amp;self.params,
+</a><a href="#h3-6-28" id="h3-6-28" class="i">+                self.v_bite,
+</a><a href="#h3-6-29" id="h3-6-29" class="i">+            );
+</a><a href="#h3-6-30" id="h3-6-30" class="i">+
+</a><a href="#h3-6-31" id="h3-6-31" class="i">+            let gap = (2.0 - x_n).max(1e-5);
+</a><a href="#h3-6-32" id="h3-6-32" class="i">+            let u = vf_n * gap;
+</a><a href="#h3-6-33" id="h3-6-33" class="i">+            let p_mouth = self.p_minus + self.bore.z0 * u;
+</a><a href="#h3-6-34" id="h3-6-34" class="i">+            let p_plus = p_mouth - self.p_minus;
+</a><a href="#h3-6-35" id="h3-6-35" class="i">+
+</a><a href="#h3-6-36" id="h3-6-36" class="i">+            self.p_minus = self.bore.step(p_plus, t, self.params.boundary_type.value());
+</a><a href="#h3-6-37" id="h3-6-37" class="i">+
+</a><a href="#h3-6-38" id="h3-6-38" class="i">+            let mut output = (p_mouth * self.params.output_gain.value()).clamp(-1.0, 1.0);
+</a><a href="#h3-6-39" id="h3-6-39" class="i">+
+</a><a href="#h3-6-40" id="h3-6-40" class="i">+            if self.v_breath &lt; 1e-4 {
+</a><a href="#h3-6-41" id="h3-6-41" class="i">+                output = 0.0;
+</a><a href="#h3-6-42" id="h3-6-42" class="i">+                self.bore.reset();
+</a><a href="#h3-6-43" id="h3-6-43" class="i">+                self.reed.reset();
+</a><a href="#h3-6-44" id="h3-6-44" class="i">+                self.p_minus = 0.0;
+</a><a href="#h3-6-45" id="h3-6-45" class="i">+            }
+</a><a href="#h3-6-46" id="h3-6-46" class="i">+
+</a><a href="#h3-6-47" id="h3-6-47" class="i">+            let final_output = output * gain;
+</a> 
+             for sample in channel_samples {
+<a href="#h3-6-50" id="h3-6-50" class="d">-                *sample = (x_n - self.equilibrium_offset()).clamp(-1.0, 1.0) * gain;
+</a><a href="#h3-6-51" id="h3-6-51" class="i">+                *sample = final_output;
+</a>             }
+         }
+ 
+<a href="#h3-7" id="h3-7" class="h">@@ -414,6 +680,7 @@ impl ClapPlugin for Aerothesis {
+</a>         ClapFeature::AudioEffect,
+         ClapFeature::Stereo,
+         ClapFeature::NoteDetector,
+<a href="#h3-7-3" id="h3-7-3" class="i">+        ClapFeature::Instrument,
+</a>     ];
+ }
+ 
+<b>diff --git a/<a id="h4" href="../file/src/main.rs.html">src/main.rs</a> b/<a href="../file/src/main.rs.html">src/main.rs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -1,4 +1,5 @@
+</a><a href="#h4-0-0" id="h4-0-0" class="d">-use aerothesis::Aerothesis;
+</a><a href="#h4-0-1" id="h4-0-1" class="i">+use aerothesis::{Aerothesis, BoundaryType, OscillationType};
+</a><a href="#h4-0-2" id="h4-0-2" class="i">+use rustfft::{num_complex::Complex, FftPlanner};
+</a> use textplots::{Chart, Plot, Shape};
+ 
+ fn custom_step(plugin: &amp;mut Aerothesis, m: f32, r: f32, k: f32) -&gt; f32 {
+<a href="#h4-1" id="h4-1" class="h">@@ -59,35 +60,74 @@ fn custom_step(plugin: &amp;mut Aerothesis, m: f32, r: f32, k: f32) -&gt; f32 {
+</a> fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+     let mut plugin = Aerothesis::default();
+     let sample_rate = 44100.0;
+<a href="#h4-1-3" id="h4-1-3" class="d">-    let seconds = 0.02;
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+    let seconds = 1.0;
+</a>     let num_samples = (sample_rate * seconds) as usize;
+     let mut data = Vec::with_capacity(num_samples);
+<a href="#h4-1-7" id="h4-1-7" class="d">-
+</a><a href="#h4-1-8" id="h4-1-8" class="d">-    // Balance for amplitude: m=0.0005, k=2000 (fn ~ 318Hz)
+</a><a href="#h4-1-9" id="h4-1-9" class="d">-    let m = 0.0005;
+</a><a href="#h4-1-10" id="h4-1-10" class="d">-    let r = 0.0001; // Extremely low damping
+</a><a href="#h4-1-11" id="h4-1-11" class="d">-    let k = 2000.0;
+</a><a href="#h4-1-12" id="h4-1-12" class="i">+    let mut p_mouth_signal = Vec::with_capacity(num_samples);
+</a> 
+     plugin.sample_rate = sample_rate;
+ 
+<a href="#h4-1-16" id="h4-1-16" class="d">-    println!(
+</a><a href="#h4-1-17" id="h4-1-17" class="d">-        &quot;Starting simulation for Large Amplitude (m={}, k={}, r={})...&quot;,
+</a><a href="#h4-1-18" id="h4-1-18" class="d">-        m, k, r
+</a><a href="#h4-1-19" id="h4-1-19" class="d">-    );
+</a><a href="#h4-1-20" id="h4-1-20" class="d">-
+</a>     for i in 0..num_samples {
+<a href="#h4-1-22" id="h4-1-22" class="d">-        // Very strong breath pressure
+</a><a href="#h4-1-23" id="h4-1-23" class="d">-        plugin.v_breath = if i &lt; 100 {
+</a><a href="#h4-1-24" id="h4-1-24" class="d">-            (i as f32 / 100.0) * 100.0
+</a><a href="#h4-1-25" id="h4-1-25" class="i">+        plugin.v_breath = if i &lt; 1000 {
+</a><a href="#h4-1-26" id="h4-1-26" class="i">+            (i as f32 / 1000.0) * 40.0
+</a>         } else {
+<a href="#h4-1-28" id="h4-1-28" class="d">-            100.0
+</a><a href="#h4-1-29" id="h4-1-29" class="i">+            40.0
+</a>         };
+<a href="#h4-1-31" id="h4-1-31" class="d">-        data.push((i as f32, custom_step(&amp;mut plugin, m, r, k)));
+</a><a href="#h4-1-32" id="h4-1-32" class="i">+
+</a><a href="#h4-1-33" id="h4-1-33" class="i">+        let p_total = plugin.v_breath + plugin.p_minus;
+</a><a href="#h4-1-34" id="h4-1-34" class="i">+        let (x_n, vf_n) = plugin.reed.step(
+</a><a href="#h4-1-35" id="h4-1-35" class="i">+            p_total,
+</a><a href="#h4-1-36" id="h4-1-36" class="i">+            plugin.params.oscillation_type.value(),
+</a><a href="#h4-1-37" id="h4-1-37" class="i">+            plugin.sample_rate,
+</a><a href="#h4-1-38" id="h4-1-38" class="i">+            &amp;plugin.params,
+</a><a href="#h4-1-39" id="h4-1-39" class="i">+            plugin.v_bite,
+</a><a href="#h4-1-40" id="h4-1-40" class="i">+        );
+</a><a href="#h4-1-41" id="h4-1-41" class="i">+
+</a><a href="#h4-1-42" id="h4-1-42" class="i">+        let gap = (2.0 - x_n).max(1e-5);
+</a><a href="#h4-1-43" id="h4-1-43" class="i">+        let u = vf_n * gap;
+</a><a href="#h4-1-44" id="h4-1-44" class="i">+        let p_mouth = plugin.p_minus + plugin.bore.z0 * u;
+</a><a href="#h4-1-45" id="h4-1-45" class="i">+        let p_plus = p_mouth - plugin.p_minus;
+</a><a href="#h4-1-46" id="h4-1-46" class="i">+
+</a><a href="#h4-1-47" id="h4-1-47" class="i">+        plugin.p_minus = plugin.bore.step(
+</a><a href="#h4-1-48" id="h4-1-48" class="i">+            p_plus,
+</a><a href="#h4-1-49" id="h4-1-49" class="i">+            1.0 / sample_rate,
+</a><a href="#h4-1-50" id="h4-1-50" class="i">+            BoundaryType::NonlinearDissipative,
+</a><a href="#h4-1-51" id="h4-1-51" class="i">+        );
+</a><a href="#h4-1-52" id="h4-1-52" class="i">+
+</a><a href="#h4-1-53" id="h4-1-53" class="i">+        if i &lt; (sample_rate * 0.05) as usize {
+</a><a href="#h4-1-54" id="h4-1-54" class="i">+            data.push((i as f32, p_mouth));
+</a><a href="#h4-1-55" id="h4-1-55" class="i">+        }
+</a><a href="#h4-1-56" id="h4-1-56" class="i">+        p_mouth_signal.push(p_mouth);
+</a>     }
+ 
+<a href="#h4-1-59" id="h4-1-59" class="d">-    Chart::new(180, 60, 0.0, num_samples as f32)
+</a><a href="#h4-1-60" id="h4-1-60" class="i">+    Chart::new(180, 60, 0.0, data.len() as f32)
+</a>         .lineplot(&amp;Shape::Lines(&amp;data))
+         .display();
+ 
+<a href="#h4-1-64" id="h4-1-64" class="i">+    let fft_len = p_mouth_signal.len().next_power_of_two();
+</a><a href="#h4-1-65" id="h4-1-65" class="i">+    let mut planner = FftPlanner::new();
+</a><a href="#h4-1-66" id="h4-1-66" class="i">+    let fft = planner.plan_fft_forward(fft_len);
+</a><a href="#h4-1-67" id="h4-1-67" class="i">+
+</a><a href="#h4-1-68" id="h4-1-68" class="i">+    let mut buffer: Vec&lt;Complex&lt;f32&gt;&gt; = p_mouth_signal
+</a><a href="#h4-1-69" id="h4-1-69" class="i">+        .iter()
+</a><a href="#h4-1-70" id="h4-1-70" class="i">+        .map(|&amp;p| Complex { re: p, im: 0.0 })
+</a><a href="#h4-1-71" id="h4-1-71" class="i">+        .collect();
+</a><a href="#h4-1-72" id="h4-1-72" class="i">+    buffer.resize(fft_len, Complex { re: 0.0, im: 0.0 });
+</a><a href="#h4-1-73" id="h4-1-73" class="i">+
+</a><a href="#h4-1-74" id="h4-1-74" class="i">+    fft.process(&amp;mut buffer);
+</a><a href="#h4-1-75" id="h4-1-75" class="i">+
+</a><a href="#h4-1-76" id="h4-1-76" class="i">+    let mut spectrum_data = Vec::with_capacity(fft_len / 2);
+</a><a href="#h4-1-77" id="h4-1-77" class="i">+    for (i, complex) in buffer.iter().enumerate().take(fft_len / 2) {
+</a><a href="#h4-1-78" id="h4-1-78" class="i">+        let freq = (i as f32 * sample_rate) / fft_len as f32;
+</a><a href="#h4-1-79" id="h4-1-79" class="i">+        if freq &gt; 1500.0 {
+</a><a href="#h4-1-80" id="h4-1-80" class="i">+            break;
+</a><a href="#h4-1-81" id="h4-1-81" class="i">+        }
+</a><a href="#h4-1-82" id="h4-1-82" class="i">+        spectrum_data.push((freq, complex.norm()));
+</a><a href="#h4-1-83" id="h4-1-83" class="i">+    }
+</a><a href="#h4-1-84" id="h4-1-84" class="i">+
+</a><a href="#h4-1-85" id="h4-1-85" class="i">+    Chart::new(180, 60, 0.0, 1500.0)
+</a><a href="#h4-1-86" id="h4-1-86" class="i">+        .lineplot(&amp;Shape::Lines(&amp;spectrum_data))
+</a><a href="#h4-1-87" id="h4-1-87" class="i">+        .display();
+</a><a href="#h4-1-88" id="h4-1-88" class="i">+
+</a>     Ok(())
+ }
+</pre>
+</div>
+</body>
+</html>

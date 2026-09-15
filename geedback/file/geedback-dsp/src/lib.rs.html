@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>lib.rs - geedback - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="geedback.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="geedback.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>geedback</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> lib.rs (7713B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> use wasm_bindgen::prelude::*;
+<a href="#l2" class="line" id="l2">      2</a> 
+<a href="#l3" class="line" id="l3">      3</a> #[wasm_bindgen]
+<a href="#l4" class="line" id="l4">      4</a> #[derive(PartialEq, Clone, Copy)]
+<a href="#l5" class="line" id="l5">      5</a> pub enum Waveform {
+<a href="#l6" class="line" id="l6">      6</a>     Sine,
+<a href="#l7" class="line" id="l7">      7</a>     Triangle,
+<a href="#l8" class="line" id="l8">      8</a>     TriangleSawtooth,
+<a href="#l9" class="line" id="l9">      9</a>     Sawtooth,
+<a href="#l10" class="line" id="l10">     10</a>     ReverseSawtooth,
+<a href="#l11" class="line" id="l11">     11</a>     Square,
+<a href="#l12" class="line" id="l12">     12</a>     WidePulse,
+<a href="#l13" class="line" id="l13">     13</a>     NarrowPulse,
+<a href="#l14" class="line" id="l14">     14</a> }
+<a href="#l15" class="line" id="l15">     15</a> 
+<a href="#l16" class="line" id="l16">     16</a> #[wasm_bindgen]
+<a href="#l17" class="line" id="l17">     17</a> pub struct GeedbackProcessor {
+<a href="#l18" class="line" id="l18">     18</a>     // Primary inputs
+<a href="#l19" class="line" id="l19">     19</a>     orient_a: f64, // Z (Alpha)
+<a href="#l20" class="line" id="l20">     20</a>     orient_b: f64, // X (Beta)
+<a href="#l21" class="line" id="l21">     21</a>     orient_g: f64, // Y (Gamma)
+<a href="#l22" class="line" id="l22">     22</a>     linear_accel_x: f64,
+<a href="#l23" class="line" id="l23">     23</a>     linear_accel_y: f64,
+<a href="#l24" class="line" id="l24">     24</a>     linear_accel_z: f64,
+<a href="#l25" class="line" id="l25">     25</a> 
+<a href="#l26" class="line" id="l26">     26</a>     // Touch inputs (Kaoss Pad)
+<a href="#l27" class="line" id="l27">     27</a>     touch_x: f64,
+<a href="#l28" class="line" id="l28">     28</a>     touch_y: f64,
+<a href="#l29" class="line" id="l29">     29</a> 
+<a href="#l30" class="line" id="l30">     30</a>     // Smoothed parameters for all 3 axes (sin/cos pairs)
+<a href="#l31" class="line" id="l31">     31</a>     s_a_sin: f64,
+<a href="#l32" class="line" id="l32">     32</a>     s_a_cos: f64,
+<a href="#l33" class="line" id="l33">     33</a>     s_b_sin: f64,
+<a href="#l34" class="line" id="l34">     34</a>     s_b_cos: f64,
+<a href="#l35" class="line" id="l35">     35</a>     s_g_sin: f64,
+<a href="#l36" class="line" id="l36">     36</a>     s_g_cos: f64,
+<a href="#l37" class="line" id="l37">     37</a> 
+<a href="#l38" class="line" id="l38">     38</a>     // Smoothed linear acceleration per axis
+<a href="#l39" class="line" id="l39">     39</a>     s_la_x: f64,
+<a href="#l40" class="line" id="l40">     40</a>     s_la_y: f64,
+<a href="#l41" class="line" id="l41">     41</a>     s_la_z: f64,
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a>     // Oscillator States
+<a href="#l44" class="line" id="l44">     44</a>     phases: [f64; 3],
+<a href="#l45" class="line" id="l45">     45</a>     phases_mod: [f64; 3], // Dedicated modulator phases
+<a href="#l46" class="line" id="l46">     46</a>     waveforms: [Waveform; 3],
+<a href="#l47" class="line" id="l47">     47</a>     mixes: [f64; 3],
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a>     sample_rate: f64,
+<a href="#l50" class="line" id="l50">     50</a>     latest_output: f64,
+<a href="#l51" class="line" id="l51">     51</a> 
+<a href="#l52" class="line" id="l52">     52</a>     // Filter state
+<a href="#l53" class="line" id="l53">     53</a>     s_filter_cutoff: f64,
+<a href="#l54" class="line" id="l54">     54</a>     s_filter_res: f64,
+<a href="#l55" class="line" id="l55">     55</a>     filter_mem: [f64; 4], // x1, x2, y1, y2
+<a href="#l56" class="line" id="l56">     56</a> }
+<a href="#l57" class="line" id="l57">     57</a> 
+<a href="#l58" class="line" id="l58">     58</a> #[wasm_bindgen]
+<a href="#l59" class="line" id="l59">     59</a> impl GeedbackProcessor {
+<a href="#l60" class="line" id="l60">     60</a>     #[wasm_bindgen(constructor)]
+<a href="#l61" class="line" id="l61">     61</a>     pub fn new() -&gt; Self {
+<a href="#l62" class="line" id="l62">     62</a>         Self {
+<a href="#l63" class="line" id="l63">     63</a>             orient_a: 0.0,
+<a href="#l64" class="line" id="l64">     64</a>             orient_b: 0.0,
+<a href="#l65" class="line" id="l65">     65</a>             orient_g: 0.0,
+<a href="#l66" class="line" id="l66">     66</a>             linear_accel_x: 0.0,
+<a href="#l67" class="line" id="l67">     67</a>             linear_accel_y: 0.0,
+<a href="#l68" class="line" id="l68">     68</a>             linear_accel_z: 0.0,
+<a href="#l69" class="line" id="l69">     69</a>             touch_x: 0.5,
+<a href="#l70" class="line" id="l70">     70</a>             touch_y: 0.5,
+<a href="#l71" class="line" id="l71">     71</a>             s_a_sin: 0.0,
+<a href="#l72" class="line" id="l72">     72</a>             s_a_cos: 1.0,
+<a href="#l73" class="line" id="l73">     73</a>             s_b_sin: 0.0,
+<a href="#l74" class="line" id="l74">     74</a>             s_b_cos: 1.0,
+<a href="#l75" class="line" id="l75">     75</a>             s_g_sin: 0.0,
+<a href="#l76" class="line" id="l76">     76</a>             s_g_cos: 1.0,
+<a href="#l77" class="line" id="l77">     77</a>             s_la_x: 0.0,
+<a href="#l78" class="line" id="l78">     78</a>             s_la_y: 0.0,
+<a href="#l79" class="line" id="l79">     79</a>             s_la_z: 0.0,
+<a href="#l80" class="line" id="l80">     80</a>             s_filter_cutoff: 0.5,
+<a href="#l81" class="line" id="l81">     81</a>             s_filter_res: 0.1,
+<a href="#l82" class="line" id="l82">     82</a>             filter_mem: [0.0; 4],
+<a href="#l83" class="line" id="l83">     83</a>             phases: [0.0; 3],
+<a href="#l84" class="line" id="l84">     84</a>             phases_mod: [0.0; 3],
+<a href="#l85" class="line" id="l85">     85</a>             waveforms: [Waveform::Sine, Waveform::Sine, Waveform::Sine],
+<a href="#l86" class="line" id="l86">     86</a>             mixes: [0.3, 0.3, 0.3],
+<a href="#l87" class="line" id="l87">     87</a>             sample_rate: 44100.0,
+<a href="#l88" class="line" id="l88">     88</a>             latest_output: 0.0,
+<a href="#l89" class="line" id="l89">     89</a>         }
+<a href="#l90" class="line" id="l90">     90</a>     }
+<a href="#l91" class="line" id="l91">     91</a> 
+<a href="#l92" class="line" id="l92">     92</a>     pub fn set_waveform(&amp;mut self, index: usize, wave: Waveform) {
+<a href="#l93" class="line" id="l93">     93</a>         if index &lt; 3 {
+<a href="#l94" class="line" id="l94">     94</a>             self.waveforms[index] = wave;
+<a href="#l95" class="line" id="l95">     95</a>         }
+<a href="#l96" class="line" id="l96">     96</a>     }
+<a href="#l97" class="line" id="l97">     97</a> 
+<a href="#l98" class="line" id="l98">     98</a>     pub fn set_orient(&amp;mut self, a: f64, b: f64, g: f64) {
+<a href="#l99" class="line" id="l99">     99</a>         self.orient_a = a;
+<a href="#l100" class="line" id="l100">    100</a>         self.orient_b = b;
+<a href="#l101" class="line" id="l101">    101</a>         self.orient_g = g;
+<a href="#l102" class="line" id="l102">    102</a>     }
+<a href="#l103" class="line" id="l103">    103</a> 
+<a href="#l104" class="line" id="l104">    104</a>     pub fn set_linear_accel(&amp;mut self, x: f64, y: f64, z: f64) {
+<a href="#l105" class="line" id="l105">    105</a>         self.linear_accel_x = x;
+<a href="#l106" class="line" id="l106">    106</a>         self.linear_accel_y = y;
+<a href="#l107" class="line" id="l107">    107</a>         self.linear_accel_z = z;
+<a href="#l108" class="line" id="l108">    108</a>     }
+<a href="#l109" class="line" id="l109">    109</a> 
+<a href="#l110" class="line" id="l110">    110</a>     pub fn set_touch(&amp;mut self, x: f64, y: f64) {
+<a href="#l111" class="line" id="l111">    111</a>         self.touch_x = x.clamp(0.0, 1.0);
+<a href="#l112" class="line" id="l112">    112</a>         self.touch_y = y.clamp(0.0, 1.0);
+<a href="#l113" class="line" id="l113">    113</a>     }
+<a href="#l114" class="line" id="l114">    114</a> 
+<a href="#l115" class="line" id="l115">    115</a>     pub fn set_sample_rate(&amp;mut self, sample_rate: f64) {
+<a href="#l116" class="line" id="l116">    116</a>         self.sample_rate = sample_rate;
+<a href="#l117" class="line" id="l117">    117</a>     }
+<a href="#l118" class="line" id="l118">    118</a> 
+<a href="#l119" class="line" id="l119">    119</a>     fn calculate_wave(&amp;self, phase: f64, wave: Waveform, morph: f64) -&gt; f64 {
+<a href="#l120" class="line" id="l120">    120</a>         let m = (morph + 1.0) * 0.5;
+<a href="#l121" class="line" id="l121">    121</a>         let p = phase.fract();
+<a href="#l122" class="line" id="l122">    122</a> 
+<a href="#l123" class="line" id="l123">    123</a>         match wave {
+<a href="#l124" class="line" id="l124">    124</a>             Waveform::Sine =&gt; {
+<a href="#l125" class="line" id="l125">    125</a>                 let raw = (p * 2.0 * std::f64::consts::PI).sin();
+<a href="#l126" class="line" id="l126">    126</a>                 if m &gt; 0.5 {
+<a href="#l127" class="line" id="l127">    127</a>                     let drive = 1.0 + (m - 0.5) * 2.0;
+<a href="#l128" class="line" id="l128">    128</a>                     (raw * drive).tanh()
+<a href="#l129" class="line" id="l129">    129</a>                 } else {
+<a href="#l130" class="line" id="l130">    130</a>                     raw
+<a href="#l131" class="line" id="l131">    131</a>                 }
+<a href="#l132" class="line" id="l132">    132</a>             }
+<a href="#l133" class="line" id="l133">    133</a>             Waveform::Triangle =&gt; 1.0 - 2.0 * (p + 0.75).fract().abs(),
+<a href="#l134" class="line" id="l134">    134</a>             Waveform::TriangleSawtooth =&gt; {
+<a href="#l135" class="line" id="l135">    135</a>                 let tri = 1.0 - 2.0 * (p + 0.75).fract().abs();
+<a href="#l136" class="line" id="l136">    136</a>                 let saw = 2.0 * p - 1.0;
+<a href="#l137" class="line" id="l137">    137</a>                 tri * (1.0 - m) + saw * m
+<a href="#l138" class="line" id="l138">    138</a>             }
+<a href="#l139" class="line" id="l139">    139</a>             Waveform::Sawtooth =&gt; 2.0 * p - 1.0,
+<a href="#l140" class="line" id="l140">    140</a>             Waveform::ReverseSawtooth =&gt; 1.0 - p * 2.0,
+<a href="#l141" class="line" id="l141">    141</a>             Waveform::Square | Waveform::WidePulse | Waveform::NarrowPulse =&gt; {
+<a href="#l142" class="line" id="l142">    142</a>                 let width = 0.02 + m * 0.48;
+<a href="#l143" class="line" id="l143">    143</a>                 if p &lt; width { 1.0 } else { -1.0 }
+<a href="#l144" class="line" id="l144">    144</a>             }
+<a href="#l145" class="line" id="l145">    145</a>         }
+<a href="#l146" class="line" id="l146">    146</a>     }
+<a href="#l147" class="line" id="l147">    147</a> 
+<a href="#l148" class="line" id="l148">    148</a>     pub fn process(&amp;mut self) -&gt; f64 {
+<a href="#l149" class="line" id="l149">    149</a>         let rad_a = (self.orient_a / 2.0).to_radians();
+<a href="#l150" class="line" id="l150">    150</a>         let rad_b = (self.orient_b / 2.0).to_radians();
+<a href="#l151" class="line" id="l151">    151</a>         let rad_g = (self.orient_g / 2.0).to_radians();
+<a href="#l152" class="line" id="l152">    152</a> 
+<a href="#l153" class="line" id="l153">    153</a>         let lpf_val = 0.9995;
+<a href="#l154" class="line" id="l154">    154</a>         let gain_val = 0.0005;
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a>         // Smooth Orientation
+<a href="#l157" class="line" id="l157">    157</a>         self.s_a_sin = self.s_a_sin * lpf_val + rad_a.sin() * gain_val;
+<a href="#l158" class="line" id="l158">    158</a>         self.s_a_cos = self.s_a_cos * lpf_val + rad_a.cos() * gain_val;
+<a href="#l159" class="line" id="l159">    159</a>         self.s_b_sin = self.s_b_sin * lpf_val + rad_b.sin() * gain_val;
+<a href="#l160" class="line" id="l160">    160</a>         self.s_b_cos = self.s_b_cos * lpf_val + rad_b.cos() * gain_val;
+<a href="#l161" class="line" id="l161">    161</a>         self.s_g_sin = self.s_g_sin * lpf_val + rad_g.sin() * gain_val;
+<a href="#l162" class="line" id="l162">    162</a>         self.s_g_cos = self.s_g_cos * lpf_val + rad_g.cos() * gain_val;
+<a href="#l163" class="line" id="l163">    163</a> 
+<a href="#l164" class="line" id="l164">    164</a>         // Smooth Linear Accel
+<a href="#l165" class="line" id="l165">    165</a>         let la_lpf = 0.995;
+<a href="#l166" class="line" id="l166">    166</a>         let la_gain = 0.005;
+<a href="#l167" class="line" id="l167">    167</a>         self.s_la_x = self.s_la_x * la_lpf + self.linear_accel_x * la_gain;
+<a href="#l168" class="line" id="l168">    168</a>         self.s_la_y = self.s_la_y * la_lpf + self.linear_accel_y * la_gain;
+<a href="#l169" class="line" id="l169">    169</a>         self.s_la_z = self.s_la_z * la_lpf + self.linear_accel_z * la_gain;
+<a href="#l170" class="line" id="l170">    170</a> 
+<a href="#l171" class="line" id="l171">    171</a>         self.s_filter_cutoff = self.s_filter_cutoff * 0.9995 + self.touch_x * 0.0005;
+<a href="#l172" class="line" id="l172">    172</a>         self.s_filter_res = self.s_filter_res * 0.9995 + (1.0 - self.touch_y) * 0.0005;
+<a href="#l173" class="line" id="l173">    173</a> 
+<a href="#l174" class="line" id="l174">    174</a>         let freqs = [
+<a href="#l175" class="line" id="l175">    175</a>             110.0 * 2.0_f64.powf(self.s_g_sin * 2.5), // Osc 1: Y
+<a href="#l176" class="line" id="l176">    176</a>             164.8 * 2.0_f64.powf(self.s_a_sin * 4.0), // Osc 2: Z
+<a href="#l177" class="line" id="l177">    177</a>             220.0 * 2.0_f64.powf(self.s_b_sin * 2.5), // Osc 3: X
+<a href="#l178" class="line" id="l178">    178</a>         ];
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>         let morphs = [self.s_g_cos, self.s_a_cos, self.s_b_cos];
+<a href="#l181" class="line" id="l181">    181</a> 
+<a href="#l182" class="line" id="l182">    182</a>         let fm_depths = [
+<a href="#l183" class="line" id="l183">    183</a>             self.s_la_y.abs().powi(3) * 1.0, // Non-linear: quiet when slow, aggressive when shaken
+<a href="#l184" class="line" id="l184">    184</a>             self.s_la_z.abs().powi(3) * 1.0,
+<a href="#l185" class="line" id="l185">    185</a>             self.s_la_x.abs().powi(3) * 1.0,
+<a href="#l186" class="line" id="l186">    186</a>         ];
+<a href="#l187" class="line" id="l187">    187</a> 
+<a href="#l188" class="line" id="l188">    188</a>         let mut mixed_output = 0.0;
+<a href="#l189" class="line" id="l189">    189</a> 
+<a href="#l190" class="line" id="l190">    190</a>         for i in 0..3 {
+<a href="#l191" class="line" id="l191">    191</a>             self.phases_mod[i] = (self.phases_mod[i] + freqs[i] / self.sample_rate) % 1.0;
+<a href="#l192" class="line" id="l192">    192</a>             let modulation = (self.phases_mod[i] * 2.0 * std::f64::consts::PI).sin() * fm_depths[i];
+<a href="#l193" class="line" id="l193">    193</a>             let osc_out =
+<a href="#l194" class="line" id="l194">    194</a>                 self.calculate_wave(self.phases[i] + modulation, self.waveforms[i], morphs[i]);
+<a href="#l195" class="line" id="l195">    195</a>             mixed_output += osc_out * self.mixes[i];
+<a href="#l196" class="line" id="l196">    196</a>             self.phases[i] = (self.phases[i] + freqs[i] / self.sample_rate) % 1.0;
+<a href="#l197" class="line" id="l197">    197</a>         }
+<a href="#l198" class="line" id="l198">    198</a> 
+<a href="#l199" class="line" id="l199">    199</a>         let mut cutoff_hz = 200.0 * 180.0_f64.powf(self.s_filter_cutoff);
+<a href="#l200" class="line" id="l200">    200</a> 
+<a href="#l201" class="line" id="l201">    201</a>         // Safety: Clamp cutoff to slightly below Nyquist to prevent NaN
+<a href="#l202" class="line" id="l202">    202</a>         let max_cutoff = self.sample_rate * 0.45;
+<a href="#l203" class="line" id="l203">    203</a>         if cutoff_hz &gt; max_cutoff {
+<a href="#l204" class="line" id="l204">    204</a>             cutoff_hz = max_cutoff;
+<a href="#l205" class="line" id="l205">    205</a>         }
+<a href="#l206" class="line" id="l206">    206</a> 
+<a href="#l207" class="line" id="l207">    207</a>         let q = 0.707 + self.s_filter_res * 14.3;
+<a href="#l208" class="line" id="l208">    208</a> 
+<a href="#l209" class="line" id="l209">    209</a>         let omega = 2.0 * std::f64::consts::PI * cutoff_hz / self.sample_rate;
+<a href="#l210" class="line" id="l210">    210</a>         let alpha = omega.sin() / (2.0 * q);
+<a href="#l211" class="line" id="l211">    211</a>         let cos_w = omega.cos();
+<a href="#l212" class="line" id="l212">    212</a> 
+<a href="#l213" class="line" id="l213">    213</a>         let b0 = (1.0 - cos_w) / 2.0;
+<a href="#l214" class="line" id="l214">    214</a>         let b1 = 1.0 - cos_w;
+<a href="#l215" class="line" id="l215">    215</a>         let b2 = (1.0 - cos_w) / 2.0;
+<a href="#l216" class="line" id="l216">    216</a>         let a0 = 1.0 + alpha;
+<a href="#l217" class="line" id="l217">    217</a>         let a1 = -2.0 * cos_w;
+<a href="#l218" class="line" id="l218">    218</a>         let a2 = 1.0 - alpha;
+<a href="#l219" class="line" id="l219">    219</a> 
+<a href="#l220" class="line" id="l220">    220</a>         // Denormal prevention: add a tiny offset to the input
+<a href="#l221" class="line" id="l221">    221</a>         let filter_input = mixed_output + 1e-20;
+<a href="#l222" class="line" id="l222">    222</a> 
+<a href="#l223" class="line" id="l223">    223</a>         let filtered = (b0 / a0) * filter_input
+<a href="#l224" class="line" id="l224">    224</a>             + (b1 / a0) * self.filter_mem[0]
+<a href="#l225" class="line" id="l225">    225</a>             + (b2 / a0) * self.filter_mem[1]
+<a href="#l226" class="line" id="l226">    226</a>             - (a1 / a0) * self.filter_mem[2]
+<a href="#l227" class="line" id="l227">    227</a>             - (a2 / a0) * self.filter_mem[3];
+<a href="#l228" class="line" id="l228">    228</a> 
+<a href="#l229" class="line" id="l229">    229</a>         self.filter_mem[1] = self.filter_mem[0];
+<a href="#l230" class="line" id="l230">    230</a>         self.filter_mem[0] = filter_input;
+<a href="#l231" class="line" id="l231">    231</a>         self.filter_mem[3] = self.filter_mem[2];
+<a href="#l232" class="line" id="l232">    232</a>         self.filter_mem[2] = filtered;
+<a href="#l233" class="line" id="l233">    233</a> 
+<a href="#l234" class="line" id="l234">    234</a>         self.latest_output = filtered;
+<a href="#l235" class="line" id="l235">    235</a> 
+<a href="#l236" class="line" id="l236">    236</a>         // &quot;Metal Zone&quot; Mode: Scale master gain with acceleration for heavy saturation
+<a href="#l237" class="line" id="l237">    237</a>         let shake_intensity = (self.s_la_x.abs() + self.s_la_y.abs() + self.s_la_z.abs()) * 4.0;
+<a href="#l238" class="line" id="l238">    238</a>         let master_gain = 0.6 + shake_intensity;
+<a href="#l239" class="line" id="l239">    239</a>         (filtered * master_gain).tanh()
+<a href="#l240" class="line" id="l240">    240</a>     }
+<a href="#l241" class="line" id="l241">    241</a> 
+<a href="#l242" class="line" id="l242">    242</a>     pub fn get_latest_output(&amp;self) -&gt; f64 {
+<a href="#l243" class="line" id="l243">    243</a>         self.latest_output
+<a href="#l244" class="line" id="l244">    244</a>     }
+<a href="#l245" class="line" id="l245">    245</a> }
+</pre>
+</div>
+</body>
+</html>

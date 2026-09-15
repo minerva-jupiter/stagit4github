@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Only download during COM download (#5327) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/aca2fc3d23687ccfebc3e648a3cff1d1a553b9fa.html">aca2fc3d23687ccfebc3e648a3cff1d1a553b9fa</a>
+<b>parent</b> <a href="../commit/3575fb9368680ef6eecc20ea8e7857bf0c311da8.html">3575fb9368680ef6eecc20ea8e7857bf0c311da8</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 27 Mar 2025 13:42:46 -0700
+
+Only download during COM download (#5327)
+
+Fixes #4661
+
+## Issue
+When `download` was added, the COM download and install split for
+dependencies was accidentally implemented. But it was validated only
+with download in mind, so the download part worked for download intent.
+With dependencies, the split basically attempted to install the
+dependencies twice, causing a failure on the second attempt due to
+internal assertions.
+
+## Change
+For the COM download command, explicitly force that we are only
+downloading.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/InstallFlow.h</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLITests/InstallDependenciesFlow.cpp</a></td><td> | </td><td class="num">47</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+</table></pre><pre>3 files changed, 52 insertions(+), 6 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -609,7 +609,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             Workflow::GetDependenciesFromInstaller &lt;&lt;
+             Workflow::ReportDependencies(Resource::String::PackageRequiresDependencies) &lt;&lt;
+             Workflow::CreateDependencySubContexts(Resource::String::PackageRequiresDependencies) &lt;&lt;
+<a href="#h0-0-3" id="h0-0-3" class="d">-            Workflow::ProcessMultiplePackages(Resource::String::PackageRequiresDependencies, APPINSTALLER_CLI_ERROR_DOWNLOAD_DEPENDENCIES, {}, true, true, true, false);
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+            Workflow::ProcessMultiplePackages(Resource::String::PackageRequiresDependencies, APPINSTALLER_CLI_ERROR_DOWNLOAD_DEPENDENCIES, {}, true, true, true, false, true);
+</a>     }
+ 
+     void InstallSinglePackage(Execution::Context&amp; context)
+<a href="#h0-1" id="h0-1" class="h">@@ -682,7 +682,7 @@ namespace AppInstaller::CLI::Workflow
+</a>             return;
+         }
+ 
+<a href="#h0-1-3" id="h0-1-3" class="d">-        bool downloadInstallerOnly = WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerDownloadOnly);
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        bool downloadInstallerOnly = m_downloadOnly ? true : WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerDownloadOnly);
+</a> 
+         // Show all prompts needed for every package before installing anything
+         context &lt;&lt; Workflow::ShowPromptsForMultiplePackages(m_ensurePackageAgreements, downloadInstallerOnly);
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.h.html">src/AppInstallerCLICore/Workflows/InstallFlow.h</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.h.html">src/AppInstallerCLICore/Workflows/InstallFlow.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -174,7 +174,8 @@ namespace AppInstaller::CLI::Workflow
+</a>             bool ensurePackageAgreements = true,
+             bool ignoreDependencies = false,
+             bool stopOnFailure = false,
+<a href="#h1-0-3" id="h1-0-3" class="d">-            bool refreshPathVariable = false):
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+            bool refreshPathVariable = false,
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+            bool downloadOnly = false):
+</a>             WorkflowTask(&quot;ProcessMultiplePackages&quot;),
+             m_dependenciesReportMessage(dependenciesReportMessage),
+             m_resultOnFailure(resultOnFailure),
+<a href="#h1-1" id="h1-1" class="h">@@ -182,7 +183,8 @@ namespace AppInstaller::CLI::Workflow
+</a>             m_ignorePackageDependencies(ignoreDependencies),
+             m_ensurePackageAgreements(ensurePackageAgreements),
+             m_stopOnFailure(stopOnFailure),
+<a href="#h1-1-3" id="h1-1-3" class="d">-            m_refreshPathVariable(refreshPathVariable){}
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+            m_refreshPathVariable(refreshPathVariable),
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+            m_downloadOnly(downloadOnly){}
+</a> 
+         void operator()(Execution::Context&amp; context) const override;
+ 
+<a href="#h1-2" id="h1-2" class="h">@@ -194,6 +196,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         bool m_ensurePackageAgreements;
+         bool m_stopOnFailure;
+         bool m_refreshPathVariable;
+<a href="#h1-2-3" id="h1-2-3" class="i">+        bool m_downloadOnly;
+</a>     };
+ 
+     // Stores the existing set of packages in ARP.
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLITests/InstallDependenciesFlow.cpp.html">src/AppInstallerCLITests/InstallDependenciesFlow.cpp</a> b/<a href="../file/src/AppInstallerCLITests/InstallDependenciesFlow.cpp.html">src/AppInstallerCLITests/InstallDependenciesFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -4,8 +4,11 @@
+</a> #include &quot;WorkflowCommon.h&quot;
+ #include &quot;DependenciesTestSource.h&quot;
+ #include &lt;Commands/InstallCommand.h&gt;
+<a href="#h2-0-3" id="h2-0-3" class="i">+#include &lt;Commands/COMCommand.h&gt;
+</a> #include &lt;Workflows/DependenciesFlow.h&gt;
+<a href="#h2-0-5" id="h2-0-5" class="i">+#include &lt;Workflows/DownloadFlow.h&gt;
+</a> #include &lt;Workflows/InstallFlow.h&gt;
+<a href="#h2-0-7" id="h2-0-7" class="i">+#include &lt;Workflows/ShellExecuteInstallerHandler.h&gt;
+</a> 
+ using namespace TestCommon;
+ using namespace AppInstaller::CLI;
+<a href="#h2-1" id="h2-1" class="h">@@ -38,6 +41,15 @@ void OverrideForProcessMultiplePackages(TestContext&amp; context)
+</a>     } });
+ }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="i">+void OverrideShellExecute(TestContext&amp; context, std::vector&lt;std::string&gt;&amp; installationOrder)
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+{
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+    context.Override({ ShellExecuteInstallImpl, [&amp;installationOrder](TestContext&amp; c)
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+        {
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+            installationOrder.push_back(c.Get&lt;Execution::Data::Manifest&gt;().Id);
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+            c.Add&lt;Execution::Data::OperationReturnCode&gt;(0);
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+        } });
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+}
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+
+</a> TEST_CASE(&quot;DependencyGraph_SkipInstalled&quot;, &quot;[InstallFlow][workflow][dependencyGraph][dependencies]&quot;)
+ {
+     TestCommon::TempFile installResultPath(&quot;TestExeInstalled.txt&quot;);
+<a href="#h2-2" id="h2-2" class="h">@@ -264,7 +276,39 @@ TEST_CASE(&quot;InstallFlow_Dependencies&quot;, &quot;[InstallFlow][workflow][dependencies]&quot;)
+</a>     REQUIRE(installOutput.str().find(&quot;PreviewIIS&quot;) != std::string::npos);
+ }
+ 
+<a href="#h2-2-3" id="h2-2-3" class="i">+TEST_CASE(&quot;InstallFlow_Dependencies_COM&quot;, &quot;[InstallFlow][workflow][dependencies]&quot;)
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+{
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+    std::vector&lt;std::string&gt; installationOrder;
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+    std::ostringstream installOutput;
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+    TestContext context{ installOutput, std::cin };
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+    auto previousThreadGlobals = context.SetForCurrentThread();
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+    OverrideForShellExecute(context);
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+    OverrideShellExecute(context, installationOrder);
+</a><a href="#h2-2-12" id="h2-2-12" class="i">+    OverrideOpenDependencySource(context);
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+    OverrideEnableWindowsFeaturesDependencies(context);
+</a><a href="#h2-2-14" id="h2-2-14" class="i">+    context.Override({ ReverifyInstallerHash, [](TestContext&amp;) {} });
+</a><a href="#h2-2-15" id="h2-2-15" class="i">+
+</a><a href="#h2-2-16" id="h2-2-16" class="i">+    context.Add&lt;Execution::Data::Manifest&gt;(YamlParser::CreateFromPath(TestDataFile(&quot;InstallFlowTest_MultipleDependencies.yaml&quot;)));
+</a><a href="#h2-2-17" id="h2-2-17" class="i">+
+</a><a href="#h2-2-18" id="h2-2-18" class="i">+    COMDownloadCommand download({});
+</a><a href="#h2-2-19" id="h2-2-19" class="i">+    download.Execute(context);
+</a><a href="#h2-2-20" id="h2-2-20" class="i">+
+</a><a href="#h2-2-21" id="h2-2-21" class="i">+    REQUIRE(installationOrder.size() == 0);
+</a><a href="#h2-2-22" id="h2-2-22" class="i">+
+</a><a href="#h2-2-23" id="h2-2-23" class="i">+    COMInstallCommand install({});
+</a><a href="#h2-2-24" id="h2-2-24" class="i">+    REQUIRE_NOTHROW(install.Execute(context));
+</a><a href="#h2-2-25" id="h2-2-25" class="i">+
+</a><a href="#h2-2-26" id="h2-2-26" class="i">+    REQUIRE(context.GetTerminationHR() == S_OK);
+</a><a href="#h2-2-27" id="h2-2-27" class="i">+
+</a><a href="#h2-2-28" id="h2-2-28" class="i">+    // Verify installers are called in order
+</a><a href="#h2-2-29" id="h2-2-29" class="i">+    REQUIRE(installationOrder.size() == 3);
+</a><a href="#h2-2-30" id="h2-2-30" class="i">+    REQUIRE(installationOrder.at(0) == &quot;Dependency1&quot;);
+</a><a href="#h2-2-31" id="h2-2-31" class="i">+    REQUIRE(installationOrder.at(1) == &quot;Dependency2&quot;);
+</a><a href="#h2-2-32" id="h2-2-32" class="i">+    REQUIRE(installationOrder.at(2) == &quot;AppInstallerCliTest.TestExeInstaller.MultipleDependencies&quot;);
+</a><a href="#h2-2-33" id="h2-2-33" class="i">+}
+</a><a href="#h2-2-34" id="h2-2-34" class="i">+
+</a> // TODO:
+ // add dependencies for installer tests to DependenciesTestSource (or a new one)
+ // add tests for min version dependency solving
+<a href="#h2-2-38" id="h2-2-38" class="d">-// add tests that check for correct installation of dependencies (not only the order)</a><a href="#h2-2-39" id="h2-2-39" class="d">-
+\ No newline at end of file
+</a><a href="#h2-2-40" id="h2-2-40" class="i">+// add tests that check for correct installation of dependencies (not only the order)
+</a></pre>
+</div>
+</body>
+</html>

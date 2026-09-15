@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Use in-proc winget in PowerShell module when running as SYSTEM (#3129) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/bc9cb38e2ad941b6457d31f689f9dc912cc516b0.html">bc9cb38e2ad941b6457d31f689f9dc912cc516b0</a>
+<b>parent</b> <a href="../commit/a9a02eddfe56fd1f81c17fea5e799c2831d69902.html">a9a02eddfe56fd1f81c17fea5e799c2831d69902</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu,  6 Apr 2023 11:13:53 -0700
+
+Use in-proc winget in PowerShell module when running as SYSTEM (#3129)
+
+This change uses the in-proc WinRT binaries and activation path when running as `SYSTEM` in the PowerShell module.  It also makes `Assert-WinGetPackageManager` succeed as long as the OS version is high enough in that case.
+
+There are two known caveats with this that could be addressed in a future change if needed:
+1. These newly added dlls are still dependent on the VC runtime, and thus will not work unless it has been installed. This seems acceptable for development scenarios. For shipping a module without this dependency, we will need to build a statically linked binary, but only on the internal, release pipeline.
+2. The code currently doesn&#39;t behave well in an STA thread, meaning that when used from `SYSTEM` the module requires running PowerShell with the MTA option.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/PowerShell/Microsoft.WinGet.Client/Commands/Common/BaseCommand.cs</a></td><td> | </td><td class="num">5</td><td><span class="i">+++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/PowerShell/Microsoft.WinGet.Client/Common/Utilities.cs</a></td><td> | </td><td class="num">28</td><td><span class="i">+++++++++++++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/PowerShell/Microsoft.WinGet.Client/Common/WinGetIntegrity.cs</a></td><td> | </td><td class="num">26</td><td><span class="i">++++++++++++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h4">src/PowerShell/Microsoft.WinGet.Client/Exceptions/ExecuteAsSystemException.cs</a></td><td> | </td><td class="num">26</td><td><span class="i"></span><span class="d">--------------------------</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h5">src/PowerShell/Microsoft.WinGet.Client/Exceptions/SingleThreadedApartmentException.cs</a></td><td> | </td><td class="num">27</td><td><span class="i">+++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/PowerShell/Microsoft.WinGet.Client/Helpers/ComObjectFactory.cs</a></td><td> | </td><td class="num">344</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/PowerShell/Microsoft.WinGet.Client/Microsoft.WinGet.Client.csproj</a></td><td> | </td><td class="num">19</td><td><span class="i">+++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.Designer.cs</a></td><td> | </td><td class="num">20</td><td><span class="i">++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.resx</a></td><td> | </td><td class="num">7</td><td><span class="i">++++</span><span class="d">---</span></td></tr>
+</table></pre><pre>10 files changed, 302 insertions(+), 202 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -157,6 +157,7 @@ IHelp
+</a> iid
+ IISOn
+ inet
+<a href="#h0-0-3" id="h0-0-3" class="i">+inproc
+</a> installinprogress
+ installshield
+ instream
+<a href="#h0-1" id="h0-1" class="h">@@ -194,6 +195,7 @@ LPBYTE
+</a> LPCWSTR
+ LPDWORD
+ lpitemidlist
+<a href="#h0-1-3" id="h0-1-3" class="i">+LPW
+</a> maclachlan
+ LPSTR
+ LPWCH
+<b>diff --git a/<a id="h1" href="../file/src/PowerShell/Microsoft.WinGet.Client/Commands/Common/BaseCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client/Commands/Common/BaseCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Commands/Common/BaseCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client/Commands/Common/BaseCommand.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -21,9 +21,10 @@ namespace Microsoft.WinGet.Client.Commands.Common
+</a>         public BaseCommand()
+             : base()
+         {
+<a href="#h1-0-3" id="h1-0-3" class="d">-            if (Utilities.ExecutingAsSystem)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+            // The inproc COM API may deadlock on an STA thread.
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+            if (Utilities.UsesInProcWinget &amp;&amp; Utilities.ThreadIsSTA)
+</a>             {
+<a href="#h1-0-7" id="h1-0-7" class="d">-                throw new ExecuteAsSystemException();
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+                throw new SingleThreadedApartmentException();
+</a>             }
+         }
+     }
+<b>diff --git a/<a id="h2" href="../file/src/PowerShell/Microsoft.WinGet.Client/Common/Utilities.cs.html">src/PowerShell/Microsoft.WinGet.Client/Common/Utilities.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Common/Utilities.cs.html">src/PowerShell/Microsoft.WinGet.Client/Common/Utilities.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -8,6 +8,7 @@ namespace Microsoft.WinGet.Client.Common
+</a> {
+     using System;
+     using System.Security.Principal;
+<a href="#h2-0-3" id="h2-0-3" class="i">+    using System.Threading;
+</a> 
+     /// &lt;summary&gt;
+     /// This class contains various helper methods for this project.
+<a href="#h2-1" id="h2-1" class="h">@@ -36,9 +37,30 @@ namespace Microsoft.WinGet.Client.Common
+</a>         {
+             get
+             {
+<a href="#h2-1-3" id="h2-1-3" class="d">-                WindowsIdentity identity = WindowsIdentity.GetCurrent();
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-                WindowsPrincipal principal = new (identity);
+</a><a href="#h2-1-5" id="h2-1-5" class="d">-                return principal.IsInRole(WindowsBuiltInRole.SystemOperator);
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+                return WindowsIdentity.GetCurrent().IsSystem;
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+            }
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+        }
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+        /// &lt;summary&gt;
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+        /// Gets a value indicating whether the current execution context will use in-proc winget.
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+        public static bool UsesInProcWinget
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+        {
+</a><a href="#h2-1-15" id="h2-1-15" class="i">+            get
+</a><a href="#h2-1-16" id="h2-1-16" class="i">+            {
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+                return ExecutingAsSystem;
+</a><a href="#h2-1-18" id="h2-1-18" class="i">+            }
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+        }
+</a><a href="#h2-1-20" id="h2-1-20" class="i">+
+</a><a href="#h2-1-21" id="h2-1-21" class="i">+        /// &lt;summary&gt;
+</a><a href="#h2-1-22" id="h2-1-22" class="i">+        /// Gets a value indicating whether the current thread is executing as STA.
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h2-1-24" id="h2-1-24" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;Windows only API&quot;)]
+</a><a href="#h2-1-25" id="h2-1-25" class="i">+        public static bool ThreadIsSTA
+</a><a href="#h2-1-26" id="h2-1-26" class="i">+        {
+</a><a href="#h2-1-27" id="h2-1-27" class="i">+            get
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+            {
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+                return Thread.CurrentThread.GetApartmentState() == ApartmentState.STA;
+</a>             }
+         }
+ 
+<b>diff --git a/<a id="h3" href="../file/src/PowerShell/Microsoft.WinGet.Client/Common/WinGetIntegrity.cs.html">src/PowerShell/Microsoft.WinGet.Client/Common/WinGetIntegrity.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Common/WinGetIntegrity.cs.html">src/PowerShell/Microsoft.WinGet.Client/Common/WinGetIntegrity.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -26,6 +26,18 @@ namespace Microsoft.WinGet.Client.Common
+</a>         /// &lt;param name=&quot;expectedVersion&quot;&gt;Expected version.&lt;/param&gt;
+         public static void AssertWinGet(PSCmdlet psCmdlet, string expectedVersion)
+         {
+<a href="#h3-0-3" id="h3-0-3" class="i">+            // In-proc shouldn&#39;t have other dependencies and thus should be ok.
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+            if (Utilities.UsesInProcWinget)
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+            {
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+                // Only check the OS version support for in-proc
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+                if (!IsSupportedOSVersion())
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+                {
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+                    throw new WinGetIntegrityException(IntegrityCategory.OsNotSupported);
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+                }
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+                return;
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+            }
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+
+</a>             try
+             {
+                 // Start by calling winget without its WindowsApp PFN path.
+<a href="#h3-1" id="h3-1" class="h">@@ -114,10 +126,8 @@ namespace Microsoft.WinGet.Client.Common
+</a> 
+             // Not under %LOCALAPPDATA%\\Microsoft\\WindowsApps\PFM\
+ 
+<a href="#h3-1-3" id="h3-1-3" class="d">-            // Windows version has to be equal or newer than 10.0.17763.0
+</a><a href="#h3-1-4" id="h3-1-4" class="d">-            var minWindowsVersion = new Version(10, 0, 17763, 0);
+</a><a href="#h3-1-5" id="h3-1-5" class="d">-            var osVersion = Environment.OSVersion.Version;
+</a><a href="#h3-1-6" id="h3-1-6" class="d">-            if (osVersion.CompareTo(minWindowsVersion) &lt; 0)
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+            // Check OS version
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+            if (!IsSupportedOSVersion())
+</a>             {
+                 return IntegrityCategory.OsNotSupported;
+             }
+<a href="#h3-2" id="h3-2" class="h">@@ -143,5 +153,13 @@ namespace Microsoft.WinGet.Client.Common
+</a>             // If we get here, we know the package is in the machine but not registered for the user.
+             return IntegrityCategory.AppInstallerNotRegistered;
+         }
+<a href="#h3-2-3" id="h3-2-3" class="i">+
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+        private static bool IsSupportedOSVersion()
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+        {
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+            // Windows version has to be equal or newer than 10.0.17763.0
+</a><a href="#h3-2-7" id="h3-2-7" class="i">+            var minWindowsVersion = new Version(10, 0, 17763, 0);
+</a><a href="#h3-2-8" id="h3-2-8" class="i">+            var osVersion = Environment.OSVersion.Version;
+</a><a href="#h3-2-9" id="h3-2-9" class="i">+            return osVersion.CompareTo(minWindowsVersion) &gt;= 0;
+</a><a href="#h3-2-10" id="h3-2-10" class="i">+        }
+</a>     }
+ }
+<b>diff --git a/<a id="h4" href="../file/src/PowerShell/Microsoft.WinGet.Client/Exceptions/ExecuteAsSystemException.cs.html">src/PowerShell/Microsoft.WinGet.Client/Exceptions/ExecuteAsSystemException.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Exceptions/ExecuteAsSystemException.cs.html">src/PowerShell/Microsoft.WinGet.Client/Exceptions/ExecuteAsSystemException.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -1,26 +0,0 @@
+</a><a href="#h4-0-0" id="h4-0-0" class="d">-﻿// -----------------------------------------------------------------------------
+</a><a href="#h4-0-1" id="h4-0-1" class="d">-// &lt;copyright file=&quot;ExecuteAsSystemException.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h4-0-2" id="h4-0-2" class="d">-//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h4-0-3" id="h4-0-3" class="d">-// &lt;/copyright&gt;
+</a><a href="#h4-0-4" id="h4-0-4" class="d">-// -----------------------------------------------------------------------------
+</a><a href="#h4-0-5" id="h4-0-5" class="d">-
+</a><a href="#h4-0-6" id="h4-0-6" class="d">-namespace Microsoft.WinGet.Client.Exceptions
+</a><a href="#h4-0-7" id="h4-0-7" class="d">-{
+</a><a href="#h4-0-8" id="h4-0-8" class="d">-    using System;
+</a><a href="#h4-0-9" id="h4-0-9" class="d">-    using Microsoft.WinGet.Client.Properties;
+</a><a href="#h4-0-10" id="h4-0-10" class="d">-
+</a><a href="#h4-0-11" id="h4-0-11" class="d">-    /// &lt;summary&gt;
+</a><a href="#h4-0-12" id="h4-0-12" class="d">-    /// Executing as system is disabled.
+</a><a href="#h4-0-13" id="h4-0-13" class="d">-    /// &lt;/summary&gt;
+</a><a href="#h4-0-14" id="h4-0-14" class="d">-    [Serializable]
+</a><a href="#h4-0-15" id="h4-0-15" class="d">-    public class ExecuteAsSystemException : Exception
+</a><a href="#h4-0-16" id="h4-0-16" class="d">-    {
+</a><a href="#h4-0-17" id="h4-0-17" class="d">-        /// &lt;summary&gt;
+</a><a href="#h4-0-18" id="h4-0-18" class="d">-        /// Initializes a new instance of the &lt;see cref=&quot;ExecuteAsSystemException&quot;/&gt; class.
+</a><a href="#h4-0-19" id="h4-0-19" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h4-0-20" id="h4-0-20" class="d">-        public ExecuteAsSystemException()
+</a><a href="#h4-0-21" id="h4-0-21" class="d">-            : base(Resources.ExecuteAsSystemExceptionMessage)
+</a><a href="#h4-0-22" id="h4-0-22" class="d">-        {
+</a><a href="#h4-0-23" id="h4-0-23" class="d">-        }
+</a><a href="#h4-0-24" id="h4-0-24" class="d">-    }
+</a><a href="#h4-0-25" id="h4-0-25" class="d">-}
+</a><b>diff --git a/<a id="h5" href="../file/src/PowerShell/Microsoft.WinGet.Client/Exceptions/SingleThreadedApartmentException.cs.html">src/PowerShell/Microsoft.WinGet.Client/Exceptions/SingleThreadedApartmentException.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Exceptions/SingleThreadedApartmentException.cs.html">src/PowerShell/Microsoft.WinGet.Client/Exceptions/SingleThreadedApartmentException.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -0,0 +1,27 @@
+</a><a href="#h5-0-0" id="h5-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h5-0-1" id="h5-0-1" class="i">+// &lt;copyright file=&quot;SingleThreadedApartmentException.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h5-0-2" id="h5-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h5-0-3" id="h5-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+namespace Microsoft.WinGet.Client.Exceptions
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+{
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+    using System;
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+    using System.Management.Automation;
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+    using Microsoft.WinGet.Client.Properties;
+</a><a href="#h5-0-11" id="h5-0-11" class="i">+
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+    /// &lt;summary&gt;
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+    /// No package found.
+</a><a href="#h5-0-14" id="h5-0-14" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h5-0-15" id="h5-0-15" class="i">+    [Serializable]
+</a><a href="#h5-0-16" id="h5-0-16" class="i">+    public class SingleThreadedApartmentException : RuntimeException
+</a><a href="#h5-0-17" id="h5-0-17" class="i">+    {
+</a><a href="#h5-0-18" id="h5-0-18" class="i">+        /// &lt;summary&gt;
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;SingleThreadedApartmentException&quot;/&gt; class.
+</a><a href="#h5-0-20" id="h5-0-20" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h5-0-21" id="h5-0-21" class="i">+        public SingleThreadedApartmentException()
+</a><a href="#h5-0-22" id="h5-0-22" class="i">+            : base(Resources.SingleThreadedApartmentNotSupportedMessage)
+</a><a href="#h5-0-23" id="h5-0-23" class="i">+        {
+</a><a href="#h5-0-24" id="h5-0-24" class="i">+        }
+</a><a href="#h5-0-25" id="h5-0-25" class="i">+    }
+</a><a href="#h5-0-26" id="h5-0-26" class="i">+}
+</a><b>diff --git a/<a id="h6" href="../file/src/PowerShell/Microsoft.WinGet.Client/Helpers/ComObjectFactory.cs.html">src/PowerShell/Microsoft.WinGet.Client/Helpers/ComObjectFactory.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Helpers/ComObjectFactory.cs.html">src/PowerShell/Microsoft.WinGet.Client/Helpers/ComObjectFactory.cs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -1,154 +1,190 @@
+</a><a href="#h6-0-0" id="h6-0-0" class="d">-﻿// -----------------------------------------------------------------------------
+</a><a href="#h6-0-1" id="h6-0-1" class="d">-// &lt;copyright file=&quot;ComObjectFactory.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h6-0-2" id="h6-0-2" class="d">-//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h6-0-3" id="h6-0-3" class="d">-// &lt;/copyright&gt;
+</a><a href="#h6-0-4" id="h6-0-4" class="d">-// -----------------------------------------------------------------------------
+</a><a href="#h6-0-5" id="h6-0-5" class="d">-
+</a><a href="#h6-0-6" id="h6-0-6" class="d">-namespace Microsoft.WinGet.Client.Factories
+</a><a href="#h6-0-7" id="h6-0-7" class="d">-{
+</a><a href="#h6-0-8" id="h6-0-8" class="d">-    using System;
+</a><a href="#h6-0-9" id="h6-0-9" class="d">-    using System.Runtime.InteropServices;
+</a><a href="#h6-0-10" id="h6-0-10" class="d">-    using Microsoft.Management.Deployment;
+</a><a href="#h6-0-11" id="h6-0-11" class="d">-    using Microsoft.WinGet.Client.Common;
+</a><a href="#h6-0-12" id="h6-0-12" class="d">-    using Microsoft.WinGet.Client.Exceptions;
+</a><a href="#h6-0-13" id="h6-0-13" class="d">-
+</a><a href="#h6-0-14" id="h6-0-14" class="d">-#if NET
+</a><a href="#h6-0-15" id="h6-0-15" class="d">-    using WinRT;
+</a><a href="#h6-0-16" id="h6-0-16" class="d">-#endif
+</a><a href="#h6-0-17" id="h6-0-17" class="d">-
+</a><a href="#h6-0-18" id="h6-0-18" class="d">-    /// &lt;summary&gt;
+</a><a href="#h6-0-19" id="h6-0-19" class="d">-    /// Constructs instances of classes from the &lt;see cref=&quot;Management.Deployment&quot; /&gt; namespace.
+</a><a href="#h6-0-20" id="h6-0-20" class="d">-    /// &lt;/summary&gt;
+</a><a href="#h6-0-21" id="h6-0-21" class="d">-    public class ComObjectFactory
+</a><a href="#h6-0-22" id="h6-0-22" class="d">-    {
+</a><a href="#h6-0-23" id="h6-0-23" class="d">-#if USE_PROD_CLSIDS
+</a><a href="#h6-0-24" id="h6-0-24" class="d">-        private static readonly Guid PackageManagerClsid = Guid.Parse(&quot;C53A4F16-787E-42A4-B304-29EFFB4BF597&quot;);
+</a><a href="#h6-0-25" id="h6-0-25" class="d">-        private static readonly Guid FindPackagesOptionsClsid = Guid.Parse(&quot;572DED96-9C60-4526-8F92-EE7D91D38C1A&quot;);
+</a><a href="#h6-0-26" id="h6-0-26" class="d">-        private static readonly Guid CreateCompositePackageCatalogOptionsClsid = Guid.Parse(&quot;526534B8-7E46-47C8-8416-B1685C327D37&quot;);
+</a><a href="#h6-0-27" id="h6-0-27" class="d">-        private static readonly Guid InstallOptionsClsid = Guid.Parse(&quot;1095F097-EB96-453B-B4E6-1613637F3B14&quot;);
+</a><a href="#h6-0-28" id="h6-0-28" class="d">-        private static readonly Guid UninstallOptionsClsid = Guid.Parse(&quot;E1D9A11E-9F85-4D87-9C17-2B93143ADB8D&quot;);
+</a><a href="#h6-0-29" id="h6-0-29" class="d">-        private static readonly Guid PackageMatchFilterClsid = Guid.Parse(&quot;D02C9DAF-99DC-429C-B503-4E504E4AB000&quot;);
+</a><a href="#h6-0-30" id="h6-0-30" class="d">-#else
+</a><a href="#h6-0-31" id="h6-0-31" class="d">-        private static readonly Guid PackageManagerClsid = Guid.Parse(&quot;74CB3139-B7C5-4B9E-9388-E6616DEA288C&quot;);
+</a><a href="#h6-0-32" id="h6-0-32" class="d">-        private static readonly Guid FindPackagesOptionsClsid = Guid.Parse(&quot;1BD8FF3A-EC50-4F69-AEEE-DF4C9D3BAA96&quot;);
+</a><a href="#h6-0-33" id="h6-0-33" class="d">-        private static readonly Guid CreateCompositePackageCatalogOptionsClsid = Guid.Parse(&quot;EE160901-B317-4EA7-9CC6-5355C6D7D8A7&quot;);
+</a><a href="#h6-0-34" id="h6-0-34" class="d">-        private static readonly Guid InstallOptionsClsid = Guid.Parse(&quot;44FE0580-62F7-44D4-9E91-AA9614AB3E86&quot;);
+</a><a href="#h6-0-35" id="h6-0-35" class="d">-        private static readonly Guid UninstallOptionsClsid = Guid.Parse(&quot;AA2A5C04-1AD9-46C4-B74F-6B334AD7EB8C&quot;);
+</a><a href="#h6-0-36" id="h6-0-36" class="d">-        private static readonly Guid PackageMatchFilterClsid = Guid.Parse(&quot;3F85B9F4-487A-4C48-9035-2903F8A6D9E8&quot;);
+</a><a href="#h6-0-37" id="h6-0-37" class="d">-#endif
+</a><a href="#h6-0-38" id="h6-0-38" class="d">-        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-39" id="h6-0-39" class="d">-        private static readonly Type PackageManagerType = Type.GetTypeFromCLSID(PackageManagerClsid);
+</a><a href="#h6-0-40" id="h6-0-40" class="d">-        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-41" id="h6-0-41" class="d">-        private static readonly Type FindPackagesOptionsType = Type.GetTypeFromCLSID(FindPackagesOptionsClsid);
+</a><a href="#h6-0-42" id="h6-0-42" class="d">-        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-43" id="h6-0-43" class="d">-        private static readonly Type CreateCompositePackageCatalogOptionsType = Type.GetTypeFromCLSID(CreateCompositePackageCatalogOptionsClsid);
+</a><a href="#h6-0-44" id="h6-0-44" class="d">-        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-45" id="h6-0-45" class="d">-        private static readonly Type InstallOptionsType = Type.GetTypeFromCLSID(InstallOptionsClsid);
+</a><a href="#h6-0-46" id="h6-0-46" class="d">-        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-47" id="h6-0-47" class="d">-        private static readonly Type UninstallOptionsType = Type.GetTypeFromCLSID(UninstallOptionsClsid);
+</a><a href="#h6-0-48" id="h6-0-48" class="d">-        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-49" id="h6-0-49" class="d">-        private static readonly Type PackageMatchFilterType = Type.GetTypeFromCLSID(PackageMatchFilterClsid);
+</a><a href="#h6-0-50" id="h6-0-50" class="d">-
+</a><a href="#h6-0-51" id="h6-0-51" class="d">-        private static readonly Guid PackageManagerIid = Guid.Parse(&quot;B375E3B9-F2E0-5C93-87A7-B67497F7E593&quot;);
+</a><a href="#h6-0-52" id="h6-0-52" class="d">-        private static readonly Guid FindPackagesOptionsIid = Guid.Parse(&quot;A5270EDD-7DA7-57A3-BACE-F2593553561F&quot;);
+</a><a href="#h6-0-53" id="h6-0-53" class="d">-        private static readonly Guid CreateCompositePackageCatalogOptionsIid = Guid.Parse(&quot;21ABAA76-089D-51C5-A745-C85EEFE70116&quot;);
+</a><a href="#h6-0-54" id="h6-0-54" class="d">-        private static readonly Guid InstallOptionsIid = Guid.Parse(&quot;6EE9DB69-AB48-5E72-A474-33A924CD23B3&quot;);
+</a><a href="#h6-0-55" id="h6-0-55" class="d">-        private static readonly Guid UninstallOptionsIid = Guid.Parse(&quot;3EBC67F0-8339-594B-8A42-F90B69D02BBE&quot;);
+</a><a href="#h6-0-56" id="h6-0-56" class="d">-        private static readonly Guid PackageMatchFilterIid = Guid.Parse(&quot;D981ECA3-4DE5-5AD7-967A-698C7D60FC3B&quot;);
+</a><a href="#h6-0-57" id="h6-0-57" class="d">-
+</a><a href="#h6-0-58" id="h6-0-58" class="d">-        /// &lt;summary&gt;
+</a><a href="#h6-0-59" id="h6-0-59" class="d">-        /// Creates an instance of the &lt;see cref=&quot;PackageManager&quot; /&gt; class.
+</a><a href="#h6-0-60" id="h6-0-60" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h6-0-61" id="h6-0-61" class="d">-        /// &lt;returns&gt;A &lt;see cref=&quot;PackageManager&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-62" id="h6-0-62" class="d">-        public virtual PackageManager CreatePackageManager()
+</a><a href="#h6-0-63" id="h6-0-63" class="d">-        {
+</a><a href="#h6-0-64" id="h6-0-64" class="d">-            return Create&lt;PackageManager&gt;(PackageManagerType, PackageManagerIid);
+</a><a href="#h6-0-65" id="h6-0-65" class="d">-        }
+</a><a href="#h6-0-66" id="h6-0-66" class="d">-
+</a><a href="#h6-0-67" id="h6-0-67" class="d">-        /// &lt;summary&gt;
+</a><a href="#h6-0-68" id="h6-0-68" class="d">-        /// Creates an instance of the &lt;see cref=&quot;FindPackagesOptions&quot; /&gt; class.
+</a><a href="#h6-0-69" id="h6-0-69" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h6-0-70" id="h6-0-70" class="d">-        /// &lt;returns&gt;A &lt;see cref=&quot;FindPackagesOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-71" id="h6-0-71" class="d">-        public virtual FindPackagesOptions CreateFindPackagesOptions()
+</a><a href="#h6-0-72" id="h6-0-72" class="d">-        {
+</a><a href="#h6-0-73" id="h6-0-73" class="d">-            return Create&lt;FindPackagesOptions&gt;(FindPackagesOptionsType, FindPackagesOptionsIid);
+</a><a href="#h6-0-74" id="h6-0-74" class="d">-        }
+</a><a href="#h6-0-75" id="h6-0-75" class="d">-
+</a><a href="#h6-0-76" id="h6-0-76" class="d">-        /// &lt;summary&gt;
+</a><a href="#h6-0-77" id="h6-0-77" class="d">-        /// Creates an instance of the &lt;see cref=&quot;CreateCompositePackageCatalogOptions&quot; /&gt; class.
+</a><a href="#h6-0-78" id="h6-0-78" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h6-0-79" id="h6-0-79" class="d">-        /// &lt;returns&gt;A &lt;see cref=&quot;CreateCompositePackageCatalogOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-80" id="h6-0-80" class="d">-        public virtual CreateCompositePackageCatalogOptions CreateCreateCompositePackageCatalogOptions()
+</a><a href="#h6-0-81" id="h6-0-81" class="d">-        {
+</a><a href="#h6-0-82" id="h6-0-82" class="d">-            return Create&lt;CreateCompositePackageCatalogOptions&gt;(CreateCompositePackageCatalogOptionsType, CreateCompositePackageCatalogOptionsIid);
+</a><a href="#h6-0-83" id="h6-0-83" class="d">-        }
+</a><a href="#h6-0-84" id="h6-0-84" class="d">-
+</a><a href="#h6-0-85" id="h6-0-85" class="d">-        /// &lt;summary&gt;
+</a><a href="#h6-0-86" id="h6-0-86" class="d">-        /// Creates an instance of the &lt;see cref=&quot;InstallOptions&quot; /&gt; class.
+</a><a href="#h6-0-87" id="h6-0-87" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h6-0-88" id="h6-0-88" class="d">-        /// &lt;returns&gt;An &lt;see cref=&quot;InstallOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-89" id="h6-0-89" class="d">-        public virtual InstallOptions CreateInstallOptions()
+</a><a href="#h6-0-90" id="h6-0-90" class="d">-        {
+</a><a href="#h6-0-91" id="h6-0-91" class="d">-            return Create&lt;InstallOptions&gt;(InstallOptionsType, InstallOptionsIid);
+</a><a href="#h6-0-92" id="h6-0-92" class="d">-        }
+</a><a href="#h6-0-93" id="h6-0-93" class="d">-
+</a><a href="#h6-0-94" id="h6-0-94" class="d">-        /// &lt;summary&gt;
+</a><a href="#h6-0-95" id="h6-0-95" class="d">-        /// Creates an instance of the &lt;see cref=&quot;UninstallOptions&quot; /&gt; class.
+</a><a href="#h6-0-96" id="h6-0-96" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h6-0-97" id="h6-0-97" class="d">-        /// &lt;returns&gt;A &lt;see cref=&quot;UninstallOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-98" id="h6-0-98" class="d">-        public virtual UninstallOptions CreateUninstallOptions()
+</a><a href="#h6-0-99" id="h6-0-99" class="d">-        {
+</a><a href="#h6-0-100" id="h6-0-100" class="d">-            return Create&lt;UninstallOptions&gt;(UninstallOptionsType, UninstallOptionsIid);
+</a><a href="#h6-0-101" id="h6-0-101" class="d">-        }
+</a><a href="#h6-0-102" id="h6-0-102" class="d">-
+</a><a href="#h6-0-103" id="h6-0-103" class="d">-        /// &lt;summary&gt;
+</a><a href="#h6-0-104" id="h6-0-104" class="d">-        /// Creates an instance of the &lt;see cref=&quot;PackageMatchFilter&quot; /&gt; class.
+</a><a href="#h6-0-105" id="h6-0-105" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h6-0-106" id="h6-0-106" class="d">-        /// &lt;returns&gt;A &lt;see cref=&quot;PackageMatchFilter&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-107" id="h6-0-107" class="d">-        public virtual PackageMatchFilter CreatePackageMatchFilter()
+</a><a href="#h6-0-108" id="h6-0-108" class="d">-        {
+</a><a href="#h6-0-109" id="h6-0-109" class="d">-            return Create&lt;PackageMatchFilter&gt;(PackageMatchFilterType, PackageMatchFilterIid);
+</a><a href="#h6-0-110" id="h6-0-110" class="d">-        }
+</a><a href="#h6-0-111" id="h6-0-111" class="d">-
+</a><a href="#h6-0-112" id="h6-0-112" class="d">-        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-113" id="h6-0-113" class="d">-        private static T Create&lt;T&gt;(Type type, in Guid iid)
+</a><a href="#h6-0-114" id="h6-0-114" class="d">-        {
+</a><a href="#h6-0-115" id="h6-0-115" class="d">-            object instance = null;
+</a><a href="#h6-0-116" id="h6-0-116" class="d">-
+</a><a href="#h6-0-117" id="h6-0-117" class="d">-            if (Utilities.ExecutingAsAdministrator)
+</a><a href="#h6-0-118" id="h6-0-118" class="d">-            {
+</a><a href="#h6-0-119" id="h6-0-119" class="d">-                int hr = WinGetServerManualActivation_CreateInstance(type.GUID, iid, 0, out instance);
+</a><a href="#h6-0-120" id="h6-0-120" class="d">-
+</a><a href="#h6-0-121" id="h6-0-121" class="d">-                if (hr &lt; 0)
+</a><a href="#h6-0-122" id="h6-0-122" class="d">-                {
+</a><a href="#h6-0-123" id="h6-0-123" class="d">-                    if (hr == ErrorCode.FileNotFound)
+</a><a href="#h6-0-124" id="h6-0-124" class="d">-                    {
+</a><a href="#h6-0-125" id="h6-0-125" class="d">-                        throw new WinGetIntegrityException(IntegrityCategory.AppInstallerNotInstalled);
+</a><a href="#h6-0-126" id="h6-0-126" class="d">-                    }
+</a><a href="#h6-0-127" id="h6-0-127" class="d">-                    else
+</a><a href="#h6-0-128" id="h6-0-128" class="d">-                    {
+</a><a href="#h6-0-129" id="h6-0-129" class="d">-                        throw new COMException($&quot;Failed to create instance: {hr}&quot;, hr);
+</a><a href="#h6-0-130" id="h6-0-130" class="d">-                    }
+</a><a href="#h6-0-131" id="h6-0-131" class="d">-                }
+</a><a href="#h6-0-132" id="h6-0-132" class="d">-            }
+</a><a href="#h6-0-133" id="h6-0-133" class="d">-            else
+</a><a href="#h6-0-134" id="h6-0-134" class="d">-            {
+</a><a href="#h6-0-135" id="h6-0-135" class="d">-                instance = Activator.CreateInstance(type);
+</a><a href="#h6-0-136" id="h6-0-136" class="d">-            }
+</a><a href="#h6-0-137" id="h6-0-137" class="d">-
+</a><a href="#h6-0-138" id="h6-0-138" class="d">-#if NET
+</a><a href="#h6-0-139" id="h6-0-139" class="d">-            IntPtr pointer = Marshal.GetIUnknownForObject(instance);
+</a><a href="#h6-0-140" id="h6-0-140" class="d">-            return MarshalInterface&lt;T&gt;.FromAbi(pointer);
+</a><a href="#h6-0-141" id="h6-0-141" class="d">-#else
+</a><a href="#h6-0-142" id="h6-0-142" class="d">-            return (T)instance;
+</a><a href="#h6-0-143" id="h6-0-143" class="d">-#endif
+</a><a href="#h6-0-144" id="h6-0-144" class="d">-        }
+</a><a href="#h6-0-145" id="h6-0-145" class="d">-
+</a><a href="#h6-0-146" id="h6-0-146" class="d">-        [DllImport(&quot;winrtact.dll&quot;, EntryPoint = &quot;WinGetServerManualActivation_CreateInstance&quot;, ExactSpelling = true, PreserveSig = true)]
+</a><a href="#h6-0-147" id="h6-0-147" class="d">-        private static extern int WinGetServerManualActivation_CreateInstance(
+</a><a href="#h6-0-148" id="h6-0-148" class="d">-            [In, MarshalAs(UnmanagedType.LPStruct)] Guid clsid,
+</a><a href="#h6-0-149" id="h6-0-149" class="d">-            [In, MarshalAs(UnmanagedType.LPStruct)] Guid iid,
+</a><a href="#h6-0-150" id="h6-0-150" class="d">-            uint flags,
+</a><a href="#h6-0-151" id="h6-0-151" class="d">-            [Out, MarshalAs(UnmanagedType.IUnknown)] out object instance);
+</a><a href="#h6-0-152" id="h6-0-152" class="d">-    }
+</a><a href="#h6-0-153" id="h6-0-153" class="d">-}
+</a><a href="#h6-0-154" id="h6-0-154" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h6-0-155" id="h6-0-155" class="i">+// &lt;copyright file=&quot;ComObjectFactory.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h6-0-156" id="h6-0-156" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h6-0-157" id="h6-0-157" class="i">+// &lt;/copyright&gt;
+</a><a href="#h6-0-158" id="h6-0-158" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h6-0-159" id="h6-0-159" class="i">+
+</a><a href="#h6-0-160" id="h6-0-160" class="i">+namespace Microsoft.WinGet.Client.Factories
+</a><a href="#h6-0-161" id="h6-0-161" class="i">+{
+</a><a href="#h6-0-162" id="h6-0-162" class="i">+    using System;
+</a><a href="#h6-0-163" id="h6-0-163" class="i">+    using System.IO;
+</a><a href="#h6-0-164" id="h6-0-164" class="i">+    using System.Reflection;
+</a><a href="#h6-0-165" id="h6-0-165" class="i">+    using System.Runtime.InteropServices;
+</a><a href="#h6-0-166" id="h6-0-166" class="i">+    using Microsoft.Management.Deployment;
+</a><a href="#h6-0-167" id="h6-0-167" class="i">+    using Microsoft.WinGet.Client.Common;
+</a><a href="#h6-0-168" id="h6-0-168" class="i">+    using Microsoft.WinGet.Client.Exceptions;
+</a><a href="#h6-0-169" id="h6-0-169" class="i">+    using Windows.Networking.Sockets;
+</a><a href="#h6-0-170" id="h6-0-170" class="i">+
+</a><a href="#h6-0-171" id="h6-0-171" class="i">+#if NET
+</a><a href="#h6-0-172" id="h6-0-172" class="i">+    using WinRT;
+</a><a href="#h6-0-173" id="h6-0-173" class="i">+#endif
+</a><a href="#h6-0-174" id="h6-0-174" class="i">+
+</a><a href="#h6-0-175" id="h6-0-175" class="i">+    /// &lt;summary&gt;
+</a><a href="#h6-0-176" id="h6-0-176" class="i">+    /// Constructs instances of classes from the &lt;see cref=&quot;Management.Deployment&quot; /&gt; namespace.
+</a><a href="#h6-0-177" id="h6-0-177" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h6-0-178" id="h6-0-178" class="i">+    public class ComObjectFactory
+</a><a href="#h6-0-179" id="h6-0-179" class="i">+    {
+</a><a href="#h6-0-180" id="h6-0-180" class="i">+#if USE_PROD_CLSIDS
+</a><a href="#h6-0-181" id="h6-0-181" class="i">+        private static readonly Guid PackageManagerClsid = Guid.Parse(&quot;C53A4F16-787E-42A4-B304-29EFFB4BF597&quot;);
+</a><a href="#h6-0-182" id="h6-0-182" class="i">+        private static readonly Guid FindPackagesOptionsClsid = Guid.Parse(&quot;572DED96-9C60-4526-8F92-EE7D91D38C1A&quot;);
+</a><a href="#h6-0-183" id="h6-0-183" class="i">+        private static readonly Guid CreateCompositePackageCatalogOptionsClsid = Guid.Parse(&quot;526534B8-7E46-47C8-8416-B1685C327D37&quot;);
+</a><a href="#h6-0-184" id="h6-0-184" class="i">+        private static readonly Guid InstallOptionsClsid = Guid.Parse(&quot;1095F097-EB96-453B-B4E6-1613637F3B14&quot;);
+</a><a href="#h6-0-185" id="h6-0-185" class="i">+        private static readonly Guid UninstallOptionsClsid = Guid.Parse(&quot;E1D9A11E-9F85-4D87-9C17-2B93143ADB8D&quot;);
+</a><a href="#h6-0-186" id="h6-0-186" class="i">+        private static readonly Guid PackageMatchFilterClsid = Guid.Parse(&quot;D02C9DAF-99DC-429C-B503-4E504E4AB000&quot;);
+</a><a href="#h6-0-187" id="h6-0-187" class="i">+#else
+</a><a href="#h6-0-188" id="h6-0-188" class="i">+        private static readonly Guid PackageManagerClsid = Guid.Parse(&quot;74CB3139-B7C5-4B9E-9388-E6616DEA288C&quot;);
+</a><a href="#h6-0-189" id="h6-0-189" class="i">+        private static readonly Guid FindPackagesOptionsClsid = Guid.Parse(&quot;1BD8FF3A-EC50-4F69-AEEE-DF4C9D3BAA96&quot;);
+</a><a href="#h6-0-190" id="h6-0-190" class="i">+        private static readonly Guid CreateCompositePackageCatalogOptionsClsid = Guid.Parse(&quot;EE160901-B317-4EA7-9CC6-5355C6D7D8A7&quot;);
+</a><a href="#h6-0-191" id="h6-0-191" class="i">+        private static readonly Guid InstallOptionsClsid = Guid.Parse(&quot;44FE0580-62F7-44D4-9E91-AA9614AB3E86&quot;);
+</a><a href="#h6-0-192" id="h6-0-192" class="i">+        private static readonly Guid UninstallOptionsClsid = Guid.Parse(&quot;AA2A5C04-1AD9-46C4-B74F-6B334AD7EB8C&quot;);
+</a><a href="#h6-0-193" id="h6-0-193" class="i">+        private static readonly Guid PackageMatchFilterClsid = Guid.Parse(&quot;3F85B9F4-487A-4C48-9035-2903F8A6D9E8&quot;);
+</a><a href="#h6-0-194" id="h6-0-194" class="i">+#endif
+</a><a href="#h6-0-195" id="h6-0-195" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-196" id="h6-0-196" class="i">+        private static readonly Type PackageManagerType = Type.GetTypeFromCLSID(PackageManagerClsid);
+</a><a href="#h6-0-197" id="h6-0-197" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-198" id="h6-0-198" class="i">+        private static readonly Type FindPackagesOptionsType = Type.GetTypeFromCLSID(FindPackagesOptionsClsid);
+</a><a href="#h6-0-199" id="h6-0-199" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-200" id="h6-0-200" class="i">+        private static readonly Type CreateCompositePackageCatalogOptionsType = Type.GetTypeFromCLSID(CreateCompositePackageCatalogOptionsClsid);
+</a><a href="#h6-0-201" id="h6-0-201" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-202" id="h6-0-202" class="i">+        private static readonly Type InstallOptionsType = Type.GetTypeFromCLSID(InstallOptionsClsid);
+</a><a href="#h6-0-203" id="h6-0-203" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-204" id="h6-0-204" class="i">+        private static readonly Type UninstallOptionsType = Type.GetTypeFromCLSID(UninstallOptionsClsid);
+</a><a href="#h6-0-205" id="h6-0-205" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-206" id="h6-0-206" class="i">+        private static readonly Type PackageMatchFilterType = Type.GetTypeFromCLSID(PackageMatchFilterClsid);
+</a><a href="#h6-0-207" id="h6-0-207" class="i">+
+</a><a href="#h6-0-208" id="h6-0-208" class="i">+        private static readonly Guid PackageManagerIid = Guid.Parse(&quot;B375E3B9-F2E0-5C93-87A7-B67497F7E593&quot;);
+</a><a href="#h6-0-209" id="h6-0-209" class="i">+        private static readonly Guid FindPackagesOptionsIid = Guid.Parse(&quot;A5270EDD-7DA7-57A3-BACE-F2593553561F&quot;);
+</a><a href="#h6-0-210" id="h6-0-210" class="i">+        private static readonly Guid CreateCompositePackageCatalogOptionsIid = Guid.Parse(&quot;21ABAA76-089D-51C5-A745-C85EEFE70116&quot;);
+</a><a href="#h6-0-211" id="h6-0-211" class="i">+        private static readonly Guid InstallOptionsIid = Guid.Parse(&quot;6EE9DB69-AB48-5E72-A474-33A924CD23B3&quot;);
+</a><a href="#h6-0-212" id="h6-0-212" class="i">+        private static readonly Guid UninstallOptionsIid = Guid.Parse(&quot;3EBC67F0-8339-594B-8A42-F90B69D02BBE&quot;);
+</a><a href="#h6-0-213" id="h6-0-213" class="i">+        private static readonly Guid PackageMatchFilterIid = Guid.Parse(&quot;D981ECA3-4DE5-5AD7-967A-698C7D60FC3B&quot;);
+</a><a href="#h6-0-214" id="h6-0-214" class="i">+
+</a><a href="#h6-0-215" id="h6-0-215" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-216" id="h6-0-216" class="i">+        /// Initializes static members of the &lt;see cref=&quot;ComObjectFactory&quot;/&gt; class.
+</a><a href="#h6-0-217" id="h6-0-217" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-218" id="h6-0-218" class="i">+        static ComObjectFactory()
+</a><a href="#h6-0-219" id="h6-0-219" class="i">+        {
+</a><a href="#h6-0-220" id="h6-0-220" class="i">+            if (Utilities.UsesInProcWinget)
+</a><a href="#h6-0-221" id="h6-0-221" class="i">+            {
+</a><a href="#h6-0-222" id="h6-0-222" class="i">+                PackageManagerSettings settings = new PackageManagerSettings();
+</a><a href="#h6-0-223" id="h6-0-223" class="i">+                settings.SetCallerIdentifier(&quot;PowerShellInProc&quot;);
+</a><a href="#h6-0-224" id="h6-0-224" class="i">+            }
+</a><a href="#h6-0-225" id="h6-0-225" class="i">+        }
+</a><a href="#h6-0-226" id="h6-0-226" class="i">+
+</a><a href="#h6-0-227" id="h6-0-227" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-228" id="h6-0-228" class="i">+        /// Creates an instance of the &lt;see cref=&quot;PackageManager&quot; /&gt; class.
+</a><a href="#h6-0-229" id="h6-0-229" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-230" id="h6-0-230" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;PackageManager&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-231" id="h6-0-231" class="i">+        public virtual PackageManager CreatePackageManager()
+</a><a href="#h6-0-232" id="h6-0-232" class="i">+        {
+</a><a href="#h6-0-233" id="h6-0-233" class="i">+            return Create&lt;PackageManager&gt;(PackageManagerType, PackageManagerIid);
+</a><a href="#h6-0-234" id="h6-0-234" class="i">+        }
+</a><a href="#h6-0-235" id="h6-0-235" class="i">+
+</a><a href="#h6-0-236" id="h6-0-236" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-237" id="h6-0-237" class="i">+        /// Creates an instance of the &lt;see cref=&quot;FindPackagesOptions&quot; /&gt; class.
+</a><a href="#h6-0-238" id="h6-0-238" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-239" id="h6-0-239" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;FindPackagesOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-240" id="h6-0-240" class="i">+        public virtual FindPackagesOptions CreateFindPackagesOptions()
+</a><a href="#h6-0-241" id="h6-0-241" class="i">+        {
+</a><a href="#h6-0-242" id="h6-0-242" class="i">+            return Create&lt;FindPackagesOptions&gt;(FindPackagesOptionsType, FindPackagesOptionsIid);
+</a><a href="#h6-0-243" id="h6-0-243" class="i">+        }
+</a><a href="#h6-0-244" id="h6-0-244" class="i">+
+</a><a href="#h6-0-245" id="h6-0-245" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-246" id="h6-0-246" class="i">+        /// Creates an instance of the &lt;see cref=&quot;CreateCompositePackageCatalogOptions&quot; /&gt; class.
+</a><a href="#h6-0-247" id="h6-0-247" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-248" id="h6-0-248" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;CreateCompositePackageCatalogOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-249" id="h6-0-249" class="i">+        public virtual CreateCompositePackageCatalogOptions CreateCreateCompositePackageCatalogOptions()
+</a><a href="#h6-0-250" id="h6-0-250" class="i">+        {
+</a><a href="#h6-0-251" id="h6-0-251" class="i">+            return Create&lt;CreateCompositePackageCatalogOptions&gt;(CreateCompositePackageCatalogOptionsType, CreateCompositePackageCatalogOptionsIid);
+</a><a href="#h6-0-252" id="h6-0-252" class="i">+        }
+</a><a href="#h6-0-253" id="h6-0-253" class="i">+
+</a><a href="#h6-0-254" id="h6-0-254" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-255" id="h6-0-255" class="i">+        /// Creates an instance of the &lt;see cref=&quot;InstallOptions&quot; /&gt; class.
+</a><a href="#h6-0-256" id="h6-0-256" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-257" id="h6-0-257" class="i">+        /// &lt;returns&gt;An &lt;see cref=&quot;InstallOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-258" id="h6-0-258" class="i">+        public virtual InstallOptions CreateInstallOptions()
+</a><a href="#h6-0-259" id="h6-0-259" class="i">+        {
+</a><a href="#h6-0-260" id="h6-0-260" class="i">+            return Create&lt;InstallOptions&gt;(InstallOptionsType, InstallOptionsIid);
+</a><a href="#h6-0-261" id="h6-0-261" class="i">+        }
+</a><a href="#h6-0-262" id="h6-0-262" class="i">+
+</a><a href="#h6-0-263" id="h6-0-263" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-264" id="h6-0-264" class="i">+        /// Creates an instance of the &lt;see cref=&quot;UninstallOptions&quot; /&gt; class.
+</a><a href="#h6-0-265" id="h6-0-265" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-266" id="h6-0-266" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;UninstallOptions&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-267" id="h6-0-267" class="i">+        public virtual UninstallOptions CreateUninstallOptions()
+</a><a href="#h6-0-268" id="h6-0-268" class="i">+        {
+</a><a href="#h6-0-269" id="h6-0-269" class="i">+            return Create&lt;UninstallOptions&gt;(UninstallOptionsType, UninstallOptionsIid);
+</a><a href="#h6-0-270" id="h6-0-270" class="i">+        }
+</a><a href="#h6-0-271" id="h6-0-271" class="i">+
+</a><a href="#h6-0-272" id="h6-0-272" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-0-273" id="h6-0-273" class="i">+        /// Creates an instance of the &lt;see cref=&quot;PackageMatchFilter&quot; /&gt; class.
+</a><a href="#h6-0-274" id="h6-0-274" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-0-275" id="h6-0-275" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;PackageMatchFilter&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h6-0-276" id="h6-0-276" class="i">+        public virtual PackageMatchFilter CreatePackageMatchFilter()
+</a><a href="#h6-0-277" id="h6-0-277" class="i">+        {
+</a><a href="#h6-0-278" id="h6-0-278" class="i">+            return Create&lt;PackageMatchFilter&gt;(PackageMatchFilterType, PackageMatchFilterIid);
+</a><a href="#h6-0-279" id="h6-0-279" class="i">+        }
+</a><a href="#h6-0-280" id="h6-0-280" class="i">+
+</a><a href="#h6-0-281" id="h6-0-281" class="i">+        [System.Diagnostics.CodeAnalysis.SuppressMessage(&quot;Interoperability&quot;, &quot;CA1416:Validate platform compatibility&quot;, Justification = &quot;COM only usage.&quot;)]
+</a><a href="#h6-0-282" id="h6-0-282" class="i">+        private static T Create&lt;T&gt;(Type type, in Guid iid)
+</a><a href="#h6-0-283" id="h6-0-283" class="i">+            where T : new()
+</a><a href="#h6-0-284" id="h6-0-284" class="i">+        {
+</a><a href="#h6-0-285" id="h6-0-285" class="i">+            if (Utilities.UsesInProcWinget)
+</a><a href="#h6-0-286" id="h6-0-286" class="i">+            {
+</a><a href="#h6-0-287" id="h6-0-287" class="i">+                string executingAssemblyLocation = Assembly.GetExecutingAssembly().Location;
+</a><a href="#h6-0-288" id="h6-0-288" class="i">+                string executingAssemblyDirectory = Path.GetDirectoryName(executingAssemblyLocation);
+</a><a href="#h6-0-289" id="h6-0-289" class="i">+                SetDllDirectoryW(executingAssemblyDirectory);
+</a><a href="#h6-0-290" id="h6-0-290" class="i">+
+</a><a href="#h6-0-291" id="h6-0-291" class="i">+                try
+</a><a href="#h6-0-292" id="h6-0-292" class="i">+                {
+</a><a href="#h6-0-293" id="h6-0-293" class="i">+                    return new T();
+</a><a href="#h6-0-294" id="h6-0-294" class="i">+                }
+</a><a href="#h6-0-295" id="h6-0-295" class="i">+                finally
+</a><a href="#h6-0-296" id="h6-0-296" class="i">+                {
+</a><a href="#h6-0-297" id="h6-0-297" class="i">+                    SetDllDirectoryW(null);
+</a><a href="#h6-0-298" id="h6-0-298" class="i">+                }
+</a><a href="#h6-0-299" id="h6-0-299" class="i">+            }
+</a><a href="#h6-0-300" id="h6-0-300" class="i">+
+</a><a href="#h6-0-301" id="h6-0-301" class="i">+            object instance = null;
+</a><a href="#h6-0-302" id="h6-0-302" class="i">+
+</a><a href="#h6-0-303" id="h6-0-303" class="i">+            if (Utilities.ExecutingAsAdministrator)
+</a><a href="#h6-0-304" id="h6-0-304" class="i">+            {
+</a><a href="#h6-0-305" id="h6-0-305" class="i">+                int hr = WinGetServerManualActivation_CreateInstance(type.GUID, iid, 0, out instance);
+</a><a href="#h6-0-306" id="h6-0-306" class="i">+
+</a><a href="#h6-0-307" id="h6-0-307" class="i">+                if (hr &lt; 0)
+</a><a href="#h6-0-308" id="h6-0-308" class="i">+                {
+</a><a href="#h6-0-309" id="h6-0-309" class="i">+                    if (hr == ErrorCode.FileNotFound)
+</a><a href="#h6-0-310" id="h6-0-310" class="i">+                    {
+</a><a href="#h6-0-311" id="h6-0-311" class="i">+                        throw new WinGetIntegrityException(IntegrityCategory.AppInstallerNotInstalled);
+</a><a href="#h6-0-312" id="h6-0-312" class="i">+                    }
+</a><a href="#h6-0-313" id="h6-0-313" class="i">+                    else
+</a><a href="#h6-0-314" id="h6-0-314" class="i">+                    {
+</a><a href="#h6-0-315" id="h6-0-315" class="i">+                        throw new COMException($&quot;Failed to create instance: {hr}&quot;, hr);
+</a><a href="#h6-0-316" id="h6-0-316" class="i">+                    }
+</a><a href="#h6-0-317" id="h6-0-317" class="i">+                }
+</a><a href="#h6-0-318" id="h6-0-318" class="i">+            }
+</a><a href="#h6-0-319" id="h6-0-319" class="i">+            else
+</a><a href="#h6-0-320" id="h6-0-320" class="i">+            {
+</a><a href="#h6-0-321" id="h6-0-321" class="i">+                instance = Activator.CreateInstance(type);
+</a><a href="#h6-0-322" id="h6-0-322" class="i">+            }
+</a><a href="#h6-0-323" id="h6-0-323" class="i">+
+</a><a href="#h6-0-324" id="h6-0-324" class="i">+#if NET
+</a><a href="#h6-0-325" id="h6-0-325" class="i">+            IntPtr pointer = Marshal.GetIUnknownForObject(instance);
+</a><a href="#h6-0-326" id="h6-0-326" class="i">+            return MarshalInterface&lt;T&gt;.FromAbi(pointer);
+</a><a href="#h6-0-327" id="h6-0-327" class="i">+#else
+</a><a href="#h6-0-328" id="h6-0-328" class="i">+            return (T)instance;
+</a><a href="#h6-0-329" id="h6-0-329" class="i">+#endif
+</a><a href="#h6-0-330" id="h6-0-330" class="i">+        }
+</a><a href="#h6-0-331" id="h6-0-331" class="i">+
+</a><a href="#h6-0-332" id="h6-0-332" class="i">+        [DllImport(&quot;winrtact.dll&quot;, EntryPoint = &quot;WinGetServerManualActivation_CreateInstance&quot;, ExactSpelling = true, PreserveSig = true)]
+</a><a href="#h6-0-333" id="h6-0-333" class="i">+        private static extern int WinGetServerManualActivation_CreateInstance(
+</a><a href="#h6-0-334" id="h6-0-334" class="i">+            [In, MarshalAs(UnmanagedType.LPStruct)] Guid clsid,
+</a><a href="#h6-0-335" id="h6-0-335" class="i">+            [In, MarshalAs(UnmanagedType.LPStruct)] Guid iid,
+</a><a href="#h6-0-336" id="h6-0-336" class="i">+            uint flags,
+</a><a href="#h6-0-337" id="h6-0-337" class="i">+            [Out, MarshalAs(UnmanagedType.IUnknown)] out object instance);
+</a><a href="#h6-0-338" id="h6-0-338" class="i">+
+</a><a href="#h6-0-339" id="h6-0-339" class="i">+        [DllImport(&quot;kernel32.dll&quot;, SetLastError = true)]
+</a><a href="#h6-0-340" id="h6-0-340" class="i">+        [return: MarshalAs(UnmanagedType.Bool)]
+</a><a href="#h6-0-341" id="h6-0-341" class="i">+        private static extern bool SetDllDirectoryW([MarshalAs(UnmanagedType.LPWStr)] string directory);
+</a><a href="#h6-0-342" id="h6-0-342" class="i">+    }
+</a><a href="#h6-0-343" id="h6-0-343" class="i">+}
+</a><b>diff --git a/<a id="h7" href="../file/src/PowerShell/Microsoft.WinGet.Client/Microsoft.WinGet.Client.csproj.html">src/PowerShell/Microsoft.WinGet.Client/Microsoft.WinGet.Client.csproj</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Microsoft.WinGet.Client.csproj.html">src/PowerShell/Microsoft.WinGet.Client/Microsoft.WinGet.Client.csproj</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -47,6 +47,14 @@
+</a>       &lt;OutputItemType&gt;Content&lt;/OutputItemType&gt;
+       &lt;CopyToOutputDirectory&gt;Always&lt;/CopyToOutputDirectory&gt;
+     &lt;/ProjectReference&gt;
+<a href="#h7-0-3" id="h7-0-3" class="i">+    &lt;ProjectReference Include=&quot;..\..\Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.InProc.vcxproj&quot;&gt;
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+      &lt;OutputItemType&gt;Content&lt;/OutputItemType&gt;
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+      &lt;CopyToOutputDirectory&gt;Always&lt;/CopyToOutputDirectory&gt;
+</a><a href="#h7-0-6" id="h7-0-6" class="i">+    &lt;/ProjectReference&gt;
+</a><a href="#h7-0-7" id="h7-0-7" class="i">+    &lt;ProjectReference Include=&quot;..\..\WindowsPackageManager\WindowsPackageManager.vcxproj&quot;&gt;
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+      &lt;OutputItemType&gt;Content&lt;/OutputItemType&gt;
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+      &lt;CopyToOutputDirectory&gt;Always&lt;/CopyToOutputDirectory&gt;
+</a><a href="#h7-0-10" id="h7-0-10" class="i">+    &lt;/ProjectReference&gt;
+</a>   &lt;/ItemGroup&gt;
+ 
+   &lt;PropertyGroup&gt;
+<a href="#h7-1" id="h7-1" class="h">@@ -159,4 +167,15 @@
+</a>     &lt;Copy SourceFiles=&quot;@(DesktopBinaries)&quot; DestinationFolder=&quot;$(PowerShellModuleLibDirectory)\$(DesktopFramework)\$(Platform)\%(RecursiveDir)&quot; /&gt;
+   &lt;/Target&gt;
+ 
+<a href="#h7-1-3" id="h7-1-3" class="i">+  &lt;!-- Rename Microsoft.Management.Deployment.InProc.dll to Microsoft.Management.Deployment.dll --&gt;
+</a><a href="#h7-1-4" id="h7-1-4" class="i">+  &lt;Target Name=&quot;RenameMicrosoftManagementDeployment&quot; AfterTargets=&quot;AfterBuild&quot;&gt;
+</a><a href="#h7-1-5" id="h7-1-5" class="i">+    &lt;ItemGroup&gt;
+</a><a href="#h7-1-6" id="h7-1-6" class="i">+      &lt;RenameModuleFiles Include=&quot;$(PowerShellModuleLibDirectory)\**\Microsoft.Management.Deployment.InProc.dll&quot;&gt;
+</a><a href="#h7-1-7" id="h7-1-7" class="i">+        &lt;NewName&gt;Microsoft.Management.Deployment.dll&lt;/NewName&gt;
+</a><a href="#h7-1-8" id="h7-1-8" class="i">+      &lt;/RenameModuleFiles&gt;
+</a><a href="#h7-1-9" id="h7-1-9" class="i">+    &lt;/ItemGroup&gt;
+</a><a href="#h7-1-10" id="h7-1-10" class="i">+    &lt;Message Importance=&quot;high&quot; Text=&quot;Renaming file &#39;%(RenameModuleFiles.Identity)&#39; to &#39;$(PowerShellModuleLibDirectory)\%(RenameModuleFiles.RecursiveDir)\%(RenameModuleFiles.NewName)&#39;&quot; /&gt;
+</a><a href="#h7-1-11" id="h7-1-11" class="i">+    &lt;Move SourceFiles=&quot;%(RenameModuleFiles.Identity)&quot; DestinationFiles=&quot;$(PowerShellModuleLibDirectory)\%(RenameModuleFiles.RecursiveDir)\%(RenameModuleFiles.NewName)&quot; /&gt;
+</a><a href="#h7-1-12" id="h7-1-12" class="i">+  &lt;/Target&gt;
+</a><a href="#h7-1-13" id="h7-1-13" class="i">+
+</a> &lt;/Project&gt;
+<b>diff --git a/<a id="h8" href="../file/src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.Designer.cs.html">src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.Designer.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.Designer.cs.html">src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.Designer.cs</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -79,15 +79,6 @@ namespace Microsoft.WinGet.Client.Properties {
+</a>         }
+         
+         /// &lt;summary&gt;
+<a href="#h8-0-3" id="h8-0-3" class="d">-        ///   Looks up a localized string similar to This cmdlet is currently disabled for SYSTEM..
+</a><a href="#h8-0-4" id="h8-0-4" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h8-0-5" id="h8-0-5" class="d">-        internal static string ExecuteAsSystemExceptionMessage {
+</a><a href="#h8-0-6" id="h8-0-6" class="d">-            get {
+</a><a href="#h8-0-7" id="h8-0-7" class="d">-                return ResourceManager.GetString(&quot;ExecuteAsSystemExceptionMessage&quot;, resourceCulture);
+</a><a href="#h8-0-8" id="h8-0-8" class="d">-            }
+</a><a href="#h8-0-9" id="h8-0-9" class="d">-        }
+</a><a href="#h8-0-10" id="h8-0-10" class="d">-        
+</a><a href="#h8-0-11" id="h8-0-11" class="d">-        /// &lt;summary&gt;
+</a>         ///   Looks up a localized string similar to An error occurred while searching for packages: {0}.
+         /// &lt;/summary&gt;
+         internal static string FindPackagesExceptionMessage {
+<a href="#h8-1" id="h8-1" class="h">@@ -151,7 +142,7 @@ namespace Microsoft.WinGet.Client.Properties {
+</a>         }
+         
+         /// &lt;summary&gt;
+<a href="#h8-1-3" id="h8-1-3" class="d">-        ///   Looks up a localized string similar to The Windows Package Manager requires at least Version 1809 (October 2018 Update)..
+</a><a href="#h8-1-4" id="h8-1-4" class="i">+        ///   Looks up a localized string similar to The Windows Package Manager requires Windows Version 1809 (October 2018 Update) or later..
+</a>         /// &lt;/summary&gt;
+         internal static string IntegrityOsNotSupportedMessage {
+             get {
+<a href="#h8-2" id="h8-2" class="h">@@ -241,6 +232,15 @@ namespace Microsoft.WinGet.Client.Properties {
+</a>         }
+         
+         /// &lt;summary&gt;
+<a href="#h8-2-3" id="h8-2-3" class="i">+        ///   Looks up a localized string similar to Single threaded apartment (STA) is not currently supported in this context; run PowerShell in Multi-threaded apartment mode (MTA)..
+</a><a href="#h8-2-4" id="h8-2-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h8-2-5" id="h8-2-5" class="i">+        internal static string SingleThreadedApartmentNotSupportedMessage {
+</a><a href="#h8-2-6" id="h8-2-6" class="i">+            get {
+</a><a href="#h8-2-7" id="h8-2-7" class="i">+                return ResourceManager.GetString(&quot;SingleThreadedApartmentNotSupportedMessage&quot;, resourceCulture);
+</a><a href="#h8-2-8" id="h8-2-8" class="i">+            }
+</a><a href="#h8-2-9" id="h8-2-9" class="i">+        }
+</a><a href="#h8-2-10" id="h8-2-10" class="i">+        
+</a><a href="#h8-2-11" id="h8-2-11" class="i">+        /// &lt;summary&gt;
+</a>         ///   Looks up a localized string similar to User settings file is invalid..
+         /// &lt;/summary&gt;
+         internal static string UserSettingsReadException {
+<b>diff --git a/<a id="h9" href="../file/src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.resx.html">src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.resx</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.resx.html">src/PowerShell/Microsoft.WinGet.Client/Properties/Resources.resx</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -121,9 +121,6 @@
+</a>     &lt;value&gt;No source matches the given value: {0}&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;{0}&quot;} {0} - The name of the source that was not found.&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h9-0-3" id="h9-0-3" class="d">-  &lt;data name=&quot;ExecuteAsSystemExceptionMessage&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h9-0-4" id="h9-0-4" class="d">-    &lt;value&gt;This cmdlet is currently disabled for SYSTEM.&lt;/value&gt;
+</a><a href="#h9-0-5" id="h9-0-5" class="d">-  &lt;/data&gt;
+</a>   &lt;data name=&quot;FindPackagesExceptionMessage&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;An error occurred while searching for packages: {0}&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;{0}&quot;} {0} - A string representation of the error status returned by the catalog.&lt;/comment&gt;
+<a href="#h9-1" id="h9-1" class="h">@@ -203,4 +200,8 @@
+</a>     &lt;value&gt;The installed winget version doesn&#39;t match the expectation. Installer version &#39;{0}&#39; Expected version &#39;{1}&#39;&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;{0}&quot;,&quot;{1}&quot;} {0} - The winget current installed winget version. {1} - The expected winget version.&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h9-1-3" id="h9-1-3" class="i">+  &lt;data name=&quot;SingleThreadedApartmentNotSupportedMessage&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+    &lt;value&gt;Single threaded apartment (STA) is not currently supported in this context; run PowerShell in Multi-threaded apartment mode (MTA).&lt;/value&gt;
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+    &lt;comment&gt;{Locked=&quot;STA&quot;,&quot;MTA&quot;}&lt;/comment&gt;
+</a><a href="#h9-1-6" id="h9-1-6" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+</pre>
+</div>
+</body>
+</html>

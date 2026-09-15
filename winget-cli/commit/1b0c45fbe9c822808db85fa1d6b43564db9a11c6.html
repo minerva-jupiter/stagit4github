@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix PATH behavior of non-symlink installations for Portables/Zip (#3002) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/1b0c45fbe9c822808db85fa1d6b43564db9a11c6.html">1b0c45fbe9c822808db85fa1d6b43564db9a11c6</a>
+<b>parent</b> <a href="../commit/e6c9359e7ea53a85c005b9e597ca1bdaa668f0fb.html">e6c9359e7ea53a85c005b9e597ca1bdaa668f0fb</a>
+<b>Author:</b> Ryan Fu &lt;<a href="mailto:69221034+ryfu-msft@users.noreply.github.com">69221034+ryfu-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Thu, 16 Mar 2023 00:15:01 -0700
+
+Fix PATH behavior of non-symlink installations for Portables/Zip (#3002)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/PortableInstaller.cpp</a></td><td> | </td><td class="num">63</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/PortableInstaller.h</a></td><td> | </td><td class="num">9</td><td><span class="i">++</span><span class="d">-------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/PortableFlow.cpp</a></td><td> | </td><td class="num">7</td><td><span class="i">++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLITests/InstallFlow.cpp</a></td><td> | </td><td class="num">12</td><td><span class="i">+++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLITests/UpdateFlow.cpp</a></td><td> | </td><td class="num">10</td><td><span class="i">++++++</span><span class="d">----</span></td></tr>
+</table></pre><pre>5 files changed, 58 insertions(+), 43 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/PortableInstaller.cpp.html">src/AppInstallerCLICore/PortableInstaller.cpp</a> b/<a href="../file/src/AppInstallerCLICore/PortableInstaller.cpp.html">src/AppInstallerCLICore/PortableInstaller.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -147,9 +147,9 @@ namespace AppInstaller::CLI::Portable
+</a>                 }
+                 else
+                 {
+<a href="#h0-0-3" id="h0-0-3" class="d">-                    // Symlink creation should only fail if the user executes without admin rights or developer mode.
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-                    // Resort to adding install directory to PATH directly.
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-                    AICLI_LOG(Core, Info, &lt;&lt; &quot;Portable install executed in user mode. Adding package directory to PATH.&quot;);
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+                    // If symlink creation fails, resort to adding the package directory to PATH.
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+                    AICLI_LOG(Core, Info, &lt;&lt; &quot;Failed to create symlink at: &quot; &lt;&lt; filePath);
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+                    AddToPathVariable(std::filesystem::path(entry.SymlinkTarget).parent_path());
+</a>                     CommitToARPEntry(PortableValueName::InstallDirectoryAddedToPath, InstallDirectoryAddedToPath = true);
+                 }
+             }
+<a href="#h0-1" id="h0-1" class="h">@@ -167,6 +167,19 @@ namespace AppInstaller::CLI::Portable
+</a>             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Deleting portable exe at: &quot; &lt;&lt; filePath);
+             std::filesystem::remove(filePath);
+         }
+<a href="#h0-1-3" id="h0-1-3" class="i">+        else if (fileType == PortableFileType::Symlink)
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        {
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+            if (Filesystem::SymlinkExists(filePath))
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+            {
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Deleting portable symlink at: &quot; &lt;&lt; filePath);
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+                std::filesystem::remove(filePath);
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+            }
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+            else if (InstallDirectoryAddedToPath)
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+            {
+</a><a href="#h0-1-12" id="h0-1-12" class="i">+                // If symlink doesn&#39;t exist, check if install directory was added to PATH directly and remove.
+</a><a href="#h0-1-13" id="h0-1-13" class="i">+                RemoveFromPathVariable(std::filesystem::path(entry.SymlinkTarget).parent_path());
+</a><a href="#h0-1-14" id="h0-1-14" class="i">+            }
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+        }
+</a>         else if (fileType == PortableFileType::Symlink &amp;&amp; Filesystem::SymlinkExists(filePath))
+         {
+             AICLI_LOG(CLI, Info, &lt;&lt; &quot;Deleting portable symlink at: &quot; &lt;&lt; filePath);
+<a href="#h0-2" id="h0-2" class="h">@@ -188,7 +201,7 @@ namespace AppInstaller::CLI::Portable
+</a>             bool deleteIndex = false;
+             {
+                 PortableIndex existingIndex = PortableIndex::Open(existingIndexPath.u8string(), SQLiteStorageBase::OpenDisposition::ReadWrite);
+<a href="#h0-2-3" id="h0-2-3" class="d">-                
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+
+</a>                 for (auto expectedEntry : m_expectedEntries)
+                 {
+                     RemoveFile(expectedEntry);
+<a href="#h0-3" id="h0-3" class="h">@@ -262,7 +275,10 @@ namespace AppInstaller::CLI::Portable
+</a> 
+         ApplyDesiredState();
+ 
+<a href="#h0-3-3" id="h0-3-3" class="d">-        AddToPathVariable();
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+        if (!InstallDirectoryAddedToPath)
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+        {
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+            AddToPathVariable(GetPortableLinksLocation(GetScope()));
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+        }
+</a>     }
+ 
+     void PortableInstaller::Uninstall()
+<a href="#h0-4" id="h0-4" class="h">@@ -271,7 +287,10 @@ namespace AppInstaller::CLI::Portable
+</a> 
+         RemoveInstallDirectory();
+ 
+<a href="#h0-4-3" id="h0-4-3" class="d">-        RemoveFromPathVariable();
+</a><a href="#h0-4-4" id="h0-4-4" class="i">+        if (!InstallDirectoryAddedToPath)
+</a><a href="#h0-4-5" id="h0-4-5" class="i">+        {
+</a><a href="#h0-4-6" id="h0-4-6" class="i">+            RemoveFromPathVariable(GetPortableLinksLocation(GetScope()));
+</a><a href="#h0-4-7" id="h0-4-7" class="i">+        }
+</a> 
+         m_portableARPEntry.Delete();
+         AICLI_LOG(CLI, Info, &lt;&lt; &quot;PortableARPEntry deleted.&quot;);
+<a href="#h0-5" id="h0-5" class="h">@@ -314,36 +333,34 @@ namespace AppInstaller::CLI::Portable
+</a>         }
+     }
+ 
+<a href="#h0-5-3" id="h0-5-3" class="d">-    void PortableInstaller::AddToPathVariable()
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+    void PortableInstaller::AddToPathVariable(const std::filesystem::path&amp; value)
+</a>     {
+<a href="#h0-5-6" id="h0-5-6" class="d">-        const std::filesystem::path&amp; pathValue = InstallDirectoryAddedToPath ? TargetInstallLocation : GetPortableLinksLocation(GetScope());
+</a><a href="#h0-5-7" id="h0-5-7" class="d">-        if (PathVariable(GetScope()).Append(pathValue))
+</a><a href="#h0-5-8" id="h0-5-8" class="i">+        if (PathVariable(GetScope()).Append(value))
+</a>         {
+<a href="#h0-5-10" id="h0-5-10" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Appended target directory to PATH registry: &quot; &lt;&lt; pathValue);
+</a><a href="#h0-5-11" id="h0-5-11" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Appending portable target directory to PATH registry: &quot; &lt;&lt; value);
+</a>             m_stream &lt;&lt; Resource::String::ModifiedPathRequiresShellRestart &lt;&lt; std::endl;
+         }
+         else
+         {
+<a href="#h0-5-16" id="h0-5-16" class="d">-            AICLI_LOG(CLI, Info, &lt;&lt; &quot;Target directory already exists in PATH registry: &quot; &lt;&lt; pathValue);
+</a><a href="#h0-5-17" id="h0-5-17" class="i">+            AICLI_LOG(CLI, Info, &lt;&lt; &quot;Portable target directory already exists in PATH registry: &quot; &lt;&lt; value);
+</a>         }
+     }
+ 
+<a href="#h0-5-21" id="h0-5-21" class="d">-    void PortableInstaller::RemoveFromPathVariable()
+</a><a href="#h0-5-22" id="h0-5-22" class="i">+    void PortableInstaller::RemoveFromPathVariable(const std::filesystem::path&amp; value)
+</a>     {
+<a href="#h0-5-24" id="h0-5-24" class="d">-        const std::filesystem::path&amp; pathValue = InstallDirectoryAddedToPath ? InstallLocation : GetPortableLinksLocation(GetScope());
+</a><a href="#h0-5-25" id="h0-5-25" class="d">-        if (std::filesystem::exists(pathValue) &amp;&amp; !std::filesystem::is_empty(pathValue))
+</a><a href="#h0-5-26" id="h0-5-26" class="i">+        if (std::filesystem::exists(value) &amp;&amp; !std::filesystem::is_empty(value))
+</a>         {
+<a href="#h0-5-28" id="h0-5-28" class="d">-            AICLI_LOG(Core, Info, &lt;&lt; &quot;Install directory is not empty: &quot; &lt;&lt; pathValue);
+</a><a href="#h0-5-29" id="h0-5-29" class="i">+            AICLI_LOG(Core, Info, &lt;&lt; &quot;Install directory is not empty: &quot; &lt;&lt; value);
+</a>         }
+         else
+         {
+<a href="#h0-5-33" id="h0-5-33" class="d">-            if (PathVariable(GetScope()).Remove(pathValue))
+</a><a href="#h0-5-34" id="h0-5-34" class="i">+            if (PathVariable(GetScope()).Remove(value))
+</a>             {
+<a href="#h0-5-36" id="h0-5-36" class="d">-                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Removed target directory from PATH registry: &quot; &lt;&lt; pathValue);
+</a><a href="#h0-5-37" id="h0-5-37" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Removed target directory from PATH registry: &quot; &lt;&lt; value);
+</a>             }
+             else
+             {
+<a href="#h0-5-41" id="h0-5-41" class="d">-                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Target directory not removed from PATH registry: &quot; &lt;&lt; pathValue);
+</a><a href="#h0-5-42" id="h0-5-42" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Target directory not removed from PATH registry: &quot; &lt;&lt; value);
+</a>             }
+         }
+     }
+<a href="#h0-6" id="h0-6" class="h">@@ -391,14 +408,16 @@ namespace AppInstaller::CLI::Portable
+</a>             std::filesystem::path targetFullPath = PortableTargetFullPath;
+             std::filesystem::path symlinkFullPath = PortableSymlinkFullPath;
+ 
+<a href="#h0-6-3" id="h0-6-3" class="d">-            if (!symlinkFullPath.empty())
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+            // Order matters here so that file entries are removed before symlink entries during uninstall from registry.
+</a><a href="#h0-6-5" id="h0-6-5" class="i">+            // This is to ensure that the directory is fully uninstalled before attempting to remove from PATH registry.
+</a><a href="#h0-6-6" id="h0-6-6" class="i">+            if (!targetFullPath.empty())
+</a>             {
+<a href="#h0-6-8" id="h0-6-8" class="d">-                m_expectedEntries.emplace_back(std::move(PortableFileEntry::CreateSymlinkEntry(symlinkFullPath, targetFullPath)));
+</a><a href="#h0-6-9" id="h0-6-9" class="i">+                m_expectedEntries.emplace_back(std::move(PortableFileEntry::CreateFileEntry({}, targetFullPath, SHA256)));
+</a>             }
+ 
+<a href="#h0-6-12" id="h0-6-12" class="d">-            if (!targetFullPath.empty())
+</a><a href="#h0-6-13" id="h0-6-13" class="i">+            if (!symlinkFullPath.empty())
+</a>             {
+<a href="#h0-6-15" id="h0-6-15" class="d">-                m_expectedEntries.emplace_back(std::move(PortableFileEntry::CreateFileEntry({}, targetFullPath, SHA256)));
+</a><a href="#h0-6-16" id="h0-6-16" class="i">+                m_expectedEntries.emplace_back(std::move(PortableFileEntry::CreateSymlinkEntry(symlinkFullPath, targetFullPath)));
+</a>             }
+         }
+     }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/PortableInstaller.h.html">src/AppInstallerCLICore/PortableInstaller.h</a> b/<a href="../file/src/AppInstallerCLICore/PortableInstaller.h.html">src/AppInstallerCLICore/PortableInstaller.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -67,11 +67,6 @@ namespace AppInstaller::CLI::Portable
+</a>             m_portableARPEntry.SetValue(valueName, value);
+         }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        std::filesystem::path GetInstallDirectoryForPathVariable()
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-        {
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-            return  InstallDirectoryAddedToPath ? InstallLocation : GetPortableLinksLocation(GetScope());
+</a><a href="#h1-0-6" id="h1-0-6" class="d">-        }
+</a><a href="#h1-0-7" id="h1-0-7" class="d">-
+</a>         std::filesystem::path GetPortableIndexFileName()
+         {
+             return Utility::ConvertToUTF16(GetProductCode() + &quot;.db&quot;);
+<a href="#h1-1" id="h1-1" class="h">@@ -114,7 +109,7 @@ namespace AppInstaller::CLI::Portable
+</a>         void CreateTargetInstallDirectory();
+         void RemoveInstallDirectory();
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-        void AddToPathVariable();
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-        void RemoveFromPathVariable();
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+        void AddToPathVariable(const std::filesystem::path&amp; value);
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+        void RemoveFromPathVariable(const std::filesystem::path&amp; value);
+</a>     };
+ } 
+\ No newline at end of file
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/PortableFlow.cpp.html">src/AppInstallerCLICore/Workflows/PortableFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/PortableFlow.cpp.html">src/AppInstallerCLICore/Workflows/PortableFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -172,6 +172,8 @@ namespace AppInstaller::CLI::Workflow
+</a>         // InstallerPath will point to a directory if it is extracted from an archive.
+         if (std::filesystem::is_directory(installerPath))
+         {
+<a href="#h2-0-3" id="h2-0-3" class="i">+            portableInstaller.RecordToIndex = true;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+
+</a>             for (const auto&amp; entry : std::filesystem::directory_iterator(installerPath))
+             {
+                 std::filesystem::path entryPath = entry.path();
+<a href="#h2-1" id="h2-1" class="h">@@ -189,11 +191,6 @@ namespace AppInstaller::CLI::Workflow
+</a>                 }
+             }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-            if (entries.size() &gt; 1)
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-            {
+</a><a href="#h2-1-5" id="h2-1-5" class="d">-                portableInstaller.RecordToIndex = true;
+</a><a href="#h2-1-6" id="h2-1-6" class="d">-            }
+</a><a href="#h2-1-7" id="h2-1-7" class="d">-
+</a>             const std::vector&lt;Manifest::NestedInstallerFile&gt;&amp; nestedInstallerFiles = context.Get&lt;Execution::Data::Installer&gt;()-&gt;NestedInstallerFiles;
+ 
+             for (const auto&amp; nestedInstallerFile : nestedInstallerFiles)
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/InstallFlow.cpp.html">src/AppInstallerCLITests/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLITests/InstallFlow.cpp.html">src/AppInstallerCLITests/InstallFlow.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -636,23 +636,24 @@ TEST_CASE(&quot;InstallFlow_Portable&quot;, &quot;[InstallFlow][workflow]&quot;)
+</a> 
+ TEST_CASE(&quot;InstallFlow_Portable_SymlinkCreationFail&quot;, &quot;[InstallFlow][workflow]&quot;)
+ {
+<a href="#h3-0-3" id="h3-0-3" class="i">+    TestCommon::TempDirectory tempDirectory(&quot;TestPortableInstallRoot&quot;, false);
+</a>     std::ostringstream installOutput;
+     TestContext installContext{ installOutput, std::cin };
+     auto PreviousThreadGlobals = installContext.SetForCurrentThread();
+     OverridePortableInstaller(installContext);
+     TestHook::SetCreateSymlinkResult_Override createSymlinkResultOverride(false);
+<a href="#h3-0-9" id="h3-0-9" class="i">+    const auto&amp; targetDirectory = tempDirectory.GetPath();
+</a>     installContext.Args.AddArg(Execution::Args::Type::Manifest, TestDataFile(&quot;InstallFlowTest_Portable.yaml&quot;).GetPath().u8string());
+<a href="#h3-0-11" id="h3-0-11" class="i">+    installContext.Args.AddArg(Execution::Args::Type::InstallLocation, targetDirectory.u8string());
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+    installContext.Args.AddArg(Execution::Args::Type::InstallScope, &quot;user&quot;sv);
+</a> 
+     InstallCommand install({});
+     install.Execute(installContext);
+     INFO(installOutput.str());
+ 
+<a href="#h3-0-18" id="h3-0-18" class="d">-    // &#39;DefaultSource&#39; is expected because we are installing from a local manifest.
+</a><a href="#h3-0-19" id="h3-0-19" class="d">-    const auto&amp; portableUserRoot = AppInstaller::Runtime::GetPathTo(AppInstaller::Runtime::PathName::PortablePackageUserRoot);
+</a><a href="#h3-0-20" id="h3-0-20" class="d">-    const auto&amp; portableTargetDirectory = portableUserRoot / &quot;AppInstallerCliTest.TestPortableInstaller__DefaultSource&quot;;
+</a><a href="#h3-0-21" id="h3-0-21" class="d">-    const auto&amp; portableTargetPath = portableTargetDirectory / &quot;AppInstallerTestExeInstaller.exe&quot;;
+</a><a href="#h3-0-22" id="h3-0-22" class="i">+    const auto&amp; portableTargetPath = targetDirectory / &quot;AppInstallerTestExeInstaller.exe&quot;;
+</a>     REQUIRE(std::filesystem::exists(portableTargetPath));
+<a href="#h3-0-24" id="h3-0-24" class="d">-    REQUIRE(AppInstaller::Registry::Environment::PathVariable(AppInstaller::Manifest::ScopeEnum::User).Contains(portableTargetDirectory));
+</a><a href="#h3-0-25" id="h3-0-25" class="i">+    REQUIRE(AppInstaller::Registry::Environment::PathVariable(AppInstaller::Manifest::ScopeEnum::User).Contains(targetDirectory));
+</a> 
+     // Perform uninstall
+     std::ostringstream uninstallOutput;
+<a href="#h3-1" id="h3-1" class="h">@@ -664,6 +665,7 @@ TEST_CASE(&quot;InstallFlow_Portable_SymlinkCreationFail&quot;, &quot;[InstallFlow][workflow]&quot;)
+</a>     UninstallCommand uninstall({});
+     uninstall.Execute(uninstallContext);
+     INFO(uninstallOutput.str());
+<a href="#h3-1-3" id="h3-1-3" class="i">+    REQUIRE_FALSE(std::filesystem::exists(portableTargetPath));
+</a> }
+ 
+ TEST_CASE(&quot;PortableInstallFlow_UserScope&quot;, &quot;[InstallFlow][workflow]&quot;)
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLITests/UpdateFlow.cpp.html">src/AppInstallerCLITests/UpdateFlow.cpp</a> b/<a href="../file/src/AppInstallerCLITests/UpdateFlow.cpp.html">src/AppInstallerCLITests/UpdateFlow.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -180,6 +180,7 @@ TEST_CASE(&quot;UpdateFlow_UpdatePortable&quot;, &quot;[UpdateFlow][workflow]&quot;)
+</a> TEST_CASE(&quot;UpdateFlow_Portable_SymlinkCreationFail&quot;, &quot;[UpdateFlow][workflow]&quot;)
+ {
+     // Update portable with symlink creation failure verify that it succeeds.
+<a href="#h4-0-3" id="h4-0-3" class="i">+    TestCommon::TempDirectory tempDirectory(&quot;TestPortableInstallRoot&quot;, false);
+</a>     std::ostringstream updateOutput;
+     TestContext context{ updateOutput, std::cin };
+     auto PreviousThreadGlobals = context.SetForCurrentThread();
+<a href="#h4-1" id="h4-1" class="h">@@ -187,15 +188,17 @@ TEST_CASE(&quot;UpdateFlow_Portable_SymlinkCreationFail&quot;, &quot;[UpdateFlow][workflow]&quot;)
+</a>     AppInstaller::Filesystem::TestHook_SetCreateSymlinkResult_Override(&amp;overrideCreateSymlinkStatus);
+     OverridePortableInstaller(context);
+     OverrideForCompositeInstalledSource(context, CreateTestSource({ TSR::TestInstaller_Portable }));
+<a href="#h4-1-3" id="h4-1-3" class="i">+    const auto&amp; targetDirectory = tempDirectory.GetPath();
+</a>     context.Args.AddArg(Execution::Args::Type::Query, TSR::TestInstaller_Portable.Query);
+<a href="#h4-1-5" id="h4-1-5" class="i">+    context.Args.AddArg(Execution::Args::Type::InstallLocation, targetDirectory.u8string());
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+    context.Args.AddArg(Execution::Args::Type::InstallScope, &quot;user&quot;sv);
+</a> 
+     UpgradeCommand update({});
+     update.Execute(context);
+     INFO(updateOutput.str());
+<a href="#h4-1-11" id="h4-1-11" class="d">-    const auto&amp; portableTargetDirectory = AppInstaller::Runtime::GetPathTo(AppInstaller::Runtime::PathName::PortablePackageUserRoot) / &quot;AppInstallerCliTest.TestPortableInstaller__TestSource&quot;;
+</a><a href="#h4-1-12" id="h4-1-12" class="d">-    const auto&amp; portableTargetPath = portableTargetDirectory / &quot;AppInstallerTestExeInstaller.exe&quot;;
+</a><a href="#h4-1-13" id="h4-1-13" class="i">+    const auto&amp; portableTargetPath = targetDirectory / &quot;AppInstallerTestExeInstaller.exe&quot;;
+</a>     REQUIRE(std::filesystem::exists(portableTargetPath));
+<a href="#h4-1-15" id="h4-1-15" class="d">-    REQUIRE(AppInstaller::Registry::Environment::PathVariable(AppInstaller::Manifest::ScopeEnum::User).Contains(portableTargetDirectory));
+</a><a href="#h4-1-16" id="h4-1-16" class="i">+    REQUIRE(AppInstaller::Registry::Environment::PathVariable(AppInstaller::Manifest::ScopeEnum::User).Contains(targetDirectory));
+</a> 
+     // Perform uninstall
+     std::ostringstream uninstallOutput;
+<a href="#h4-2" id="h4-2" class="h">@@ -209,7 +212,6 @@ TEST_CASE(&quot;UpdateFlow_Portable_SymlinkCreationFail&quot;, &quot;[UpdateFlow][workflow]&quot;)
+</a>     INFO(uninstallOutput.str());
+ 
+     REQUIRE_FALSE(std::filesystem::exists(portableTargetPath));
+<a href="#h4-2-3" id="h4-2-3" class="d">-    REQUIRE_FALSE(AppInstaller::Registry::Environment::PathVariable(AppInstaller::Manifest::ScopeEnum::User).Contains(portableTargetDirectory));
+</a> }
+ 
+ TEST_CASE(&quot;UpdateFlow_UpdateExeWithUnsupportedArgs&quot;, &quot;[UpdateFlow][workflow]&quot;)
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Apply Registry Entries Last During Update Flow (#5214) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/7016c56b5df7da8e42fe08d0ee5d0d72f7b9fb13.html">7016c56b5df7da8e42fe08d0ee5d0d72f7b9fb13</a>
+<b>parent</b> <a href="../commit/92daa5fe3b52c5886e590023b2472c00ea7099ef.html">92daa5fe3b52c5886e590023b2472c00ea7099ef</a>
+<b>Author:</b> Kaleb Luedtke &lt;<a href="mailto:trenlymc@gmail.com">trenlymc@gmail.com</a>&gt;
+<b>Date:</b>   Tue, 25 Mar 2025 15:19:24 -0500
+
+Apply Registry Entries Last During Update Flow (#5214)
+
+Resolves #5190
+
+This PR makes it so that the registry entries for a portable application
+are only applied if the DesiredState was applied successfully
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/PortableInstaller.cpp</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/PortableInstaller.h</a></td><td> | </td><td class="num">3</td><td><span class="i">++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Workflows/PortableFlow.cpp</a></td><td> | </td><td class="num">4</td><td><span class="i">+++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLITests/PortableInstaller.cpp</a></td><td> | </td><td class="num">9</td><td><span class="i">+++++</span><span class="d">----</span></td></tr>
+</table></pre><pre>4 files changed, 26 insertions(+), 8 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/PortableInstaller.cpp.html">src/AppInstallerCLICore/PortableInstaller.cpp</a> b/<a href="../file/src/AppInstallerCLICore/PortableInstaller.cpp.html">src/AppInstallerCLICore/PortableInstaller.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -10,6 +10,7 @@
+</a> #include &lt;winget/PortableIndex.h&gt;
+ #include &lt;AppInstallerErrors.h&gt;
+ #include &lt;AppInstallerRuntime.h&gt;
+<a href="#h0-0-3" id="h0-0-3" class="i">+#include &lt;Workflows/WorkflowBase.h&gt;
+</a> 
+ using namespace AppInstaller::Utility;
+ using namespace AppInstaller::Registry;
+<a href="#h0-1" id="h0-1" class="h">@@ -19,6 +20,7 @@ using namespace AppInstaller::Repository;
+</a> using namespace AppInstaller::SQLite;
+ using namespace AppInstaller::Repository::Microsoft;
+ using namespace AppInstaller::Repository::Microsoft::Schema;
+<a href="#h0-1-3" id="h0-1-3" class="i">+using namespace AppInstaller::CLI::Workflow;
+</a> 
+ namespace AppInstaller::CLI::Portable
+ {
+<a href="#h0-2" id="h0-2" class="h">@@ -279,9 +281,14 @@ namespace AppInstaller::CLI::Portable
+</a>         return true;
+     }
+ 
+<a href="#h0-2-3" id="h0-2-3" class="d">-    void PortableInstaller::Install()
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+    void PortableInstaller::Install( Workflow::OperationType operation = Workflow::OperationType::Install)
+</a>     {
+<a href="#h0-2-6" id="h0-2-6" class="d">-        RegisterARPEntry();
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+        // If the operation is an install, the ARP entry should be created first so that a catastrophic failure
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+        // leaves the system in a state where an uninstall may be possible
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+        if (operation == Workflow::OperationType::Install)
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+        {
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+            RegisterARPEntry();
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+        }
+</a> 
+         CreateTargetInstallDirectory();
+ 
+<a href="#h0-3" id="h0-3" class="h">@@ -291,6 +298,13 @@ namespace AppInstaller::CLI::Portable
+</a>         {
+             AddToPathVariable(GetPortableLinksLocation(GetScope()));
+         }
+<a href="#h0-3-3" id="h0-3-3" class="i">+
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+        // If the operation is an upgrade, the ARP entry should be created last so that a catastrophic failure
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+        // leaves the system in a state where an upgrade can be re-attempted
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+        if (operation == Workflow::OperationType::Upgrade)
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+        {
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+            RegisterARPEntry();
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+        }
+</a>     }
+ 
+     void PortableInstaller::Uninstall()
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/PortableInstaller.h.html">src/AppInstallerCLICore/PortableInstaller.h</a> b/<a href="../file/src/AppInstallerCLICore/PortableInstaller.h.html">src/AppInstallerCLICore/PortableInstaller.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -3,6 +3,7 @@
+</a> #pragma once
+ #include &quot;winget/PortableARPEntry.h&quot;
+ #include &quot;winget/PortableFileEntry.h&quot;
+<a href="#h1-0-3" id="h1-0-3" class="i">+#include &lt;Workflows/WorkflowBase.h&gt;
+</a> #include &lt;filesystem&gt;
+ 
+ using namespace AppInstaller::Registry::Portable;
+<a href="#h1-1" id="h1-1" class="h">@@ -58,7 +59,7 @@ namespace AppInstaller::CLI::Portable
+</a>             m_desiredEntries = {};
+         }
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-        void Install();
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        void Install( AppInstaller::CLI::Workflow::OperationType operation );
+</a> 
+         void Uninstall();
+ 
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Workflows/PortableFlow.cpp.html">src/AppInstallerCLICore/Workflows/PortableFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/PortableFlow.cpp.html">src/AppInstallerCLICore/Workflows/PortableFlow.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -244,6 +244,8 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+     void PortableInstallImpl(Execution::Context&amp; context)
+     {
+<a href="#h2-0-3" id="h2-0-3" class="i">+        OperationType installType = WI_IsFlagSet(context.GetFlags(), Execution::ContextFlag::InstallerExecutionUseUpdate) ? OperationType::Upgrade : OperationType::Install;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        
+</a>         PortableInstaller&amp; portableInstaller = context.Get&lt;Execution::Data::PortableInstaller&gt;();
+         try
+         {
+<a href="#h2-1" id="h2-1" class="h">@@ -266,7 +268,7 @@ namespace AppInstaller::CLI::Workflow
+</a>                 }
+             }
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-            portableInstaller.Install();
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+            portableInstaller.Install(installType);
+</a>             context.Add&lt;Execution::Data::OperationReturnCode&gt;(ERROR_SUCCESS);
+             context.Reporter.Warn() &lt;&lt; portableInstaller.GetOutputMessage();
+         }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLITests/PortableInstaller.cpp.html">src/AppInstallerCLITests/PortableInstaller.cpp</a> b/<a href="../file/src/AppInstallerCLITests/PortableInstaller.cpp.html">src/AppInstallerCLITests/PortableInstaller.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -21,6 +21,7 @@ using namespace AppInstaller::Repository::Microsoft;
+</a> using namespace AppInstaller::SQLite;
+ using namespace AppInstaller::Repository::Microsoft::Schema;
+ using namespace AppInstaller::Utility;
+<a href="#h3-0-3" id="h3-0-3" class="i">+using namespace AppInstaller::CLI::Workflow;
+</a> using namespace TestCommon;
+ 
+ TEST_CASE(&quot;PortableInstaller_InstallToRegistry&quot;, &quot;[PortableInstaller]&quot;)
+<a href="#h3-1" id="h3-1" class="h">@@ -44,7 +45,7 @@ TEST_CASE(&quot;PortableInstaller_InstallToRegistry&quot;, &quot;[PortableInstaller]&quot;)
+</a>     portableInstaller.SetDesiredState(desiredTestState);
+     REQUIRE(portableInstaller.VerifyExpectedState());
+ 
+<a href="#h3-1-3" id="h3-1-3" class="d">-    portableInstaller.Install();
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+    portableInstaller.Install(AppInstaller::CLI::Workflow::OperationType::Install);
+</a> 
+     PortableInstaller portableInstaller2 = PortableInstaller(ScopeEnum::User, Architecture::X64, &quot;testProductCode&quot;);
+     REQUIRE(portableInstaller2.ARPEntryExists());
+<a href="#h3-2" id="h3-2" class="h">@@ -92,7 +93,7 @@ TEST_CASE(&quot;PortableInstaller_InstallToIndex_CreateInstallRoot&quot;, &quot;[PortableInstal
+</a>     portableInstaller.SetDesiredState(desiredTestState);
+     REQUIRE(portableInstaller.VerifyExpectedState());
+ 
+<a href="#h3-2-3" id="h3-2-3" class="d">-    portableInstaller.Install();
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+    portableInstaller.Install(AppInstaller::CLI::Workflow::OperationType::Install);
+</a> 
+     REQUIRE(std::filesystem::exists(installRootPath / portableInstaller.GetPortableIndexFileName()));
+     REQUIRE(std::filesystem::exists(targetPath));
+<a href="#h3-3" id="h3-3" class="h">@@ -150,7 +151,7 @@ TEST_CASE(&quot;PortableInstaller_InstallToIndex_ExistingInstallRoot&quot;, &quot;[PortableInst
+</a>     portableInstaller.SetDesiredState(desiredTestState);
+     REQUIRE(portableInstaller.VerifyExpectedState());
+ 
+<a href="#h3-3-3" id="h3-3-3" class="d">-    portableInstaller.Install();
+</a><a href="#h3-3-4" id="h3-3-4" class="i">+    portableInstaller.Install(AppInstaller::CLI::Workflow::OperationType::Install);
+</a> 
+     REQUIRE(std::filesystem::exists(installRootPath / portableInstaller.GetPortableIndexFileName()));
+     REQUIRE(std::filesystem::exists(targetPath));
+<a href="#h3-4" id="h3-4" class="h">@@ -197,7 +198,7 @@ TEST_CASE(&quot;PortableInstaller_UnicodeSymlinkPath&quot;, &quot;[PortableInstaller]&quot;)
+</a>     portableInstaller.SetDesiredState(desiredTestState);
+     REQUIRE(portableInstaller.VerifyExpectedState());
+ 
+<a href="#h3-4-3" id="h3-4-3" class="d">-    portableInstaller.Install();
+</a><a href="#h3-4-4" id="h3-4-4" class="i">+    portableInstaller.Install(AppInstaller::CLI::Workflow::OperationType::Install);
+</a> 
+     PortableInstaller portableInstaller2 = PortableInstaller(ScopeEnum::User, Architecture::X64, &quot;testProductCode&quot;);
+     REQUIRE(portableInstaller2.ARPEntryExists());
+</pre>
+</div>
+</body>
+</html>

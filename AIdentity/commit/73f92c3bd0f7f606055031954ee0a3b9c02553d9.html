@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(oil-art): Implement interactive liquid art canvas with audio progression - AIdentity - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="AIdentity.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>AIdentity</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/73f92c3bd0f7f606055031954ee0a3b9c02553d9.html">73f92c3bd0f7f606055031954ee0a3b9c02553d9</a>
+<b>parent</b> <a href="../commit/2e10db4c6ef9b0d32eaf356da22118a3285e0b4d.html">2e10db4c6ef9b0d32eaf356da22118a3285e0b4d</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Sun, 26 Oct 2025 23:04:51 +0900
+
+feat(oil-art): Implement interactive liquid art canvas with audio progression
+
+<b>Diffstat:</b>
+<table><tr><td class="A">A</td><td><a href="#h0">app/components/4_oil.tsx</a></td><td> | </td><td class="num">120</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h1">app/components/OilArt/OilArtMaterial.d.ts</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h2">app/components/OilArt/OilArtPlane.tsx</a></td><td> | </td><td class="num">293</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">app/ctrl/page.tsx</a></td><td> | </td><td class="num">8</td><td><span class="i">+++++++</span><span class="d">-</span></td></tr>
+</table></pre><pre>4 files changed, 438 insertions(+), 1 deletion(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/app/components/4_oil.tsx.html">app/components/4_oil.tsx</a> b/<a href="../file/app/components/4_oil.tsx.html">app/components/4_oil.tsx</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -0,0 +1,120 @@
+</a><a href="#h0-0-0" id="h0-0-0" class="i">+import { Canvas } from &#39;@react-three/fiber&#39;;
+</a><a href="#h0-0-1" id="h0-0-1" class="i">+import { OrbitControls } from &#39;@react-three/drei&#39;;
+</a><a href="#h0-0-2" id="h0-0-2" class="i">+import { OilArtPlane, OilArtAPI } from &#39;./OilArt/OilArtPlane.tsx&#39;;
+</a><a href="#h0-0-3" id="h0-0-3" class="i">+import { useEffect, useRef, useState } from &#39;react&#39;;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+import * as THREE from &#39;three&#39;;
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+import { StageProps } from &#39;../ctrl/page.tsx&#39;;
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+// --- オーディオ関連の定数とカスタムフック ---
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+const AUDIO_SOURCES: Record&lt;number, string&gt; = {
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+	1: &#39;/audio/001.wav&#39;,
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+	2: &#39;/audio/002.wav&#39;,
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+};
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+// シーケンシャルな音声再生と状態遷移を制御するカスタムフック (修正版)
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+const useSequentialAudio = (initialState: number, audioSources: Record&lt;number, string&gt;, onComplete: () =&gt; void) =&gt; {
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+	const [sceneState, setSceneState] = useState(initialState);
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+	const audioRef = useRef&lt;HTMLAudioElement | null&gt;(null);
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+	// 現在の状態に対応する音源のURLを取得
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+	const currentAudioUrl = audioSources[sceneState];
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+	// 音声再生のロジック
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+	useEffect(() =&gt; {
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+		// --- 1. 終了条件のチェック ---
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+		if (sceneState &gt; Math.max(...Object.keys(audioSources).map(Number))) {
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+			// 定義された全ての音源が再生された後、onCompleteを実行
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+			console.log(&quot;All audio finished. Calling onComplete.&quot;);
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+			onComplete();
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+			return;
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+		}
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+		// 現在の状態に対応する音源がない場合、ここで処理を停止
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+		if (!currentAudioUrl) {
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+			return;
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+		}
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+		console.log(`Starting setup for state ${sceneState}: ${currentAudioUrl}`);
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+		// --- 2. 古いAudioオブジェクトのクリーンアップ ---
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+		const existingAudio = audioRef.current;
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+		if (existingAudio) {
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+			existingAudio.pause();
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+			// イベントリスナーの削除 (次のステップで新しいAudioオブジェクトにリスナーを設定するため)
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+			// このクリーンアップが重要です。古いAudioオブジェクトが&#39;ended&#39;イベントをトリガーするのを防ぎます。
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+			// `oncanplaythrough`リスナーはここでは不要ですが、もしあれば削除すべきです。
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+			// Audioオブジェクトのライフサイクルを明確にするため、毎回新しいインスタンスを生成します。
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+		}
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+		// --- 3. 新しいAudioオブジェクトの作成と設定 ---
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+		const audio = new Audio(currentAudioUrl);
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+		audioRef.current = audio;
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+		// 再生が終了したときのハンドラを定義
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+		const handleAudioEnded = () =&gt; {
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+			console.log(`Audio ${sceneState} finished. Transitioning state.`);
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+			// 次の状態へ遷移 (例: 1 -&gt; 2, 2 -&gt; 3)
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+			setSceneState(prev =&gt; prev + 1);
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+		};
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+		audio.addEventListener(&#39;ended&#39;, handleAudioEnded);
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+		// --- 4. 再生の開始 ---
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+		// ロードやイベントを待たずに、すぐに再生を試みる
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+		audio.play().catch(e =&gt; {
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+			console.warn(`Audio playback failed for state ${sceneState} (requires user interaction):`, e);
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+			// ユーザーに最初のクリックを促すメッセージなどを表示すると良い
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+		});
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+		// --- 5. クリーンアップ関数 ---
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+		return () =&gt; {
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+			// アンマウント/状態遷移時に現在のAudioオブジェクトを確実に停止し、リスナーを削除
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+			if (audio === audioRef.current) { // 現在設定したAudioオブジェクトであることを確認
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+				audio.pause();
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+				audio.removeEventListener(&#39;ended&#39;, handleAudioEnded);
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+			}
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+		};
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+	}, [sceneState, audioSources, onComplete]); // sceneStateとcurrentAudioUrlは基本的に連動するため、sceneStateを依存配列に含める
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+
+</a><a href="#h0-0-80" id="h0-0-80" class="i">+	return sceneState;
+</a><a href="#h0-0-81" id="h0-0-81" class="i">+};
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+export default function OilArtCanvasWrapper({onComplete}:StageProps) {
+</a><a href="#h0-0-84" id="h0-0-84" class="i">+	const apiRef = useRef&lt;OilArtAPI&gt;({} as OilArtAPI);
+</a><a href="#h0-0-85" id="h0-0-85" class="i">+
+</a><a href="#h0-0-86" id="h0-0-86" class="i">+	const sceneState = useSequentialAudio(1, AUDIO_SOURCES, onComplete);
+</a><a href="#h0-0-87" id="h0-0-87" class="i">+
+</a><a href="#h0-0-88" id="h0-0-88" class="i">+	useEffect(() =&gt; {
+</a><a href="#h0-0-89" id="h0-0-89" class="i">+		// 外部API経由でランダムな滴下を定期的に実行
+</a><a href="#h0-0-90" id="h0-0-90" class="i">+		const intervalId = setInterval(() =&gt; {
+</a><a href="#h0-0-91" id="h0-0-91" class="i">+			if (apiRef.current.dropOil) {
+</a><a href="#h0-0-92" id="h0-0-92" class="i">+				const x = Math.random() * 2 - 1; // -1.0〜1.0
+</a><a href="#h0-0-93" id="h0-0-93" class="i">+				const y = Math.random() * 2 - 1; // -1.0〜1.0
+</a><a href="#h0-0-94" id="h0-0-94" class="i">+				const color = new THREE.Color(Math.random(), Math.random(), Math.random());
+</a><a href="#h0-0-95" id="h0-0-95" class="i">+				apiRef.current.dropOil({ x, y }, color);
+</a><a href="#h0-0-96" id="h0-0-96" class="i">+
+</a><a href="#h0-0-97" id="h0-0-97" class="i">+				// 傾きもランダムに変更
+</a><a href="#h0-0-98" id="h0-0-98" class="i">+				if (sceneState == 2){
+</a><a href="#h0-0-99" id="h0-0-99" class="i">+					const tiltX = Math.random() * 0.8 - 0.4;
+</a><a href="#h0-0-100" id="h0-0-100" class="i">+					const tiltY = Math.random() * 0.8 - 0.4;
+</a><a href="#h0-0-101" id="h0-0-101" class="i">+					apiRef.current.tilt({ x: tiltX, y: tiltY });
+</a><a href="#h0-0-102" id="h0-0-102" class="i">+				}else{
+</a><a href="#h0-0-103" id="h0-0-103" class="i">+					apiRef.current.tilt({ x: 0, y: 0});
+</a><a href="#h0-0-104" id="h0-0-104" class="i">+				}
+</a><a href="#h0-0-105" id="h0-0-105" class="i">+			}
+</a><a href="#h0-0-106" id="h0-0-106" class="i">+		}, 1500);
+</a><a href="#h0-0-107" id="h0-0-107" class="i">+
+</a><a href="#h0-0-108" id="h0-0-108" class="i">+		return () =&gt; clearInterval(intervalId);
+</a><a href="#h0-0-109" id="h0-0-109" class="i">+	}, []);
+</a><a href="#h0-0-110" id="h0-0-110" class="i">+
+</a><a href="#h0-0-111" id="h0-0-111" class="i">+	return (
+</a><a href="#h0-0-112" id="h0-0-112" class="i">+		&lt;Canvas camera={{ position: [0, 0, 1] }}&gt;
+</a><a href="#h0-0-113" id="h0-0-113" class="i">+		&lt;color attach=&quot;background&quot; args={[0x000000]} /&gt;
+</a><a href="#h0-0-114" id="h0-0-114" class="i">+		{/* OilArtPlaneに外部制御用のAPIを渡す */}
+</a><a href="#h0-0-115" id="h0-0-115" class="i">+		&lt;OilArtPlane onTriggerAPI={(api) =&gt; (apiRef.current = api)} /&gt;
+</a><a href="#h0-0-116" id="h0-0-116" class="i">+		&lt;OrbitControls enableZoom={false} enablePan={false} enableRotate={false} /&gt;
+</a><a href="#h0-0-117" id="h0-0-117" class="i">+		&lt;/Canvas&gt;
+</a><a href="#h0-0-118" id="h0-0-118" class="i">+	);
+</a><a href="#h0-0-119" id="h0-0-119" class="i">+}
+</a><b>diff --git a/<a id="h1" href="../file/app/components/OilArt/OilArtMaterial.d.ts.html">app/components/OilArt/OilArtMaterial.d.ts</a> b/<a href="../file/app/components/OilArt/OilArtMaterial.d.ts.html">app/components/OilArt/OilArtMaterial.d.ts</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -0,0 +1,18 @@
+</a><a href="#h1-0-0" id="h1-0-0" class="i">+// src/types/OilArtMaterial.d.ts
+</a><a href="#h1-0-1" id="h1-0-1" class="i">+import { Material } from &#39;three&#39;;
+</a><a href="#h1-0-2" id="h1-0-2" class="i">+
+</a><a href="#h1-0-3" id="h1-0-3" class="i">+declare global {
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+  namespace JSX {
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    interface IntrinsicElements {
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+      oilArtMaterial: ThreeElements[&#39;shaderMaterial&#39;] &amp; {
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+        u_time?: number;
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        u_resolution?: THREE.Vector2;
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+        u_dropPosition?: THREE.Vector2;
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+        u_dropColor?: THREE.Color;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+        u_dropRadius?: number;
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+        u_tiltDirection?: THREE.Vector2;
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+        u_feedbackTexture?: THREE.Texture | null; // Ping-Pongバッファ用
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+      };
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+    }
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+  }
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/app/components/OilArt/OilArtPlane.tsx.html">app/components/OilArt/OilArtPlane.tsx</a> b/<a href="../file/app/components/OilArt/OilArtPlane.tsx.html">app/components/OilArt/OilArtPlane.tsx</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -0,0 +1,293 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="i">+const vertexShader = `
+</a><a href="#h2-0-1" id="h2-0-1" class="i">+void main() {
+</a><a href="#h2-0-2" id="h2-0-2" class="i">+	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+</a><a href="#h2-0-3" id="h2-0-3" class="i">+}
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+`;
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+const fragmentShader = `
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+uniform float u_time;
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+uniform vec2 u_resolution;
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+uniform vec3 u_dropColor;
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+uniform vec2 u_dropPosition;
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+uniform float u_dropRadius;
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+uniform vec2 u_tiltDirection; // -1.0から1.0の傾きベクトル
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+uniform sampler2D u_feedbackTexture;
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+// Simplex Noise (Based on Stefan Gustavson&#39;s implementation)
+</a><a href="#h2-0-16" id="h2-0-16" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-17" id="h2-0-17" class="i">+
+</a><a href="#h2-0-18" id="h2-0-18" class="i">+vec3 mod289(vec3 x) {
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+	return x - floor(x * (1.0 / 289.0)) * 289.0;
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+}
+</a><a href="#h2-0-21" id="h2-0-21" class="i">+
+</a><a href="#h2-0-22" id="h2-0-22" class="i">+vec2 mod289(vec2 x) {
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+	return x - floor(x * (1.0 / 289.0)) * 289.0;
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+}
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+vec3 permute(vec3 x) {
+</a><a href="#h2-0-27" id="h2-0-27" class="i">+	return mod289(((x*34.0)+1.0)*x);
+</a><a href="#h2-0-28" id="h2-0-28" class="i">+}
+</a><a href="#h2-0-29" id="h2-0-29" class="i">+
+</a><a href="#h2-0-30" id="h2-0-30" class="i">+// 2D Simplex Noise
+</a><a href="#h2-0-31" id="h2-0-31" class="i">+float noise(vec2 v)
+</a><a href="#h2-0-32" id="h2-0-32" class="i">+{
+</a><a href="#h2-0-33" id="h2-0-33" class="i">+	const vec4 C = vec4(0.211324865405187,  // (3.0-sqrt(3.0))/6.0
+</a><a href="#h2-0-34" id="h2-0-34" class="i">+						0.366025403784439,  // 0.5*(sqrt(3.0)-1.0)
+</a><a href="#h2-0-35" id="h2-0-35" class="i">+	-0.577350269189626,  // -1.0 + 2.0 * (3.0-sqrt(3.0))/6.0
+</a><a href="#h2-0-36" id="h2-0-36" class="i">+	0.024390243902439); // 1.0/41.0
+</a><a href="#h2-0-37" id="h2-0-37" class="i">+	// First corner
+</a><a href="#h2-0-38" id="h2-0-38" class="i">+	vec2 i  = floor(v + dot(v, C.yy) );
+</a><a href="#h2-0-39" id="h2-0-39" class="i">+	vec2 x0 = v -   i + dot(i, C.xx) ;
+</a><a href="#h2-0-40" id="h2-0-40" class="i">+
+</a><a href="#h2-0-41" id="h2-0-41" class="i">+	// Other corners
+</a><a href="#h2-0-42" id="h2-0-42" class="i">+	vec2 i1;
+</a><a href="#h2-0-43" id="h2-0-43" class="i">+	//i1.x = step( x0.y, x0.x ); // x.y &gt; x.x ? 1.0 : 0.0
+</a><a href="#h2-0-44" id="h2-0-44" class="i">+	//i1.y = 1.0 - i1.x;
+</a><a href="#h2-0-45" id="h2-0-45" class="i">+	i1 = (x0.x &gt; x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+</a><a href="#h2-0-46" id="h2-0-46" class="i">+	// x0 is the point after skewing and de-skewing to form the right isosceles triangle.
+</a><a href="#h2-0-47" id="h2-0-47" class="i">+
+</a><a href="#h2-0-48" id="h2-0-48" class="i">+	vec4 x12 = x0.xyxy + C.xxzz;
+</a><a href="#h2-0-49" id="h2-0-49" class="i">+	x12.xy -= i1;
+</a><a href="#h2-0-50" id="h2-0-50" class="i">+
+</a><a href="#h2-0-51" id="h2-0-51" class="i">+	// Permutations
+</a><a href="#h2-0-52" id="h2-0-52" class="i">+	i = mod289(i); // Avoids truncation effects in GLSL
+</a><a href="#h2-0-53" id="h2-0-53" class="i">+	vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+</a><a href="#h2-0-54" id="h2-0-54" class="i">+					 + i.x + vec3(0.0, i1.x, 1.0 ) );
+</a><a href="#h2-0-55" id="h2-0-55" class="i">+
+</a><a href="#h2-0-56" id="h2-0-56" class="i">+					 vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+</a><a href="#h2-0-57" id="h2-0-57" class="i">+					 m = m*m ;
+</a><a href="#h2-0-58" id="h2-0-58" class="i">+					 m = m*m ;
+</a><a href="#h2-0-59" id="h2-0-59" class="i">+
+</a><a href="#h2-0-60" id="h2-0-60" class="i">+					 // Gradients: 41 points on a unit square
+</a><a href="#h2-0-61" id="h2-0-61" class="i">+					 vec3 x = 2.0 * fract(p * C.www) - 1.0;
+</a><a href="#h2-0-62" id="h2-0-62" class="i">+					 vec3 y = abs(x) - 0.4;
+</a><a href="#h2-0-63" id="h2-0-63" class="i">+					 vec3 h = floor(x + 0.5);
+</a><a href="#h2-0-64" id="h2-0-64" class="i">+					 vec3 ox = h * C.z;
+</a><a href="#h2-0-65" id="h2-0-65" class="i">+					 vec3 a0 = x - h;
+</a><a href="#h2-0-66" id="h2-0-66" class="i">+
+</a><a href="#h2-0-67" id="h2-0-67" class="i">+					 // Final gradient computation for the three simplex corners
+</a><a href="#h2-0-68" id="h2-0-68" class="i">+					 m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + y*y );
+</a><a href="#h2-0-69" id="h2-0-69" class="i">+
+</a><a href="#h2-0-70" id="h2-0-70" class="i">+				 // Gradients can be written concisely as dot( vec*x, vec*y )
+</a><a href="#h2-0-71" id="h2-0-71" class="i">+				 vec3 g;
+</a><a href="#h2-0-72" id="h2-0-72" class="i">+				 g.x  = a0.x  * x0.x  + y.x  * x0.y;
+</a><a href="#h2-0-73" id="h2-0-73" class="i">+				 g.yz = a0.yz * x12.xz + y.yz * x12.yw;
+</a><a href="#h2-0-74" id="h2-0-74" class="i">+				 return 130.0 * dot(m, g);
+</a><a href="#h2-0-75" id="h2-0-75" class="i">+}
+</a><a href="#h2-0-76" id="h2-0-76" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-77" id="h2-0-77" class="i">+
+</a><a href="#h2-0-78" id="h2-0-78" class="i">+void main() {
+</a><a href="#h2-0-79" id="h2-0-79" class="i">+	vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+</a><a href="#h2-0-80" id="h2-0-80" class="i">+
+</a><a href="#h2-0-81" id="h2-0-81" class="i">+	// --- ノイズベクトル生成 ---
+</a><a href="#h2-0-82" id="h2-0-82" class="i">+	vec2 noise_direction = vec2(
+</a><a href="#h2-0-83" id="h2-0-83" class="i">+		noise(uv * 10.0 + u_time * 0.1),
+</a><a href="#h2-0-84" id="h2-0-84" class="i">+		noise(uv * 20.0 - u_time * 0.2)
+</a><a href="#h2-0-85" id="h2-0-85" class="i">+	) - 0.5;
+</a><a href="#h2-0-86" id="h2-0-86" class="i">+
+</a><a href="#h2-0-87" id="h2-0-87" class="i">+	vec2 total_displacement = (u_tiltDirection * 0.005) + (noise_direction * 0.001); 
+</a><a href="#h2-0-88" id="h2-0-88" class="i">+
+</a><a href="#h2-0-89" id="h2-0-89" class="i">+	vec2 shifted_uv = uv - total_displacement;
+</a><a href="#h2-0-90" id="h2-0-90" class="i">+	shifted_uv = clamp(shifted_uv, 0.001, 0.999);
+</a><a href="#h2-0-91" id="h2-0-91" class="i">+
+</a><a href="#h2-0-92" id="h2-0-92" class="i">+	vec4 prev_oil = texture2D(u_feedbackTexture, shifted_uv);
+</a><a href="#h2-0-93" id="h2-0-93" class="i">+	vec3 current_oil_color = prev_oil.rgb;
+</a><a href="#h2-0-94" id="h2-0-94" class="i">+	float current_alpha = prev_oil.a; 
+</a><a href="#h2-0-95" id="h2-0-95" class="i">+
+</a><a href="#h2-0-96" id="h2-0-96" class="i">+	// 💡 減衰（フェードアウト）係数を調整 (よりゆっくり淡くなるように1.0に近づける)
+</a><a href="#h2-0-97" id="h2-0-97" class="i">+	// ただし、完全に1.0だと色が残るため、非常に小さい値で調整
+</a><a href="#h2-0-98" id="h2-0-98" class="i">+	float decay_factor = 0.998; // 例: 非常にゆっくりと色が減衰
+</a><a href="#h2-0-99" id="h2-0-99" class="i">+	current_oil_color *= decay_factor; 
+</a><a href="#h2-0-100" id="h2-0-100" class="i">+	current_alpha *= decay_factor;
+</a><a href="#h2-0-101" id="h2-0-101" class="i">+
+</a><a href="#h2-0-102" id="h2-0-102" class="i">+	// --- 2. 滴下処理（大幅変更） ---
+</a><a href="#h2-0-103" id="h2-0-103" class="i">+	if (u_dropPosition.x &gt; -0.9) { 
+</a><a href="#h2-0-104" id="h2-0-104" class="i">+		vec2 drop_uv = (u_dropPosition + 1.0) / 2.0;
+</a><a href="#h2-0-105" id="h2-0-105" class="i">+		vec2 relative_pos = uv - drop_uv; // 滴下点からの相対位置
+</a><a href="#h2-0-106" id="h2-0-106" class="i">+
+</a><a href="#h2-0-107" id="h2-0-107" class="i">+		// 1. 滴下点からの標準距離を計算
+</a><a href="#h2-0-108" id="h2-0-108" class="i">+		float standard_dist = length(relative_pos);
+</a><a href="#h2-0-109" id="h2-0-109" class="i">+
+</a><a href="#h2-0-110" id="h2-0-110" class="i">+		// 2. 角度(theta)を計算
+</a><a href="#h2-0-111" id="h2-0-111" class="i">+		// atan2(y, x) は [-PI, PI] の角度を返す
+</a><a href="#h2-0-112" id="h2-0-112" class="i">+		float theta = atan(relative_pos.y, relative_pos.x); 
+</a><a href="#h2-0-113" id="h2-0-113" class="i">+
+</a><a href="#h2-0-114" id="h2-0-114" class="i">+		// 3. 角度と時間に基づいてノイズを生成
+</a><a href="#h2-0-115" id="h2-0-115" class="i">+		// ノイズは [-1, 1] の範囲で、輪郭に複雑な歪みを与える
+</a><a href="#h2-0-116" id="h2-0-116" class="i">+		float noise_freq = 5.0; // ノイズの波の数（輪郭のギザギザの細かさ）
+</a><a href="#h2-0-117" id="h2-0-117" class="i">+		float noise_val = noise(vec2(theta * noise_freq, u_time * 0.5)) * 2.0 - 1.0; 
+</a><a href="#h2-0-118" id="h2-0-118" class="i">+
+</a><a href="#h2-0-119" id="h2-0-119" class="i">+		// 4. ノイズによる距離補正 (歪曲)
+</a><a href="#h2-0-120" id="h2-0-120" class="i">+		// 歪み係数: 0.1 は歪みの強さ (この値を大きくすると r&#39;(θ) が急になります)
+</a><a href="#h2-0-121" id="h2-0-121" class="i">+		float distortion_strength = 0.001; 
+</a><a href="#h2-0-122" id="h2-0-122" class="i">+
+</a><a href="#h2-0-123" id="h2-0-123" class="i">+		// r(θ) のイメージ: 標準の半径 u_dropRadius にノイズを加える
+</a><a href="#h2-0-124" id="h2-0-124" class="i">+		// この計算により、ノイズ値が r(θ) の変化率 r&#39;(θ) に大きく影響を与える
+</a><a href="#h2-0-125" id="h2-0-125" class="i">+		float distorted_radius = u_dropRadius + (noise_val * distortion_strength);
+</a><a href="#h2-0-126" id="h2-0-126" class="i">+
+</a><a href="#h2-0-127" id="h2-0-127" class="i">+		// 5. ブレンド計算
+</a><a href="#h2-0-128" id="h2-0-128" class="i">+		// 標準距離 standard_dist と歪んだ半径 distorted_radius を比較
+</a><a href="#h2-0-129" id="h2-0-129" class="i">+		if (standard_dist &lt; distorted_radius) {
+</a><a href="#h2-0-130" id="h2-0-130" class="i">+			// スムースステップで中心から輪郭までのグラデーションを制御
+</a><a href="#h2-0-131" id="h2-0-131" class="i">+			float blend_factor = 1.0 - smoothstep(distorted_radius * 0.9, distorted_radius, standard_dist);
+</a><a href="#h2-0-132" id="h2-0-132" class="i">+
+</a><a href="#h2-0-133" id="h2-0-133" class="i">+			// 輪郭を暗くする処理（維持）
+</a><a href="#h2-0-134" id="h2-0-134" class="i">+			float edge_darkness = 1.0 - smoothstep(distorted_radius * 0.4, distorted_radius, standard_dist);
+</a><a href="#h2-0-135" id="h2-0-135" class="i">+			vec3 darker_drop_color = u_dropColor * (0.25 + edge_darkness * 0.75); 
+</a><a href="#h2-0-136" id="h2-0-136" class="i">+
+</a><a href="#h2-0-137" id="h2-0-137" class="i">+			// 混色ではなく、色の上書きブレンド
+</a><a href="#h2-0-138" id="h2-0-138" class="i">+			current_oil_color = mix(current_oil_color, darker_drop_color, blend_factor);
+</a><a href="#h2-0-139" id="h2-0-139" class="i">+			current_alpha = mix(current_alpha, 1.0, blend_factor);
+</a><a href="#h2-0-140" id="h2-0-140" class="i">+		}
+</a><a href="#h2-0-141" id="h2-0-141" class="i">+	}
+</a><a href="#h2-0-142" id="h2-0-142" class="i">+
+</a><a href="#h2-0-143" id="h2-0-143" class="i">+	// 💡 鮮やかさ（ビビッドさ）の強調処理
+</a><a href="#h2-0-144" id="h2-0-144" class="i">+	// 1. RGBの平均輝度（グレースケール値）を計算
+</a><a href="#h2-0-145" id="h2-0-145" class="i">+	float average_light = (current_oil_color.r + current_oil_color.g + current_oil_color.b) / 3.0;
+</a><a href="#h2-0-146" id="h2-0-146" class="i">+
+</a><a href="#h2-0-147" id="h2-0-147" class="i">+	// 2. 彩度を強調する係数 (Saturation Boost Factor)
+</a><a href="#h2-0-148" id="h2-0-148" class="i">+	// 1.0より大きい値にすると彩度が増します。2.0〜3.0が推奨値です。
+</a><a href="#h2-0-149" id="h2-0-149" class="i">+	float saturation_boost = 1.035; 
+</a><a href="#h2-0-150" id="h2-0-150" class="i">+
+</a><a href="#h2-0-151" id="h2-0-151" class="i">+	// 3. 平均輝度と現在の色を mix し、彩度を上げる
+</a><a href="#h2-0-152" id="h2-0-152" class="i">+	// (current_oil_color - average_light) は色の「差」成分。
+</a><a href="#h2-0-153" id="h2-0-153" class="i">+	// この差を大きくすることで彩度が増します。
+</a><a href="#h2-0-154" id="h2-0-154" class="i">+	vec3 vivid_color = mix(vec3(average_light), current_oil_color, saturation_boost);
+</a><a href="#h2-0-155" id="h2-0-155" class="i">+
+</a><a href="#h2-0-156" id="h2-0-156" class="i">+	// 結果をクランプして色を [0, 1] の範囲に収める
+</a><a href="#h2-0-157" id="h2-0-157" class="i">+	current_oil_color = clamp(vivid_color, 0.0, 1.0);
+</a><a href="#h2-0-158" id="h2-0-158" class="i">+
+</a><a href="#h2-0-159" id="h2-0-159" class="i">+	gl_FragColor = vec4(current_oil_color, current_alpha);
+</a><a href="#h2-0-160" id="h2-0-160" class="i">+}
+</a><a href="#h2-0-161" id="h2-0-161" class="i">+`;
+</a><a href="#h2-0-162" id="h2-0-162" class="i">+
+</a><a href="#h2-0-163" id="h2-0-163" class="i">+import { useFrame, extend, useThree } from &#39;@react-three/fiber&#39;;
+</a><a href="#h2-0-164" id="h2-0-164" class="i">+import { useRef, useState, useEffect, useCallback } from &#39;react&#39;;
+</a><a href="#h2-0-165" id="h2-0-165" class="i">+import { shaderMaterial } from &#39;@react-three/drei&#39;;
+</a><a href="#h2-0-166" id="h2-0-166" class="i">+import * as THREE from &#39;three&#39;;
+</a><a href="#h2-0-167" id="h2-0-167" class="i">+
+</a><a href="#h2-0-168" id="h2-0-168" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-169" id="h2-0-169" class="i">+// GLSL シェーダーコード
+</a><a href="#h2-0-170" id="h2-0-170" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-171" id="h2-0-171" class="i">+// (上記2.の vertexShader と fragmentShader をここに定義またはインポート)
+</a><a href="#h2-0-172" id="h2-0-172" class="i">+
+</a><a href="#h2-0-173" id="h2-0-173" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-174" id="h2-0-174" class="i">+// カスタムマテリアルの定義と拡張 (型定義は src/types/OilArtMaterial.d.ts に依存)
+</a><a href="#h2-0-175" id="h2-0-175" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-176" id="h2-0-176" class="i">+const OilArtMaterial = shaderMaterial(
+</a><a href="#h2-0-177" id="h2-0-177" class="i">+	{
+</a><a href="#h2-0-178" id="h2-0-178" class="i">+		u_time: 0,
+</a><a href="#h2-0-179" id="h2-0-179" class="i">+		u_resolution: new THREE.Vector2(),
+</a><a href="#h2-0-180" id="h2-0-180" class="i">+		u_dropColor: new THREE.Color(0xffffff),
+</a><a href="#h2-0-181" id="h2-0-181" class="i">+		u_dropPosition: new THREE.Vector2(-1, -1), // 無効な初期値
+</a><a href="#h2-0-182" id="h2-0-182" class="i">+		u_dropRadius: 0.05,
+</a><a href="#h2-0-183" id="h2-0-183" class="i">+		u_tiltDirection: new THREE.Vector2(0, 0),
+</a><a href="#h2-0-184" id="h2-0-184" class="i">+		u_feedbackTexture: null as THREE.Texture | null,
+</a><a href="#h2-0-185" id="h2-0-185" class="i">+	},
+</a><a href="#h2-0-186" id="h2-0-186" class="i">+	vertexShader,
+</a><a href="#h2-0-187" id="h2-0-187" class="i">+	fragmentShader
+</a><a href="#h2-0-188" id="h2-0-188" class="i">+);
+</a><a href="#h2-0-189" id="h2-0-189" class="i">+extend({ OilArtMaterial });
+</a><a href="#h2-0-190" id="h2-0-190" class="i">+
+</a><a href="#h2-0-191" id="h2-0-191" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-192" id="h2-0-192" class="i">+// 外部公開APIとPropsの型定義
+</a><a href="#h2-0-193" id="h2-0-193" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-194" id="h2-0-194" class="i">+export interface OilArtAPI {
+</a><a href="#h2-0-195" id="h2-0-195" class="i">+	dropOil: (position: { x: number; y: number }, color: THREE.Color) =&gt; void;
+</a><a href="#h2-0-196" id="h2-0-196" class="i">+	tilt: (direction: { x: number; y: number }) =&gt; void;
+</a><a href="#h2-0-197" id="h2-0-197" class="i">+}
+</a><a href="#h2-0-198" id="h2-0-198" class="i">+
+</a><a href="#h2-0-199" id="h2-0-199" class="i">+interface OilArtPlaneProps {
+</a><a href="#h2-0-200" id="h2-0-200" class="i">+	onTriggerAPI: (api: OilArtAPI) =&gt; void;
+</a><a href="#h2-0-201" id="h2-0-201" class="i">+}
+</a><a href="#h2-0-202" id="h2-0-202" class="i">+
+</a><a href="#h2-0-203" id="h2-0-203" class="i">+type OilArtMaterialRef = THREE.ShaderMaterial &amp; typeof OilArtMaterial.prototype;
+</a><a href="#h2-0-204" id="h2-0-204" class="i">+
+</a><a href="#h2-0-205" id="h2-0-205" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-206" id="h2-0-206" class="i">+// OilArtPlane 本体
+</a><a href="#h2-0-207" id="h2-0-207" class="i">+// -----------------------------------------------------------
+</a><a href="#h2-0-208" id="h2-0-208" class="i">+export const OilArtPlane: React.FC&lt;OilArtPlaneProps&gt; = ({ onTriggerAPI }) =&gt; {
+</a><a href="#h2-0-209" id="h2-0-209" class="i">+	const materialRef = useRef&lt;OilArtMaterialRef&gt;(null!);
+</a><a href="#h2-0-210" id="h2-0-210" class="i">+	const meshRef = useRef&lt;THREE.Mesh&gt;(null!);
+</a><a href="#h2-0-211" id="h2-0-211" class="i">+	const { gl, size, viewport, camera } = useThree();
+</a><a href="#h2-0-212" id="h2-0-212" class="i">+
+</a><a href="#h2-0-213" id="h2-0-213" class="i">+	// Ping-pongバッファのためのレンダーターゲット (テクスチャを交互に書き込む)
+</a><a href="#h2-0-214" id="h2-0-214" class="i">+	const [rtA] = useState(() =&gt; new THREE.WebGLRenderTarget(size.width, size.height));
+</a><a href="#h2-0-215" id="h2-0-215" class="i">+	const [rtB] = useState(() =&gt; new THREE.WebGLRenderTarget(size.width, size.height));
+</a><a href="#h2-0-216" id="h2-0-216" class="i">+	const currentRenderTexture = useRef(rtA);
+</a><a href="#h2-0-217" id="h2-0-217" class="i">+	const feedbackRenderTexture = useRef(rtB);
+</a><a href="#h2-0-218" id="h2-0-218" class="i">+
+</a><a href="#h2-0-219" id="h2-0-219" class="i">+	// 初期化とリサイズ処理
+</a><a href="#h2-0-220" id="h2-0-220" class="i">+	useEffect(() =&gt; {
+</a><a href="#h2-0-221" id="h2-0-221" class="i">+		if (materialRef.current) {
+</a><a href="#h2-0-222" id="h2-0-222" class="i">+			materialRef.current.uniforms.u_resolution.value.set(size.width, size.height);
+</a><a href="#h2-0-223" id="h2-0-223" class="i">+			rtA.setSize(size.width, size.height);
+</a><a href="#h2-0-224" id="h2-0-224" class="i">+			rtB.setSize(size.width, size.height);
+</a><a href="#h2-0-225" id="h2-0-225" class="i">+
+</a><a href="#h2-0-226" id="h2-0-226" class="i">+			// 初回は基本色でテクスチャをクリア (任意)
+</a><a href="#h2-0-227" id="h2-0-227" class="i">+			gl.setRenderTarget(rtA);
+</a><a href="#h2-0-228" id="h2-0-228" class="i">+
+</a><a href="#h2-0-229" id="h2-0-229" class="i">+			// 💡 修正点: setClearColor(Color, alpha) を使用
+</a><a href="#h2-0-230" id="h2-0-230" class="i">+			// THREE.Colorオブジェクトを使って色を設定
+</a><a href="#h2-0-231" id="h2-0-231" class="i">+			const baseColor = new THREE.Color(0.0, 0.0, 0.002); 
+</a><a href="#h2-0-232" id="h2-0-232" class="i">+			const alpha = 0.7; 
+</a><a href="#h2-0-233" id="h2-0-233" class="i">+			gl.setClearColor(baseColor, alpha); 
+</a><a href="#h2-0-234" id="h2-0-234" class="i">+
+</a><a href="#h2-0-235" id="h2-0-235" class="i">+			// gl.clear() で設定した色とアルファ値を使ってクリア
+</a><a href="#h2-0-236" id="h2-0-236" class="i">+			gl.clear(); 
+</a><a href="#h2-0-237" id="h2-0-237" class="i">+			gl.setRenderTarget(null); // デフォルトに戻す
+</a><a href="#h2-0-238" id="h2-0-238" class="i">+		}
+</a><a href="#h2-0-239" id="h2-0-239" class="i">+	}, [gl, size, rtA, rtB]);
+</a><a href="#h2-0-240" id="h2-0-240" class="i">+
+</a><a href="#h2-0-241" id="h2-0-241" class="i">+	// 滴下処理: positionはビューポート座標 (-1.0〜1.0)
+</a><a href="#h2-0-242" id="h2-0-242" class="i">+	const dropOil = useCallback((position: { x: number; y: number }, color: THREE.Color) =&gt; {
+</a><a href="#h2-0-243" id="h2-0-243" class="i">+		if (materialRef.current) {
+</a><a href="#h2-0-244" id="h2-0-244" class="i">+			materialRef.current.uniforms.u_dropPosition.value.set(position.x, position.y);
+</a><a href="#h2-0-245" id="h2-0-245" class="i">+			materialRef.current.uniforms.u_dropColor.value.copy(color);
+</a><a href="#h2-0-246" id="h2-0-246" class="i">+			// ドロップをトリガー
+</a><a href="#h2-0-247" id="h2-0-247" class="i">+		}
+</a><a href="#h2-0-248" id="h2-0-248" class="i">+	}, []);
+</a><a href="#h2-0-249" id="h2-0-249" class="i">+
+</a><a href="#h2-0-250" id="h2-0-250" class="i">+	// 傾き処理: directionはベクトル (-1.0〜1.0)
+</a><a href="#h2-0-251" id="h2-0-251" class="i">+	const tilt = useCallback((direction: { x: number; y: number }) =&gt; {
+</a><a href="#h2-0-252" id="h2-0-252" class="i">+		if (materialRef.current) {
+</a><a href="#h2-0-253" id="h2-0-253" class="i">+			materialRef.current.uniforms.u_tiltDirection.value.set(direction.x, direction.y);
+</a><a href="#h2-0-254" id="h2-0-254" class="i">+		}
+</a><a href="#h2-0-255" id="h2-0-255" class="i">+	}, []);
+</a><a href="#h2-0-256" id="h2-0-256" class="i">+
+</a><a href="#h2-0-257" id="h2-0-257" class="i">+	// 外部APIの公開
+</a><a href="#h2-0-258" id="h2-0-258" class="i">+	useEffect(() =&gt; {
+</a><a href="#h2-0-259" id="h2-0-259" class="i">+		onTriggerAPI({ dropOil, tilt });
+</a><a href="#h2-0-260" id="h2-0-260" class="i">+	}, [onTriggerAPI, dropOil, tilt]);
+</a><a href="#h2-0-261" id="h2-0-261" class="i">+
+</a><a href="#h2-0-262" id="h2-0-262" class="i">+	useFrame(({ clock }) =&gt; {
+</a><a href="#h2-0-263" id="h2-0-263" class="i">+		if (!materialRef.current || !meshRef.current) return;
+</a><a href="#h2-0-264" id="h2-0-264" class="i">+
+</a><a href="#h2-0-265" id="h2-0-265" class="i">+		materialRef.current.uniforms.u_time.value = clock.getElapsedTime();
+</a><a href="#h2-0-266" id="h2-0-266" class="i">+
+</a><a href="#h2-0-267" id="h2-0-267" class="i">+		// 1. **オフスクリーンレンダリング**: 次のフレームの状態を計算し、`feedbackRenderTexture`に書き込む
+</a><a href="#h2-0-268" id="h2-0-268" class="i">+		gl.setRenderTarget(feedbackRenderTexture.current);
+</a><a href="#h2-0-269" id="h2-0-269" class="i">+		// 書き込む際には、前のフレームの状態を`u_feedbackTexture`としてシェーダーに渡す
+</a><a href="#h2-0-270" id="h2-0-270" class="i">+		materialRef.current.uniforms.u_feedbackTexture.value = currentRenderTexture.current.texture;
+</a><a href="#h2-0-271" id="h2-0-271" class="i">+		gl.render(meshRef.current, camera); // Ping-Pongバッファの計算
+</a><a href="#h2-0-272" id="h2-0-272" class="i">+
+</a><a href="#h2-0-273" id="h2-0-273" class="i">+		// 2. **画面への最終描画**: 計算したばかりのテクスチャを画面に表示
+</a><a href="#h2-0-274" id="h2-0-274" class="i">+		gl.setRenderTarget(null); // デフォルトのレンダーターゲット（画面）に戻す
+</a><a href="#h2-0-275" id="h2-0-275" class="i">+		materialRef.current.uniforms.u_feedbackTexture.value = feedbackRenderTexture.current.texture;
+</a><a href="#h2-0-276" id="h2-0-276" class="i">+		gl.render(meshRef.current, camera);
+</a><a href="#h2-0-277" id="h2-0-277" class="i">+
+</a><a href="#h2-0-278" id="h2-0-278" class="i">+		// 3. **バッファのスワップ**: 次のフレームのために currentとfeedbackを入れ替える
+</a><a href="#h2-0-279" id="h2-0-279" class="i">+		[currentRenderTexture.current, feedbackRenderTexture.current] = [feedbackRenderTexture.current, currentRenderTexture.current];
+</a><a href="#h2-0-280" id="h2-0-280" class="i">+
+</a><a href="#h2-0-281" id="h2-0-281" class="i">+		// ドロップをリセット: 1フレーム描画したら無効な位置に戻す
+</a><a href="#h2-0-282" id="h2-0-282" class="i">+		// これにより、毎フレーム新しい色が滴下されるのではなく、トリガー時のみ追加される
+</a><a href="#h2-0-283" id="h2-0-283" class="i">+		materialRef.current.uniforms.u_dropPosition.value.set(-1, -1);
+</a><a href="#h2-0-284" id="h2-0-284" class="i">+	});
+</a><a href="#h2-0-285" id="h2-0-285" class="i">+
+</a><a href="#h2-0-286" id="h2-0-286" class="i">+	return (
+</a><a href="#h2-0-287" id="h2-0-287" class="i">+		&lt;mesh ref={meshRef} scale={[viewport.width, viewport.height, 1]}&gt;
+</a><a href="#h2-0-288" id="h2-0-288" class="i">+		&lt;planeGeometry args={[1, 1]} /&gt;
+</a><a href="#h2-0-289" id="h2-0-289" class="i">+		&lt;oilArtMaterial ref={materialRef} /&gt;
+</a><a href="#h2-0-290" id="h2-0-290" class="i">+		&lt;/mesh&gt;
+</a><a href="#h2-0-291" id="h2-0-291" class="i">+	);
+</a><a href="#h2-0-292" id="h2-0-292" class="i">+};
+</a><b>diff --git a/<a id="h3" href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a> b/<a href="../file/app/ctrl/page.tsx.html">app/ctrl/page.tsx</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -19,6 +19,9 @@ const SecondDraw = dynamic&lt;StageProps&gt;(() =&gt; import(&#39;../components/2_draw.tsx&#39;),
+</a> const ThreeVR = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/3_vr.tsx&#39;),{
+ 	loading: Loading,
+ });
+<a href="#h3-0-3" id="h3-0-3" class="i">+const OilArt = dynamic&lt;StageProps&gt;(()=&gt;import(&#39;../components/4_oil.tsx&#39;),{
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+	loading: Loading,
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+});
+</a> const Error = dynamic&lt;StageProps&gt;(() =&gt; import(&#39;../components/error.tsx&#39;), {
+ 	loading: Loading,
+ });
+<a href="#h3-1" id="h3-1" class="h">@@ -28,7 +31,7 @@ export default function Chat() {
+</a> 	const pageRef = useRef&lt;HTMLDivElement&gt;(null);
+ 	const [isFullscreen, setIsFullscreen] = useState(false);
+ 	const [isInitialCheckDone, setIsInitialCheckDone] = useState(false);
+<a href="#h3-1-3" id="h3-1-3" class="d">-	const [ stage, setStage ] = useState(1);
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+	const [ stage, setStage ] = useState(4);
+</a> 	const handleStageComplete = useCallback(() =&gt; {
+     	setStage(stage + 1);
+ 	}, []);
+<a href="#h3-2" id="h3-2" class="h">@@ -45,6 +48,9 @@ export default function Chat() {
+</a> 		case 3:
+ 			StageComponent = &lt;ThreeVR onComplete={handleStageComplete}/&gt;;
+ 			break;
+<a href="#h3-2-3" id="h3-2-3" class="i">+		case 4:
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+			StageComponent = &lt;OilArt onComplete={handleStageComplete}/&gt;
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+			break;
+</a> 		default:
+ 			StageComponent = &lt;Error onComplete={handleStageComplete}/&gt;;
+ 	}
+</pre>
+</div>
+</body>
+</html>

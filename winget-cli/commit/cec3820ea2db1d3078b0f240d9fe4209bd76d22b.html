@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Microsoft.WinGet.Client throws System.InvalidOperationException: Attempt to update previously set global instance (#3253) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/cec3820ea2db1d3078b0f240d9fe4209bd76d22b.html">cec3820ea2db1d3078b0f240d9fe4209bd76d22b</a>
+<b>parent</b> <a href="../commit/fa48fd8b933d2fb71bb20a21ef2952ff1b10f5a2.html">fa48fd8b933d2fb71bb20a21ef2952ff1b10f5a2</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Tue, 16 May 2023 00:24:32 -0700
+
+Microsoft.WinGet.Client throws System.InvalidOperationException: Attempt to update previously set global instance (#3253)
+
+Microsoft.WinGet.Client throws System.InvalidOperationException:“Attempt to update previously set global instance.” when used in winget configure with a resource from Microsoft.WinGet.DSC
+
+This is because the custom AssemblyLoadContext implemented by the client module loads WinRT.Runtime.dll into the same processes where the configuration server already have WinRT.Runtime.dll loaded. When there are multiple versions of WinRT.Runtime.dll loaded in process this exception gets thrown. More info
+
+The fix is to always load WinRT.Runtime.dll into the default assembly context, if its not loaded by the time our handler is executed and always return null in the Load implementation of the custom ALC.
+
+This is a problem any PowerShell module that uses cswinrt will have (if there&#39;s another one out there)
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Acl/WinGetAssemblyLoadContext.cs</a></td><td> | </td><td class="num">30</td><td><span class="i">++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+</table></pre><pre>1 file changed, 28 insertions(+), 2 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Acl/WinGetAssemblyLoadContext.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Acl/WinGetAssemblyLoadContext.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Acl/WinGetAssemblyLoadContext.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Acl/WinGetAssemblyLoadContext.cs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -7,7 +7,9 @@
+</a> namespace Microsoft.WinGet.Client.Acl
+ {
+     using System;
+<a href="#h0-0-3" id="h0-0-3" class="i">+    using System.Collections.Generic;
+</a>     using System.IO;
+<a href="#h0-0-5" id="h0-0-5" class="i">+    using System.Linq;
+</a>     using System.Reflection;
+     using System.Runtime.Loader;
+ 
+<a href="#h0-1" id="h0-1" class="h">@@ -18,6 +20,14 @@ namespace Microsoft.WinGet.Client.Acl
+</a>     /// &lt;/summary&gt;
+     internal class WinGetAssemblyLoadContext : AssemblyLoadContext
+     {
+<a href="#h0-1-3" id="h0-1-3" class="i">+        // The assemblies must be loaded in the default context.
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        // Loading WinRT.Runtime.dll in an ALC when is already loaded in the default context
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+        // will result on &#39;Attempt to update previously set global instance.&#39;
+</a><a href="#h0-1-6" id="h0-1-6" class="i">+        private static readonly IEnumerable&lt;string&gt; DefaultContextAssemblies = new string[]
+</a><a href="#h0-1-7" id="h0-1-7" class="i">+        {
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+            @&quot;WinRT.Runtime.dll&quot;,
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+        };
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+
+</a>         private static readonly string SharedDependencyPath = Path.Combine(
+             Path.GetDirectoryName(typeof(WinGetAssemblyLoadContext).Assembly.Location),
+             &quot;SharedDependencies&quot;);
+<a href="#h0-2" id="h0-2" class="h">@@ -41,6 +51,16 @@ namespace Microsoft.WinGet.Client.Acl
+</a>         /// &lt;returns&gt;The assembly, null if not in our assembly location.&lt;/returns&gt;
+         internal static Assembly ResolvingHandler(AssemblyLoadContext context, AssemblyName assemblyName)
+         {
+<a href="#h0-2-3" id="h0-2-3" class="i">+            string name = $&quot;{assemblyName.Name}.dll&quot;;
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+            if (DefaultContextAssemblies.Any(a =&gt; a.Equals(name, StringComparison.OrdinalIgnoreCase)))
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+            {
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+                string sharedPath = Path.Combine(SharedDependencyPath, name);
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+                if (File.Exists(sharedPath))
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+                {
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+                    return AssemblyLoadContext.Default.LoadFromAssemblyPath(sharedPath);
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+                }
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+            }
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+
+</a>             string path = $&quot;{Path.Combine(DirectDependencyPath, assemblyName.Name)}.dll&quot;;
+             if (File.Exists(path))
+             {
+<a href="#h0-3" id="h0-3" class="h">@@ -53,13 +73,19 @@ namespace Microsoft.WinGet.Client.Acl
+</a>         /// &lt;inheritdoc/&gt;
+         protected override Assembly Load(AssemblyName assemblyName)
+         {
+<a href="#h0-3-3" id="h0-3-3" class="d">-            string path = $&quot;{Path.Combine(SharedDependencyPath, assemblyName.Name)}.dll&quot;;
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+            string name = $&quot;{assemblyName.Name}.dll&quot;;
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+            if (DefaultContextAssemblies.Any(a =&gt; a.Equals(name, StringComparison.OrdinalIgnoreCase)))
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+            {
+</a><a href="#h0-3-7" id="h0-3-7" class="i">+                return null;
+</a><a href="#h0-3-8" id="h0-3-8" class="i">+            }
+</a><a href="#h0-3-9" id="h0-3-9" class="i">+
+</a><a href="#h0-3-10" id="h0-3-10" class="i">+            string path = Path.Combine(SharedDependencyPath, name);
+</a>             if (File.Exists(path))
+             {
+                 return this.LoadFromAssemblyPath(path);
+             }
+ 
+<a href="#h0-3-16" id="h0-3-16" class="d">-            path = $&quot;{Path.Combine(DirectDependencyPath, assemblyName.Name)}.dll&quot;;
+</a><a href="#h0-3-17" id="h0-3-17" class="i">+            path = Path.Combine(DirectDependencyPath, name);
+</a>             if (File.Exists(path))
+             {
+                 return this.LoadFromAssemblyPath(path);
+</pre>
+</div>
+</body>
+</html>

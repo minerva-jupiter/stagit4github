@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>creating_a_clap_plugin_through_simulation.md - tech_note - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="tech_note.git Atom Feed" href="../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="tech_note.git Atom Feed (tags)" href="../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../"><img src="../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>tech_note</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../log.html">Log</a> | <a href="../../files.html">Files</a> | <a href="../../refs.html">Refs</a> | <a href="../../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> creating_a_clap_plugin_through_simulation.md (10764B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> ---
+<a href="#l2" class="line" id="l2">      2</a> title: シミュレーションによるCLAPプラグインの作成
+<a href="#l3" class="line" id="l3">      3</a> tags:
+<a href="#l4" class="line" id="l4">      4</a>   - nih-plug
+<a href="#l5" class="line" id="l5">      5</a> private: false
+<a href="#l6" class="line" id="l6">      6</a> updated_at: &#39;2026-07-01T20:48:24+09:00&#39;
+<a href="#l7" class="line" id="l7">      7</a> id: 925a92ee93e20b6e91ba
+<a href="#l8" class="line" id="l8">      8</a> organization_url_name: null
+<a href="#l9" class="line" id="l9">      9</a> slide: false
+<a href="#l10" class="line" id="l10">     10</a> ignorePublish: false
+<a href="#l11" class="line" id="l11">     11</a> ---
+<a href="#l12" class="line" id="l12">     12</a> # シミュレーションによるCLAPプラグインの作成
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a> 普段は大学で物理学徒をしている私が、シミュレーションを用いてCLAPプラグインを作ろうとする冒険譚です。
+<a href="#l15" class="line" id="l15">     15</a> 
+<a href="#l16" class="line" id="l16">     16</a> # 構想
+<a href="#l17" class="line" id="l17">     17</a> 
+<a href="#l18" class="line" id="l18">     18</a> 少し前に私はAerophoneという楽器を頂く機会がありました。
+<a href="#l19" class="line" id="l19">     19</a> 私はDAWをメインに曲を作っているのですが、どうにもAerophoneで演奏した音源をDAWに取り込む方式だと、Interfaceなどの関係で音の質があまりよろしくないということに気が付きました。
+<a href="#l20" class="line" id="l20">     20</a> そこで、楽器の発音と共鳴の機構をシミュレートしたプラグインを作成して、音源よりもリアルな音を出す電子的な楽器を作ってしまおうというのが今回の趣旨です。
+<a href="#l21" class="line" id="l21">     21</a> 時代の後退ですし、録音をMidiで流したほうがずっとうまくいくのは理解していますが、SoundFont(sf2など)のようなものにはない表現力を持ってた方が面白いかなと思ったのが始まりです。
+<a href="#l22" class="line" id="l22">     22</a> 
+<a href="#l23" class="line" id="l23">     23</a> # 設計
+<a href="#l24" class="line" id="l24">     24</a> 設計は大きく分けて次のふたつの部分をつなぎ合わせることで実現しています。
+<a href="#l25" class="line" id="l25">     25</a> 
+<a href="#l26" class="line" id="l26">     26</a> - 発信部(サックスでいうリードの部分)
+<a href="#l27" class="line" id="l27">     27</a> - 共鳴部(サックスでいうボディの部分)
+<a href="#l28" class="line" id="l28">     28</a> 
+<a href="#l29" class="line" id="l29">     29</a> 個人的にはチェット・ベイカーのような優しいトランペットの音を目指したいのですが、サックスだろうがトランペットだろうがの発振は圧力駆動型バルブというモデルで説明できます。
+<a href="#l30" class="line" id="l30">     30</a> フルートやリコーダーは空気の渦を作って発振するので全然違うのですが、流体シミュレーションはまだ理解しきれてないので、今回はちょっと勘弁してもらって。
+<a href="#l31" class="line" id="l31">     31</a> 
+<a href="#l32" class="line" id="l32">     32</a> # 実装理論(TL;DR)
+<a href="#l33" class="line" id="l33">     33</a> ここから長丁場です。実際、結構な時間を費やしています。
+<a href="#l34" class="line" id="l34">     34</a> 
+<a href="#l35" class="line" id="l35">     35</a> ## 発信部
+<a href="#l36" class="line" id="l36">     36</a> まず、圧力駆動型バルブの運動方程式を示します。
+<a href="#l37" class="line" id="l37">     37</a> 変位はxで、kは弾性、P(t)は息による空気圧、rは振動の減衰のための定数です。
+<a href="#l38" class="line" id="l38">     38</a> $$ m \frac{d^2x}{dt^2} = -k x + f(P(t),x) + r \frac{dx}{dt} $$
+<a href="#l39" class="line" id="l39">     39</a> rの項の妥当性について一応述べておくと、例えば吹くのを止めて弾性によってのみリードが振動している場合、空気抵抗や構造への負担から振動が減衰していくことは経験的に理解できるでしょう。
+<a href="#l40" class="line" id="l40">     40</a> この方程式を解くうえで厄介なところはP(t)が目まぐるしく変わってしまうことに加え、fがx依存性を持っているところです。
+<a href="#l41" class="line" id="l41">     41</a> もしリードが息に押されてマウスピースに近づくと、その近さの2乗に応じて空気の通る速度は早くなります。(ロケットエンジンが吹き出し口からスカート型に広がっている理由なのですが。)
+<a href="#l42" class="line" id="l42">     42</a> また、リードがマウスピースに触れた瞬間に空気の流れは0になり、十分に弱い圧力だけがリードにかかることになります。するとリードの弾性が優位になってリードはマウスピースから離れていきます。
+<a href="#l43" class="line" id="l43">     43</a> 今回はこの空気のモデルを扱うために、f(P(t),x)についてもう少し考えていきます。(k,m,rもリードの噛む強さによって変化する(間接的にtに依存する)が、方程式を解くときは定数として扱います)
+<a href="#l44" class="line" id="l44">     44</a> 
+<a href="#l45" class="line" id="l45">     45</a> 息を吐く強さを$P(t)$とすると、$\rho$を空気の密度、$g(t)$を開口幅、$v_f(t)$を空気の速度とすると、
+<a href="#l46" class="line" id="l46">     46</a> 
+<a href="#l47" class="line" id="l47">     47</a> $$P(t) = \rho L \frac{dv_f(t)}{dt} + B(t) v_f(t)^2$$
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a> ただし、$B(t) = \frac{\rho}{4 g(t)^2}$
+<a href="#l50" class="line" id="l50">     50</a> 
+<a href="#l51" class="line" id="l51">     51</a> と表すことができます。これを双一次変換すると
+<a href="#l52" class="line" id="l52">     52</a> 
+<a href="#l53" class="line" id="l53">     53</a> $$\frac{dv_f(t)}{dt} \approx \frac{2}{T} (v_f[n] - v_f[n-1]) - \left.\frac{dv_f(t)}{dt}\right|_{n-1}$$
+<a href="#l54" class="line" id="l54">     54</a> 
+<a href="#l55" class="line" id="l55">     55</a> から
+<a href="#l56" class="line" id="l56">     56</a> 
+<a href="#l57" class="line" id="l57">     57</a> $$\frac{dv_f(t)}{dt} \approx \frac{2}{T} (v_f[n] - v_f[n-1]) - \frac{1}{\rho L} \left( P[n-1] - B[n-1] v_f[n-1]^2 \right)$$
+<a href="#l58" class="line" id="l58">     58</a> 
+<a href="#l59" class="line" id="l59">     59</a> が求まり、
+<a href="#l60" class="line" id="l60">     60</a> 
+<a href="#l61" class="line" id="l61">     61</a> $$P[n] = $\rho L \left[ \frac{2}{T} (v_f[n] - v_f[n-1]) - \frac{1}{\rho L} \left( P[n-1] - B[n-1] v_f[n-1]^2 \right) \right] + B[n] v_f[n]^2$$
+<a href="#l62" class="line" id="l62">     62</a> 
+<a href="#l63" class="line" id="l63">     63</a> これを整理すると
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a> $$B[n] v_f[n]^2 + \left( \frac{2\rho L}{T} \right) v_f[n] - \left[ P[n] + P[n-1] + \frac{2\rho L}{T} v_f[n-1] - B[n-1] v_f[n-1]^2 \right] = 0$$
+<a href="#l66" class="line" id="l66">     66</a> 
+<a href="#l67" class="line" id="l67">     67</a> これを$v_f(t)$についてとくと
+<a href="#l68" class="line" id="l68">     68</a> 
+<a href="#l69" class="line" id="l69">     69</a> $$v_f[n] = \frac{-A + \sqrt{A^2 + 4 B[n] C[n-1]}}{2 B[n]}$$
+<a href="#l70" class="line" id="l70">     70</a> 
+<a href="#l71" class="line" id="l71">     71</a> where,
+<a href="#l72" class="line" id="l72">     72</a> $$A = \left( \frac{2\rho L}{T} \right)$$
+<a href="#l73" class="line" id="l73">     73</a> $$C[n-1] = \left[ P[n] + P[n-1] + \frac{2\rho L}{T} v_f[n-1] - B[n-1] v_f[n-1]^2 \right]$$
+<a href="#l74" class="line" id="l74">     74</a> 
+<a href="#l75" class="line" id="l75">     75</a> となります。
+<a href="#l76" class="line" id="l76">     76</a> 
+<a href="#l77" class="line" id="l77">     77</a> ところでリードに空気からかかる力を
+<a href="#l78" class="line" id="l78">     78</a> 
+<a href="#l79" class="line" id="l79">     79</a> $$f[n] = \pm \frac{1}{2} \rho v_f[n]^2 g[n]$$
+<a href="#l80" class="line" id="l80">     80</a> ($\pm$が正のときリード(サクソフォン等)のモデル、負のときリップリード(トランペット等))
+<a href="#l81" class="line" id="l81">     81</a> 
+<a href="#l82" class="line" id="l82">     82</a> と考えます。
+<a href="#l83" class="line" id="l83">     83</a> 
+<a href="#l84" class="line" id="l84">     84</a> 最初に示した
+<a href="#l85" class="line" id="l85">     85</a> 
+<a href="#l86" class="line" id="l86">     86</a> $$m \frac{d^2 x(t)}{dt^2} + r \frac{dx(t)}{dt} + k x(t) = f(t)$$
+<a href="#l87" class="line" id="l87">     87</a> 
+<a href="#l88" class="line" id="l88">     88</a> を$T$をサンプリング周期として一次双変換すると
+<a href="#l89" class="line" id="l89">     89</a> 
+<a href="#l90" class="line" id="l90">     90</a> $$x[n] = \frac{b_0 f[n] + b_1 f[n-1] + b_2 f[n-2] - a_1 x[n-1] - a_2 x[n-2]}{a_0}$$
+<a href="#l91" class="line" id="l91">     91</a> 
+<a href="#l92" class="line" id="l92">     92</a> where,
+<a href="#l93" class="line" id="l93">     93</a> $b_0 = T^2, \quad b_1 = 2T^2, \quad b_2 = T^2$$a_0 = 4m + 2rT + kT^2$$a_1 = -8m + 2kT^2$$a_2 = 4m - 2rT + kT^2$
+<a href="#l94" class="line" id="l94">     94</a> 
+<a href="#l95" class="line" id="l95">     95</a> となります(一次双変換の過程や実際に運動方程式の解の近似になっていることはリポジトリのReadmeのTL;DR Derivation of the simulation formulaセクションで示しています)。
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a> これで、$x[n]$がnステップ目の位置を表す関数として記述することができました。
+<a href="#l98" class="line" id="l98">     98</a> 
+<a href="#l99" class="line" id="l99">     99</a> ## 共鳴部
+<a href="#l100" class="line" id="l100">    100</a> 
+<a href="#l101" class="line" id="l101">    101</a> 筒の剛性や、空気の密度の変化から気柱による音波の反射をシミュレートすることも考えましたが、
+<a href="#l102" class="line" id="l102">    102</a> 音波の距離によって遅れる反射は認めるものとして、反射によるエネルギー減衰のモデルを考えることで倍音の高音成分がなくなるシミュレートを実装します。
+<a href="#l103" class="line" id="l103">    103</a> エネルギーは位相のt微分の2乗に比例する量であり、減衰はxのt微分の2乗に対して行います。
+<a href="#l104" class="line" id="l104">    104</a> エネルギーが減衰すると、高音成分から現象していくことは理解できるかと思います。
+<a href="#l105" class="line" id="l105">    105</a> 式としては、発信部から来た変位をx_n、遅延して送られてくる変位をx_resonance、前回の合計の変位をx_prevとすると、減衰定数aを使って
+<a href="#l106" class="line" id="l106">    106</a> 
+<a href="#l107" class="line" id="l107">    107</a> $$ x = a (x_xrev - (x_n + x_resonance))^2 $$
+<a href="#l108" class="line" id="l108">    108</a> 
+<a href="#l109" class="line" id="l109">    109</a> と書くことができます。ここで、x_resonanceは筒を往復するのにかかった時間だけ前の変位に、開管なら1を、閉管なら-1をかけたものです。
+<a href="#l110" class="line" id="l110">    110</a> 
+<a href="#l111" class="line" id="l111">    111</a> x_resonanceが管を往復するのにかかった時間だけ前の変位に反射の係数をかけたもので十分な理由を示します。
+<a href="#l112" class="line" id="l112">    112</a> 
+<a href="#l113" class="line" id="l113">    113</a> 音波の伝搬について、
+<a href="#l114" class="line" id="l114">    114</a> 
+<a href="#l115" class="line" id="l115">    115</a> $$\frac{\partial^2 p}{\partial t^2} - c^2 \frac{\partial^2 p}{\partial x^2} = 0$$
+<a href="#l116" class="line" id="l116">    116</a> 
+<a href="#l117" class="line" id="l117">    117</a> この一般解はダランベールの解を用いて
+<a href="#l118" class="line" id="l118">    118</a> 
+<a href="#l119" class="line" id="l119">    119</a> $$p(x, t) = f(t - x/c) + g(t + x/c)$$
+<a href="#l120" class="line" id="l120">    120</a> 
+<a href="#l121" class="line" id="l121">    121</a> と書くことができ、波の振幅の移動として書くことができます。
+<a href="#l122" class="line" id="l122">    122</a> 
+<a href="#l123" class="line" id="l123">    123</a> また、反射が起きるx=Lの点について書くと
+<a href="#l124" class="line" id="l124">    124</a> 
+<a href="#l125" class="line" id="l125">    125</a> 1. 開放端のとき
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a> 筒の端が大気圧になっているので$p=0$という条件を入れて
+<a href="#l128" class="line" id="l128">    128</a> 
+<a href="#l129" class="line" id="l129">    129</a> $$f(t - L/c) + g(t + L/c) = 0$$
+<a href="#l130" class="line" id="l130">    130</a> 
+<a href="#l131" class="line" id="l131">    131</a> これを $g$ について解くと
+<a href="#l132" class="line" id="l132">    132</a> 
+<a href="#l133" class="line" id="l133">    133</a> $$g(t + L/c) = -f(t - L/c)$$
+<a href="#l134" class="line" id="l134">    134</a> 
+<a href="#l135" class="line" id="l135">    135</a> 2. 閉口端のとき
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a> 筒の端で空気の速度が0という条件を入れて
+<a href="#l138" class="line" id="l138">    138</a> 
+<a href="#l139" class="line" id="l139">    139</a> $$\frac{\partial p}{\partial x} = -\frac{1}{c} f&#39;(t - x/c) + \frac{1}{c} g&#39;(t + x/c) = 0$$
+<a href="#l140" class="line" id="l140">    140</a> 
+<a href="#l141" class="line" id="l141">    141</a> $x=L$を代入して
+<a href="#l142" class="line" id="l142">    142</a> 
+<a href="#l143" class="line" id="l143">    143</a> $$g&#39;(t + L/c) = f&#39;(t - L/c)$$
+<a href="#l144" class="line" id="l144">    144</a> 
+<a href="#l145" class="line" id="l145">    145</a> $$g(t + L/c) = f(t - L/c)$$
+<a href="#l146" class="line" id="l146">    146</a> 
+<a href="#l147" class="line" id="l147">    147</a> を得ることができ、往復するのにかかった時間だけ前の変位に反射の係数をかければ良いということがわかります。
+<a href="#l148" class="line" id="l148">    148</a> 
+<a href="#l149" class="line" id="l149">    149</a> 補足ですが、楽器の閉管は片方が開放端でもう片方が閉口端、開管は両方が開放端なものを指します。
+<a href="#l150" class="line" id="l150">    150</a> なので、閉管では1往復すると位相が逆-&gt;そのままという二回の反射で位相が逆に、開管では1往復すると位相が逆-&gt;逆という二回の反射で位相が戻ります。なので上のような係数になっています。
+<a href="#l151" class="line" id="l151">    151</a> 
+<a href="#l152" class="line" id="l152">    152</a> 元も子もない話をしてしまうと、ローパスフィルターをかけて出力すればそれで終わりなのですが、それだとあまりにも面白くないと思うので、このような回りくどい実装になっています。
+<a href="#l153" class="line" id="l153">    153</a> 
+<a href="#l154" class="line" id="l154">    154</a> 実装において重要な往復にかかる時間の導出を行っておきます。
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a> 入力されたmidiノートの周波数を$f$、音速を$c$とすると、波長は
+<a href="#l157" class="line" id="l157">    157</a> 
+<a href="#l158" class="line" id="l158">    158</a> $$\lambda = \frac{c}{f}$$
+<a href="#l159" class="line" id="l159">    159</a> 
+<a href="#l160" class="line" id="l160">    160</a> 管の長さLは$\lambda$を用いて
+<a href="#l161" class="line" id="l161">    161</a> 
+<a href="#l162" class="line" id="l162">    162</a> $$\lambda = 2L$$
+<a href="#l163" class="line" id="l163">    163</a> 
+<a href="#l164" class="line" id="l164">    164</a> とかける(閉管の場合は4Lだが、同様の変形を行うだけなので、以下では開管の場合のみを扱う)
+<a href="#l165" class="line" id="l165">    165</a> 
+<a href="#l166" class="line" id="l166">    166</a> また、Lを往復するのにかかる時間は
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a> $$\frac{2 L}{c} = \frac{2}{c} \frac{c}{2f} = \frac{1}{f}$$
+<a href="#l169" class="line" id="l169">    169</a> 
+<a href="#l170" class="line" id="l170">    170</a> とわかるので、Lやcを実際に使う必要はなく、Lを往復するのにかかる時間が求められます。
+<a href="#l171" class="line" id="l171">    171</a> 
+<a href="#l172" class="line" id="l172">    172</a> # 実装
+<a href="#l173" class="line" id="l173">    173</a> 
+<a href="#l174" class="line" id="l174">    174</a> 実装はソースコードにあるものが全てです。うまく動かないと理論を見直したり、プラグイン部分の不具合を排除するために理論式をipynbでプロットしながら検証をしたりしました。
+<a href="#l175" class="line" id="l175">    175</a> 
+<a href="#l176" class="line" id="l176">    176</a> ## コーディングエージェントについて
+<a href="#l177" class="line" id="l177">    177</a> コーディングAgentはうまく動かない場面が多かったです。pythonのプログラムやLaTeX式をRustの関数にする部分で利用しましたが、結局のところ、私が書き換える羽目になりました。
+<a href="#l178" class="line" id="l178">    178</a> よく知られている実装以外をするときは向かないですね。その代わりに向いている部分もありました。
+<a href="#l179" class="line" id="l179">    179</a> パラメーターフィティングです。運動方程式のmやrやkは少し変わるとうまく発振しないので、パラメーターフィッティングが難航していましたが、AIの背景にある理論自体がパラメーターフィッティングであるので、その部分を大いにうまく利用できたのかなと思っています。
+<a href="#l180" class="line" id="l180">    180</a> 
+<a href="#l181" class="line" id="l181">    181</a> # 現状について
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a> 設計の全ての部分の実装はできました。
+<a href="#l184" class="line" id="l184">    184</a> しかし、目指している音を鳴らすことはできませんでした。
+<a href="#l185" class="line" id="l185">    185</a> 反響の共鳴に関わらずリードの固有振動数らしき周波数で鳴り続ける挙動をしています。
+<a href="#l186" class="line" id="l186">    186</a> パラメーターが多すぎるのか、モデルが正確ではないのか。わからないところです。
+<a href="#l187" class="line" id="l187">    187</a> より謎なのは、ipynbでうまく動作していても実際にプラグインに記述するとうまく動かないところです。
+<a href="#l188" class="line" id="l188">    188</a> 何はともあれ、私のシミュレーターを作る力が不足していたということでしょう。
+</pre>
+</div>
+</body>
+</html>

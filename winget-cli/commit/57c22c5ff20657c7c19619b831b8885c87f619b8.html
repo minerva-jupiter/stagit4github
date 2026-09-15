@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Generate test certificates in pipeline (#4747) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/57c22c5ff20657c7c19619b831b8885c87f619b8.html">57c22c5ff20657c7c19619b831b8885c87f619b8</a>
+<b>parent</b> <a href="../commit/d010e249786b3d4e95ae5aaef4aa52a7b9fb89b8.html">d010e249786b3d4e95ae5aaef4aa52a7b9fb89b8</a>
+<b>Author:</b> Flor Chacón &lt;<a href="mailto:14323496+florelis@users.noreply.github.com">14323496+florelis@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Thu, 22 Aug 2024 10:31:34 -0700
+
+Generate test certificates in pipeline (#4747)
+
+The tests use test certificates for codesigning and for HTTPS with the
+localhost server. These test certificates were stored as secure files in
+the pipelines.
+
+This PR changes the test pipeline to generate the certificates on each
+run so that we don&#39;t need to create new certificates when they expire,
+or if we want to recreate the pipelines in a different ADO account.
+
+* Added pipeline steps to create/install the test certificates for
+codesigning and HTTPS. The scripts export the path and password (a GUID)
+as pipeline variables for use in subsequent tasks
+* Removed unnecessary BinSkim task (already included in official
+pipelines)
+* Removed unused certificates from the code (unrelated to the ones being
+replaced)
+* Updated hash tests that were using the existing certificates to use a
+different file, as the cert is no longer constant
+* Added collection of the logs from the localhost server and index
+creation; this requires stopping the server after it is used
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">3</td><td><span class="i"></span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">azure-pipelines.yml</a></td><td> | </td><td class="num">45</td><td><span class="i">+++++++++++++++++</span><span class="d">----------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLIE2ETests/Constants.cs</a></td><td> | </td><td class="num">3</td><td><span class="i"></span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLIE2ETests/HashCommand.cs</a></td><td> | </td><td class="num">8</td><td><span class="i">++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLIE2ETests/SetUpFixture.cs</a></td><td> | </td><td class="num">4</td><td><span class="i"></span><span class="d">----</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h5">src/AppInstallerCLIE2ETests/TestData/AppInstallerTest.cer</a></td><td> | </td><td class="num">0</td><td><span class="i"></span><span class="d"></span></td></tr>
+<tr><td class="D">D</td><td><a href="#h6">src/AppInstallerCLIE2ETests/TestData/IndexPackageIntRoot.cer</a></td><td> | </td><td class="num">0</td><td><span class="i"></span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerCLIE2ETests/TestData/localsource.json</a></td><td> | </td><td class="num">3</td><td><span class="i">++</span><span class="d">-</span></td></tr>
+<tr><td class="D">D</td><td><a href="#h8">src/LocalhostWebServer/InstallDevCert.ps1</a></td><td> | </td><td class="num">16</td><td><span class="i"></span><span class="d">----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/LocalhostWebServer/Program.cs</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a></td><td> | </td><td class="num">13</td><td><span class="i">++++++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">templates/e2e-setup.yml</a></td><td> | </td><td class="num">55</td><td><span class="i">++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------</span></td></tr>
+</table></pre><pre>12 files changed, 72 insertions(+), 80 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -30,7 +30,6 @@ appname
+</a> appshutdown
+ APPTERMINATION
+ archs
+<a href="#h0-0-3" id="h0-0-3" class="d">-argumentlist
+</a> ARMNT
+ arp
+ arphelper
+<a href="#h0-1" id="h0-1" class="h">@@ -390,7 +389,6 @@ Peet
+</a> peetdev
+ PEGI
+ pfn
+<a href="#h0-1-3" id="h0-1-3" class="d">-pfxpath
+</a> pgp
+ Pherson
+ pid
+<a href="#h0-2" id="h0-2" class="h">@@ -469,7 +467,6 @@ savepoint
+</a> schematab
+ Scm
+ sddl
+<a href="#h0-2-3" id="h0-2-3" class="d">-SECUREFILEPATH
+</a> secureobject
+ securestring
+ seof
+<b>diff --git a/<a id="h1" href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a> b/<a href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -259,7 +259,8 @@ jobs:
+</a>   - template: templates/e2e-setup.yml
+     parameters:
+       sourceDir: $(Build.SourcesDirectory)
+<a href="#h1-0-3" id="h1-0-3" class="d">-      localhostWebServerArgs: &#39;-BuildRoot $(artifactsDir)\E2ETests\LocalhostWebServer -StaticFileRoot $(Agent.TempDirectory)\TestLocalIndex -LocalSourceJson $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\localsource.json -TestDataPath $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer -ExitBeforeRun&#39;
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+      localhostWebServerArgs: &#39;-BuildRoot $(artifactsDir)\E2ETests\LocalhostWebServer -StaticFileRoot $(Agent.TempDirectory)\TestLocalIndex -LocalSourceJson $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\localsource.json -TestDataPath $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData -ExitBeforeRun&#39;
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+      signingCertOutDir: $(artifactsDir)\E2ETests
+</a> 
+   - task: CopyFiles@2
+     displayName: &#39;Copy TestLocalIndex&#39;
+<a href="#h1-1" id="h1-1" class="h">@@ -302,28 +303,6 @@ jobs:
+</a>       verbosity: &#39;Verbose&#39;
+       alertWarningLevel: &#39;High&#39;
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-  # Run BimSkim for all the binaries
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-  - task: BinSkim@4
+</a><a href="#h1-1-5" id="h1-1-5" class="d">-    displayName: &#39;Run BinSkim &#39;
+</a><a href="#h1-1-6" id="h1-1-6" class="d">-    inputs:
+</a><a href="#h1-1-7" id="h1-1-7" class="d">-      arguments: &#39;analyze
+</a><a href="#h1-1-8" id="h1-1-8" class="d">-        &quot;$(buildOutDir)\AppInstallerCLI\winget.exe&quot;
+</a><a href="#h1-1-9" id="h1-1-9" class="d">-        &quot;$(buildOutDir)\WinGetUtil\WinGetUtil.dll&quot;
+</a><a href="#h1-1-10" id="h1-1-10" class="d">-        &quot;$(buildOutDir)\WindowsPackageManager\WindowsPackageManager.dll&quot;
+</a><a href="#h1-1-11" id="h1-1-11" class="d">-        &quot;$(buildOutDir)\Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.InProc.dll&quot;
+</a><a href="#h1-1-12" id="h1-1-12" class="d">-        &quot;$(Build.SourcesDirectory)\src\WinGetUtilInterop\bin\WinGetUtil*Interop.dll&quot;
+</a><a href="#h1-1-13" id="h1-1-13" class="d">-        &quot;$(buildOutDir)\UndockedRegFreeWinRT\winrtact.dll&quot;
+</a><a href="#h1-1-14" id="h1-1-14" class="d">-        &quot;$(buildOutDir)\Microsoft.WinGet.Client.Cmdlets\Microsoft.WinGet.Client*.dll&quot;
+</a><a href="#h1-1-15" id="h1-1-15" class="d">-        &quot;$(buildOutDir)\ConfigurationRemotingServer\ConfigurationRemoting*Server.dll&quot;
+</a><a href="#h1-1-16" id="h1-1-16" class="d">-        &quot;$(buildOutDir)\ConfigurationRemotingServer\ConfigurationRemoting*Server.exe&quot;
+</a><a href="#h1-1-17" id="h1-1-17" class="d">-        &quot;$(buildOutDir)\ConfigurationRemotingServer\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h1-1-18" id="h1-1-18" class="d">-        &quot;$(buildOutDir)\Microsoft.Management.Configuration\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h1-1-19" id="h1-1-19" class="d">-        &quot;$(buildOutDir)\Microsoft.Management.Configuration.OutOfProc\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h1-1-20" id="h1-1-20" class="d">-        --config default --recurse&#39;
+</a><a href="#h1-1-21" id="h1-1-21" class="d">-
+</a><a href="#h1-1-22" id="h1-1-22" class="d">-  - task: securedevelopmentteam.vss-secure-development-tools.build-task-publishsecurityanalysislogs.PublishSecurityAnalysisLogs@3
+</a><a href="#h1-1-23" id="h1-1-23" class="d">-    displayName: &#39;Publish Security Analysis Logs&#39;
+</a><a href="#h1-1-24" id="h1-1-24" class="d">-
+</a> # Test job runs tests using build artifacts
+ 
+ - job: &#39;Test&#39;
+<a href="#h1-2" id="h1-2" class="h">@@ -431,7 +410,7 @@ jobs:
+</a>   - template: templates/e2e-setup.yml
+     parameters:
+       sourceDir: $(Build.SourcesDirectory)
+<a href="#h1-2-3" id="h1-2-3" class="d">-      localhostWebServerArgs: &#39;-BuildRoot $(buildOutDir)\E2ETests\LocalhostWebServer -StaticFileRoot $(buildOutDir)\E2ETests\TestLocalIndex -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer&#39;
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+      localhostWebServerArgs: &#39;-BuildRoot $(buildOutDir)\E2ETests\LocalhostWebServer -StaticFileRoot $(buildOutDir)\E2ETests\TestLocalIndex -SourceCert $(buildOutDir)\E2ETests\TestSigningCert.cer&#39;
+</a> 
+   - template: templates/e2e-test.template.yml
+     parameters:
+<a href="#h1-3" id="h1-3" class="h">@@ -511,6 +490,10 @@ jobs:
+</a>       arguments: &#39;-TargetLocation $(artifactsDir)\ConfigOOPTestsLog&#39;
+     condition: succeededOrFailed()
+ 
+<a href="#h1-3-3" id="h1-3-3" class="i">+  - powershell: Get-Process LocalhostWebServer | Stop-Process
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+    displayName: Stop LocalhostWebServer
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+    condition: succeededOrFailed()
+</a><a href="#h1-3-6" id="h1-3-6" class="i">+
+</a>   - task: PublishPipelineArtifact@1
+     displayName: Publish Pipeline Artifacts
+     inputs:
+<a href="#h1-4" id="h1-4" class="h">@@ -524,6 +507,8 @@ jobs:
+</a>   timeoutInMinutes: 120
+   dependsOn: &#39;Build&#39;
+   condition: succeeded(&#39;Build&#39;)
+<a href="#h1-4-3" id="h1-4-3" class="i">+  variables:
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+    buildOutDir: $(Pipeline.Workspace)\Build.x64Release
+</a> 
+   steps:
+   - task: DownloadPipelineArtifact@2
+<a href="#h1-5" id="h1-5" class="h">@@ -532,7 +517,7 @@ jobs:
+</a>   - task: CopyFiles@2
+     displayName: &#39;Copy x64 PowerShell Binaries to Output&#39;
+     inputs:
+<a href="#h1-5-3" id="h1-5-3" class="d">-      SourceFolder: &#39;$(Pipeline.Workspace)\Build.x64release\PowerShell&#39;
+</a><a href="#h1-5-4" id="h1-5-4" class="i">+      SourceFolder: &#39;$(buildOutDir)\PowerShell&#39;
+</a>       Contents: &#39;**\*&#39;
+       TargetFolder: &#39;$(Build.ArtifactStagingDirectory)&#39;
+ 
+<a href="#h1-6" id="h1-6" class="h">@@ -566,14 +551,14 @@ jobs:
+</a>       targetType: &#39;inline&#39;
+       script: |
+         Get-ChildItem AppxPackages\AppInstallerCLIPackage_0.0.2.0_Test\Dependencies\x64 -Filter *.appx | %{ Add-AppxPackage $_.FullName }
+<a href="#h1-6-3" id="h1-6-3" class="d">-      workingDirectory: $(Pipeline.Workspace)\Build.x64release\
+</a><a href="#h1-6-4" id="h1-6-4" class="i">+      workingDirectory: $(buildOutDir)
+</a> 
+   - template: templates/e2e-setup.yml
+     parameters:
+       sourceDir: $(Build.SourcesDirectory)
+<a href="#h1-6-9" id="h1-6-9" class="d">-      localhostWebServerArgs: &#39;-BuildRoot $(Pipeline.Workspace)\Build.x64release\E2ETests\LocalhostWebServer -StaticFileRoot $(Pipeline.Workspace)\Build.x64release\E2ETests\TestLocalIndex -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer&#39;
+</a><a href="#h1-6-10" id="h1-6-10" class="i">+      localhostWebServerArgs: &#39;-BuildRoot $(buildOutDir)\E2ETests\LocalhostWebServer -StaticFileRoot $(buildOutDir)\E2ETests\TestLocalIndex -SourceCert $(buildOutDir)\E2ETests\TestSigningCert.cer&#39;
+</a> 
+<a href="#h1-6-12" id="h1-6-12" class="d">-  - pwsh: .\RunTests.ps1 -testModulesPath $(Build.ArtifactStagingDirectory) -outputPath $(Pipeline.Workspace)\PesterTest -packageLayoutPath $(Pipeline.Workspace)\Build.x64release\DevPackage
+</a><a href="#h1-6-13" id="h1-6-13" class="i">+  - pwsh: .\RunTests.ps1 -testModulesPath $(Build.ArtifactStagingDirectory) -outputPath $(Pipeline.Workspace)\PesterTest -packageLayoutPath $(buildOutDir)\DevPackage
+</a>     workingDirectory: $(Build.SourcesDirectory)\src\PowerShell\tests\
+     displayName: Run PowerShell 7 Tests
+ 
+<a href="#h1-7" id="h1-7" class="h">@@ -582,6 +567,10 @@ jobs:
+</a>     displayName: Run Windows PowerShell Tests
+     condition: succeededOrFailed()
+ 
+<a href="#h1-7-3" id="h1-7-3" class="i">+  - powershell: Get-Process LocalhostWebServer | Stop-Process
+</a><a href="#h1-7-4" id="h1-7-4" class="i">+    displayName: Stop LocalhostWebServer
+</a><a href="#h1-7-5" id="h1-7-5" class="i">+    condition: succeededOrFailed()
+</a><a href="#h1-7-6" id="h1-7-6" class="i">+
+</a>   - task: PublishTestResults@2
+     displayName: Publish Pester Test Results PowerShell 7
+     inputs:
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLIE2ETests/Constants.cs.html">src/AppInstallerCLIE2ETests/Constants.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/Constants.cs.html">src/AppInstallerCLIE2ETests/Constants.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -45,9 +45,6 @@ namespace AppInstallerCLIE2ETests
+</a>         public const string TestSourceType = &quot;Microsoft.PreIndexed.Package&quot;;
+         public const string TestSourceIdentifier = @&quot;WingetE2E.Tests_8wekyb3d8bbwe&quot;;
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-        public const string AppInstallerTestCert = &quot;AppInstallerTest.cer&quot;;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-        public const string AppInstallerTestCertThumbprint = &quot;d03e7a688b388b1edde8476a627531c49db88017&quot;;
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-
+</a>         public const string AICLIPackageFamilyName = &quot;WinGetDevCLI_8wekyb3d8bbwe&quot;;
+         public const string AICLIPackageName = &quot;WinGetDevCLI&quot;;
+         public const string AICLIPackagePublisherHash = &quot;8wekyb3d8bbwe&quot;;
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLIE2ETests/HashCommand.cs.html">src/AppInstallerCLIE2ETests/HashCommand.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/HashCommand.cs.html">src/AppInstallerCLIE2ETests/HashCommand.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -21,9 +21,9 @@ namespace AppInstallerCLIE2ETests
+</a>         [Test]
+         public void HashFile()
+         {
+<a href="#h3-0-3" id="h3-0-3" class="d">-            var result = TestCommon.RunAICLICommand(&quot;hash&quot;, TestCommon.GetTestDataFile(&quot;AppInstallerTest.cer&quot;));
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+            var result = TestCommon.RunAICLICommand(&quot;hash&quot;, TestCommon.GetTestDataFile(&quot;AppInstallerTestMsiInstaller.msi&quot;));
+</a>             Assert.AreEqual(Constants.ErrorCode.S_OK, result.ExitCode);
+<a href="#h3-0-6" id="h3-0-6" class="d">-            Assert.True(result.StdOut.Contains(&quot;9b4c49ad7e47afd97d2e666e93347745e1647c55f1a7ebba6d31b7dd5f69ee68&quot;));
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+            Assert.True(result.StdOut.Contains(&quot;21d90ee9b3569590c624836ef50bf39791c7184869c227eedc00585e1f39b4de&quot;));
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h3-1" id="h3-1" class="h">@@ -44,9 +44,9 @@ namespace AppInstallerCLIE2ETests
+</a>         [Test]
+         public void HashInvalidMSIX()
+         {
+<a href="#h3-1-3" id="h3-1-3" class="d">-            var result = TestCommon.RunAICLICommand(&quot;hash&quot;, TestCommon.GetTestDataFile(&quot;AppInstallerTest.cer&quot;) + &quot; -m&quot;);
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+            var result = TestCommon.RunAICLICommand(&quot;hash&quot;, TestCommon.GetTestDataFile(&quot;AppInstallerTestMsiInstaller.msi&quot;) + &quot; -m&quot;);
+</a>             Assert.AreEqual(Constants.ErrorCode.OPC_E_ZIP_MISSING_END_OF_CENTRAL_DIRECTORY, result.ExitCode);
+<a href="#h3-1-6" id="h3-1-6" class="d">-            Assert.True(result.StdOut.Contains(&quot;9b4c49ad7e47afd97d2e666e93347745e1647c55f1a7ebba6d31b7dd5f69ee68&quot;));
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+            Assert.True(result.StdOut.Contains(&quot;21d90ee9b3569590c624836ef50bf39791c7184869c227eedc00585e1f39b4de&quot;));
+</a>             Assert.True(result.StdOut.Contains(&quot;Please verify that the input file is a valid, signed MSIX.&quot;));
+         }
+ 
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLIE2ETests/SetUpFixture.cs.html">src/AppInstallerCLIE2ETests/SetUpFixture.cs</a> b/<a href="../file/src/AppInstallerCLIE2ETests/SetUpFixture.cs.html">src/AppInstallerCLIE2ETests/SetUpFixture.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -41,8 +41,6 @@ namespace AppInstallerCLIE2ETests
+</a> 
+                 shouldRevertDefaultFileTypeRiskOnExit = this.DecreaseFileTypeRisk(&quot;.exe;.msi&quot;, false);
+ 
+<a href="#h4-0-3" id="h4-0-3" class="d">-                Assert.True(TestCommon.RunCommand(&quot;certutil.exe&quot;, &quot;-addstore -f \&quot;TRUSTEDPEOPLE\&quot; &quot; + TestCommon.GetTestDataFile(Constants.AppInstallerTestCert)), &quot;Add AppInstallerTestCert&quot;);
+</a><a href="#h4-0-4" id="h4-0-4" class="d">-
+</a>                 if (testParams.PackagedContext)
+                 {
+                     if (testParams.LooseFileRegistration)
+<a href="#h4-1" id="h4-1" class="h">@@ -83,8 +81,6 @@ namespace AppInstallerCLIE2ETests
+</a>                     this.DecreaseFileTypeRisk(defaultFileTypes, true);
+                 }
+ 
+<a href="#h4-1-3" id="h4-1-3" class="d">-                TestCommon.RunCommand(&quot;certutil.exe&quot;, $&quot;-delstore \&quot;TRUSTEDPEOPLE\&quot; {Constants.AppInstallerTestCertThumbprint}&quot;);
+</a><a href="#h4-1-4" id="h4-1-4" class="d">-
+</a>                 TestCommon.PublishE2ETestLogs();
+ 
+                 if (TestSetup.Parameters.PackagedContext)
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLIE2ETests/TestData/AppInstallerTest.cer.html">src/AppInstallerCLIE2ETests/TestData/AppInstallerTest.cer</a> b/<a href="../file/src/AppInstallerCLIE2ETests/TestData/AppInstallerTest.cer.html">src/AppInstallerCLIE2ETests/TestData/AppInstallerTest.cer</a></b>
+Binary files differ.
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerCLIE2ETests/TestData/IndexPackageIntRoot.cer.html">src/AppInstallerCLIE2ETests/TestData/IndexPackageIntRoot.cer</a> b/<a href="../file/src/AppInstallerCLIE2ETests/TestData/IndexPackageIntRoot.cer.html">src/AppInstallerCLIE2ETests/TestData/IndexPackageIntRoot.cer</a></b>
+Binary files differ.
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerCLIE2ETests/TestData/localsource.json.html">src/AppInstallerCLIE2ETests/TestData/localsource.json</a> b/<a href="../file/src/AppInstallerCLIE2ETests/TestData/localsource.json.html">src/AppInstallerCLIE2ETests/TestData/localsource.json</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -44,6 +44,7 @@
+</a>     }
+   ],
+   &quot;Signature&quot;: {
+<a href="#h7-0-3" id="h7-0-3" class="d">-    &quot;CertFile&quot;: &quot;%APPINSTALLERTEST_SECUREFILEPATH%&quot;
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+    &quot;CertFile&quot;: &quot;%TestSigningCert_PfxPath%&quot;,
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+    &quot;Password&quot;: &quot;%TestSigningCert_Password%&quot;
+</a>   }
+ }
+<b>diff --git a/<a id="h8" href="../file/src/LocalhostWebServer/InstallDevCert.ps1.html">src/LocalhostWebServer/InstallDevCert.ps1</a> b/<a href="../file/src/LocalhostWebServer/InstallDevCert.ps1.html">src/LocalhostWebServer/InstallDevCert.ps1</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -1,15 +0,0 @@
+</a><a href="#h8-0-0" id="h8-0-0" class="d">-param(
+</a><a href="#h8-0-1" id="h8-0-1" class="d">-    [Parameter(Mandatory=$true)]
+</a><a href="#h8-0-2" id="h8-0-2" class="d">-    [string]$pfxpath,
+</a><a href="#h8-0-3" id="h8-0-3" class="d">-
+</a><a href="#h8-0-4" id="h8-0-4" class="d">-    [Parameter(Mandatory=$true)]
+</a><a href="#h8-0-5" id="h8-0-5" class="d">-    [string]$password
+</a><a href="#h8-0-6" id="h8-0-6" class="d">-)
+</a><a href="#h8-0-7" id="h8-0-7" class="d">-
+</a><a href="#h8-0-8" id="h8-0-8" class="d">-Add-Type -AssemblyName System.Security
+</a><a href="#h8-0-9" id="h8-0-9" class="d">-$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+</a><a href="#h8-0-10" id="h8-0-10" class="d">-$cert.Import($pfxpath, $password, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]&quot;PersistKeySet&quot;)
+</a><a href="#h8-0-11" id="h8-0-11" class="d">-$store = new-object system.security.cryptography.X509Certificates.X509Store -argumentlist &quot;Root&quot;, LocalMachine
+</a><a href="#h8-0-12" id="h8-0-12" class="d">-$store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]&quot;ReadWrite&quot;)
+</a><a href="#h8-0-13" id="h8-0-13" class="d">-$store.Add($cert)
+</a><a href="#h8-0-14" id="h8-0-14" class="d">-$store.Close()</a><a href="#h8-0-15" id="h8-0-15" class="d">-
+\ No newline at end of file
+</a><b>diff --git a/<a id="h9" href="../file/src/LocalhostWebServer/Program.cs.html">src/LocalhostWebServer/Program.cs</a> b/<a href="../file/src/LocalhostWebServer/Program.cs.html">src/LocalhostWebServer/Program.cs</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -164,7 +164,7 @@ namespace LocalhostWebServer
+</a>             foreach (string file in files)
+             {
+                 string dest = Path.Combine(destDir, Path.GetFileName(file));
+<a href="#h9-0-3" id="h9-0-3" class="d">-                File.Copy(file, dest);
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+                File.Copy(file, dest, overwrite: true);
+</a>             }
+ 
+             string[] directories = Directory.GetDirectories(sourceDir);
+<b>diff --git a/<a id="h10" href="../file/src/LocalhostWebServer/Run-LocalhostWebServer.ps1.html">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a> b/<a href="../file/src/LocalhostWebServer/Run-LocalhostWebServer.ps1.html">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -54,8 +54,19 @@ if (-not [System.String]::IsNullOrEmpty($sourceCert))
+</a> 
+ Push-Location $BuildRoot
+ 
+<a href="#h10-0-3" id="h10-0-3" class="d">-$Local:process = Start-Process -FilePath &quot;LocalhostWebServer.exe&quot; -ArgumentList &quot;StaticFileRoot=$StaticFileRoot CertPath=$CertPath CertPassword=$CertPassword OutCertFile=$OutCertFile LocalSourceJson=$LocalSourceJson TestDataPath=$TestDataPath ExitBeforeRun=$ExitBeforeRun&quot; -PassThru
+</a><a href="#h10-0-4" id="h10-0-4" class="i">+$startProcessArguments = @{
+</a><a href="#h10-0-5" id="h10-0-5" class="i">+    FilePath = Join-Path $BuildRoot &quot;LocalhostWebServer.exe&quot;
+</a><a href="#h10-0-6" id="h10-0-6" class="i">+    ArgumentList = &quot;StaticFileRoot=$StaticFileRoot CertPath=$CertPath CertPassword=$CertPassword OutCertFile=$OutCertFile LocalSourceJson=$LocalSourceJson TestDataPath=$TestDataPath ExitBeforeRun=$ExitBeforeRun&quot;
+</a><a href="#h10-0-7" id="h10-0-7" class="i">+    PassThru = $true
+</a><a href="#h10-0-8" id="h10-0-8" class="i">+}
+</a><a href="#h10-0-9" id="h10-0-9" class="i">+
+</a><a href="#h10-0-10" id="h10-0-10" class="i">+if (-not [System.string]::IsNullOrEmpty($env:artifactsDir))
+</a><a href="#h10-0-11" id="h10-0-11" class="i">+{
+</a><a href="#h10-0-12" id="h10-0-12" class="i">+    $startProcessArguments.RedirectStandardOutput = Join-Path $env:artifactsDir &quot;LocalhostWebServer.out&quot;
+</a><a href="#h10-0-13" id="h10-0-13" class="i">+    $startProcessArguments.RedirectStandardError = Join-Path $env:artifactsDir &quot;LocalhostWebServer.err&quot;
+</a><a href="#h10-0-14" id="h10-0-14" class="i">+}
+</a> 
+<a href="#h10-0-16" id="h10-0-16" class="i">+$Local:process = Start-Process @startProcessArguments
+</a> 
+ if ($ExitBeforeRun)
+ {
+<b>diff --git a/<a id="h11" href="../file/templates/e2e-setup.yml.html">templates/e2e-setup.yml</a> b/<a href="../file/templates/e2e-setup.yml.html">templates/e2e-setup.yml</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -4,31 +4,48 @@ parameters:
+</a>   type: string
+ - name: localhostWebServerArgs
+   type: string
+<a href="#h11-0-3" id="h11-0-3" class="i">+- name: signingCertOutDir
+</a><a href="#h11-0-4" id="h11-0-4" class="i">+  type: string
+</a><a href="#h11-0-5" id="h11-0-5" class="i">+  default: $(Agent.TempDirectory)
+</a> 
+ steps:
+<a href="#h11-0-8" id="h11-0-8" class="d">-  - task: DownloadSecureFile@1
+</a><a href="#h11-0-9" id="h11-0-9" class="d">-    name: AppInstallerTest
+</a><a href="#h11-0-10" id="h11-0-10" class="d">-    displayName: &#39;Download Source Package Certificate&#39;
+</a><a href="#h11-0-11" id="h11-0-11" class="d">-    inputs:
+</a><a href="#h11-0-12" id="h11-0-12" class="d">-      secureFile: &#39;AppInstallerTest.pfx&#39;
+</a><a href="#h11-0-13" id="h11-0-13" class="i">+  - pwsh: |
+</a><a href="#h11-0-14" id="h11-0-14" class="i">+      $newCertArguments = @{
+</a><a href="#h11-0-15" id="h11-0-15" class="i">+        Type = &quot;Custom&quot;
+</a><a href="#h11-0-16" id="h11-0-16" class="i">+        Subject = &quot;CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US&quot;
+</a><a href="#h11-0-17" id="h11-0-17" class="i">+        KeyUsage = &quot;DigitalSignature&quot;
+</a><a href="#h11-0-18" id="h11-0-18" class="i">+        TextExtension = @(&quot;2.5.29.37={text}1.3.6.1.5.5.7.3.3&quot;, &quot;2.5.29.19={text}&quot;)
+</a><a href="#h11-0-19" id="h11-0-19" class="i">+        CertStoreLocation = &quot;Cert:\CurrentUser\My&quot;
+</a><a href="#h11-0-20" id="h11-0-20" class="i">+      }
+</a><a href="#h11-0-21" id="h11-0-21" class="i">+      $cert = New-SelfSignedCertificate @newCertArguments
+</a> 
+<a href="#h11-0-23" id="h11-0-23" class="d">-  - task: DownloadSecureFile@1
+</a><a href="#h11-0-24" id="h11-0-24" class="d">-    name: HTTPSDevCert
+</a><a href="#h11-0-25" id="h11-0-25" class="d">-    displayName: &#39;Download Kestrel Certificate&#39;
+</a><a href="#h11-0-26" id="h11-0-26" class="d">-    inputs:
+</a><a href="#h11-0-27" id="h11-0-27" class="d">-      secureFile: &#39;HTTPSDevCertV2.pfx&#39;
+</a><a href="#h11-0-28" id="h11-0-28" class="i">+      $certPfxPath = Join-Path $(Agent.TempDirectory) TestSigningCert.pfx
+</a><a href="#h11-0-29" id="h11-0-29" class="i">+      $certCerPath = Join-Path ${{ parameters.signingCertOutDir }} TestSigningCert.cer
+</a><a href="#h11-0-30" id="h11-0-30" class="i">+      $certPassword = (New-Guid).ToString()
+</a><a href="#h11-0-31" id="h11-0-31" class="i">+      $certSecurePassword = ConvertTo-SecureString $certPassword -AsPlainText
+</a> 
+<a href="#h11-0-33" id="h11-0-33" class="d">-  - task: PowerShell@2
+</a><a href="#h11-0-34" id="h11-0-34" class="d">-    displayName: Install Root Certificate
+</a><a href="#h11-0-35" id="h11-0-35" class="d">-    inputs:
+</a><a href="#h11-0-36" id="h11-0-36" class="d">-      filePath: &#39;${{ parameters.sourceDir }}\src\LocalhostWebServer\InstallDevCert.ps1&#39;
+</a><a href="#h11-0-37" id="h11-0-37" class="d">-      arguments: &#39;-pfxpath $(HTTPSDevCert.secureFilePath) -password microsoft&#39;
+</a><a href="#h11-0-38" id="h11-0-38" class="i">+      Export-PfxCertificate -Cert $cert -FilePath $certPfxPath -Password $certSecurePassword
+</a><a href="#h11-0-39" id="h11-0-39" class="i">+      Export-Certificate -Cert $cert -FilePath $certCerPath
+</a> 
+<a href="#h11-0-41" id="h11-0-41" class="d">-  - task: PowerShell@2
+</a><a href="#h11-0-42" id="h11-0-42" class="i">+      Write-Host &quot;##vso[task.setvariable variable=TestSigningCert.PfxPath;]$certPfxPath&quot;
+</a><a href="#h11-0-43" id="h11-0-43" class="i">+      Write-Host &quot;##vso[task.setvariable variable=TestSigningCert.CerPath;]$certCerPath&quot;
+</a><a href="#h11-0-44" id="h11-0-44" class="i">+      Write-Host &quot;##vso[task.setvariable variable=TestSigningCert.Password;]$certPassword&quot;
+</a><a href="#h11-0-45" id="h11-0-45" class="i">+    displayName: Create test codesigning cert
+</a><a href="#h11-0-46" id="h11-0-46" class="i">+
+</a><a href="#h11-0-47" id="h11-0-47" class="i">+  - pwsh: |
+</a><a href="#h11-0-48" id="h11-0-48" class="i">+      $httpsCertPath = Join-Path $(Agent.TempDirectory) HttpsCert.pfx
+</a><a href="#h11-0-49" id="h11-0-49" class="i">+      $httpsCertPassword = (New-Guid).ToString()
+</a><a href="#h11-0-50" id="h11-0-50" class="i">+      dotnet dev-certs https --export-path $httpsCertPath --password $httpsCertPassword
+</a><a href="#h11-0-51" id="h11-0-51" class="i">+
+</a><a href="#h11-0-52" id="h11-0-52" class="i">+      $securePassword = ConvertTo-SecureString $httpsCertPassword -AsPlainText
+</a><a href="#h11-0-53" id="h11-0-53" class="i">+      Import-PfxCertificate -FilePath $httpsCertPath -Password $securePassword -CertStoreLocation Cert:\LocalMachine\Root
+</a><a href="#h11-0-54" id="h11-0-54" class="i">+
+</a><a href="#h11-0-55" id="h11-0-55" class="i">+      Write-Host &quot;##vso[task.setvariable variable=HttpsCert.Path;]$httpsCertPath&quot;
+</a><a href="#h11-0-56" id="h11-0-56" class="i">+      Write-Host &quot;##vso[task.setvariable variable=HttpsCert.Password;]$httpsCertPassword&quot;
+</a><a href="#h11-0-57" id="h11-0-57" class="i">+    displayName: Create and install localhost HTTPS cert
+</a><a href="#h11-0-58" id="h11-0-58" class="i">+
+</a><a href="#h11-0-59" id="h11-0-59" class="i">+  - pwsh: ${{ parameters.sourceDir }}\src\LocalhostWebServer\Run-LocalhostWebServer.ps1 -CertPath $(HttpsCert.Path) -CertPassword $(HttpsCert.Password) -OutCertFile $(Agent.TempDirectory)\servercert.cer ${{ parameters.localhostWebServerArgs }}
+</a>     displayName: Launch LocalhostWebServer
+<a href="#h11-0-61" id="h11-0-61" class="d">-    inputs:
+</a><a href="#h11-0-62" id="h11-0-62" class="d">-      filePath: &#39;${{ parameters.sourceDir }}\src\LocalhostWebServer\Run-LocalhostWebServer.ps1&#39;
+</a><a href="#h11-0-63" id="h11-0-63" class="d">-      arguments: &#39;-CertPath $(HTTPSDevCert.secureFilePath) -CertPassword microsoft -OutCertFile $(Agent.TempDirectory)\servercert.cer ${{ parameters.localhostWebServerArgs }}&#39;
+</a> 
+   - task: PowerShell@2
+     displayName: Setup Local PS Repository
+</pre>
+</div>
+</body>
+</html>

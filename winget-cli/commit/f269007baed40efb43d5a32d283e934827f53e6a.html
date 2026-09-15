@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix PSInstalledCatalogPackage being piped to Upgrade-WinGetPackage (#3174) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/f269007baed40efb43d5a32d283e934827f53e6a.html">f269007baed40efb43d5a32d283e934827f53e6a</a>
+<b>parent</b> <a href="../commit/9d5cf1c8964744d77e138138033bda4ce8b31bae.html">9d5cf1c8964744d77e138138033bda4ce8b31bae</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 26 Apr 2023 11:55:25 -0700
+
+Fix PSInstalledCatalogPackage being piped to Upgrade-WinGetPackage (#3174)
+
+In Update-WinGetPackage, the pipeline can set the PSCatalogPackage can be set by value or property name and the Version by property name.
+
+The result of Get-WinGetPackage piped to Update-WinGetPackage results in both properties being set. In this case, the version is not the desired version to update but the installed version. Internally, when we iterate through all the available versions of the catalog package object we will throw InvalidVersionException because well the version is not available...
+
+To fix it, I renamed the Version property of the PSInstalledCatalogPackage to InstalledVersion to mimic what the underlying catalog package property actually is. This way the version will not be piped into Update-WinGetPackage but the caller can also specify which one it wants to update giving a better experience.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSCatalogPackage.cs</a></td><td> | </td><td class="num">5</td><td><span class="i"></span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSFoundCatalogPackage.cs</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSInstalledCatalogPackage.cs</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/PowerShell/Microsoft.WinGet.Client/ModuleFiles/Format.ps1xml</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+</table></pre><pre>4 files changed, 9 insertions(+), 10 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSCatalogPackage.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSCatalogPackage.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSCatalogPackage.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSCatalogPackage.cs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -80,11 +80,6 @@ namespace Microsoft.WinGet.Client.Engine.PSObjects
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h0-0-3" id="h0-0-3" class="d">-        /// Gets the version of the catalog package.
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-        public abstract string Version { get; }
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-        /// &lt;summary&gt;
+</a>         /// Gets the catalog package COM object.
+         /// &lt;/summary&gt;
+         internal CatalogPackage CatalogPackageCOM { get; private set; }
+<b>diff --git a/<a id="h1" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSFoundCatalogPackage.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSFoundCatalogPackage.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSFoundCatalogPackage.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSFoundCatalogPackage.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -22,8 +22,10 @@ namespace Microsoft.WinGet.Client.Engine.PSObjects
+</a>         {
+         }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        /// &lt;inheritdoc/&gt;
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-        public override string Version
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        /// &lt;summary&gt;
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        /// Gets the default install version of the catalog package.
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        public string Version
+</a>         {
+             get { return this.CatalogPackageCOM.DefaultInstallVersion.Version; }
+         }
+<b>diff --git a/<a id="h2" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSInstalledCatalogPackage.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSInstalledCatalogPackage.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSInstalledCatalogPackage.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/PSObjects/PSInstalledCatalogPackage.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -22,8 +22,10 @@ namespace Microsoft.WinGet.Client.Engine.PSObjects
+</a>         {
+         }
+ 
+<a href="#h2-0-3" id="h2-0-3" class="d">-        /// &lt;inheritdoc/&gt;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-        public override string Version
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+        /// &lt;summary&gt;
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        /// Gets the installed version of the catalog package.
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+        public string InstalledVersion
+</a>         {
+             get { return this.CatalogPackageCOM.InstalledVersion.Version; }
+         }
+<b>diff --git a/<a id="h3" href="../file/src/PowerShell/Microsoft.WinGet.Client/ModuleFiles/Format.ps1xml.html">src/PowerShell/Microsoft.WinGet.Client/ModuleFiles/Format.ps1xml</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client/ModuleFiles/Format.ps1xml.html">src/PowerShell/Microsoft.WinGet.Client/ModuleFiles/Format.ps1xml</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -74,7 +74,7 @@
+</a>                 &lt;ScriptBlock&gt;$_.Id&lt;/ScriptBlock&gt;
+               &lt;/TableColumnItem&gt;
+               &lt;TableColumnItem&gt;
+<a href="#h3-0-3" id="h3-0-3" class="d">-                &lt;ScriptBlock&gt;$_.Version&lt;/ScriptBlock&gt;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+                &lt;ScriptBlock&gt;$_.InstalledVersion&lt;/ScriptBlock&gt;
+</a>               &lt;/TableColumnItem&gt;
+               &lt;TableColumnItem&gt;
+                 &lt;ScriptBlock&gt;if ($_.IsUpdateAvailable) { $_.AvailableVersions[0] }&lt;/ScriptBlock&gt;
+</pre>
+</div>
+</body>
+</html>

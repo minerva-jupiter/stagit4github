@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>UserSettings.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> UserSettings.cpp (23471B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;AppInstallerRuntime.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;AppInstallerLanguageUtilities.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;AppInstallerLogging.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;winget/JsonUtil.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;winget/Settings.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;winget/UserSettings.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> #include &quot;winget/filesystem.h&quot;
+<a href="#l11" class="line" id="l11">     11</a> 
+<a href="#l12" class="line" id="l12">     12</a> #include &quot;AppInstallerArchitecture.h&quot;
+<a href="#l13" class="line" id="l13">     13</a> #include &quot;winget/Locale.h&quot;
+<a href="#l14" class="line" id="l14">     14</a> 
+<a href="#l15" class="line" id="l15">     15</a> namespace AppInstaller::Settings
+<a href="#l16" class="line" id="l16">     16</a> {
+<a href="#l17" class="line" id="l17">     17</a>     using namespace std::string_view_literals;
+<a href="#l18" class="line" id="l18">     18</a>     using namespace Runtime;
+<a href="#l19" class="line" id="l19">     19</a>     using namespace Utility;
+<a href="#l20" class="line" id="l20">     20</a>     using namespace Logging;
+<a href="#l21" class="line" id="l21">     21</a>     using namespace JSON;
+<a href="#l22" class="line" id="l22">     22</a>     using namespace Filesystem;
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a>     static constexpr std::string_view s_SettingEmpty =
+<a href="#l25" class="line" id="l25">     25</a>         R&quot;({
+<a href="#l26" class="line" id="l26">     26</a>     &quot;$schema&quot;: &quot;https://aka.ms/winget-settings.schema.json&quot;,
+<a href="#l27" class="line" id="l27">     27</a> 
+<a href="#l28" class="line" id="l28">     28</a>     // For documentation on these settings, see: https://aka.ms/winget-settings
+<a href="#l29" class="line" id="l29">     29</a>     // &quot;source&quot;: {
+<a href="#l30" class="line" id="l30">     30</a>     //    &quot;autoUpdateIntervalInMinutes&quot;: 5
+<a href="#l31" class="line" id="l31">     31</a>     // },
+<a href="#l32" class="line" id="l32">     32</a> })&quot;sv;
+<a href="#l33" class="line" id="l33">     33</a> 
+<a href="#l34" class="line" id="l34">     34</a>     namespace
+<a href="#l35" class="line" id="l35">     35</a>     {
+<a href="#l36" class="line" id="l36">     36</a>         template&lt;class T&gt;
+<a href="#l37" class="line" id="l37">     37</a>         inline std::string GetValueString(T value)
+<a href="#l38" class="line" id="l38">     38</a>         {
+<a href="#l39" class="line" id="l39">     39</a>             std::string convertedValue;
+<a href="#l40" class="line" id="l40">     40</a> 
+<a href="#l41" class="line" id="l41">     41</a>             if constexpr (std::is_arithmetic_v&lt;T&gt;)
+<a href="#l42" class="line" id="l42">     42</a>             {
+<a href="#l43" class="line" id="l43">     43</a>                 convertedValue = std::to_string(value);
+<a href="#l44" class="line" id="l44">     44</a>             }
+<a href="#l45" class="line" id="l45">     45</a>             else
+<a href="#l46" class="line" id="l46">     46</a>             {
+<a href="#l47" class="line" id="l47">     47</a>                 convertedValue = value;
+<a href="#l48" class="line" id="l48">     48</a>             }
+<a href="#l49" class="line" id="l49">     49</a> 
+<a href="#l50" class="line" id="l50">     50</a>             return convertedValue;
+<a href="#l51" class="line" id="l51">     51</a>         }
+<a href="#l52" class="line" id="l52">     52</a> 
+<a href="#l53" class="line" id="l53">     53</a>         template&lt;&gt;
+<a href="#l54" class="line" id="l54">     54</a>         inline std::string GetValueString(std::vector&lt;std::string&gt; value)
+<a href="#l55" class="line" id="l55">     55</a>         {
+<a href="#l56" class="line" id="l56">     56</a>             std::string convertedValue = &quot;[&quot;;
+<a href="#l57" class="line" id="l57">     57</a> 
+<a href="#l58" class="line" id="l58">     58</a>             bool first = true;
+<a href="#l59" class="line" id="l59">     59</a>             for (auto const&amp; entry : value)
+<a href="#l60" class="line" id="l60">     60</a>             {
+<a href="#l61" class="line" id="l61">     61</a>                 if (first)
+<a href="#l62" class="line" id="l62">     62</a>                 {
+<a href="#l63" class="line" id="l63">     63</a>                     first = false;
+<a href="#l64" class="line" id="l64">     64</a>                 }
+<a href="#l65" class="line" id="l65">     65</a>                 else
+<a href="#l66" class="line" id="l66">     66</a>                 {
+<a href="#l67" class="line" id="l67">     67</a>                     convertedValue += &quot;, &quot;;
+<a href="#l68" class="line" id="l68">     68</a>                 }
+<a href="#l69" class="line" id="l69">     69</a> 
+<a href="#l70" class="line" id="l70">     70</a>                 convertedValue += entry;
+<a href="#l71" class="line" id="l71">     71</a>             }
+<a href="#l72" class="line" id="l72">     72</a> 
+<a href="#l73" class="line" id="l73">     73</a>             convertedValue += &#39;]&#39;;
+<a href="#l74" class="line" id="l74">     74</a> 
+<a href="#l75" class="line" id="l75">     75</a>             return convertedValue;
+<a href="#l76" class="line" id="l76">     76</a>         }
+<a href="#l77" class="line" id="l77">     77</a> 
+<a href="#l78" class="line" id="l78">     78</a>         std::optional&lt;Json::Value&gt; ParseSettingsContent(const std::string&amp; content, std::string_view settingName, std::vector&lt;UserSettings::Warning&gt;&amp; warnings)
+<a href="#l79" class="line" id="l79">     79</a>         {
+<a href="#l80" class="line" id="l80">     80</a>             Json::Value root;
+<a href="#l81" class="line" id="l81">     81</a>             Json::CharReaderBuilder builder;
+<a href="#l82" class="line" id="l82">     82</a>             const std::unique_ptr&lt;Json::CharReader&gt; reader(builder.newCharReader());
+<a href="#l83" class="line" id="l83">     83</a>             std::string error;
+<a href="#l84" class="line" id="l84">     84</a> 
+<a href="#l85" class="line" id="l85">     85</a>             if (reader-&gt;parse(content.c_str(), content.c_str() + content.size(), &amp;root, &amp;error))
+<a href="#l86" class="line" id="l86">     86</a>             {
+<a href="#l87" class="line" id="l87">     87</a>                 return root;
+<a href="#l88" class="line" id="l88">     88</a>             }
+<a href="#l89" class="line" id="l89">     89</a> 
+<a href="#l90" class="line" id="l90">     90</a>             AICLI_LOG(Core, Error, &lt;&lt; &quot;Error parsing &quot; &lt;&lt; settingName &lt;&lt; &quot;: &quot; &lt;&lt; error);
+<a href="#l91" class="line" id="l91">     91</a>             warnings.emplace_back(StringResource::String::SettingsWarningParseError, settingName, error, false);
+<a href="#l92" class="line" id="l92">     92</a> 
+<a href="#l93" class="line" id="l93">     93</a>             return {};
+<a href="#l94" class="line" id="l94">     94</a>         }
+<a href="#l95" class="line" id="l95">     95</a> 
+<a href="#l96" class="line" id="l96">     96</a>         std::optional&lt;Json::Value&gt; ParseFile(const StreamDefinition&amp; setting, std::vector&lt;UserSettings::Warning&gt;&amp; warnings)
+<a href="#l97" class="line" id="l97">     97</a>         {
+<a href="#l98" class="line" id="l98">     98</a>             try
+<a href="#l99" class="line" id="l99">     99</a>             {
+<a href="#l100" class="line" id="l100">    100</a>                 auto stream = Stream{ setting }.Get();
+<a href="#l101" class="line" id="l101">    101</a>                 if (stream)
+<a href="#l102" class="line" id="l102">    102</a>                 {
+<a href="#l103" class="line" id="l103">    103</a>                     std::string settingsContentStr = Utility::ReadEntireStream(*stream);
+<a href="#l104" class="line" id="l104">    104</a>                     return ParseSettingsContent(settingsContentStr, setting.Name, warnings);
+<a href="#l105" class="line" id="l105">    105</a>                 }
+<a href="#l106" class="line" id="l106">    106</a>             }
+<a href="#l107" class="line" id="l107">    107</a>             catch (const std::exception&amp; e)
+<a href="#l108" class="line" id="l108">    108</a>             {
+<a href="#l109" class="line" id="l109">    109</a>                 AICLI_LOG(Core, Error, &lt;&lt; &quot;Failed to read &quot; &lt;&lt; setting.Name &lt;&lt; &quot;; Reason: &quot; &lt;&lt; e.what());
+<a href="#l110" class="line" id="l110">    110</a>             }
+<a href="#l111" class="line" id="l111">    111</a>             catch (...)
+<a href="#l112" class="line" id="l112">    112</a>             {
+<a href="#l113" class="line" id="l113">    113</a>                 AICLI_LOG(Core, Error, &lt;&lt; &quot;Failed to read &quot; &lt;&lt; setting.Name &lt;&lt; &quot;; Reason unknown.&quot;);
+<a href="#l114" class="line" id="l114">    114</a>             }
+<a href="#l115" class="line" id="l115">    115</a> 
+<a href="#l116" class="line" id="l116">    116</a>             return {};
+<a href="#l117" class="line" id="l117">    117</a>         }
+<a href="#l118" class="line" id="l118">    118</a> 
+<a href="#l119" class="line" id="l119">    119</a>         template &lt;Setting S&gt;
+<a href="#l120" class="line" id="l120">    120</a>         std::optional&lt;typename details::SettingMapping&lt;S&gt;::json_t&gt; GetValueFromPolicy()
+<a href="#l121" class="line" id="l121">    121</a>         {
+<a href="#l122" class="line" id="l122">    122</a>             return GroupPolicies().GetValue&lt;details::SettingMapping&lt;S&gt;::Policy&gt;();
+<a href="#l123" class="line" id="l123">    123</a>         }
+<a href="#l124" class="line" id="l124">    124</a> 
+<a href="#l125" class="line" id="l125">    125</a>         template &lt;Setting S&gt;
+<a href="#l126" class="line" id="l126">    126</a>         void Validate(
+<a href="#l127" class="line" id="l127">    127</a>             Json::Value&amp; root,
+<a href="#l128" class="line" id="l128">    128</a>             std::map&lt;Setting, details::SettingVariant&gt;&amp; settings,
+<a href="#l129" class="line" id="l129">    129</a>             std::vector&lt;UserSettings::Warning&gt;&amp; warnings)
+<a href="#l130" class="line" id="l130">    130</a>         {
+<a href="#l131" class="line" id="l131">    131</a>             // jsoncpp doesn&#39;t support std::string_view yet.
+<a href="#l132" class="line" id="l132">    132</a>             auto path = std::string(details::SettingMapping&lt;S&gt;::Path);
+<a href="#l133" class="line" id="l133">    133</a> 
+<a href="#l134" class="line" id="l134">    134</a>             // Settings set by Group Policy override anything else. See if there is one.
+<a href="#l135" class="line" id="l135">    135</a>             auto policyValue = GetValueFromPolicy&lt;S&gt;();
+<a href="#l136" class="line" id="l136">    136</a>             if (policyValue.has_value())
+<a href="#l137" class="line" id="l137">    137</a>             {
+<a href="#l138" class="line" id="l138">    138</a>                 // If the value is valid, use it.
+<a href="#l139" class="line" id="l139">    139</a>                 // Otherwise, fall back to default.
+<a href="#l140" class="line" id="l140">    140</a>                 // In any case, we do not need to read the setting from the JSON.
+<a href="#l141" class="line" id="l141">    141</a>                 auto validatedValue = details::SettingMapping&lt;S&gt;::Validate(policyValue.value());
+<a href="#l142" class="line" id="l142">    142</a>                 if (validatedValue.has_value())
+<a href="#l143" class="line" id="l143">    143</a>                 {
+<a href="#l144" class="line" id="l144">    144</a>                     // Add it to the map
+<a href="#l145" class="line" id="l145">    145</a>                     settings[S].emplace&lt;details::SettingIndex(S)&gt;(
+<a href="#l146" class="line" id="l146">    146</a>                         std::forward&lt;typename details::SettingMapping&lt;S&gt;::value_t&gt;(validatedValue.value()));
+<a href="#l147" class="line" id="l147">    147</a>                     AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Valid setting from Group Policy. Field: &quot; &lt;&lt; path &lt;&lt; &quot; Value: &quot; &lt;&lt; GetValueString(policyValue.value()));
+<a href="#l148" class="line" id="l148">    148</a>                 }
+<a href="#l149" class="line" id="l149">    149</a>                 else
+<a href="#l150" class="line" id="l150">    150</a>                 {
+<a href="#l151" class="line" id="l151">    151</a>                     auto valueAsString = GetValueString(policyValue.value());
+<a href="#l152" class="line" id="l152">    152</a>                     AICLI_LOG(Core, Error, &lt;&lt; &quot;Invalid setting from Group Policy. Field: &quot; &lt;&lt; path &lt;&lt; &quot; Value: &quot; &lt;&lt; valueAsString);
+<a href="#l153" class="line" id="l153">    153</a>                     warnings.emplace_back(StringResource::String::SettingsWarningInvalidValueFromPolicy, path, valueAsString);
+<a href="#l154" class="line" id="l154">    154</a>                 }
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a>                 return;
+<a href="#l157" class="line" id="l157">    157</a>             }
+<a href="#l158" class="line" id="l158">    158</a> 
+<a href="#l159" class="line" id="l159">    159</a>             const Json::Path jsonPath(path);
+<a href="#l160" class="line" id="l160">    160</a>             Json::Value result = jsonPath.resolve(root);
+<a href="#l161" class="line" id="l161">    161</a>             if (!result.isNull())
+<a href="#l162" class="line" id="l162">    162</a>             {
+<a href="#l163" class="line" id="l163">    163</a>                 auto jsonValue = GetValue&lt;typename details::SettingMapping&lt;S&gt;::json_t&gt;(result);
+<a href="#l164" class="line" id="l164">    164</a> 
+<a href="#l165" class="line" id="l165">    165</a>                 if (jsonValue.has_value())
+<a href="#l166" class="line" id="l166">    166</a>                 {
+<a href="#l167" class="line" id="l167">    167</a>                     auto validatedValue = details::SettingMapping&lt;S&gt;::Validate(jsonValue.value());
+<a href="#l168" class="line" id="l168">    168</a> 
+<a href="#l169" class="line" id="l169">    169</a>                     if (validatedValue.has_value())
+<a href="#l170" class="line" id="l170">    170</a>                     {
+<a href="#l171" class="line" id="l171">    171</a>                         // Finally add it to the map
+<a href="#l172" class="line" id="l172">    172</a>                         settings[S].emplace&lt;details::SettingIndex(S)&gt;(
+<a href="#l173" class="line" id="l173">    173</a>                             std::forward&lt;typename details::SettingMapping&lt;S&gt;::value_t&gt;(validatedValue.value()));
+<a href="#l174" class="line" id="l174">    174</a>                         AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Valid setting. Field: &quot; &lt;&lt; path &lt;&lt; &quot; Value: &quot; &lt;&lt; GetValueString(jsonValue.value()));
+<a href="#l175" class="line" id="l175">    175</a>                     }
+<a href="#l176" class="line" id="l176">    176</a>                     else
+<a href="#l177" class="line" id="l177">    177</a>                     {
+<a href="#l178" class="line" id="l178">    178</a>                         auto valueAsString = GetValueString(jsonValue.value());
+<a href="#l179" class="line" id="l179">    179</a>                         AICLI_LOG(Core, Error, &lt;&lt; &quot;Invalid field value. Field: &quot; &lt;&lt; path &lt;&lt; &quot; Value: &quot; &lt;&lt; valueAsString);
+<a href="#l180" class="line" id="l180">    180</a>                         warnings.emplace_back(StringResource::String::SettingsWarningInvalidFieldValue, path, valueAsString);
+<a href="#l181" class="line" id="l181">    181</a>                     }
+<a href="#l182" class="line" id="l182">    182</a>                 }
+<a href="#l183" class="line" id="l183">    183</a>                 else
+<a href="#l184" class="line" id="l184">    184</a>                 {
+<a href="#l185" class="line" id="l185">    185</a>                     AICLI_LOG(Core, Error, &lt;&lt; &quot;Invalid field format. Field: &quot; &lt;&lt; path &lt;&lt; &quot; Using default&quot;);
+<a href="#l186" class="line" id="l186">    186</a>                     warnings.emplace_back(StringResource::String::SettingsWarningInvalidFieldFormat, path);
+<a href="#l187" class="line" id="l187">    187</a>                 }
+<a href="#l188" class="line" id="l188">    188</a>             }
+<a href="#l189" class="line" id="l189">    189</a>             else
+<a href="#l190" class="line" id="l190">    190</a>             {
+<a href="#l191" class="line" id="l191">    191</a>                 AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Setting &quot; &lt;&lt; path &lt;&lt; &quot; not found. Using default&quot;);
+<a href="#l192" class="line" id="l192">    192</a>             }
+<a href="#l193" class="line" id="l193">    193</a>         }
+<a href="#l194" class="line" id="l194">    194</a> 
+<a href="#l195" class="line" id="l195">    195</a>         template &lt;size_t... S&gt;
+<a href="#l196" class="line" id="l196">    196</a>         void ValidateAll(
+<a href="#l197" class="line" id="l197">    197</a>             Json::Value&amp; root,
+<a href="#l198" class="line" id="l198">    198</a>             std::map&lt;Setting, details::SettingVariant&gt;&amp; settings,
+<a href="#l199" class="line" id="l199">    199</a>             std::vector&lt;UserSettings::Warning&gt;&amp; warnings,
+<a href="#l200" class="line" id="l200">    200</a>             std::index_sequence&lt;S...&gt;)
+<a href="#l201" class="line" id="l201">    201</a>         {
+<a href="#l202" class="line" id="l202">    202</a>             // Use folding to call each setting validate function.
+<a href="#l203" class="line" id="l203">    203</a>             (FoldHelper{}, ..., Validate&lt;static_cast&lt;Setting&gt;(S)&gt;(root, settings, warnings));
+<a href="#l204" class="line" id="l204">    204</a>         }
+<a href="#l205" class="line" id="l205">    205</a> 
+<a href="#l206" class="line" id="l206">    206</a>         std::optional&lt;std::filesystem::path&gt; ValidatePathValue(std::string_view value)
+<a href="#l207" class="line" id="l207">    207</a>         {
+<a href="#l208" class="line" id="l208">    208</a>             std::filesystem::path path = ConvertToUTF16(value);
+<a href="#l209" class="line" id="l209">    209</a>             if (!path.is_absolute())
+<a href="#l210" class="line" id="l210">    210</a>             {
+<a href="#l211" class="line" id="l211">    211</a>                 return {};
+<a href="#l212" class="line" id="l212">    212</a>             }
+<a href="#l213" class="line" id="l213">    213</a> 
+<a href="#l214" class="line" id="l214">    214</a>             return path;
+<a href="#l215" class="line" id="l215">    215</a>         }
+<a href="#l216" class="line" id="l216">    216</a>     }
+<a href="#l217" class="line" id="l217">    217</a> 
+<a href="#l218" class="line" id="l218">    218</a>     namespace details
+<a href="#l219" class="line" id="l219">    219</a>     {
+<a href="#l220" class="line" id="l220">    220</a> #define WINGET_VALIDATE_SIGNATURE(_setting_) \
+<a href="#l221" class="line" id="l221">    221</a>         std::optional&lt;SettingMapping&lt;Setting::_setting_&gt;::value_t&gt; \
+<a href="#l222" class="line" id="l222">    222</a>         SettingMapping&lt;Setting::_setting_&gt;::Validate(const SettingMapping&lt;Setting::_setting_&gt;::json_t&amp; value)
+<a href="#l223" class="line" id="l223">    223</a> 
+<a href="#l224" class="line" id="l224">    224</a>         // Stamps out a validate function that simply returns the input value.
+<a href="#l225" class="line" id="l225">    225</a> #define WINGET_VALIDATE_PASS_THROUGH(_setting_) \
+<a href="#l226" class="line" id="l226">    226</a>         WINGET_VALIDATE_SIGNATURE(_setting_) \
+<a href="#l227" class="line" id="l227">    227</a>         { \
+<a href="#l228" class="line" id="l228">    228</a>             return value; \
+<a href="#l229" class="line" id="l229">    229</a>         }
+<a href="#l230" class="line" id="l230">    230</a> 
+<a href="#l231" class="line" id="l231">    231</a>         WINGET_VALIDATE_SIGNATURE(AutoUpdateTimeInMinutes)
+<a href="#l232" class="line" id="l232">    232</a>         {
+<a href="#l233" class="line" id="l233">    233</a>             return std::chrono::minutes(value);
+<a href="#l234" class="line" id="l234">    234</a>         }
+<a href="#l235" class="line" id="l235">    235</a> 
+<a href="#l236" class="line" id="l236">    236</a>         WINGET_VALIDATE_SIGNATURE(ProgressBarVisualStyle)
+<a href="#l237" class="line" id="l237">    237</a>         {
+<a href="#l238" class="line" id="l238">    238</a>             std::string lowerValue = ToLower(value);
+<a href="#l239" class="line" id="l239">    239</a> 
+<a href="#l240" class="line" id="l240">    240</a>             if (value == &quot;accent&quot;)
+<a href="#l241" class="line" id="l241">    241</a>             {
+<a href="#l242" class="line" id="l242">    242</a>                 return VisualStyle::Accent;
+<a href="#l243" class="line" id="l243">    243</a>             }
+<a href="#l244" class="line" id="l244">    244</a>             else if (value == &quot;rainbow&quot;)
+<a href="#l245" class="line" id="l245">    245</a>             {
+<a href="#l246" class="line" id="l246">    246</a>                 return VisualStyle::Rainbow;
+<a href="#l247" class="line" id="l247">    247</a>             }
+<a href="#l248" class="line" id="l248">    248</a>             else if (value == &quot;retro&quot;)
+<a href="#l249" class="line" id="l249">    249</a>             {
+<a href="#l250" class="line" id="l250">    250</a>                 return VisualStyle::Retro;
+<a href="#l251" class="line" id="l251">    251</a>             }
+<a href="#l252" class="line" id="l252">    252</a>             else if (value == &quot;sixel&quot;)
+<a href="#l253" class="line" id="l253">    253</a>             {
+<a href="#l254" class="line" id="l254">    254</a>                 return VisualStyle::Sixel;
+<a href="#l255" class="line" id="l255">    255</a>             }
+<a href="#l256" class="line" id="l256">    256</a>             else if (value == &quot;disabled&quot;)
+<a href="#l257" class="line" id="l257">    257</a>             {
+<a href="#l258" class="line" id="l258">    258</a>                 return VisualStyle::Disabled;
+<a href="#l259" class="line" id="l259">    259</a>             }
+<a href="#l260" class="line" id="l260">    260</a> 
+<a href="#l261" class="line" id="l261">    261</a>             return {};
+<a href="#l262" class="line" id="l262">    262</a>         }
+<a href="#l263" class="line" id="l263">    263</a> 
+<a href="#l264" class="line" id="l264">    264</a>         WINGET_VALIDATE_PASS_THROUGH(EnableSixelDisplay)
+<a href="#l265" class="line" id="l265">    265</a>         WINGET_VALIDATE_PASS_THROUGH(EFExperimentalCmd)
+<a href="#l266" class="line" id="l266">    266</a>         WINGET_VALIDATE_PASS_THROUGH(EFExperimentalArg)
+<a href="#l267" class="line" id="l267">    267</a>         WINGET_VALIDATE_PASS_THROUGH(EFDirectMSI)
+<a href="#l268" class="line" id="l268">    268</a>         WINGET_VALIDATE_PASS_THROUGH(EFResume)
+<a href="#l269" class="line" id="l269">    269</a>         WINGET_VALIDATE_PASS_THROUGH(EFFonts)
+<a href="#l270" class="line" id="l270">    270</a>         WINGET_VALIDATE_PASS_THROUGH(AnonymizePathForDisplay)
+<a href="#l271" class="line" id="l271">    271</a>         WINGET_VALIDATE_PASS_THROUGH(TelemetryDisable)
+<a href="#l272" class="line" id="l272">    272</a>         WINGET_VALIDATE_PASS_THROUGH(InteractivityDisable)
+<a href="#l273" class="line" id="l273">    273</a>         WINGET_VALIDATE_PASS_THROUGH(InstallSkipDependencies)
+<a href="#l274" class="line" id="l274">    274</a>         WINGET_VALIDATE_PASS_THROUGH(DisableInstallNotes)
+<a href="#l275" class="line" id="l275">    275</a>         WINGET_VALIDATE_PASS_THROUGH(UninstallPurgePortablePackage)
+<a href="#l276" class="line" id="l276">    276</a>         WINGET_VALIDATE_PASS_THROUGH(NetworkWingetAlternateSourceURL)
+<a href="#l277" class="line" id="l277">    277</a>         WINGET_VALIDATE_PASS_THROUGH(MaxResumes)
+<a href="#l278" class="line" id="l278">    278</a> 
+<a href="#l279" class="line" id="l279">    279</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l280" class="line" id="l280">    280</a>         WINGET_VALIDATE_PASS_THROUGH(EnableSelfInitiatedMinidump)
+<a href="#l281" class="line" id="l281">    281</a>         WINGET_VALIDATE_PASS_THROUGH(KeepAllLogFiles)
+<a href="#l282" class="line" id="l282">    282</a> #endif
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a>         WINGET_VALIDATE_SIGNATURE(PortablePackageUserRoot)
+<a href="#l285" class="line" id="l285">    285</a>         {
+<a href="#l286" class="line" id="l286">    286</a>             return ValidatePathValue(value);
+<a href="#l287" class="line" id="l287">    287</a>         }
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>         WINGET_VALIDATE_SIGNATURE(PortablePackageMachineRoot)
+<a href="#l290" class="line" id="l290">    290</a>         {
+<a href="#l291" class="line" id="l291">    291</a>             return ValidatePathValue(value);
+<a href="#l292" class="line" id="l292">    292</a>         }
+<a href="#l293" class="line" id="l293">    293</a> 
+<a href="#l294" class="line" id="l294">    294</a>         WINGET_VALIDATE_SIGNATURE(ArchiveExtractionMethod)
+<a href="#l295" class="line" id="l295">    295</a>         {
+<a href="#l296" class="line" id="l296">    296</a>             static constexpr std::string_view s_archiveExtractionMethod_shellApi = &quot;shellApi&quot;;
+<a href="#l297" class="line" id="l297">    297</a>             static constexpr std::string_view s_archiveExtractionMethod_tar = &quot;tar&quot;;
+<a href="#l298" class="line" id="l298">    298</a> 
+<a href="#l299" class="line" id="l299">    299</a>             if (Utility::CaseInsensitiveEquals(value, s_archiveExtractionMethod_tar))
+<a href="#l300" class="line" id="l300">    300</a>             {
+<a href="#l301" class="line" id="l301">    301</a>                 return Archive::ExtractionMethod::Tar;
+<a href="#l302" class="line" id="l302">    302</a>             }
+<a href="#l303" class="line" id="l303">    303</a>             else if (Utility::CaseInsensitiveEquals(value, s_archiveExtractionMethod_shellApi))
+<a href="#l304" class="line" id="l304">    304</a>             {
+<a href="#l305" class="line" id="l305">    305</a>                 return Archive::ExtractionMethod::ShellApi;
+<a href="#l306" class="line" id="l306">    306</a>             }
+<a href="#l307" class="line" id="l307">    307</a> 
+<a href="#l308" class="line" id="l308">    308</a>             return {};
+<a href="#l309" class="line" id="l309">    309</a>         }
+<a href="#l310" class="line" id="l310">    310</a> 
+<a href="#l311" class="line" id="l311">    311</a>         WINGET_VALIDATE_SIGNATURE(InstallArchitecturePreference)
+<a href="#l312" class="line" id="l312">    312</a>         {
+<a href="#l313" class="line" id="l313">    313</a>             std::vector&lt;Utility::Architecture&gt; archs;
+<a href="#l314" class="line" id="l314">    314</a>             for (auto const&amp; i : value)
+<a href="#l315" class="line" id="l315">    315</a>             {
+<a href="#l316" class="line" id="l316">    316</a>                 Utility::Architecture arch = Utility::ConvertToArchitectureEnum(i);
+<a href="#l317" class="line" id="l317">    317</a>                 if (Utility::IsApplicableArchitecture(arch) == Utility::InapplicableArchitecture)
+<a href="#l318" class="line" id="l318">    318</a>                 {
+<a href="#l319" class="line" id="l319">    319</a>                     return {};
+<a href="#l320" class="line" id="l320">    320</a>                 }
+<a href="#l321" class="line" id="l321">    321</a>                 archs.emplace_back(arch);
+<a href="#l322" class="line" id="l322">    322</a>             }
+<a href="#l323" class="line" id="l323">    323</a>             return archs;
+<a href="#l324" class="line" id="l324">    324</a>         }
+<a href="#l325" class="line" id="l325">    325</a> 
+<a href="#l326" class="line" id="l326">    326</a>         WINGET_VALIDATE_SIGNATURE(InstallArchitectureRequirement)
+<a href="#l327" class="line" id="l327">    327</a>         {
+<a href="#l328" class="line" id="l328">    328</a>             return SettingMapping&lt;Setting::InstallArchitecturePreference&gt;::Validate(value);
+<a href="#l329" class="line" id="l329">    329</a>         }
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>         WINGET_VALIDATE_SIGNATURE(InstallScopePreference)
+<a href="#l332" class="line" id="l332">    332</a>         {
+<a href="#l333" class="line" id="l333">    333</a>             static constexpr std::string_view s_scope_user = &quot;user&quot;;
+<a href="#l334" class="line" id="l334">    334</a>             static constexpr std::string_view s_scope_machine = &quot;machine&quot;;
+<a href="#l335" class="line" id="l335">    335</a> 
+<a href="#l336" class="line" id="l336">    336</a>             if (Utility::CaseInsensitiveEquals(value, s_scope_user))
+<a href="#l337" class="line" id="l337">    337</a>             {
+<a href="#l338" class="line" id="l338">    338</a>                 return Manifest::ScopeEnum::User;
+<a href="#l339" class="line" id="l339">    339</a>             }
+<a href="#l340" class="line" id="l340">    340</a>             else if (Utility::CaseInsensitiveEquals(value, s_scope_machine))
+<a href="#l341" class="line" id="l341">    341</a>             {
+<a href="#l342" class="line" id="l342">    342</a>                 return Manifest::ScopeEnum::Machine;
+<a href="#l343" class="line" id="l343">    343</a>             }
+<a href="#l344" class="line" id="l344">    344</a> 
+<a href="#l345" class="line" id="l345">    345</a>             return {};
+<a href="#l346" class="line" id="l346">    346</a>         }
+<a href="#l347" class="line" id="l347">    347</a> 
+<a href="#l348" class="line" id="l348">    348</a>         WINGET_VALIDATE_SIGNATURE(InstallScopeRequirement)
+<a href="#l349" class="line" id="l349">    349</a>         {
+<a href="#l350" class="line" id="l350">    350</a>             return SettingMapping&lt;Setting::InstallScopePreference&gt;::Validate(value);
+<a href="#l351" class="line" id="l351">    351</a>         }
+<a href="#l352" class="line" id="l352">    352</a> 
+<a href="#l353" class="line" id="l353">    353</a>         WINGET_VALIDATE_SIGNATURE(InstallLocalePreference)
+<a href="#l354" class="line" id="l354">    354</a>         {
+<a href="#l355" class="line" id="l355">    355</a>             for (auto const&amp; entry : value)
+<a href="#l356" class="line" id="l356">    356</a>             {
+<a href="#l357" class="line" id="l357">    357</a>                 if (!Locale::IsWellFormedBcp47Tag(entry))
+<a href="#l358" class="line" id="l358">    358</a>                 {
+<a href="#l359" class="line" id="l359">    359</a>                     return {};
+<a href="#l360" class="line" id="l360">    360</a>                 }
+<a href="#l361" class="line" id="l361">    361</a>             }
+<a href="#l362" class="line" id="l362">    362</a> 
+<a href="#l363" class="line" id="l363">    363</a>             return value;
+<a href="#l364" class="line" id="l364">    364</a>         }
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>         WINGET_VALIDATE_SIGNATURE(InstallLocaleRequirement)
+<a href="#l367" class="line" id="l367">    367</a>         {
+<a href="#l368" class="line" id="l368">    368</a>             return SettingMapping&lt;Setting::InstallLocalePreference&gt;::Validate(value);
+<a href="#l369" class="line" id="l369">    369</a>         }
+<a href="#l370" class="line" id="l370">    370</a> 
+<a href="#l371" class="line" id="l371">    371</a>         WINGET_VALIDATE_SIGNATURE(InstallerTypePreference)
+<a href="#l372" class="line" id="l372">    372</a>         {
+<a href="#l373" class="line" id="l373">    373</a>             std::vector&lt;Manifest::InstallerTypeEnum&gt; installerTypes;
+<a href="#l374" class="line" id="l374">    374</a>             for (auto const&amp; i : value)
+<a href="#l375" class="line" id="l375">    375</a>             {
+<a href="#l376" class="line" id="l376">    376</a>                 Manifest::InstallerTypeEnum installerType = Manifest::ConvertToInstallerTypeEnum(i);
+<a href="#l377" class="line" id="l377">    377</a>                 if (installerType == Manifest::InstallerTypeEnum::Unknown)
+<a href="#l378" class="line" id="l378">    378</a>                 {
+<a href="#l379" class="line" id="l379">    379</a>                     return {};
+<a href="#l380" class="line" id="l380">    380</a>                 }
+<a href="#l381" class="line" id="l381">    381</a>                 installerTypes.emplace_back(installerType);
+<a href="#l382" class="line" id="l382">    382</a>             }
+<a href="#l383" class="line" id="l383">    383</a>             return installerTypes;
+<a href="#l384" class="line" id="l384">    384</a>         }
+<a href="#l385" class="line" id="l385">    385</a> 
+<a href="#l386" class="line" id="l386">    386</a>         WINGET_VALIDATE_SIGNATURE(InstallerTypeRequirement)
+<a href="#l387" class="line" id="l387">    387</a>         {
+<a href="#l388" class="line" id="l388">    388</a>             return SettingMapping&lt;Setting::InstallerTypePreference&gt;::Validate(value);
+<a href="#l389" class="line" id="l389">    389</a>         }
+<a href="#l390" class="line" id="l390">    390</a> 
+<a href="#l391" class="line" id="l391">    391</a>         WINGET_VALIDATE_SIGNATURE(InstallDefaultRoot)
+<a href="#l392" class="line" id="l392">    392</a>         {
+<a href="#l393" class="line" id="l393">    393</a>             return ValidatePathValue(value);
+<a href="#l394" class="line" id="l394">    394</a>         }
+<a href="#l395" class="line" id="l395">    395</a> 
+<a href="#l396" class="line" id="l396">    396</a>         WINGET_VALIDATE_SIGNATURE(DownloadDefaultDirectory)
+<a href="#l397" class="line" id="l397">    397</a>         {
+<a href="#l398" class="line" id="l398">    398</a>             return ValidatePathValue(value);
+<a href="#l399" class="line" id="l399">    399</a>         }
+<a href="#l400" class="line" id="l400">    400</a> 
+<a href="#l401" class="line" id="l401">    401</a>         WINGET_VALIDATE_SIGNATURE(ConfigureDefaultModuleRoot)
+<a href="#l402" class="line" id="l402">    402</a>         {
+<a href="#l403" class="line" id="l403">    403</a>             return ValidatePathValue(value);
+<a href="#l404" class="line" id="l404">    404</a>         }
+<a href="#l405" class="line" id="l405">    405</a> 
+<a href="#l406" class="line" id="l406">    406</a>         WINGET_VALIDATE_SIGNATURE(NetworkDownloader)
+<a href="#l407" class="line" id="l407">    407</a>         {
+<a href="#l408" class="line" id="l408">    408</a>             static constexpr std::string_view s_downloader_default = &quot;default&quot;;
+<a href="#l409" class="line" id="l409">    409</a>             static constexpr std::string_view s_downloader_wininet = &quot;wininet&quot;;
+<a href="#l410" class="line" id="l410">    410</a>             static constexpr std::string_view s_downloader_do = &quot;do&quot;;
+<a href="#l411" class="line" id="l411">    411</a> 
+<a href="#l412" class="line" id="l412">    412</a>             if (Utility::CaseInsensitiveEquals(value, s_downloader_default))
+<a href="#l413" class="line" id="l413">    413</a>             {
+<a href="#l414" class="line" id="l414">    414</a>                 return InstallerDownloader::Default;
+<a href="#l415" class="line" id="l415">    415</a>             }
+<a href="#l416" class="line" id="l416">    416</a>             else if (Utility::CaseInsensitiveEquals(value, s_downloader_wininet))
+<a href="#l417" class="line" id="l417">    417</a>             {
+<a href="#l418" class="line" id="l418">    418</a>                 return InstallerDownloader::WinInet;
+<a href="#l419" class="line" id="l419">    419</a>             }
+<a href="#l420" class="line" id="l420">    420</a>             else if (Utility::CaseInsensitiveEquals(value, s_downloader_do))
+<a href="#l421" class="line" id="l421">    421</a>             {
+<a href="#l422" class="line" id="l422">    422</a>                 return InstallerDownloader::DeliveryOptimization;
+<a href="#l423" class="line" id="l423">    423</a>             }
+<a href="#l424" class="line" id="l424">    424</a> 
+<a href="#l425" class="line" id="l425">    425</a>             return {};
+<a href="#l426" class="line" id="l426">    426</a>         }
+<a href="#l427" class="line" id="l427">    427</a> 
+<a href="#l428" class="line" id="l428">    428</a>         WINGET_VALIDATE_SIGNATURE(NetworkDOProgressTimeoutInSeconds)
+<a href="#l429" class="line" id="l429">    429</a>         {
+<a href="#l430" class="line" id="l430">    430</a>             return std::chrono::seconds(value);
+<a href="#l431" class="line" id="l431">    431</a>         }
+<a href="#l432" class="line" id="l432">    432</a> 
+<a href="#l433" class="line" id="l433">    433</a>         WINGET_VALIDATE_SIGNATURE(LoggingLevelPreference)
+<a href="#l434" class="line" id="l434">    434</a>         {
+<a href="#l435" class="line" id="l435">    435</a>             // logging preference possible values
+<a href="#l436" class="line" id="l436">    436</a>             static constexpr std::string_view s_logging_verbose = &quot;verbose&quot;;
+<a href="#l437" class="line" id="l437">    437</a>             static constexpr std::string_view s_logging_info = &quot;info&quot;;
+<a href="#l438" class="line" id="l438">    438</a>             static constexpr std::string_view s_logging_warning = &quot;warning&quot;;
+<a href="#l439" class="line" id="l439">    439</a>             static constexpr std::string_view s_logging_error = &quot;error&quot;;
+<a href="#l440" class="line" id="l440">    440</a>             static constexpr std::string_view s_logging_critical = &quot;critical&quot;;
+<a href="#l441" class="line" id="l441">    441</a> 
+<a href="#l442" class="line" id="l442">    442</a>             if (Utility::CaseInsensitiveEquals(value, s_logging_verbose))
+<a href="#l443" class="line" id="l443">    443</a>             {
+<a href="#l444" class="line" id="l444">    444</a>                 return Level::Verbose;
+<a href="#l445" class="line" id="l445">    445</a>             }
+<a href="#l446" class="line" id="l446">    446</a>             else if (Utility::CaseInsensitiveEquals(value, s_logging_info))
+<a href="#l447" class="line" id="l447">    447</a>             {
+<a href="#l448" class="line" id="l448">    448</a>                 return Level::Info;
+<a href="#l449" class="line" id="l449">    449</a>             }
+<a href="#l450" class="line" id="l450">    450</a>             else if (Utility::CaseInsensitiveEquals(value, s_logging_warning))
+<a href="#l451" class="line" id="l451">    451</a>             {
+<a href="#l452" class="line" id="l452">    452</a>                 return Level::Warning;
+<a href="#l453" class="line" id="l453">    453</a>             }
+<a href="#l454" class="line" id="l454">    454</a>             else if (Utility::CaseInsensitiveEquals(value, s_logging_error))
+<a href="#l455" class="line" id="l455">    455</a>             {
+<a href="#l456" class="line" id="l456">    456</a>                 return Level::Error;
+<a href="#l457" class="line" id="l457">    457</a>             }
+<a href="#l458" class="line" id="l458">    458</a>             else if (Utility::CaseInsensitiveEquals(value, s_logging_critical))
+<a href="#l459" class="line" id="l459">    459</a>             {
+<a href="#l460" class="line" id="l460">    460</a>                 return Level::Crit;
+<a href="#l461" class="line" id="l461">    461</a>             }
+<a href="#l462" class="line" id="l462">    462</a>             return {};
+<a href="#l463" class="line" id="l463">    463</a>         }
+<a href="#l464" class="line" id="l464">    464</a> 
+<a href="#l465" class="line" id="l465">    465</a>         WINGET_VALIDATE_SIGNATURE(LoggingChannelPreference)
+<a href="#l466" class="line" id="l466">    466</a>         {
+<a href="#l467" class="line" id="l467">    467</a>             Logging::Channel result = Logging::Channel::None;
+<a href="#l468" class="line" id="l468">    468</a> 
+<a href="#l469" class="line" id="l469">    469</a>             for (auto const&amp; entry : value)
+<a href="#l470" class="line" id="l470">    470</a>             {
+<a href="#l471" class="line" id="l471">    471</a>                 result |= GetChannelFromName(entry);
+<a href="#l472" class="line" id="l472">    472</a>             }
+<a href="#l473" class="line" id="l473">    473</a> 
+<a href="#l474" class="line" id="l474">    474</a>             return result;
+<a href="#l475" class="line" id="l475">    475</a>         }
+<a href="#l476" class="line" id="l476">    476</a>     }
+<a href="#l477" class="line" id="l477">    477</a> 
+<a href="#l478" class="line" id="l478">    478</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l479" class="line" id="l479">    479</a>     static UserSettings* s_UserSettings_Override = nullptr;
+<a href="#l480" class="line" id="l480">    480</a> 
+<a href="#l481" class="line" id="l481">    481</a>     void SetUserSettingsOverride(UserSettings* value)
+<a href="#l482" class="line" id="l482">    482</a>     {
+<a href="#l483" class="line" id="l483">    483</a>         s_UserSettings_Override = value;
+<a href="#l484" class="line" id="l484">    484</a>     }
+<a href="#l485" class="line" id="l485">    485</a> #endif
+<a href="#l486" class="line" id="l486">    486</a> 
+<a href="#l487" class="line" id="l487">    487</a>     static std::atomic_bool s_userSettingsInitialized{ false };
+<a href="#l488" class="line" id="l488">    488</a>     static std::atomic_bool s_userSettingsInInitialization{ false };
+<a href="#l489" class="line" id="l489">    489</a> 
+<a href="#l490" class="line" id="l490">    490</a>     UserSettings const&amp; UserSettings::Instance(const std::optional&lt;std::string&gt;&amp; content)
+<a href="#l491" class="line" id="l491">    491</a>     {
+<a href="#l492" class="line" id="l492">    492</a> #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#l493" class="line" id="l493">    493</a>         if (s_UserSettings_Override)
+<a href="#l494" class="line" id="l494">    494</a>         {
+<a href="#l495" class="line" id="l495">    495</a>             return *s_UserSettings_Override;
+<a href="#l496" class="line" id="l496">    496</a>         }
+<a href="#l497" class="line" id="l497">    497</a> #endif
+<a href="#l498" class="line" id="l498">    498</a>         if (!s_userSettingsInitialized)
+<a href="#l499" class="line" id="l499">    499</a>         {
+<a href="#l500" class="line" id="l500">    500</a>             s_userSettingsInInitialization = true;
+<a href="#l501" class="line" id="l501">    501</a>         }
+<a href="#l502" class="line" id="l502">    502</a> 
+<a href="#l503" class="line" id="l503">    503</a>         static UserSettings userSettings(content);
+<a href="#l504" class="line" id="l504">    504</a>         s_userSettingsInitialized = true;
+<a href="#l505" class="line" id="l505">    505</a>         s_userSettingsInInitialization = false;
+<a href="#l506" class="line" id="l506">    506</a> 
+<a href="#l507" class="line" id="l507">    507</a>         return userSettings;
+<a href="#l508" class="line" id="l508">    508</a>     }
+<a href="#l509" class="line" id="l509">    509</a> 
+<a href="#l510" class="line" id="l510">    510</a>     const UserSettings* TryGetUser()
+<a href="#l511" class="line" id="l511">    511</a>     {
+<a href="#l512" class="line" id="l512">    512</a>         if (s_userSettingsInitialized)
+<a href="#l513" class="line" id="l513">    513</a>         {
+<a href="#l514" class="line" id="l514">    514</a>             return &amp;UserSettings::Instance();
+<a href="#l515" class="line" id="l515">    515</a>         }
+<a href="#l516" class="line" id="l516">    516</a> 
+<a href="#l517" class="line" id="l517">    517</a>         // Try to initialize UserSettings, return nullptr if it&#39;s already in initialization.
+<a href="#l518" class="line" id="l518">    518</a>         if (s_userSettingsInInitialization)
+<a href="#l519" class="line" id="l519">    519</a>         {
+<a href="#l520" class="line" id="l520">    520</a>             return nullptr;
+<a href="#l521" class="line" id="l521">    521</a>         }
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>         return &amp;UserSettings::Instance();
+<a href="#l524" class="line" id="l524">    524</a>     }
+<a href="#l525" class="line" id="l525">    525</a> 
+<a href="#l526" class="line" id="l526">    526</a>     UserSettings const&amp; User()
+<a href="#l527" class="line" id="l527">    527</a>     {
+<a href="#l528" class="line" id="l528">    528</a>         return UserSettings::Instance();
+<a href="#l529" class="line" id="l529">    529</a>     }
+<a href="#l530" class="line" id="l530">    530</a> 
+<a href="#l531" class="line" id="l531">    531</a>     bool TryInitializeCustomUserSettings(std::string content)
+<a href="#l532" class="line" id="l532">    532</a>     {
+<a href="#l533" class="line" id="l533">    533</a>         if (s_userSettingsInitialized || s_userSettingsInInitialization)
+<a href="#l534" class="line" id="l534">    534</a>         {
+<a href="#l535" class="line" id="l535">    535</a>             return false;
+<a href="#l536" class="line" id="l536">    536</a>         }
+<a href="#l537" class="line" id="l537">    537</a> 
+<a href="#l538" class="line" id="l538">    538</a>         return UserSettings::Instance(std::move(content)).GetType() == UserSettingsType::Custom;
+<a href="#l539" class="line" id="l539">    539</a>     }
+<a href="#l540" class="line" id="l540">    540</a> 
+<a href="#l541" class="line" id="l541">    541</a>     UserSettings::UserSettings(const std::optional&lt;std::string&gt;&amp; content) : m_type(UserSettingsType::Default)
+<a href="#l542" class="line" id="l542">    542</a>     {
+<a href="#l543" class="line" id="l543">    543</a>         Json::Value settingsRoot = Json::Value::nullSingleton();
+<a href="#l544" class="line" id="l544">    544</a> 
+<a href="#l545" class="line" id="l545">    545</a>         // Settings can be loaded from settings.json or settings.json.backup files.
+<a href="#l546" class="line" id="l546">    546</a>         // 0 - Use default (empty) settings if disabled by group policy.
+<a href="#l547" class="line" id="l547">    547</a>         // if
+<a href="#l548" class="line" id="l548">    548</a>         // 1 - Use passed in settings content if available.
+<a href="#l549" class="line" id="l549">    549</a>         // else
+<a href="#l550" class="line" id="l550">    550</a>         // 2 - Use settings.json if exists and passes parsing.
+<a href="#l551" class="line" id="l551">    551</a>         // 3 - Use settings.backup.json if settings.json fails to parse.
+<a href="#l552" class="line" id="l552">    552</a>         // finally
+<a href="#l553" class="line" id="l553">    553</a>         // 4 - Use default (empty) if both settings files fail to load.
+<a href="#l554" class="line" id="l554">    554</a> 
+<a href="#l555" class="line" id="l555">    555</a>         if (!GroupPolicies().IsEnabled(TogglePolicy::Policy::Settings))
+<a href="#l556" class="line" id="l556">    556</a>         {
+<a href="#l557" class="line" id="l557">    557</a>             AICLI_LOG(Core, Info, &lt;&lt; &quot;Ignoring settings file due to group policy. Using default values.&quot;);
+<a href="#l558" class="line" id="l558">    558</a>             return;
+<a href="#l559" class="line" id="l559">    559</a>         }
+<a href="#l560" class="line" id="l560">    560</a> 
+<a href="#l561" class="line" id="l561">    561</a>         if (content.has_value())
+<a href="#l562" class="line" id="l562">    562</a>         {
+<a href="#l563" class="line" id="l563">    563</a>             auto settingsJson = ParseSettingsContent(content.value(), &quot;CustomSettings&quot;, m_warnings);
+<a href="#l564" class="line" id="l564">    564</a>             if (settingsJson.has_value())
+<a href="#l565" class="line" id="l565">    565</a>             {
+<a href="#l566" class="line" id="l566">    566</a>                 AICLI_LOG(Core, Info, &lt;&lt; &quot;Settings loaded from custom settings&quot;);
+<a href="#l567" class="line" id="l567">    567</a>                 m_type = UserSettingsType::Custom;
+<a href="#l568" class="line" id="l568">    568</a>                 settingsRoot = settingsJson.value();
+<a href="#l569" class="line" id="l569">    569</a>             }
+<a href="#l570" class="line" id="l570">    570</a>         }
+<a href="#l571" class="line" id="l571">    571</a>         else
+<a href="#l572" class="line" id="l572">    572</a>         {
+<a href="#l573" class="line" id="l573">    573</a>             auto settingsJson = ParseFile(Stream::PrimaryUserSettings, m_warnings);
+<a href="#l574" class="line" id="l574">    574</a>             if (settingsJson.has_value())
+<a href="#l575" class="line" id="l575">    575</a>             {
+<a href="#l576" class="line" id="l576">    576</a>                 AICLI_LOG(Core, Info, &lt;&lt; &quot;Settings loaded from &quot; &lt;&lt; Stream::PrimaryUserSettings.Name);
+<a href="#l577" class="line" id="l577">    577</a>                 m_type = UserSettingsType::Standard;
+<a href="#l578" class="line" id="l578">    578</a>                 settingsRoot = settingsJson.value();
+<a href="#l579" class="line" id="l579">    579</a>             }
+<a href="#l580" class="line" id="l580">    580</a> 
+<a href="#l581" class="line" id="l581">    581</a>             // Settings didn&#39;t parse or doesn&#39;t exist, try with backup.
+<a href="#l582" class="line" id="l582">    582</a>             if (settingsRoot.isNull())
+<a href="#l583" class="line" id="l583">    583</a>             {
+<a href="#l584" class="line" id="l584">    584</a>                 auto settingsBackupJson = ParseFile(Stream::BackupUserSettings, m_warnings);
+<a href="#l585" class="line" id="l585">    585</a>                 if (settingsBackupJson.has_value())
+<a href="#l586" class="line" id="l586">    586</a>                 {
+<a href="#l587" class="line" id="l587">    587</a>                     AICLI_LOG(Core, Info, &lt;&lt; &quot;Settings loaded from &quot; &lt;&lt; Stream::BackupUserSettings.Name);
+<a href="#l588" class="line" id="l588">    588</a>                     m_warnings.emplace_back(StringResource::String::SettingsWarningLoadedBackupSettings);
+<a href="#l589" class="line" id="l589">    589</a>                     m_type = UserSettingsType::Backup;
+<a href="#l590" class="line" id="l590">    590</a>                     settingsRoot = settingsBackupJson.value();
+<a href="#l591" class="line" id="l591">    591</a>                 }
+<a href="#l592" class="line" id="l592">    592</a>                 else
+<a href="#l593" class="line" id="l593">    593</a>                 {
+<a href="#l594" class="line" id="l594">    594</a>                     // Settings and back up didn&#39;t parse or exist. If they exist then warn the user.
+<a href="#l595" class="line" id="l595">    595</a>                     auto settingsPath = Stream{ Stream::PrimaryUserSettings }.GetPath();
+<a href="#l596" class="line" id="l596">    596</a>                     auto backupPath = Stream{ Stream::BackupUserSettings }.GetPath();
+<a href="#l597" class="line" id="l597">    597</a>                     if (std::filesystem::exists(settingsPath) || std::filesystem::exists(backupPath))
+<a href="#l598" class="line" id="l598">    598</a>                     {
+<a href="#l599" class="line" id="l599">    599</a>                         m_warnings.emplace_back(StringResource::String::SettingsWarningUsingDefault);
+<a href="#l600" class="line" id="l600">    600</a>                     }
+<a href="#l601" class="line" id="l601">    601</a>                 }
+<a href="#l602" class="line" id="l602">    602</a>             }
+<a href="#l603" class="line" id="l603">    603</a>         }
+<a href="#l604" class="line" id="l604">    604</a> 
+<a href="#l605" class="line" id="l605">    605</a>         if (!settingsRoot.isNull())
+<a href="#l606" class="line" id="l606">    606</a>         {
+<a href="#l607" class="line" id="l607">    607</a>             ValidateAll(settingsRoot, m_settings, m_warnings, std::make_index_sequence&lt;static_cast&lt;size_t&gt;(Setting::Max)&gt;());
+<a href="#l608" class="line" id="l608">    608</a>         }
+<a href="#l609" class="line" id="l609">    609</a>         else
+<a href="#l610" class="line" id="l610">    610</a>         {
+<a href="#l611" class="line" id="l611">    611</a>             AICLI_LOG(Core, Info, &lt;&lt; &quot;Valid settings file not found. Using default values.&quot;);
+<a href="#l612" class="line" id="l612">    612</a>         }
+<a href="#l613" class="line" id="l613">    613</a>     }
+<a href="#l614" class="line" id="l614">    614</a> 
+<a href="#l615" class="line" id="l615">    615</a>     void UserSettings::PrepareToShellExecuteFile() const
+<a href="#l616" class="line" id="l616">    616</a>     {
+<a href="#l617" class="line" id="l617">    617</a>         UserSettingsType userSettingType = GetType();
+<a href="#l618" class="line" id="l618">    618</a> 
+<a href="#l619" class="line" id="l619">    619</a>         if (userSettingType == UserSettingsType::Default)
+<a href="#l620" class="line" id="l620">    620</a>         {
+<a href="#l621" class="line" id="l621">    621</a>             Stream primarySettings{ Stream::PrimaryUserSettings };
+<a href="#l622" class="line" id="l622">    622</a> 
+<a href="#l623" class="line" id="l623">    623</a>             // Create settings file if it doesn&#39;t exist.
+<a href="#l624" class="line" id="l624">    624</a>             if (!std::filesystem::exists(primarySettings.GetPath()))
+<a href="#l625" class="line" id="l625">    625</a>             {
+<a href="#l626" class="line" id="l626">    626</a>                 std::ignore = primarySettings.Set(s_SettingEmpty);
+<a href="#l627" class="line" id="l627">    627</a>                 AICLI_LOG(Core, Info, &lt;&lt; &quot;Created new settings file&quot;);
+<a href="#l628" class="line" id="l628">    628</a>             }
+<a href="#l629" class="line" id="l629">    629</a>         }
+<a href="#l630" class="line" id="l630">    630</a>         else if (userSettingType == UserSettingsType::Standard)
+<a href="#l631" class="line" id="l631">    631</a>         {
+<a href="#l632" class="line" id="l632">    632</a>             // Settings file was loaded correctly, create backup.
+<a href="#l633" class="line" id="l633">    633</a>             auto from = SettingsFilePath();
+<a href="#l634" class="line" id="l634">    634</a>             auto to = Stream{ Stream::BackupUserSettings }.GetPath();
+<a href="#l635" class="line" id="l635">    635</a>             std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing);
+<a href="#l636" class="line" id="l636">    636</a>             AICLI_LOG(Core, Info, &lt;&lt; &quot;Copied settings to backup file&quot;);
+<a href="#l637" class="line" id="l637">    637</a>         }
+<a href="#l638" class="line" id="l638">    638</a>     }
+<a href="#l639" class="line" id="l639">    639</a> 
+<a href="#l640" class="line" id="l640">    640</a>     std::filesystem::path UserSettings::SettingsFilePath(bool forDisplay)
+<a href="#l641" class="line" id="l641">    641</a>     {
+<a href="#l642" class="line" id="l642">    642</a>         auto path = Stream{ Stream::PrimaryUserSettings }.GetPath();
+<a href="#l643" class="line" id="l643">    643</a> 
+<a href="#l644" class="line" id="l644">    644</a>         if (forDisplay &amp;&amp; Settings::User().Get&lt;Setting::AnonymizePathForDisplay&gt;())
+<a href="#l645" class="line" id="l645">    645</a>         {
+<a href="#l646" class="line" id="l646">    646</a>             ReplaceCommonPathPrefix(path, GetKnownFolderPath(FOLDERID_LocalAppData), &quot;%LOCALAPPDATA%&quot;);
+<a href="#l647" class="line" id="l647">    647</a>         }
+<a href="#l648" class="line" id="l648">    648</a> 
+<a href="#l649" class="line" id="l649">    649</a>         return path;
+<a href="#l650" class="line" id="l650">    650</a>     }
+<a href="#l651" class="line" id="l651">    651</a> }
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat: implement sign-preserving cubic damping and refine resonance model - aerothesis - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>aerothesis</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/9b4a1596b9f00ee89a2daf7cfcba19015e1683e4.html">9b4a1596b9f00ee89a2daf7cfcba19015e1683e4</a>
+<b>parent</b> <a href="../commit/a5c7adfb95954021d459f80873c69ce786f8c74a.html">a5c7adfb95954021d459f80873c69ce786f8c74a</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Sat, 20 Jun 2026 22:00:51 +0900
+
+feat: implement sign-preserving cubic damping and refine resonance model
+
+- Update physical model documentation to reflect the new sign-preserving cubic damping implementation.
+- Refactor `resonance` and `displacement` logic in `Aerothesis` to prevent DC offset and signal rectification.
+- Adjust resonance delay calculations for open and closed pipes.
+- Add sample-rate-based buffer clearing to improve stability when no note is active.
+- Update simulation parameters in `main.rs` and improve the visualization resolution.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">README.md</a></td><td> | </td><td class="num">27</td><td><span class="i">++++++++++++++++</span><span class="d">-----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/lib.rs</a></td><td> | </td><td class="num">67</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/main.rs</a></td><td> | </td><td class="num">43</td><td><span class="i">+++++++++++++++++++++++++++</span><span class="d">----------------</span></td></tr>
+</table></pre><pre>3 files changed, 85 insertions(+), 52 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/README.md.html">README.md</a> b/<a href="../file/README.md.html">README.md</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -10,13 +10,13 @@ cargo xtask bundle aerothesis --release
+</a> 
+ ## Design
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-Purpose of this repository is creating an expressive wind synthesizer, like real trumpets, saxophones and other instruments.
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+The purpose of this repository is to create an expressive wind synthesizer, simulating real trumpets, saxophones, and other wind instruments.
+</a> 
+ ### Architecture
+ 
+ #### Primary oscillation
+ 
+<a href="#h0-0-10" id="h0-0-10" class="d">-This parts play a role of generating sounds like the reed on a saxophone or the lips on a trumpet.
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+This part plays the role of generating sound, simulating the reed on a saxophone or the lips on a trumpet.
+</a> 
+ &lt;details&gt;
+ &lt;summary&gt;TL;DR Derivation of the simulation formula&lt;/summary&gt;
+<a href="#h0-1" id="h0-1" class="h">@@ -141,13 +141,13 @@ Since $\sigma &lt; 0$, $(1 + \frac{T}{2}\sigma)^2 &lt; (1 - \frac{T}{2}\sigma)^2$, mat
+</a> 
+ &lt;/details&gt;
+ 
+<a href="#h0-1-3" id="h0-1-3" class="d">-x(,f and v_f) formuler is 
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+The formula for $x[n]$, $f[n]$, and $v_f[n]$ is:
+</a> 
+ $$x[n] = \frac{b_0 f[n] + b_1 f[n-1] + b_2 f[n-2] - a_1 x[n-1] - a_2 x[n-2]}{a_0}$$
+ 
+ $$f[n] = \pm \frac{1}{2} \rho v_f[n]^2 g[n]$$
+ 
+<a href="#h0-1-10" id="h0-1-10" class="d">-$$v_f[n] = \frac{-\alpha + \sqrt{\alpha^2 + 4 B[n] \Gamma[n-1]}}{2 B[n]}$$
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+$$v_f[n] = \frac{-A + \sqrt{A^2 + 4 B[n] C[n-1]}}{2 B[n]}$$
+</a> 
+ #### Resonance Part
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -158,9 +158,9 @@ Rather than simulating wave reflection through complex fluid dynamics (changes i
+</a> 
+ #### 1. Damping Mechanism
+ 
+<a href="#h0-2-3" id="h0-2-3" class="d">-Energy in an acoustic system is proportional to the square of the time derivative of displacement ($(\partial x / \partial t)^2$). We apply a damping constant $a$ to this derivative. This effectively attenuates higher-frequency components, as their energy dissipates faster than lower-frequency components. Given an input displacement $x_n$, a delayed resonant displacement $x_{\text{resonance}}$, and the total previous displacement $x_{\text{prev}}$, the system state is updated as:
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+Energy in an acoustic system is proportional to the square of the time derivative of displacement ($(\partial x / \partial t)^2$). We apply a damping constant $a$ to this derivative. To preserve the sign of the wave (preventing signal rectification and DC offset), the damping is implemented as a sign-preserving cubic non-linearity. Given an input displacement $x_{\text{in}}[n]$, a delayed resonant displacement $x_{\text{resonance}}[n]$, and the total previous displacement $x[n-1]$, the system state $x[n]$ is updated as:
+</a> 
+<a href="#h0-2-6" id="h0-2-6" class="d">-$$x = a (x_{\text{prev}} - (x_n + x_{\text{resonance}}))^2$$
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+$$x[n] = (x_{\text{in}}[n] + x_{\text{resonance}}[n]) \cdot a \cdot (x[n-1] - (x_{\text{in}}[n] + x_{\text{resonance}}[n]))^2$$
+</a> 
+ #### 2. Physical Validity (D’Alembert’s Solution)
+ 
+<a href="#h0-3" id="h0-3" class="h">@@ -184,8 +184,8 @@ Consequently, calculating the resonance by multiplying the previously delayed di
+</a> 
+ Given a note frequency $f$ and the speed of sound $c$, the wavelength $\lambda$ is defined as $\lambda = c/f$.
+ 
+<a href="#h0-3-3" id="h0-3-3" class="d">-* **Open Pipe:** $\lambda = 2L \implies \text{round-trip time} = 2L/c = 1/f$.
+</a><a href="#h0-3-4" id="h0-3-4" class="d">-* **Closed Pipe:** $\lambda = 4L \implies \text{round-trip time} = 4L/c = 2/f$.
+</a><a href="#h0-3-5" id="h0-3-5" class="i">+* **Open Pipe:** $\lambda = 2L \implies \text{round-trip time} = 2L/c = \frac{2}{c} \frac{c}{2f} = \frac{1}{f}$.
+</a><a href="#h0-3-6" id="h0-3-6" class="i">+* **Closed Pipe:** $\lambda = 4L \implies \text{round-trip time} = 2L/c = \frac{2}{c} \frac{c}{4f} = \frac{1}{2f}$.
+</a> 
+ Thus, the required delay samples can be derived directly from the frequency $f$ and sample rate $fs$ without needing explicit values for tube length $L$ or sound speed $c$.
+ 
+<a href="#h0-4" id="h0-4" class="h">@@ -197,18 +197,23 @@ The core simulation is based on a displacement-driven delay-line model, where th
+</a> 
+ 1. System Update Equation
+ 
+<a href="#h0-4-3" id="h0-4-3" class="d">-The total displacement $x[n]$ is calculated as a damped non-linear function of the input and the delayed resonant state. Given a damping constant $a$ ($0 &lt; a \le 1$):
+</a><a href="#h0-4-4" id="h0-4-4" class="i">+The total displacement $x[n]$ is calculated as a damped non-linear function of the input and the delayed resonant state. To preserve the sign of the displacement wave and avoid DC rectification, a sign-preserving cubic function is used. Given a damping constant $a$ ($0 &lt; a \le 1$):
+</a> 
+<a href="#h0-4-6" id="h0-4-6" class="d">-$$x[n] = a \cdot \left( x[n-1] - (x_{\text{in}}[n] + x_{\text{resonance}}[n]) \right)^2$$
+</a><a href="#h0-4-7" id="h0-4-7" class="i">+$$x[n] = (x_{\text{in}}[n] + x_{\text{resonance}}[n]) \cdot a \cdot \left( x[n-1] - (x_{\text{in}}[n] + x_{\text{resonance}}[n]) \right)^2$$
+</a> 
+ Where $x[n-1]$ represents the previous total displacement, capturing the system&#39;s memory.
+ 
+ 2. Resonant Feedback (Delay and Reflection)
+ 
+<a href="#h0-4-13" id="h0-4-13" class="d">-The resonant component $x_{\text{resonance}}$ is the delayed state derived from the pipe&#39;s boundary conditions. Given a delay buffer $D$ of length $T$ (where $T = f_s / f$), the resonance is defined by the reflection coefficient $R$:
+</a><a href="#h0-4-14" id="h0-4-14" class="i">+The resonant component $x_{\text{resonance}}$ is the delayed state derived from the pipe&#39;s boundary conditions. Given a delay buffer $D$ of length $T$, the resonance is defined by the reflection coefficient $R$:
+</a> 
+ $$x_{\text{resonance}}[n] = R \cdot \text{buffer}[n - T]$$
+ 
+<a href="#h0-4-18" id="h0-4-18" class="i">+Where the round-trip delay length $T$ in samples is defined as:
+</a><a href="#h0-4-19" id="h0-4-19" class="i">+* **Open Pipes:** $T = \frac{f_s}{f}$
+</a><a href="#h0-4-20" id="h0-4-20" class="i">+* **Closed Pipes:** $T = \frac{f_s}{2f}$
+</a><a href="#h0-4-21" id="h0-4-21" class="i">+
+</a><a href="#h0-4-22" id="h0-4-22" class="i">+
+</a> * **For Open Pipes (Open-Open):**
+ * Reflection occurs twice per round-trip with a phase inversion, resulting in $R = 1$ (net phase preserved).
+ 
+<b>diff --git a/<a id="h1" href="../file/src/lib.rs.html">src/lib.rs</a> b/<a href="../file/src/lib.rs.html">src/lib.rs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -22,9 +22,11 @@ pub struct Aerothesis {
+</a> 
+     pub v_fluid_prev: f32,
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-    pub displacement_history: VecDeque&lt;f32&gt;,
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-    pub displacement_prev: f32,
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+    pub x_history: VecDeque&lt;f32&gt;,
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+
+</a>     pub note_frequency: f32,
+<a href="#h1-0-8" id="h1-0-8" class="i">+
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    pub displacement_prev: f32,
+</a> }
+ 
+ #[derive(Enum, PartialEq, Clone, Copy)]
+<a href="#h1-1" id="h1-1" class="h">@@ -104,9 +106,11 @@ impl Default for Aerothesis {
+</a>             v_bite: 0.0,
+             v_fluid_prev: 0.0,
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-            displacement_history: VecDeque::new(),
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-            displacement_prev: 0.0,
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+            x_history: VecDeque::new(),
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+
+</a>             note_frequency: 0.0,
+<a href="#h1-1-8" id="h1-1-8" class="i">+
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+            displacement_prev: 0.0,
+</a>         }
+     }
+ }
+<a href="#h1-2" id="h1-2" class="h">@@ -223,7 +227,7 @@ impl Default for AerothesisParams {
+</a>             resonance_type: EnumParam::new(&quot;Resonance Type&quot;, ResonanceType::OpenPipe),
+             resonance_decay: FloatParam::new(
+                 &quot;Resonance Decay&quot;,
+<a href="#h1-2-3" id="h1-2-3" class="d">-                0.01,
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+                0.9,
+</a>                 FloatRange::Skewed {
+                     min: 0.0,
+                     max: 1.0,
+<a href="#h1-3" id="h1-3" class="h">@@ -332,31 +336,40 @@ impl Aerothesis {
+</a>     }
+ 
+     pub fn resonance(&amp;mut self) -&gt; f32 {
+<a href="#h1-3-3" id="h1-3-3" class="d">-        let x_n = self.step();
+</a><a href="#h1-3-4" id="h1-3-4" class="d">-        let x_oscillator = x_n - self.equilibrium_offset();
+</a><a href="#h1-3-5" id="h1-3-5" class="d">-
+</a><a href="#h1-3-6" id="h1-3-6" class="d">-        let resonance = if self.resonance_delay_samples() &gt; self.displacement_history.len() as f32 {
+</a><a href="#h1-3-7" id="h1-3-7" class="i">+        if self.resonance_delay_samples() &gt; self.x_history.len() as f32 {
+</a>             0.0
+         } else {
+<a href="#h1-3-10" id="h1-3-10" class="i">+            if self.resonance_delay_samples() &lt; self.x_history.len() as f32 {
+</a><a href="#h1-3-11" id="h1-3-11" class="i">+                self.x_history
+</a><a href="#h1-3-12" id="h1-3-12" class="i">+                    .truncate(self.resonance_delay_samples() as usize);
+</a><a href="#h1-3-13" id="h1-3-13" class="i">+            }
+</a>             let decay: f32 = if self.params.resonance_type.value() == ResonanceType::OpenPipe {
+                 1.0
+             } else {
+                 -1.0
+             };
+<a href="#h1-3-19" id="h1-3-19" class="d">-            let x_delay = self.displacement_history.pop_front().unwrap_or(0.0);
+</a><a href="#h1-3-20" id="h1-3-20" class="i">+            let x_delay = self.x_history.pop_back().unwrap_or(0.0);
+</a>             decay * x_delay
+<a href="#h1-3-22" id="h1-3-22" class="d">-        };
+</a><a href="#h1-3-23" id="h1-3-23" class="i">+        }
+</a><a href="#h1-3-24" id="h1-3-24" class="i">+    }
+</a> 
+<a href="#h1-3-26" id="h1-3-26" class="d">-        let x_nondamping = x_oscillator + resonance;
+</a><a href="#h1-3-27" id="h1-3-27" class="i">+    pub fn displacement(&amp;mut self) -&gt; f32 {
+</a><a href="#h1-3-28" id="h1-3-28" class="i">+        let x_n = self.step();
+</a><a href="#h1-3-29" id="h1-3-29" class="i">+        let x_oscillator = x_n - self.equilibrium_offset();
+</a><a href="#h1-3-30" id="h1-3-30" class="i">+
+</a><a href="#h1-3-31" id="h1-3-31" class="i">+        let resonance = self.resonance();
+</a> 
+<a href="#h1-3-33" id="h1-3-33" class="d">-        let x_current = x_nondamping
+</a><a href="#h1-3-34" id="h1-3-34" class="d">-            * (1.0 - self.params.resonance_decay.value())
+</a><a href="#h1-3-35" id="h1-3-35" class="d">-            * (self.displacement_prev - x_nondamping)
+</a><a href="#h1-3-36" id="h1-3-36" class="d">-            * (self.displacement_prev - x_nondamping);
+</a><a href="#h1-3-37" id="h1-3-37" class="i">+        let x_current = x_oscillator + resonance;
+</a> 
+<a href="#h1-3-39" id="h1-3-39" class="d">-        self.displacement_history.push_back(x_current);
+</a><a href="#h1-3-40" id="h1-3-40" class="i">+        let displacement = x_current
+</a><a href="#h1-3-41" id="h1-3-41" class="i">+            * (self.params.resonance_decay.value()
+</a><a href="#h1-3-42" id="h1-3-42" class="i">+                * (x_current - self.displacement_prev)
+</a><a href="#h1-3-43" id="h1-3-43" class="i">+                * (x_current - self.displacement_prev))
+</a><a href="#h1-3-44" id="h1-3-44" class="i">+                .clamp(0.0, 1.0);
+</a><a href="#h1-3-45" id="h1-3-45" class="i">+        self.displacement_prev = displacement;
+</a> 
+<a href="#h1-3-47" id="h1-3-47" class="d">-        x_current
+</a><a href="#h1-3-48" id="h1-3-48" class="i">+        self.x_history.push_front(displacement);
+</a><a href="#h1-3-49" id="h1-3-49" class="i">+        x_oscillator
+</a>     }
+ 
+     fn equilibrium_offset(&amp;self) -&gt; f32 {
+<a href="#h1-4" id="h1-4" class="h">@@ -368,15 +381,15 @@ impl Aerothesis {
+</a>             0.0
+         }
+     }
+<a href="#h1-4-3" id="h1-4-3" class="d">-    fn resonance_delay_samples(&amp;self) -&gt; f32 {
+</a><a href="#h1-4-4" id="h1-4-4" class="i">+    pub fn resonance_delay_samples(&amp;self) -&gt; f32 {
+</a>         if self.params.resonance_type.value() == ResonanceType::OpenPipe {
+             self.sample_rate / self.note_frequency
+         } else {
+             self.sample_rate / 2.0 / self.note_frequency
+         }
+     }
+<a href="#h1-4-11" id="h1-4-11" class="d">-    fn avg_x_history(&amp;self) -&gt; f32 {
+</a><a href="#h1-4-12" id="h1-4-12" class="d">-        self.displacement_history.iter().sum::&lt;f32&gt;() / self.displacement_history.len() as f32
+</a><a href="#h1-4-13" id="h1-4-13" class="i">+    pub fn avg_x_history(&amp;self) -&gt; f32 {
+</a><a href="#h1-4-14" id="h1-4-14" class="i">+        self.x_history.iter().sum::&lt;f32&gt;() / self.x_history.len() as f32
+</a>     }
+ }
+ 
+<a href="#h1-5" id="h1-5" class="h">@@ -434,8 +447,7 @@ impl Plugin for Aerothesis {
+</a>     fn reset(&amp;mut self) {
+         // Reset buffers and envelopes here. This can be called from the audio thread and may not
+         // allocate. You can remove this function if you do not need it.
+<a href="#h1-5-3" id="h1-5-3" class="d">-
+</a><a href="#h1-5-4" id="h1-5-4" class="d">-        // self.displacement_history.clear();
+</a><a href="#h1-5-5" id="h1-5-5" class="i">+        self.x_history.clear();
+</a>     }
+ 
+     fn process(
+<a href="#h1-6" id="h1-6" class="h">@@ -474,10 +486,15 @@ impl Plugin for Aerothesis {
+</a> 
+         for channel_samples in buffer.iter_samples() {
+             let gain = self.params.gain.smoothed.next();
+<a href="#h1-6-3" id="h1-6-3" class="d">-            let x_current = self.resonance() - self.avg_x_history();
+</a><a href="#h1-6-4" id="h1-6-4" class="i">+            let x_current = self.displacement() - self.avg_x_history();
+</a> 
+             for sample in channel_samples {
+<a href="#h1-6-7" id="h1-6-7" class="d">-                *sample = (x_current * gain).clamp(-1.0, 1.0);
+</a><a href="#h1-6-8" id="h1-6-8" class="i">+                if self.note_frequency == 0.0 {
+</a><a href="#h1-6-9" id="h1-6-9" class="i">+                    self.x_history.clear();
+</a><a href="#h1-6-10" id="h1-6-10" class="i">+                    *sample = 0.0;
+</a><a href="#h1-6-11" id="h1-6-11" class="i">+                } else {
+</a><a href="#h1-6-12" id="h1-6-12" class="i">+                    *sample = (x_current * gain).clamp(-1.0, 1.0);
+</a><a href="#h1-6-13" id="h1-6-13" class="i">+                }
+</a>             }
+         }
+ 
+<b>diff --git a/<a id="h2" href="../file/src/main.rs.html">src/main.rs</a> b/<a href="../file/src/main.rs.html">src/main.rs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -6,21 +6,28 @@ use textplots::{Chart, Plot, Shape};
+</a> fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+     let mut plugin = Aerothesis::default();
+     let sample_rate = 44100.0;
+<a href="#h2-0-3" id="h2-0-3" class="d">-    let seconds = 0.5;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    let seconds = 1.0;
+</a>     let num_samples = (sample_rate * seconds) as usize;
+ 
+     plugin.sample_rate = sample_rate;
+<a href="#h2-0-8" id="h2-0-8" class="d">-    plugin.note_frequency = util::midi_note_to_freq(48); // C3 (u8)
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+    // plugin.note_frequency = util::midi_note_to_freq(48); // C3 (u8)
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+    plugin.note_frequency = util::midi_note_to_freq(54); // C4 (u8)
+</a> 
+     // For simulation in main.rs, we use the default parameters from AerothesisParams::default()
+     // because nih-plug parameters are designed to be managed by a host and don&#39;t have
+     // simple setter methods for plain values without a ParamSetter context.
+     // Default resonance: OpenPipe, Decay: 0.9
+ 
+<a href="#h2-0-17" id="h2-0-17" class="d">-    let mut data = Vec::with_capacity(num_samples);
+</a><a href="#h2-0-18" id="h2-0-18" class="d">-    let mut signal = Vec::with_capacity(num_samples);
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+    let mut displacements = Vec::with_capacity(num_samples);
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+    let mut resonances = Vec::with_capacity(num_samples);
+</a> 
+     for i in 0..num_samples {
+<a href="#h2-0-23" id="h2-0-23" class="i">+        // let x_current = self.resonance() - self.avg_x_history();
+</a><a href="#h2-0-24" id="h2-0-24" class="i">+
+</a><a href="#h2-0-25" id="h2-0-25" class="i">+        // for sample in channel_samples {
+</a><a href="#h2-0-26" id="h2-0-26" class="i">+        //     *sample = (x_current * gain).clamp(-1.0, 1.0);
+</a><a href="#h2-0-27" id="h2-0-27" class="i">+        // }
+</a><a href="#h2-0-28" id="h2-0-28" class="i">+
+</a>         // Simple attack envelope for breath pressure
+         plugin.v_breath = if i &lt; 2000 {
+             (i as f32 / 2000.0) * 100.0
+<a href="#h2-1" id="h2-1" class="h">@@ -28,26 +35,30 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>             100.0
+         };
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-        let sample = plugin.resonance();
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-
+</a><a href="#h2-1-5" id="h2-1-5" class="d">-        // Collect first 50ms for waveform plot
+</a><a href="#h2-1-6" id="h2-1-6" class="d">-        if i &lt; (sample_rate * 0.05) as usize {
+</a><a href="#h2-1-7" id="h2-1-7" class="d">-            data.push((i as f32, sample));
+</a><a href="#h2-1-8" id="h2-1-8" class="d">-        }
+</a><a href="#h2-1-9" id="h2-1-9" class="d">-        signal.push(sample);
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+        let sample = plugin.displacement() - plugin.avg_x_history();
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+        displacements.push(sample);
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+        resonances.push(plugin.resonance());
+</a>     }
+ 
+<a href="#h2-1-15" id="h2-1-15" class="d">-    println!(&quot;--- Waveform (first 50ms) ---&quot;);
+</a><a href="#h2-1-16" id="h2-1-16" class="d">-    Chart::new(180, 60, 0.0, data.len() as f32)
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+    let len = (sample_rate * 0.05) as usize;
+</a><a href="#h2-1-18" id="h2-1-18" class="i">+
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+    let data: Vec&lt;(f32, f32)&gt; = (0..len)
+</a><a href="#h2-1-20" id="h2-1-20" class="i">+        .map(|i| (i as f32, displacements[i + (sample_rate * 0.1) as usize]))
+</a><a href="#h2-1-21" id="h2-1-21" class="i">+        .collect();
+</a><a href="#h2-1-22" id="h2-1-22" class="i">+
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+    println!(&quot;--- Waveform ---&quot;);
+</a><a href="#h2-1-24" id="h2-1-24" class="i">+    Chart::new(360, 60, 0.0, len as f32)
+</a>         .lineplot(&amp;Shape::Lines(&amp;data))
+         .display();
+ 
+<a href="#h2-1-28" id="h2-1-28" class="d">-    let fft_len = signal.len().next_power_of_two();
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+    let fft_len = displacements.len().next_power_of_two();
+</a>     let mut planner = FftPlanner::new();
+     let fft = planner.plan_fft_forward(fft_len);
+ 
+<a href="#h2-1-33" id="h2-1-33" class="d">-    let mut buffer: Vec&lt;Complex&lt;f32&gt;&gt; =
+</a><a href="#h2-1-34" id="h2-1-34" class="d">-        signal.iter().map(|&amp;s| Complex { re: s, im: 0.0 }).collect();
+</a><a href="#h2-1-35" id="h2-1-35" class="i">+    let mut buffer: Vec&lt;Complex&lt;f32&gt;&gt; = displacements
+</a><a href="#h2-1-36" id="h2-1-36" class="i">+        .iter()
+</a><a href="#h2-1-37" id="h2-1-37" class="i">+        .map(|&amp;s| Complex { re: s, im: 0.0 })
+</a><a href="#h2-1-38" id="h2-1-38" class="i">+        .collect();
+</a>     buffer.resize(fft_len, Complex { re: 0.0, im: 0.0 });
+ 
+     fft.process(&amp;mut buffer);
+</pre>
+</div>
+</body>
+</html>

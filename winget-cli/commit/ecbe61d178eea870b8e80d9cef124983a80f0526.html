@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Split testing into separate pipeline job (#4675) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/ecbe61d178eea870b8e80d9cef124983a80f0526.html">ecbe61d178eea870b8e80d9cef124983a80f0526</a>
+<b>parent</b> <a href="../commit/f6e27a48c32c4ccdc58f5f938c5bca5c54cef2dc.html">f6e27a48c32c4ccdc58f5f938c5bca5c54cef2dc</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu,  1 Aug 2024 16:41:11 -0700
+
+Split testing into separate pipeline job (#4675)
+
+## Change
+The goal of this change is to separate the tests from the build. Then,
+in the event of a spurious test failure, one needs only re-run the
+failed job rather than the entire build.
+
+---------
+
+Co-authored-by: Flor Chacón &lt;14323496+florelis@users.noreply.github.com&gt;
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">azure-pipelines.yml</a></td><td> | </td><td class="num">423</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/LocalhostWebServer/Program.cs</a></td><td> | </td><td class="num">11</td><td><span class="i">++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a></td><td> | </td><td class="num">16</td><td><span class="i">++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/LocalhostWebServer/Startup.cs</a></td><td> | </td><td class="num">2</td><td><span class="i">++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs</a></td><td> | </td><td class="num">18</td><td><span class="i">++++++++++++</span><span class="d">------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">templates/e2e-test.template.yml</a></td><td> | </td><td class="num">92</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------------------------</span></td></tr>
+</table></pre><pre>6 files changed, 310 insertions(+), 252 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a> b/<a href="../file/azure-pipelines.yml.html">azure-pipelines.yml</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -38,6 +38,8 @@ jobs:
+</a>       arguments: &#39;-OutVar&#39;
+       workingDirectory: &#39;src&#39;
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+# Build job creates artifacts for use in test jobs
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+
+</a> - job: &#39;Build&#39;
+   timeoutInMinutes: 120
+   dependsOn: &#39;GetReleaseTag&#39;
+<a href="#h0-1" id="h0-1" class="h">@@ -49,10 +51,12 @@ jobs:
+</a>         buildConfiguration: &#39;Release&#39;
+         buildPlatform: &#39;x86&#39;
+         testBuildConfiguration: &#39;TestRelease&#39;
+<a href="#h0-1-3" id="h0-1-3" class="i">+        artifactIdentifier: &#39;x86release&#39;
+</a>       x64_release:
+         buildConfiguration: &#39;Release&#39;
+         buildPlatform: &#39;x64&#39;
+         testBuildConfiguration: &#39;TestRelease&#39;
+<a href="#h0-1-8" id="h0-1-8" class="i">+        artifactIdentifier: &#39;x64release&#39;
+</a> 
+   variables:
+     BuildVer: $[counter(dependencies.GetReleaseTag.outputs[&#39;GetTag.tag&#39;], 1)]
+<a href="#h0-2" id="h0-2" class="h">@@ -130,22 +134,234 @@ jobs:
+</a>                     /p:AppxBundle=Always
+                     /p:UapAppxPackageBuildMode=SideloadOnly&#39;
+ 
+<a href="#h0-2-3" id="h0-2-3" class="i">+  - task: MSBuild@1
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+    displayName: Build MSIX Test Installer File
+</a><a href="#h0-2-5" id="h0-2-5" class="i">+    inputs:
+</a><a href="#h0-2-6" id="h0-2-6" class="i">+      platform: &#39;$(buildPlatform)&#39;
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+      solution: &#39;src\AppInstallerTestMsixInstaller\AppInstallerTestMsixInstaller.wapproj&#39;
+</a><a href="#h0-2-8" id="h0-2-8" class="i">+      configuration: &#39;$(buildConfiguration)&#39;
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+      msbuildArguments: &#39;/p:AppxPackageOutput=&quot;$(Build.ArtifactStagingDirectory)\AppInstallerTestMsixInstaller.msix&quot;
+</a><a href="#h0-2-10" id="h0-2-10" class="i">+                         /p:AppxBundle=Never
+</a><a href="#h0-2-11" id="h0-2-11" class="i">+                         /p:UapAppxPackageBuildMode=SideLoadOnly
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+                         /p:AppxPackageSigningEnabled=false&#39;
+</a><a href="#h0-2-13" id="h0-2-13" class="i">+
+</a>   - task: CopyFiles@2
+<a href="#h0-2-15" id="h0-2-15" class="d">-    displayName: &#39;Copy Symbols to artifacts folder&#39;
+</a><a href="#h0-2-16" id="h0-2-16" class="i">+    displayName: &#39;Copy specific build artifacts&#39;
+</a>     inputs:
+       Contents: |
+           $(buildOutDir)\WindowsPackageManager\WindowsPackageManager.pdb
+<a href="#h0-2-20" id="h0-2-20" class="d">-          $(buildOutDir)\Microsoft.Management.Configuration\Microsoft.Management.Configuration.pdb
+</a><a href="#h0-2-21" id="h0-2-21" class="i">+          $(buildOutDir)\WinGetUtil\WinGetUtil.dll
+</a><a href="#h0-2-22" id="h0-2-22" class="i">+          $(buildOutDir)\WinGetUtil\WinGetUtil.pdb
+</a>       TargetFolder: &#39;$(artifactsDir)&#39;
+<a href="#h0-2-24" id="h0-2-24" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-2-25" id="h0-2-25" class="i">+
+</a><a href="#h0-2-26" id="h0-2-26" class="i">+  - task: PowerShell@2
+</a><a href="#h0-2-27" id="h0-2-27" class="i">+    displayName: Create Package Layout
+</a><a href="#h0-2-28" id="h0-2-28" class="i">+    inputs:
+</a><a href="#h0-2-29" id="h0-2-29" class="i">+      filePath: &#39;src\AppInstallerCLIPackage\Execute-AppxRecipe.ps1&#39;
+</a><a href="#h0-2-30" id="h0-2-30" class="i">+      arguments: &#39;-AppxRecipePath AppInstallerCLIPackage\bin\$(buildPlatform)\$(buildConfiguration)\AppInstallerCLIPackage.build.appxrecipe -LayoutPath $(packageLayoutDir) -Force -Verbose&#39;
+</a><a href="#h0-2-31" id="h0-2-31" class="i">+      workingDirectory: &#39;src&#39;
+</a><a href="#h0-2-32" id="h0-2-32" class="i">+
+</a><a href="#h0-2-33" id="h0-2-33" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-34" id="h0-2-34" class="i">+    displayName: &#39;Copy Dev Package (Loose Files)&#39;
+</a><a href="#h0-2-35" id="h0-2-35" class="i">+    inputs:
+</a><a href="#h0-2-36" id="h0-2-36" class="i">+      SourceFolder: &#39;$(packageLayoutDir)&#39;
+</a><a href="#h0-2-37" id="h0-2-37" class="i">+      TargetFolder: &#39;$(artifactsDir)\DevPackage&#39;
+</a><a href="#h0-2-38" id="h0-2-38" class="i">+
+</a><a href="#h0-2-39" id="h0-2-39" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-40" id="h0-2-40" class="i">+    displayName: &#39;Copy Dev Packages&#39;
+</a><a href="#h0-2-41" id="h0-2-41" class="i">+    inputs:
+</a><a href="#h0-2-42" id="h0-2-42" class="i">+      SourceFolder: &#39;$(appxPackageDir)&#39;
+</a><a href="#h0-2-43" id="h0-2-43" class="i">+      TargetFolder: &#39;$(artifactsDir)\AppxPackages&#39;
+</a><a href="#h0-2-44" id="h0-2-44" class="i">+
+</a><a href="#h0-2-45" id="h0-2-45" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-46" id="h0-2-46" class="i">+    displayName: &#39;Copy native binaries for Microsoft.WinGet.Client (net6)&#39;
+</a><a href="#h0-2-47" id="h0-2-47" class="i">+    inputs:
+</a><a href="#h0-2-48" id="h0-2-48" class="i">+      SourceFolder: $(buildOutDir)
+</a><a href="#h0-2-49" id="h0-2-49" class="i">+      Contents: |
+</a><a href="#h0-2-50" id="h0-2-50" class="i">+          Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.dll
+</a><a href="#h0-2-51" id="h0-2-51" class="i">+          Microsoft.Management.Deployment\Microsoft.Management.Deployment.winmd
+</a><a href="#h0-2-52" id="h0-2-52" class="i">+          WindowsPackageManager\WindowsPackageManager.dll
+</a><a href="#h0-2-53" id="h0-2-53" class="i">+          UndockedRegFreeWinRT\winrtact.dll
+</a><a href="#h0-2-54" id="h0-2-54" class="i">+      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Client\net6.0-windows10.0.22000.0\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-2-55" id="h0-2-55" class="i">+      flattenFolders: true
+</a><a href="#h0-2-56" id="h0-2-56" class="i">+
+</a><a href="#h0-2-57" id="h0-2-57" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-58" id="h0-2-58" class="i">+    displayName: &#39;Copy native binaries for Microsoft.WinGet.Client (net48)&#39;
+</a><a href="#h0-2-59" id="h0-2-59" class="i">+    inputs:
+</a><a href="#h0-2-60" id="h0-2-60" class="i">+      SourceFolder: $(buildOutDir)
+</a><a href="#h0-2-61" id="h0-2-61" class="i">+      Contents: |
+</a><a href="#h0-2-62" id="h0-2-62" class="i">+          Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.dll
+</a><a href="#h0-2-63" id="h0-2-63" class="i">+          Microsoft.Management.Deployment\Microsoft.Management.Deployment.winmd
+</a><a href="#h0-2-64" id="h0-2-64" class="i">+          WindowsPackageManager\WindowsPackageManager.dll
+</a><a href="#h0-2-65" id="h0-2-65" class="i">+          UndockedRegFreeWinRT\winrtact.dll
+</a><a href="#h0-2-66" id="h0-2-66" class="i">+      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Client\net48\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-2-67" id="h0-2-67" class="i">+      flattenFolders: true
+</a><a href="#h0-2-68" id="h0-2-68" class="i">+
+</a><a href="#h0-2-69" id="h0-2-69" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-70" id="h0-2-70" class="i">+    displayName: &#39;Copy native binaries for Microsoft.WinGet.Configuration&#39;
+</a><a href="#h0-2-71" id="h0-2-71" class="i">+    inputs:
+</a><a href="#h0-2-72" id="h0-2-72" class="i">+      SourceFolder: $(buildOutDir)
+</a><a href="#h0-2-73" id="h0-2-73" class="i">+      Contents: |
+</a><a href="#h0-2-74" id="h0-2-74" class="i">+          Microsoft.Management.Configuration\Microsoft.Management.Configuration.dll
+</a><a href="#h0-2-75" id="h0-2-75" class="i">+      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Configuration\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-2-76" id="h0-2-76" class="i">+      flattenFolders: true
+</a><a href="#h0-2-77" id="h0-2-77" class="i">+
+</a><a href="#h0-2-78" id="h0-2-78" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-79" id="h0-2-79" class="i">+    displayName: &#39;Copy managed binaries for Microsoft.WinGet.Configuration in arch specific&#39;
+</a><a href="#h0-2-80" id="h0-2-80" class="i">+    inputs:
+</a><a href="#h0-2-81" id="h0-2-81" class="i">+      SourceFolder: $(buildOutDirAnyCpu)
+</a><a href="#h0-2-82" id="h0-2-82" class="i">+      Contents: |
+</a><a href="#h0-2-83" id="h0-2-83" class="i">+          Microsoft.Management.Configuration.Projection\net6.0-windows10.0.22000.0\Microsoft.Management.Configuration.Projection.dll
+</a><a href="#h0-2-84" id="h0-2-84" class="i">+      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Configuration\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-2-85" id="h0-2-85" class="i">+      flattenFolders: true
+</a><a href="#h0-2-86" id="h0-2-86" class="i">+
+</a><a href="#h0-2-87" id="h0-2-87" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-88" id="h0-2-88" class="i">+    displayName: &#39;Copy PowerShell AnyCPU Module Files&#39;
+</a><a href="#h0-2-89" id="h0-2-89" class="i">+    inputs:
+</a><a href="#h0-2-90" id="h0-2-90" class="i">+      SourceFolder: &#39;$(buildOutDirAnyCpu)\PowerShell&#39;
+</a><a href="#h0-2-91" id="h0-2-91" class="i">+      TargetFolder: &#39;$(artifactsDir)\PowerShell&#39;
+</a><a href="#h0-2-92" id="h0-2-92" class="i">+
+</a><a href="#h0-2-93" id="h0-2-93" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-94" id="h0-2-94" class="i">+    displayName: &#39;Copy binaries&#39;
+</a><a href="#h0-2-95" id="h0-2-95" class="i">+    inputs:
+</a><a href="#h0-2-96" id="h0-2-96" class="i">+      SourceFolder: &#39;$(buildOutDir)&#39;
+</a><a href="#h0-2-97" id="h0-2-97" class="i">+      TargetFolder: &#39;$(artifactsDir)&#39;
+</a><a href="#h0-2-98" id="h0-2-98" class="i">+      Contents: |
+</a><a href="#h0-2-99" id="h0-2-99" class="i">+        AppInstallerCLIE2ETests\**
+</a><a href="#h0-2-100" id="h0-2-100" class="i">+        AppInstallerCLITests\**
+</a><a href="#h0-2-101" id="h0-2-101" class="i">+        Microsoft.Management.Configuration\**
+</a><a href="#h0-2-102" id="h0-2-102" class="i">+        Microsoft.Management.Configuration.UnitTests\**
+</a><a href="#h0-2-103" id="h0-2-103" class="i">+        Microsoft.Management.Configuration.OutOfProc\**
+</a><a href="#h0-2-104" id="h0-2-104" class="i">+
+</a><a href="#h0-2-105" id="h0-2-105" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-106" id="h0-2-106" class="i">+    displayName: &#39;Copy Files: WinGetUtilInterop.UnitTests&#39;
+</a><a href="#h0-2-107" id="h0-2-107" class="i">+    inputs:
+</a><a href="#h0-2-108" id="h0-2-108" class="i">+      SourceFolder: &#39;$(Build.SourcesDirectory)\src\WinGetUtilInterop.UnitTests\bin\$(buildPlatform)\$(BuildConfiguration)\net6.0&#39;
+</a><a href="#h0-2-109" id="h0-2-109" class="i">+      TargetFolder:  &#39;$(artifactsDir)\WinGetUtilInterop.UnitTests\&#39;
+</a><a href="#h0-2-110" id="h0-2-110" class="i">+      CleanTargetFolder: true
+</a><a href="#h0-2-111" id="h0-2-111" class="i">+      OverWrite: true
+</a><a href="#h0-2-112" id="h0-2-112" class="i">+
+</a><a href="#h0-2-113" id="h0-2-113" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-114" id="h0-2-114" class="i">+    displayName: &#39;Copy WinGetUtil to WinGetUtilInterop.UnitTests folder&#39;
+</a><a href="#h0-2-115" id="h0-2-115" class="i">+    inputs:
+</a><a href="#h0-2-116" id="h0-2-116" class="i">+      Contents: |
+</a><a href="#h0-2-117" id="h0-2-117" class="i">+          $(buildOutDir)\WinGetUtil\WinGetUtil.dll
+</a><a href="#h0-2-118" id="h0-2-118" class="i">+      TargetFolder: &#39;$(artifactsDir)\WinGetUtilInterop.UnitTests\&#39;
+</a><a href="#h0-2-119" id="h0-2-119" class="i">+      flattenFolders: true
+</a><a href="#h0-2-120" id="h0-2-120" class="i">+
+</a><a href="#h0-2-121" id="h0-2-121" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-122" id="h0-2-122" class="i">+    displayName: &#39;Copy LocalhostWebServer to E2ETests&#39;
+</a><a href="#h0-2-123" id="h0-2-123" class="i">+    inputs:
+</a><a href="#h0-2-124" id="h0-2-124" class="i">+      SourceFolder: &#39;$(buildOutDir)\LocalhostWebServer&#39;
+</a><a href="#h0-2-125" id="h0-2-125" class="i">+      TargetFolder: &#39;$(artifactsDir)\E2ETests\LocalhostWebServer&#39;
+</a><a href="#h0-2-126" id="h0-2-126" class="i">+
+</a><a href="#h0-2-127" id="h0-2-127" class="i">+    # Invoke E2E setup to generate the TestLocalIndex; could optimize out some of its steps if needed
+</a><a href="#h0-2-128" id="h0-2-128" class="i">+  - template: templates/e2e-setup.yml
+</a><a href="#h0-2-129" id="h0-2-129" class="i">+    parameters:
+</a><a href="#h0-2-130" id="h0-2-130" class="i">+      sourceDir: $(Build.SourcesDirectory)
+</a><a href="#h0-2-131" id="h0-2-131" class="i">+      localhostWebServerArgs: &#39;-BuildRoot $(artifactsDir)\E2ETests\LocalhostWebServer -StaticFileRoot $(Agent.TempDirectory)\TestLocalIndex -LocalSourceJson $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\localsource.json -TestDataPath $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer -ExitBeforeRun&#39;
+</a><a href="#h0-2-132" id="h0-2-132" class="i">+
+</a><a href="#h0-2-133" id="h0-2-133" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-134" id="h0-2-134" class="i">+    displayName: &#39;Copy TestLocalIndex&#39;
+</a><a href="#h0-2-135" id="h0-2-135" class="i">+    inputs:
+</a><a href="#h0-2-136" id="h0-2-136" class="i">+      SourceFolder: &#39;$(Agent.TempDirectory)\TestLocalIndex&#39;
+</a><a href="#h0-2-137" id="h0-2-137" class="i">+      TargetFolder: &#39;$(artifactsDir)\E2ETests\TestLocalIndex&#39;
+</a><a href="#h0-2-138" id="h0-2-138" class="i">+
+</a><a href="#h0-2-139" id="h0-2-139" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-140" id="h0-2-140" class="i">+    displayName: &#39;Copy TestData&#39;
+</a><a href="#h0-2-141" id="h0-2-141" class="i">+    inputs:
+</a><a href="#h0-2-142" id="h0-2-142" class="i">+      SourceFolder: &#39;$(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\&#39;
+</a><a href="#h0-2-143" id="h0-2-143" class="i">+      TargetFolder: &#39;$(artifactsDir)\E2ETests\TestData&#39;
+</a><a href="#h0-2-144" id="h0-2-144" class="i">+
+</a><a href="#h0-2-145" id="h0-2-145" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-146" id="h0-2-146" class="i">+    displayName: &#39;Copy Dev Package Dependencies&#39;
+</a><a href="#h0-2-147" id="h0-2-147" class="i">+    inputs:
+</a><a href="#h0-2-148" id="h0-2-148" class="i">+      SourceFolder: &#39;$(appxPackageDir)\AppInstallerCLIPackage_0.0.2.0_Test\Dependencies\$(buildPlatform)\&#39;
+</a><a href="#h0-2-149" id="h0-2-149" class="i">+      TargetFolder: &#39;$(artifactsDir)\E2ETests\DevPackageDependencies&#39;
+</a><a href="#h0-2-150" id="h0-2-150" class="i">+
+</a><a href="#h0-2-151" id="h0-2-151" class="i">+  - task: CopyFiles@2
+</a><a href="#h0-2-152" id="h0-2-152" class="i">+    displayName: &#39;Copy test scripts to artifacts&#39;
+</a><a href="#h0-2-153" id="h0-2-153" class="i">+    inputs:
+</a><a href="#h0-2-154" id="h0-2-154" class="i">+      Contents: |
+</a><a href="#h0-2-155" id="h0-2-155" class="i">+          $(Build.SourcesDirectory)\src\PowerShell\scripts\Execute-WinGetTests.ps1
+</a><a href="#h0-2-156" id="h0-2-156" class="i">+          $(Build.SourcesDirectory)\src\PowerShell\tests\**
+</a><a href="#h0-2-157" id="h0-2-157" class="i">+          $(Build.SourcesDirectory)\src\LocalhostWebServer\Run-LocalhostWebServer.ps1
+</a><a href="#h0-2-158" id="h0-2-158" class="i">+      TargetFolder: &#39;$(artifactsDir)\E2ETests\Scripts&#39;
+</a><a href="#h0-2-159" id="h0-2-159" class="i">+      flattenFolders: true
+</a><a href="#h0-2-160" id="h0-2-160" class="i">+
+</a><a href="#h0-2-161" id="h0-2-161" class="i">+  - task: PublishPipelineArtifact@1
+</a><a href="#h0-2-162" id="h0-2-162" class="i">+    displayName: Publish Pipeline Artifacts
+</a><a href="#h0-2-163" id="h0-2-163" class="i">+    inputs:
+</a><a href="#h0-2-164" id="h0-2-164" class="i">+      targetPath: &#39;$(artifactsDir)&#39;
+</a><a href="#h0-2-165" id="h0-2-165" class="i">+      artifact: &#39;Build.$(artifactIdentifier)&#39;
+</a><a href="#h0-2-166" id="h0-2-166" class="i">+
+</a><a href="#h0-2-167" id="h0-2-167" class="i">+  - task: ComponentGovernanceComponentDetection@0
+</a><a href="#h0-2-168" id="h0-2-168" class="i">+    displayName: Component Governance
+</a><a href="#h0-2-169" id="h0-2-169" class="i">+    inputs:
+</a><a href="#h0-2-170" id="h0-2-170" class="i">+      scanType: &#39;Register&#39;
+</a><a href="#h0-2-171" id="h0-2-171" class="i">+      verbosity: &#39;Verbose&#39;
+</a><a href="#h0-2-172" id="h0-2-172" class="i">+      alertWarningLevel: &#39;High&#39;
+</a><a href="#h0-2-173" id="h0-2-173" class="i">+
+</a><a href="#h0-2-174" id="h0-2-174" class="i">+  # Run BimSkim for all the binaries
+</a><a href="#h0-2-175" id="h0-2-175" class="i">+  - task: BinSkim@4
+</a><a href="#h0-2-176" id="h0-2-176" class="i">+    displayName: &#39;Run BinSkim &#39;
+</a><a href="#h0-2-177" id="h0-2-177" class="i">+    inputs:
+</a><a href="#h0-2-178" id="h0-2-178" class="i">+      arguments: &#39;analyze
+</a><a href="#h0-2-179" id="h0-2-179" class="i">+        &quot;$(buildOutDir)\AppInstallerCLI\winget.exe&quot;
+</a><a href="#h0-2-180" id="h0-2-180" class="i">+        &quot;$(buildOutDir)\WinGetUtil\WinGetUtil.dll&quot;
+</a><a href="#h0-2-181" id="h0-2-181" class="i">+        &quot;$(buildOutDir)\WindowsPackageManager\WindowsPackageManager.dll&quot;
+</a><a href="#h0-2-182" id="h0-2-182" class="i">+        &quot;$(buildOutDir)\Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.InProc.dll&quot;
+</a><a href="#h0-2-183" id="h0-2-183" class="i">+        &quot;$(Build.SourcesDirectory)\src\WinGetUtilInterop\bin\WinGetUtil*Interop.dll&quot;
+</a><a href="#h0-2-184" id="h0-2-184" class="i">+        &quot;$(buildOutDir)\UndockedRegFreeWinRT\winrtact.dll&quot;
+</a><a href="#h0-2-185" id="h0-2-185" class="i">+        &quot;$(buildOutDir)\Microsoft.WinGet.Client.Cmdlets\Microsoft.WinGet.Client*.dll&quot;
+</a><a href="#h0-2-186" id="h0-2-186" class="i">+        &quot;$(buildOutDir)\ConfigurationRemotingServer\ConfigurationRemoting*Server.dll&quot;
+</a><a href="#h0-2-187" id="h0-2-187" class="i">+        &quot;$(buildOutDir)\ConfigurationRemotingServer\ConfigurationRemoting*Server.exe&quot;
+</a><a href="#h0-2-188" id="h0-2-188" class="i">+        &quot;$(buildOutDir)\ConfigurationRemotingServer\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h0-2-189" id="h0-2-189" class="i">+        &quot;$(buildOutDir)\Microsoft.Management.Configuration\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h0-2-190" id="h0-2-190" class="i">+        &quot;$(buildOutDir)\Microsoft.Management.Configuration.OutOfProc\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h0-2-191" id="h0-2-191" class="i">+        --config default --recurse&#39;
+</a><a href="#h0-2-192" id="h0-2-192" class="i">+
+</a><a href="#h0-2-193" id="h0-2-193" class="i">+  - task: securedevelopmentteam.vss-secure-development-tools.build-task-publishsecurityanalysislogs.PublishSecurityAnalysisLogs@3
+</a><a href="#h0-2-194" id="h0-2-194" class="i">+    displayName: &#39;Publish Security Analysis Logs&#39;
+</a><a href="#h0-2-195" id="h0-2-195" class="i">+
+</a><a href="#h0-2-196" id="h0-2-196" class="i">+# Test job runs tests using build artifacts
+</a><a href="#h0-2-197" id="h0-2-197" class="i">+
+</a><a href="#h0-2-198" id="h0-2-198" class="i">+- job: &#39;Test&#39;
+</a><a href="#h0-2-199" id="h0-2-199" class="i">+  timeoutInMinutes: 120
+</a><a href="#h0-2-200" id="h0-2-200" class="i">+  dependsOn: &#39;Build&#39;
+</a><a href="#h0-2-201" id="h0-2-201" class="i">+  condition: succeeded(&#39;Build&#39;)
+</a><a href="#h0-2-202" id="h0-2-202" class="i">+
+</a><a href="#h0-2-203" id="h0-2-203" class="i">+  strategy:
+</a><a href="#h0-2-204" id="h0-2-204" class="i">+    matrix:
+</a><a href="#h0-2-205" id="h0-2-205" class="i">+      x86_release:
+</a><a href="#h0-2-206" id="h0-2-206" class="i">+        buildConfiguration: &#39;Release&#39;
+</a><a href="#h0-2-207" id="h0-2-207" class="i">+        buildPlatform: &#39;x86&#39;
+</a><a href="#h0-2-208" id="h0-2-208" class="i">+        testBuildConfiguration: &#39;TestRelease&#39;
+</a><a href="#h0-2-209" id="h0-2-209" class="i">+        artifactIdentifier: &#39;x86release&#39;
+</a><a href="#h0-2-210" id="h0-2-210" class="i">+      x64_release:
+</a><a href="#h0-2-211" id="h0-2-211" class="i">+        buildConfiguration: &#39;Release&#39;
+</a><a href="#h0-2-212" id="h0-2-212" class="i">+        buildPlatform: &#39;x64&#39;
+</a><a href="#h0-2-213" id="h0-2-213" class="i">+        testBuildConfiguration: &#39;TestRelease&#39;
+</a><a href="#h0-2-214" id="h0-2-214" class="i">+        artifactIdentifier: &#39;x64release&#39;
+</a><a href="#h0-2-215" id="h0-2-215" class="i">+
+</a><a href="#h0-2-216" id="h0-2-216" class="i">+  variables:
+</a><a href="#h0-2-217" id="h0-2-217" class="i">+    buildOutDir: $(Pipeline.Workspace)\Build.$(artifactIdentifier)
+</a><a href="#h0-2-218" id="h0-2-218" class="i">+    artifactsDir: $(Build.ArtifactStagingDirectory)
+</a><a href="#h0-2-219" id="h0-2-219" class="i">+    packageLayoutDir: $(Pipeline.Workspace)\Build.$(artifactIdentifier)\DevPackage
+</a><a href="#h0-2-220" id="h0-2-220" class="i">+
+</a><a href="#h0-2-221" id="h0-2-221" class="i">+  steps:
+</a><a href="#h0-2-222" id="h0-2-222" class="i">+  - task: DownloadPipelineArtifact@2
+</a><a href="#h0-2-223" id="h0-2-223" class="i">+    displayName: &#39;Download Build Artifacts&#39;
+</a><a href="#h0-2-224" id="h0-2-224" class="i">+    inputs:
+</a><a href="#h0-2-225" id="h0-2-225" class="i">+      artifact: &#39;Build.$(artifactIdentifier)&#39;
+</a><a href="#h0-2-226" id="h0-2-226" class="i">+      path: &#39;$(buildOutDir)&#39;
+</a> 
+   - task: PowerShell@2
+     displayName: Install Tests Dependencies
+     inputs:
+       targetType: &#39;inline&#39;
+       script: |
+<a href="#h0-2-233" id="h0-2-233" class="d">-        Get-ChildItem AppInstallerCLIPackage_0.0.2.0_Test\Dependencies\$(buildPlatform) -Filter *.appx | %{ Add-AppxPackage $_.FullName }
+</a><a href="#h0-2-234" id="h0-2-234" class="d">-      workingDirectory: $(appxPackageDir)
+</a><a href="#h0-2-235" id="h0-2-235" class="i">+        Get-ChildItem $(buildOutDir)\E2ETests\DevPackageDependencies -Filter *.appx | %{ Add-AppxPackage $_.FullName }
+</a> 
+   - task: VisualStudioTestPlatformInstaller@1
+     displayName: Prepare VSTest for E2E Tests
+<a href="#h0-3" id="h0-3" class="h">@@ -167,14 +383,6 @@ jobs:
+</a>     condition: succeededOrFailed()
+ 
+   - task: PowerShell@2
+<a href="#h0-3-3" id="h0-3-3" class="d">-    displayName: Create Package Layout
+</a><a href="#h0-3-4" id="h0-3-4" class="d">-    inputs:
+</a><a href="#h0-3-5" id="h0-3-5" class="d">-      filePath: &#39;src\AppInstallerCLIPackage\Execute-AppxRecipe.ps1&#39;
+</a><a href="#h0-3-6" id="h0-3-6" class="d">-      arguments: &#39;-AppxRecipePath AppInstallerCLIPackage\bin\$(buildPlatform)\$(buildConfiguration)\AppInstallerCLIPackage.build.appxrecipe -LayoutPath $(packageLayoutDir) -Force -Verbose&#39;
+</a><a href="#h0-3-7" id="h0-3-7" class="d">-      workingDirectory: &#39;src&#39;
+</a><a href="#h0-3-8" id="h0-3-8" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-3-9" id="h0-3-9" class="d">-
+</a><a href="#h0-3-10" id="h0-3-10" class="d">-  - task: PowerShell@2
+</a>     displayName: Run Unit Tests Packaged
+     inputs:
+       filePath: &#39;src\AppInstallerCLITests\Run-TestsInPackage.ps1&#39;
+<a href="#h0-4" id="h0-4" class="h">@@ -190,18 +398,6 @@ jobs:
+</a>       failTaskOnFailedTests: true
+     condition: succeededOrFailed()
+ 
+<a href="#h0-4-3" id="h0-4-3" class="d">-  - task: MSBuild@1
+</a><a href="#h0-4-4" id="h0-4-4" class="d">-    displayName: Build MSIX Test Installer File
+</a><a href="#h0-4-5" id="h0-4-5" class="d">-    inputs:
+</a><a href="#h0-4-6" id="h0-4-6" class="d">-      platform: &#39;$(buildPlatform)&#39;
+</a><a href="#h0-4-7" id="h0-4-7" class="d">-      solution: &#39;src\AppInstallerTestMsixInstaller\AppInstallerTestMsixInstaller.wapproj&#39;
+</a><a href="#h0-4-8" id="h0-4-8" class="d">-      configuration: &#39;$(buildConfiguration)&#39;
+</a><a href="#h0-4-9" id="h0-4-9" class="d">-      msbuildArguments: &#39;/p:AppxPackageOutput=&quot;$(Build.ArtifactStagingDirectory)\AppInstallerTestMsixInstaller.msix&quot;
+</a><a href="#h0-4-10" id="h0-4-10" class="d">-                         /p:AppxBundle=Never
+</a><a href="#h0-4-11" id="h0-4-11" class="d">-                         /p:UapAppxPackageBuildMode=SideLoadOnly
+</a><a href="#h0-4-12" id="h0-4-12" class="d">-                         /p:AppxPackageSigningEnabled=false&#39;
+</a><a href="#h0-4-13" id="h0-4-13" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-4-14" id="h0-4-14" class="d">-
+</a>   - task: PowerShell@2
+     displayName: &#39;Set program files directory&#39;
+     inputs:
+<a href="#h0-5" id="h0-5" class="h">@@ -218,7 +414,7 @@ jobs:
+</a>   - task: CopyFiles@2
+     displayName: &#39;Copy resources.pri to dotnet directory&#39;
+     inputs:
+<a href="#h0-5-3" id="h0-5-3" class="d">-      SourceFolder: &#39;$(buildOutDir)\AppInstallerCLI&#39;
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+      SourceFolder: &#39;$(buildOutDir)\DevPackage&#39;
+</a>       TargetFolder:  &#39;$(platformProgramFiles)\dotnet&#39;
+       Contents: resources.pri
+     condition: succeededOrFailed()
+<a href="#h0-6" id="h0-6" class="h">@@ -227,7 +423,7 @@ jobs:
+</a>   - task: CopyFiles@2
+     displayName: &#39;Copy winmd to dotnet directory&#39;
+     inputs:
+<a href="#h0-6-3" id="h0-6-3" class="d">-      SourceFolder: &#39;$(buildOutDir)\Microsoft.Management.Deployment&#39;
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+      SourceFolder: &#39;$(buildOutDir)\DevPackage&#39;
+</a>       TargetFolder: &#39;$(platformProgramFiles)\dotnet&#39;
+       Contents: Microsoft.Management.Deployment.winmd
+     condition: succeededOrFailed()
+<a href="#h0-7" id="h0-7" class="h">@@ -235,7 +431,7 @@ jobs:
+</a>   - template: templates/e2e-setup.yml
+     parameters:
+       sourceDir: $(Build.SourcesDirectory)
+<a href="#h0-7-3" id="h0-7-3" class="d">-      localhostWebServerArgs: &#39;-BuildRoot $(buildOutDir)\LocalhostWebServer -StaticFileRoot $(Agent.TempDirectory)\TestLocalIndex -LocalSourceJson $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\localsource.json -TestDataPath $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer&#39;
+</a><a href="#h0-7-4" id="h0-7-4" class="i">+      localhostWebServerArgs: &#39;-BuildRoot $(buildOutDir)\E2ETests\LocalhostWebServer -StaticFileRoot $(buildOutDir)\E2ETests\TestLocalIndex -SourceCert $(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\AppInstallerTest.cer&#39;
+</a> 
+   - template: templates/e2e-test.template.yml
+     parameters:
+<a href="#h0-8" id="h0-8" class="h">@@ -259,64 +455,7 @@ jobs:
+</a>     displayName: &#39;Copy E2E Tests Package Log to artifacts folder&#39;
+     inputs:
+       SourceFolder: &#39;$(temp)\E2ETestLogs&#39;
+<a href="#h0-8-3" id="h0-8-3" class="d">-      TargetFolder: &#39;$(artifactsDir)\E2ETests\PackagedLog&#39;
+</a><a href="#h0-8-4" id="h0-8-4" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-8-5" id="h0-8-5" class="d">-
+</a><a href="#h0-8-6" id="h0-8-6" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-8-7" id="h0-8-7" class="d">-    displayName: &#39;Copy E2E Test Source&#39;
+</a><a href="#h0-8-8" id="h0-8-8" class="d">-    inputs:
+</a><a href="#h0-8-9" id="h0-8-9" class="d">-      SourceFolder: &#39;$(Agent.TempDirectory)\TestLocalIndex&#39;
+</a><a href="#h0-8-10" id="h0-8-10" class="d">-      TargetFolder: &#39;$(artifactsDir)\E2ETests\TestLocalIndex&#39;
+</a><a href="#h0-8-11" id="h0-8-11" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-8-12" id="h0-8-12" class="d">-
+</a><a href="#h0-8-13" id="h0-8-13" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-8-14" id="h0-8-14" class="d">-    displayName: &#39;Copy TestData&#39;
+</a><a href="#h0-8-15" id="h0-8-15" class="d">-    inputs:
+</a><a href="#h0-8-16" id="h0-8-16" class="d">-      SourceFolder: &#39;$(Build.SourcesDirectory)\src\AppInstallerCLIE2ETests\TestData\&#39;
+</a><a href="#h0-8-17" id="h0-8-17" class="d">-      TargetFolder: &#39;$(artifactsDir)\E2ETests\TestData&#39;
+</a><a href="#h0-8-18" id="h0-8-18" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-8-19" id="h0-8-19" class="d">-
+</a><a href="#h0-8-20" id="h0-8-20" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-8-21" id="h0-8-21" class="d">-    displayName: &#39;Copy LocalhostWebServer&#39;
+</a><a href="#h0-8-22" id="h0-8-22" class="d">-    inputs:
+</a><a href="#h0-8-23" id="h0-8-23" class="d">-      SourceFolder: &#39;$(buildOutDir)\LocalhostWebServer&#39;
+</a><a href="#h0-8-24" id="h0-8-24" class="d">-      TargetFolder: &#39;$(artifactsDir)\E2ETests\LocalhostWebServer&#39;
+</a><a href="#h0-8-25" id="h0-8-25" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-8-26" id="h0-8-26" class="d">-
+</a><a href="#h0-8-27" id="h0-8-27" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-8-28" id="h0-8-28" class="d">-    displayName: &#39;Copy Dev Package Dependencies&#39;
+</a><a href="#h0-8-29" id="h0-8-29" class="d">-    inputs:
+</a><a href="#h0-8-30" id="h0-8-30" class="d">-      SourceFolder: &#39;$(appxPackageDir)\AppInstallerCLIPackage_0.0.2.0_Test\Dependencies\$(buildPlatform)\&#39;
+</a><a href="#h0-8-31" id="h0-8-31" class="d">-      TargetFolder: &#39;$(artifactsDir)\E2ETests\DevPackageDependencies&#39;
+</a><a href="#h0-8-32" id="h0-8-32" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-8-33" id="h0-8-33" class="d">-
+</a><a href="#h0-8-34" id="h0-8-34" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-8-35" id="h0-8-35" class="d">-    displayName: &#39;Copy test scripts to artifacts&#39;
+</a><a href="#h0-8-36" id="h0-8-36" class="d">-    inputs:
+</a><a href="#h0-8-37" id="h0-8-37" class="d">-      Contents: |
+</a><a href="#h0-8-38" id="h0-8-38" class="d">-          $(Build.SourcesDirectory)\src\PowerShell\scripts\Execute-WinGetTests.ps1
+</a><a href="#h0-8-39" id="h0-8-39" class="d">-          $(Build.SourcesDirectory)\src\PowerShell\tests\**
+</a><a href="#h0-8-40" id="h0-8-40" class="d">-          $(Build.SourcesDirectory)\src\LocalhostWebServer\Run-LocalhostWebServer.ps1
+</a><a href="#h0-8-41" id="h0-8-41" class="d">-      TargetFolder: &#39;$(artifactsDir)\E2ETests\Scripts&#39;
+</a><a href="#h0-8-42" id="h0-8-42" class="d">-      flattenFolders: true
+</a><a href="#h0-8-43" id="h0-8-43" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-8-44" id="h0-8-44" class="d">-
+</a><a href="#h0-8-45" id="h0-8-45" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-8-46" id="h0-8-46" class="d">-    displayName: &#39;Copy Files: WinGetUtilInterop.UnitTests&#39;
+</a><a href="#h0-8-47" id="h0-8-47" class="d">-    inputs:
+</a><a href="#h0-8-48" id="h0-8-48" class="d">-      SourceFolder: &#39;$(Build.SourcesDirectory)\src\WinGetUtilInterop.UnitTests\bin\$(buildPlatform)\$(BuildConfiguration)\net6.0&#39;
+</a><a href="#h0-8-49" id="h0-8-49" class="d">-      TargetFolder:  &#39;$(Build.ArtifactStagingDirectory)\WinGetUtilInterop.UnitTests\&#39;
+</a><a href="#h0-8-50" id="h0-8-50" class="d">-      CleanTargetFolder: true
+</a><a href="#h0-8-51" id="h0-8-51" class="d">-      OverWrite: true
+</a><a href="#h0-8-52" id="h0-8-52" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-8-53" id="h0-8-53" class="d">-
+</a><a href="#h0-8-54" id="h0-8-54" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-8-55" id="h0-8-55" class="d">-    displayName: &#39;Copy WinGetUtil to WinGetUtilInterop.UnitTests folder&#39;
+</a><a href="#h0-8-56" id="h0-8-56" class="d">-    inputs:
+</a><a href="#h0-8-57" id="h0-8-57" class="d">-      Contents: |
+</a><a href="#h0-8-58" id="h0-8-58" class="d">-          $(buildOutDir)\WinGetUtil\WinGetUtil.dll
+</a><a href="#h0-8-59" id="h0-8-59" class="d">-      TargetFolder: &#39;$(Build.ArtifactStagingDirectory)\WinGetUtilInterop.UnitTests\&#39;
+</a><a href="#h0-8-60" id="h0-8-60" class="d">-      flattenFolders: true
+</a><a href="#h0-8-61" id="h0-8-61" class="i">+      TargetFolder: &#39;$(artifactsDir)\PackagedLog&#39;
+</a>     condition: succeededOrFailed()
+ 
+   - task: VSTest@2
+<a href="#h0-9" id="h0-9" class="h">@@ -324,7 +463,7 @@ jobs:
+</a>     inputs:
+       testSelector: &#39;testAssemblies&#39;
+       testAssemblyVer2: &#39;WinGetUtilInterop.UnitTests.dll&#39;
+<a href="#h0-9-3" id="h0-9-3" class="d">-      searchFolder: &#39;$(Build.ArtifactStagingDirectory)\WinGetUtilInterop.UnitTests&#39;
+</a><a href="#h0-9-4" id="h0-9-4" class="i">+      searchFolder: &#39;$(buildOutDir)\WinGetUtilInterop.UnitTests&#39;
+</a>       codeCoverageEnabled: true
+       platform: &#39;$(buildPlatform)&#39;
+       configuration: &#39;$(BuildConfiguration)&#39;
+<a href="#h0-10" id="h0-10" class="h">@@ -372,121 +511,19 @@ jobs:
+</a>       arguments: &#39;-TargetLocation $(artifactsDir)\ConfigOOPTestsLog&#39;
+     condition: succeededOrFailed()
+ 
+<a href="#h0-10-3" id="h0-10-3" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-4" id="h0-10-4" class="d">-    displayName: &#39;Copy Util to artifacts folder&#39;
+</a><a href="#h0-10-5" id="h0-10-5" class="d">-    inputs:
+</a><a href="#h0-10-6" id="h0-10-6" class="d">-      Contents: |
+</a><a href="#h0-10-7" id="h0-10-7" class="d">-          $(buildOutDir)\WinGetUtil\WinGetUtil.dll
+</a><a href="#h0-10-8" id="h0-10-8" class="d">-          $(buildOutDir)\WinGetUtil\WinGetUtil.pdb
+</a><a href="#h0-10-9" id="h0-10-9" class="d">-      TargetFolder: &#39;$(artifactsDir)&#39;
+</a><a href="#h0-10-10" id="h0-10-10" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-11" id="h0-10-11" class="d">-
+</a><a href="#h0-10-12" id="h0-10-12" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-13" id="h0-10-13" class="d">-    displayName: &#39;Copy native binaries for Microsoft.WinGet.Client&#39;
+</a><a href="#h0-10-14" id="h0-10-14" class="d">-    inputs:
+</a><a href="#h0-10-15" id="h0-10-15" class="d">-      SourceFolder: $(buildOutDir)
+</a><a href="#h0-10-16" id="h0-10-16" class="d">-      Contents: |
+</a><a href="#h0-10-17" id="h0-10-17" class="d">-          Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.dll
+</a><a href="#h0-10-18" id="h0-10-18" class="d">-          Microsoft.Management.Deployment\Microsoft.Management.Deployment.winmd
+</a><a href="#h0-10-19" id="h0-10-19" class="d">-          WindowsPackageManager\WindowsPackageManager.dll
+</a><a href="#h0-10-20" id="h0-10-20" class="d">-          UndockedRegFreeWinRT\winrtact.dll
+</a><a href="#h0-10-21" id="h0-10-21" class="d">-      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Client\net6.0-windows10.0.22000.0\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-10-22" id="h0-10-22" class="d">-      flattenFolders: true
+</a><a href="#h0-10-23" id="h0-10-23" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-24" id="h0-10-24" class="d">-
+</a><a href="#h0-10-25" id="h0-10-25" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-26" id="h0-10-26" class="d">-    displayName: &#39;Copy native binaries for Microsoft.WinGet.Client&#39;
+</a><a href="#h0-10-27" id="h0-10-27" class="d">-    inputs:
+</a><a href="#h0-10-28" id="h0-10-28" class="d">-      SourceFolder: $(buildOutDir)
+</a><a href="#h0-10-29" id="h0-10-29" class="d">-      Contents: |
+</a><a href="#h0-10-30" id="h0-10-30" class="d">-          Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.dll
+</a><a href="#h0-10-31" id="h0-10-31" class="d">-          Microsoft.Management.Deployment\Microsoft.Management.Deployment.winmd
+</a><a href="#h0-10-32" id="h0-10-32" class="d">-          WindowsPackageManager\WindowsPackageManager.dll
+</a><a href="#h0-10-33" id="h0-10-33" class="d">-          UndockedRegFreeWinRT\winrtact.dll
+</a><a href="#h0-10-34" id="h0-10-34" class="d">-      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Client\net48\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-10-35" id="h0-10-35" class="d">-      flattenFolders: true
+</a><a href="#h0-10-36" id="h0-10-36" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-37" id="h0-10-37" class="d">-
+</a><a href="#h0-10-38" id="h0-10-38" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-39" id="h0-10-39" class="d">-    displayName: &#39;Copy native binaries for Microsoft.WinGet.Configuration&#39;
+</a><a href="#h0-10-40" id="h0-10-40" class="d">-    inputs:
+</a><a href="#h0-10-41" id="h0-10-41" class="d">-      SourceFolder: $(buildOutDir)
+</a><a href="#h0-10-42" id="h0-10-42" class="d">-      Contents: |
+</a><a href="#h0-10-43" id="h0-10-43" class="d">-          Microsoft.Management.Configuration\Microsoft.Management.Configuration.dll
+</a><a href="#h0-10-44" id="h0-10-44" class="d">-      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Configuration\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-10-45" id="h0-10-45" class="d">-      flattenFolders: true
+</a><a href="#h0-10-46" id="h0-10-46" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-47" id="h0-10-47" class="d">-
+</a><a href="#h0-10-48" id="h0-10-48" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-49" id="h0-10-49" class="d">-    displayName: &#39;Copy managed binaries for Microsoft.WinGet.Configuration in arch specific&#39;
+</a><a href="#h0-10-50" id="h0-10-50" class="d">-    inputs:
+</a><a href="#h0-10-51" id="h0-10-51" class="d">-      SourceFolder: $(buildOutDirAnyCpu)
+</a><a href="#h0-10-52" id="h0-10-52" class="d">-      Contents: |
+</a><a href="#h0-10-53" id="h0-10-53" class="d">-          Microsoft.Management.Configuration.Projection\net6.0-windows10.0.22000.0\Microsoft.Management.Configuration.Projection.dll
+</a><a href="#h0-10-54" id="h0-10-54" class="d">-      TargetFolder: $(buildOutDirAnyCpu)\PowerShell\Microsoft.WinGet.Configuration\SharedDependencies\$(BuildPlatform)
+</a><a href="#h0-10-55" id="h0-10-55" class="d">-      flattenFolders: true
+</a><a href="#h0-10-56" id="h0-10-56" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-57" id="h0-10-57" class="d">-
+</a><a href="#h0-10-58" id="h0-10-58" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-59" id="h0-10-59" class="d">-    displayName: &#39;Copy PowerShell AnyCPU Module Files&#39;
+</a><a href="#h0-10-60" id="h0-10-60" class="d">-    inputs:
+</a><a href="#h0-10-61" id="h0-10-61" class="d">-      SourceFolder: &#39;$(buildOutDirAnyCpu)\PowerShell&#39;
+</a><a href="#h0-10-62" id="h0-10-62" class="d">-      TargetFolder: &#39;$(artifactsDir)\PowerShell&#39;
+</a><a href="#h0-10-63" id="h0-10-63" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-64" id="h0-10-64" class="d">-
+</a><a href="#h0-10-65" id="h0-10-65" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-66" id="h0-10-66" class="d">-    displayName: &#39;Copy Dev Package (Loose Files)&#39;
+</a><a href="#h0-10-67" id="h0-10-67" class="d">-    inputs:
+</a><a href="#h0-10-68" id="h0-10-68" class="d">-      SourceFolder: &#39;$(packageLayoutDir)&#39;
+</a><a href="#h0-10-69" id="h0-10-69" class="d">-      TargetFolder: &#39;$(artifactsDir)\DevPackage&#39;
+</a><a href="#h0-10-70" id="h0-10-70" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-71" id="h0-10-71" class="d">-
+</a><a href="#h0-10-72" id="h0-10-72" class="d">-  - task: CopyFiles@2
+</a><a href="#h0-10-73" id="h0-10-73" class="d">-    displayName: &#39;Copy Dev Packages&#39;
+</a><a href="#h0-10-74" id="h0-10-74" class="d">-    inputs:
+</a><a href="#h0-10-75" id="h0-10-75" class="d">-      SourceFolder: &#39;$(appxPackageDir)&#39;
+</a><a href="#h0-10-76" id="h0-10-76" class="d">-      TargetFolder: &#39;$(artifactsDir)\AppxPackages&#39;
+</a><a href="#h0-10-77" id="h0-10-77" class="d">-    condition: succeededOrFailed()
+</a><a href="#h0-10-78" id="h0-10-78" class="d">-
+</a>   - task: PublishPipelineArtifact@1
+     displayName: Publish Pipeline Artifacts
+     inputs:
+       targetPath: &#39;$(artifactsDir)&#39;
+<a href="#h0-10-83" id="h0-10-83" class="i">+      artifact: &#39;Test.$(artifactIdentifier).$(System.JobAttempt)&#39;
+</a>     condition: succeededOrFailed()
+ 
+<a href="#h0-10-86" id="h0-10-86" class="d">-  - task: ComponentGovernanceComponentDetection@0
+</a><a href="#h0-10-87" id="h0-10-87" class="d">-    displayName: Component Governance
+</a><a href="#h0-10-88" id="h0-10-88" class="d">-    inputs:
+</a><a href="#h0-10-89" id="h0-10-89" class="d">-      scanType: &#39;Register&#39;
+</a><a href="#h0-10-90" id="h0-10-90" class="d">-      verbosity: &#39;Verbose&#39;
+</a><a href="#h0-10-91" id="h0-10-91" class="d">-      alertWarningLevel: &#39;High&#39;
+</a><a href="#h0-10-92" id="h0-10-92" class="d">-
+</a><a href="#h0-10-93" id="h0-10-93" class="d">-  # Run BimSkim for all the binaries
+</a><a href="#h0-10-94" id="h0-10-94" class="d">-  - task: BinSkim@4
+</a><a href="#h0-10-95" id="h0-10-95" class="d">-    displayName: &#39;Run BinSkim &#39;
+</a><a href="#h0-10-96" id="h0-10-96" class="d">-    inputs:
+</a><a href="#h0-10-97" id="h0-10-97" class="d">-      arguments: &#39;analyze
+</a><a href="#h0-10-98" id="h0-10-98" class="d">-        &quot;$(buildOutDir)\AppInstallerCLI\winget.exe&quot;
+</a><a href="#h0-10-99" id="h0-10-99" class="d">-        &quot;$(buildOutDir)\WinGetUtil\WinGetUtil.dll&quot;
+</a><a href="#h0-10-100" id="h0-10-100" class="d">-        &quot;$(buildOutDir)\WindowsPackageManager\WindowsPackageManager.dll&quot;
+</a><a href="#h0-10-101" id="h0-10-101" class="d">-        &quot;$(buildOutDir)\Microsoft.Management.Deployment.InProc\Microsoft.Management.Deployment.InProc.dll&quot;
+</a><a href="#h0-10-102" id="h0-10-102" class="d">-        &quot;$(Build.SourcesDirectory)\src\WinGetUtilInterop\bin\WinGetUtil*Interop.dll&quot;
+</a><a href="#h0-10-103" id="h0-10-103" class="d">-        &quot;$(buildOutDir)\UndockedRegFreeWinRT\winrtact.dll&quot;
+</a><a href="#h0-10-104" id="h0-10-104" class="d">-        &quot;$(buildOutDir)\Microsoft.WinGet.Client.Cmdlets\Microsoft.WinGet.Client*.dll&quot;
+</a><a href="#h0-10-105" id="h0-10-105" class="d">-        &quot;$(buildOutDir)\ConfigurationRemotingServer\ConfigurationRemoting*Server.dll&quot;
+</a><a href="#h0-10-106" id="h0-10-106" class="d">-        &quot;$(buildOutDir)\ConfigurationRemotingServer\ConfigurationRemoting*Server.exe&quot;
+</a><a href="#h0-10-107" id="h0-10-107" class="d">-        &quot;$(buildOutDir)\ConfigurationRemotingServer\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h0-10-108" id="h0-10-108" class="d">-        &quot;$(buildOutDir)\Microsoft.Management.Configuration\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h0-10-109" id="h0-10-109" class="d">-        &quot;$(buildOutDir)\Microsoft.Management.Configuration.OutOfProc\Microsoft.Management.Configuration*.dll&quot;
+</a><a href="#h0-10-110" id="h0-10-110" class="d">-        --config default --recurse&#39;
+</a><a href="#h0-10-111" id="h0-10-111" class="d">-
+</a><a href="#h0-10-112" id="h0-10-112" class="d">-  - task: securedevelopmentteam.vss-secure-development-tools.build-task-publishsecurityanalysislogs.PublishSecurityAnalysisLogs@3
+</a><a href="#h0-10-113" id="h0-10-113" class="d">-    displayName: &#39;Publish Security Analysis Logs&#39;
+</a><a href="#h0-10-114" id="h0-10-114" class="i">+# Build and test PowerShell module
+</a> 
+ - job: &#39;BuildPowerShellModule&#39;
+   timeoutInMinutes: 120
+   dependsOn: &#39;Build&#39;
+<a href="#h0-10-119" id="h0-10-119" class="d">-  condition: always()
+</a><a href="#h0-10-120" id="h0-10-120" class="i">+  condition: succeeded(&#39;Build&#39;)
+</a> 
+   steps:
+   - task: DownloadPipelineArtifact@2
+<a href="#h0-11" id="h0-11" class="h">@@ -518,7 +555,7 @@ jobs:
+</a>     inputs:
+       targetType: &#39;inline&#39;
+       script: |
+<a href="#h0-11-3" id="h0-11-3" class="d">-        Get-ChildItem E2ETests\DevPackageDependencies -Filter *.appx | %{ Add-AppxPackage $_.FullName }
+</a><a href="#h0-11-4" id="h0-11-4" class="i">+        Get-ChildItem AppxPackages\AppInstallerCLIPackage_0.0.2.0_Test\Dependencies\x64 -Filter *.appx | %{ Add-AppxPackage $_.FullName }
+</a>       workingDirectory: $(Pipeline.Workspace)\Build.x64release\
+ 
+   - template: templates/e2e-setup.yml
+<b>diff --git a/<a id="h1" href="../file/src/LocalhostWebServer/Program.cs.html">src/LocalhostWebServer/Program.cs</a> b/<a href="../file/src/LocalhostWebServer/Program.cs.html">src/LocalhostWebServer/Program.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,4 +1,4 @@
+</a><a href="#h1-0-0" id="h1-0-0" class="d">-﻿// Copyright (c) Microsoft Corporation.
+</a><a href="#h1-0-1" id="h1-0-1" class="i">+// Copyright (c) Microsoft Corporation.
+</a> // Licensed under the MIT License.
+ 
+ namespace LocalhostWebServer
+<a href="#h1-1" id="h1-1" class="h">@@ -35,6 +35,7 @@ namespace LocalhostWebServer
+</a>             Startup.OutCertFile = config.GetValue&lt;string&gt;(&quot;OutCertFile&quot;);
+             Startup.LocalSourceJson = config.GetValue&lt;string&gt;(&quot;LocalSourceJson&quot;);
+             Startup.TestDataPath = config.GetValue&lt;string&gt;(&quot;TestDataPath&quot;);
+<a href="#h1-1-3" id="h1-1-3" class="i">+            Startup.ExitBeforeRun = config.GetValue&lt;bool&gt;(&quot;ExitBeforeRun&quot;);
+</a> 
+             if (string.IsNullOrEmpty(Startup.StaticFileRoot) || 
+                 string.IsNullOrEmpty(Startup.CertPath))
+<a href="#h1-2" id="h1-2" class="h">@@ -127,6 +128,11 @@ namespace LocalhostWebServer
+</a>                 CopyDirectoryRecursive(Startup.TestDataPath, testDataDirectory);
+             }
+ 
+<a href="#h1-2-3" id="h1-2-3" class="i">+            if (Startup.ExitBeforeRun)
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+            {
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+                return;
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+            }
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+
+</a>             CreateHostBuilder(args).Build().Run();
+         }
+ 
+<a href="#h1-3" id="h1-3" class="h">@@ -169,4 +175,4 @@ namespace LocalhostWebServer
+</a>             }
+         }
+     }
+<a href="#h1-3-3" id="h1-3-3" class="d">-}</a><a href="#h1-3-4" id="h1-3-4" class="d">-
+\ No newline at end of file
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/src/LocalhostWebServer/Run-LocalhostWebServer.ps1.html">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a> b/<a href="../file/src/LocalhostWebServer/Run-LocalhostWebServer.ps1.html">src/LocalhostWebServer/Run-LocalhostWebServer.ps1</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -40,7 +40,10 @@ param(
+</a>     [string]$SourceCert,
+ 
+     [Parameter()]
+<a href="#h2-0-3" id="h2-0-3" class="d">-    [string]$TestDataPath
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    [string]$TestDataPath,
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+    [Parameter()]
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+    [switch]$ExitBeforeRun
+</a> )
+ 
+ if (-not [System.String]::IsNullOrEmpty($sourceCert))
+<a href="#h2-1" id="h2-1" class="h">@@ -51,6 +54,12 @@ if (-not [System.String]::IsNullOrEmpty($sourceCert))
+</a> 
+ Push-Location $BuildRoot
+ 
+<a href="#h2-1-3" id="h2-1-3" class="d">-Start-Process -FilePath &quot;LocalhostWebServer.exe&quot; -ArgumentList &quot;StaticFileRoot=$StaticFileRoot CertPath=$CertPath CertPassword=$CertPassword OutCertFile=$OutCertFile LocalSourceJson=$LocalSourceJson TestDataPath=$TestDataPath&quot;
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+$Local:process = Start-Process -FilePath &quot;LocalhostWebServer.exe&quot; -ArgumentList &quot;StaticFileRoot=$StaticFileRoot CertPath=$CertPath CertPassword=$CertPassword OutCertFile=$OutCertFile LocalSourceJson=$LocalSourceJson TestDataPath=$TestDataPath ExitBeforeRun=$ExitBeforeRun&quot; -PassThru
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+if ($ExitBeforeRun)
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+{
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+    Wait-Process -InputObject $Local:process
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+}
+</a> 
+<a href="#h2-1-12" id="h2-1-12" class="d">-Pop-Location</a><a href="#h2-1-13" id="h2-1-13" class="d">-
+\ No newline at end of file
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+Pop-Location
+</a><b>diff --git a/<a id="h3" href="../file/src/LocalhostWebServer/Startup.cs.html">src/LocalhostWebServer/Startup.cs</a> b/<a href="../file/src/LocalhostWebServer/Startup.cs.html">src/LocalhostWebServer/Startup.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -29,6 +29,8 @@ namespace LocalhostWebServer
+</a> 
+         public static string TestDataPath { get; set; }
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+        public static bool ExitBeforeRun { get; set; }
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+
+</a>         public Startup(IConfiguration configuration)
+         {
+             Configuration = configuration;
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs.html">src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs.html">src/Microsoft.Management.Configuration.UnitTests/Fixtures/UnitTestFixture.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -40,16 +40,22 @@ namespace Microsoft.Management.Configuration.UnitTests.Fixtures
+</a>                 throw new DirectoryNotFoundException(this.TestModulesPath);
+             }
+ 
+<a href="#h4-0-3" id="h4-0-3" class="d">-            string? gitSearchPath = Path.GetDirectoryName(assemblyPath);
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+            // Use the environment variable if present, which is how ADO pipelines will find it.
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+            string? gitSearchPath = Environment.GetEnvironmentVariable(&quot;BUILD_SOURCESDIRECTORY&quot;);
+</a> 
+<a href="#h4-0-7" id="h4-0-7" class="d">-            while (!string.IsNullOrEmpty(gitSearchPath))
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+            if (string.IsNullOrWhiteSpace(gitSearchPath))
+</a>             {
+<a href="#h4-0-10" id="h4-0-10" class="d">-                if (Directory.Exists(Path.Combine(gitSearchPath, &quot;.git&quot;)))
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+                gitSearchPath = Path.GetDirectoryName(assemblyPath);
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+                while (!string.IsNullOrEmpty(gitSearchPath))
+</a>                 {
+<a href="#h4-0-15" id="h4-0-15" class="d">-                    break;
+</a><a href="#h4-0-16" id="h4-0-16" class="d">-                }
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+                    if (Directory.Exists(Path.Combine(gitSearchPath, &quot;.git&quot;)))
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+                    {
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+                        break;
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+                    }
+</a> 
+<a href="#h4-0-22" id="h4-0-22" class="d">-                gitSearchPath = Path.GetDirectoryName(gitSearchPath);
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+                    gitSearchPath = Path.GetDirectoryName(gitSearchPath);
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+                }
+</a>             }
+ 
+             this.GitRootPath = gitSearchPath ?? throw new DirectoryNotFoundException(&quot;git root path&quot;);
+<b>diff --git a/<a id="h5" href="../file/templates/e2e-test.template.yml.html">templates/e2e-test.template.yml</a> b/<a href="../file/templates/e2e-test.template.yml.html">templates/e2e-test.template.yml</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -1,49 +1,49 @@
+</a><a href="#h5-0-0" id="h5-0-0" class="d">-parameters:
+</a><a href="#h5-0-1" id="h5-0-1" class="d">-- name: title
+</a><a href="#h5-0-2" id="h5-0-2" class="d">-  type: string
+</a><a href="#h5-0-3" id="h5-0-3" class="d">-- name: isPackaged
+</a><a href="#h5-0-4" id="h5-0-4" class="d">-  type: boolean
+</a><a href="#h5-0-5" id="h5-0-5" class="d">-- name: filter
+</a><a href="#h5-0-6" id="h5-0-6" class="d">-  type: string
+</a><a href="#h5-0-7" id="h5-0-7" class="d">-- name: experimentalFeatures
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+parameters:
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+- name: title
+</a>   type: string
+<a href="#h5-0-11" id="h5-0-11" class="d">-  default: &#39;none&#39;
+</a><a href="#h5-0-12" id="h5-0-12" class="d">-
+</a><a href="#h5-0-13" id="h5-0-13" class="d">-steps:
+</a><a href="#h5-0-14" id="h5-0-14" class="d">-  - task: CmdLine@2
+</a><a href="#h5-0-15" id="h5-0-15" class="d">-    displayName: Start COM trace for ${{ parameters.title }}
+</a><a href="#h5-0-16" id="h5-0-16" class="d">-    condition: and(succeededOrFailed(), eq(variables[&#39;System.debug&#39;], true))
+</a><a href="#h5-0-17" id="h5-0-17" class="d">-    inputs:
+</a><a href="#h5-0-18" id="h5-0-18" class="d">-      script: &#39;wpr -start $(Build.SourcesDirectory)\tools\COMTrace\ComTrace.wprp -filemode&#39;
+</a><a href="#h5-0-19" id="h5-0-19" class="d">-
+</a><a href="#h5-0-20" id="h5-0-20" class="d">-  - task: VSTest@2
+</a><a href="#h5-0-21" id="h5-0-21" class="d">-    displayName: Run ${{ parameters.title }}
+</a><a href="#h5-0-22" id="h5-0-22" class="d">-    inputs:
+</a><a href="#h5-0-23" id="h5-0-23" class="d">-      testRunTitle: ${{ parameters.title }}
+</a><a href="#h5-0-24" id="h5-0-24" class="d">-      testSelector: &#39;testAssemblies&#39;
+</a><a href="#h5-0-25" id="h5-0-25" class="d">-      testAssemblyVer2: &#39;$(buildOutDir)\AppInstallerCLIE2ETests\AppInstallerCLIE2ETests.dll&#39;
+</a><a href="#h5-0-26" id="h5-0-26" class="d">-      testFiltercriteria: ${{ parameters.filter }}
+</a><a href="#h5-0-27" id="h5-0-27" class="d">-      ${{ if eq(parameters.isPackaged, true) }}:
+</a><a href="#h5-0-28" id="h5-0-28" class="d">-          overrideTestrunParameters: &#39;-PackagedContext true
+</a><a href="#h5-0-29" id="h5-0-29" class="d">-                                      -AICLIPackagePath $(packageLayoutDir)
+</a><a href="#h5-0-30" id="h5-0-30" class="d">-                                      -AICLIPath wingetdev.exe
+</a><a href="#h5-0-31" id="h5-0-31" class="d">-                                      -LooseFileRegistration true
+</a><a href="#h5-0-32" id="h5-0-32" class="d">-                                      -StaticFileRootPath $(Agent.TempDirectory)\TestLocalIndex
+</a><a href="#h5-0-33" id="h5-0-33" class="d">-                                      -PowerShellModulePath $(buildOutDir)\PowerShell\Microsoft.WinGet.Client\Microsoft.WinGet.Client.psd1
+</a><a href="#h5-0-34" id="h5-0-34" class="d">-                                      -LocalServerCertPath $(Agent.TempDirectory)\servercert.cer
+</a><a href="#h5-0-35" id="h5-0-35" class="i">+- name: isPackaged
+</a><a href="#h5-0-36" id="h5-0-36" class="i">+  type: boolean
+</a><a href="#h5-0-37" id="h5-0-37" class="i">+- name: filter
+</a><a href="#h5-0-38" id="h5-0-38" class="i">+  type: string
+</a><a href="#h5-0-39" id="h5-0-39" class="i">+- name: experimentalFeatures
+</a><a href="#h5-0-40" id="h5-0-40" class="i">+  type: string
+</a><a href="#h5-0-41" id="h5-0-41" class="i">+  default: &#39;none&#39;
+</a><a href="#h5-0-42" id="h5-0-42" class="i">+
+</a><a href="#h5-0-43" id="h5-0-43" class="i">+steps:
+</a><a href="#h5-0-44" id="h5-0-44" class="i">+  - task: CmdLine@2
+</a><a href="#h5-0-45" id="h5-0-45" class="i">+    displayName: Start COM trace for ${{ parameters.title }}
+</a><a href="#h5-0-46" id="h5-0-46" class="i">+    condition: and(succeededOrFailed(), eq(variables[&#39;System.debug&#39;], true))
+</a><a href="#h5-0-47" id="h5-0-47" class="i">+    inputs:
+</a><a href="#h5-0-48" id="h5-0-48" class="i">+      script: &#39;wpr -start $(Build.SourcesDirectory)\tools\COMTrace\ComTrace.wprp -filemode&#39;
+</a><a href="#h5-0-49" id="h5-0-49" class="i">+
+</a><a href="#h5-0-50" id="h5-0-50" class="i">+  - task: VSTest@2
+</a><a href="#h5-0-51" id="h5-0-51" class="i">+    displayName: Run ${{ parameters.title }}
+</a><a href="#h5-0-52" id="h5-0-52" class="i">+    inputs:
+</a><a href="#h5-0-53" id="h5-0-53" class="i">+      testRunTitle: ${{ parameters.title }}
+</a><a href="#h5-0-54" id="h5-0-54" class="i">+      testSelector: &#39;testAssemblies&#39;
+</a><a href="#h5-0-55" id="h5-0-55" class="i">+      testAssemblyVer2: &#39;$(buildOutDir)\AppInstallerCLIE2ETests\AppInstallerCLIE2ETests.dll&#39;
+</a><a href="#h5-0-56" id="h5-0-56" class="i">+      testFiltercriteria: ${{ parameters.filter }}
+</a><a href="#h5-0-57" id="h5-0-57" class="i">+      ${{ if eq(parameters.isPackaged, true) }}:
+</a><a href="#h5-0-58" id="h5-0-58" class="i">+          overrideTestrunParameters: &#39;-PackagedContext true
+</a><a href="#h5-0-59" id="h5-0-59" class="i">+                                      -AICLIPackagePath $(packageLayoutDir)
+</a><a href="#h5-0-60" id="h5-0-60" class="i">+                                      -AICLIPath wingetdev.exe
+</a><a href="#h5-0-61" id="h5-0-61" class="i">+                                      -LooseFileRegistration true
+</a><a href="#h5-0-62" id="h5-0-62" class="i">+                                      -StaticFileRootPath $(buildOutDir)\E2ETests\TestLocalIndex
+</a><a href="#h5-0-63" id="h5-0-63" class="i">+                                      -PowerShellModulePath $(buildOutDir)\PowerShell\Microsoft.WinGet.Client\Microsoft.WinGet.Client.psd1
+</a><a href="#h5-0-64" id="h5-0-64" class="i">+                                      -LocalServerCertPath $(Agent.TempDirectory)\servercert.cer
+</a>                                       -SkipTestSource true
+<a href="#h5-0-66" id="h5-0-66" class="d">-                                      -ForcedExperimentalFeatures ${{ parameters.experimentalFeatures }}&#39;
+</a><a href="#h5-0-67" id="h5-0-67" class="d">-      ${{ else }}:
+</a><a href="#h5-0-68" id="h5-0-68" class="d">-          overrideTestrunParameters: &#39;-PackagedContext false
+</a><a href="#h5-0-69" id="h5-0-69" class="d">-                                      -AICLIPath $(packageLayoutDir)\AppInstallerCLI\winget.exe
+</a><a href="#h5-0-70" id="h5-0-70" class="d">-                                      -StaticFileRootPath $(Agent.TempDirectory)\TestLocalIndex
+</a><a href="#h5-0-71" id="h5-0-71" class="d">-                                      -PowerShellModulePath $(buildOutDir)\PowerShell\Microsoft.WinGet.Client\Microsoft.WinGet.Client.psd1
+</a><a href="#h5-0-72" id="h5-0-72" class="d">-                                      -LocalServerCertPath $(Agent.TempDirectory)\servercert.cer
+</a><a href="#h5-0-73" id="h5-0-73" class="i">+                                      -ForcedExperimentalFeatures ${{ parameters.experimentalFeatures }}&#39;
+</a><a href="#h5-0-74" id="h5-0-74" class="i">+      ${{ else }}:
+</a><a href="#h5-0-75" id="h5-0-75" class="i">+          overrideTestrunParameters: &#39;-PackagedContext false
+</a><a href="#h5-0-76" id="h5-0-76" class="i">+                                      -AICLIPath $(packageLayoutDir)\AppInstallerCLI\winget.exe
+</a><a href="#h5-0-77" id="h5-0-77" class="i">+                                      -StaticFileRootPath $(buildOutDir)\E2ETests\TestLocalIndex
+</a><a href="#h5-0-78" id="h5-0-78" class="i">+                                      -PowerShellModulePath $(buildOutDir)\PowerShell\Microsoft.WinGet.Client\Microsoft.WinGet.Client.psd1
+</a><a href="#h5-0-79" id="h5-0-79" class="i">+                                      -LocalServerCertPath $(Agent.TempDirectory)\servercert.cer
+</a>                                       -SkipTestSource true
+<a href="#h5-0-81" id="h5-0-81" class="d">-                                      -ForcedExperimentalFeatures ${{ parameters.experimentalFeatures }}&#39;
+</a><a href="#h5-0-82" id="h5-0-82" class="d">-
+</a><a href="#h5-0-83" id="h5-0-83" class="d">-  - task: CmdLine@2
+</a><a href="#h5-0-84" id="h5-0-84" class="d">-    displayName: Complete COM trace for ${{ parameters.title }}
+</a><a href="#h5-0-85" id="h5-0-85" class="d">-    condition: and(succeededOrFailed(), eq(variables[&#39;System.debug&#39;], true))
+</a><a href="#h5-0-86" id="h5-0-86" class="d">-    inputs:
+</a><a href="#h5-0-87" id="h5-0-87" class="d">-      script: &#39;wpr -stop &quot;$(artifactsDir)\ComTrace - ${{ parameters.title }}.etl&quot;&#39;
+</a><a href="#h5-0-88" id="h5-0-88" class="i">+                                      -ForcedExperimentalFeatures ${{ parameters.experimentalFeatures }}&#39;
+</a><a href="#h5-0-89" id="h5-0-89" class="i">+
+</a><a href="#h5-0-90" id="h5-0-90" class="i">+  - task: CmdLine@2
+</a><a href="#h5-0-91" id="h5-0-91" class="i">+    displayName: Complete COM trace for ${{ parameters.title }}
+</a><a href="#h5-0-92" id="h5-0-92" class="i">+    condition: and(succeededOrFailed(), eq(variables[&#39;System.debug&#39;], true))
+</a><a href="#h5-0-93" id="h5-0-93" class="i">+    inputs:
+</a><a href="#h5-0-94" id="h5-0-94" class="i">+      script: &#39;wpr -stop &quot;$(artifactsDir)\ComTrace - ${{ parameters.title }}.etl&quot;&#39;
+</a></pre>
+</div>
+</body>
+</html>

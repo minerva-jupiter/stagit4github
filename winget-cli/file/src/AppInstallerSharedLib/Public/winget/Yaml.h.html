@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Yaml.h - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../../"><img src="../../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../../log.html">Log</a> | <a href="../../../../../files.html">Files</a> | <a href="../../../../../refs.html">Refs</a> | <a href="../../../../../file/README.md.html">README</a> | <a href="../../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> Yaml.h (11189B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #pragma once
+<a href="#l4" class="line" id="l4">      4</a> #include &lt;AppInstallerSHA256.h&gt;
+<a href="#l5" class="line" id="l5">      5</a> 
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;fstream&gt;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;map&gt;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;memory&gt;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;optional&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;stack&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;string&gt;
+<a href="#l12" class="line" id="l12">     12</a> #include &lt;string_view&gt;
+<a href="#l13" class="line" id="l13">     13</a> #include &lt;vector&gt;
+<a href="#l14" class="line" id="l14">     14</a> 
+<a href="#l15" class="line" id="l15">     15</a> 
+<a href="#l16" class="line" id="l16">     16</a> namespace AppInstaller::YAML
+<a href="#l17" class="line" id="l17">     17</a> {
+<a href="#l18" class="line" id="l18">     18</a>     // A location within the stream.
+<a href="#l19" class="line" id="l19">     19</a>     struct Mark
+<a href="#l20" class="line" id="l20">     20</a>     {
+<a href="#l21" class="line" id="l21">     21</a>         Mark() = default;
+<a href="#l22" class="line" id="l22">     22</a>         Mark(size_t l, size_t c) : line(l), column(c) {}
+<a href="#l23" class="line" id="l23">     23</a> 
+<a href="#l24" class="line" id="l24">     24</a>         size_t line = 0;
+<a href="#l25" class="line" id="l25">     25</a>         size_t column = 0;
+<a href="#l26" class="line" id="l26">     26</a>     };
+<a href="#l27" class="line" id="l27">     27</a> 
+<a href="#l28" class="line" id="l28">     28</a>     // An exception from YAML.
+<a href="#l29" class="line" id="l29">     29</a>     struct Exception : public wil::ResultException
+<a href="#l30" class="line" id="l30">     30</a>     {
+<a href="#l31" class="line" id="l31">     31</a>         // The type of error that occurred.
+<a href="#l32" class="line" id="l32">     32</a>         enum class Type
+<a href="#l33" class="line" id="l33">     33</a>         {
+<a href="#l34" class="line" id="l34">     34</a>             None,
+<a href="#l35" class="line" id="l35">     35</a>             Memory,
+<a href="#l36" class="line" id="l36">     36</a>             Reader,
+<a href="#l37" class="line" id="l37">     37</a>             Scanner,
+<a href="#l38" class="line" id="l38">     38</a>             Parser,
+<a href="#l39" class="line" id="l39">     39</a>             Composer,
+<a href="#l40" class="line" id="l40">     40</a>             Writer,
+<a href="#l41" class="line" id="l41">     41</a>             Emitter,
+<a href="#l42" class="line" id="l42">     42</a>             Policy,
+<a href="#l43" class="line" id="l43">     43</a>         };
+<a href="#l44" class="line" id="l44">     44</a> 
+<a href="#l45" class="line" id="l45">     45</a>         // Should only be used for Memory.
+<a href="#l46" class="line" id="l46">     46</a>         Exception(Type type);
+<a href="#l47" class="line" id="l47">     47</a> 
+<a href="#l48" class="line" id="l48">     48</a>         // Should only be used for Reader.
+<a href="#l49" class="line" id="l49">     49</a>         Exception(Type type, const char* problem, size_t offset, int value);
+<a href="#l50" class="line" id="l50">     50</a> 
+<a href="#l51" class="line" id="l51">     51</a>         // Used for Scanner, Parser, and Composer.
+<a href="#l52" class="line" id="l52">     52</a>         Exception(Type type, const char* problem, const Mark&amp; problemMark, const char* context = {}, const Mark&amp; contextMark = {});
+<a href="#l53" class="line" id="l53">     53</a> 
+<a href="#l54" class="line" id="l54">     54</a>         // Used for Writer and Emitter.
+<a href="#l55" class="line" id="l55">     55</a>         Exception(Type type, const char* problem);
+<a href="#l56" class="line" id="l56">     56</a> 
+<a href="#l57" class="line" id="l57">     57</a>         const char* what() const noexcept override;
+<a href="#l58" class="line" id="l58">     58</a> 
+<a href="#l59" class="line" id="l59">     59</a>         const Mark&amp; GetMark() const;
+<a href="#l60" class="line" id="l60">     60</a> 
+<a href="#l61" class="line" id="l61">     61</a>     private:
+<a href="#l62" class="line" id="l62">     62</a>         std::string m_what;
+<a href="#l63" class="line" id="l63">     63</a>         YAML::Mark m_mark;
+<a href="#l64" class="line" id="l64">     64</a>     };
+<a href="#l65" class="line" id="l65">     65</a> 
+<a href="#l66" class="line" id="l66">     66</a>     // A YAML node.
+<a href="#l67" class="line" id="l67">     67</a>     struct Node
+<a href="#l68" class="line" id="l68">     68</a>     {
+<a href="#l69" class="line" id="l69">     69</a>         // The node&#39;s type.
+<a href="#l70" class="line" id="l70">     70</a>         enum class Type
+<a href="#l71" class="line" id="l71">     71</a>         {
+<a href="#l72" class="line" id="l72">     72</a>             Invalid,
+<a href="#l73" class="line" id="l73">     73</a>             None,
+<a href="#l74" class="line" id="l74">     74</a>             Scalar,
+<a href="#l75" class="line" id="l75">     75</a>             Sequence,
+<a href="#l76" class="line" id="l76">     76</a>             Mapping
+<a href="#l77" class="line" id="l77">     77</a>         };
+<a href="#l78" class="line" id="l78">     78</a> 
+<a href="#l79" class="line" id="l79">     79</a>         // The node&#39;s tag
+<a href="#l80" class="line" id="l80">     80</a>         enum class TagType
+<a href="#l81" class="line" id="l81">     81</a>         {
+<a href="#l82" class="line" id="l82">     82</a>             Unknown,
+<a href="#l83" class="line" id="l83">     83</a>             Null,
+<a href="#l84" class="line" id="l84">     84</a>             Bool,
+<a href="#l85" class="line" id="l85">     85</a>             Str,
+<a href="#l86" class="line" id="l86">     86</a>             Int,
+<a href="#l87" class="line" id="l87">     87</a>             Float,
+<a href="#l88" class="line" id="l88">     88</a>             Timestamp,
+<a href="#l89" class="line" id="l89">     89</a>             Seq,
+<a href="#l90" class="line" id="l90">     90</a>             Map,
+<a href="#l91" class="line" id="l91">     91</a>         };
+<a href="#l92" class="line" id="l92">     92</a> 
+<a href="#l93" class="line" id="l93">     93</a>         Node() : m_type(Type::Invalid), m_tagType(TagType::Unknown) {}
+<a href="#l94" class="line" id="l94">     94</a>         Node(Type type, std::string tag, const Mark&amp; mark);
+<a href="#l95" class="line" id="l95">     95</a> 
+<a href="#l96" class="line" id="l96">     96</a>         // Sets the scalar value of the node.
+<a href="#l97" class="line" id="l97">     97</a>         void SetScalar(std::string value);
+<a href="#l98" class="line" id="l98">     98</a>         void SetScalar(std::string value, bool isQuoted);
+<a href="#l99" class="line" id="l99">     99</a> 
+<a href="#l100" class="line" id="l100">    100</a>         // Adds a child node to the sequence.
+<a href="#l101" class="line" id="l101">    101</a>         template &lt;typename... Args&gt;
+<a href="#l102" class="line" id="l102">    102</a>         Node&amp; AddSequenceNode(Args&amp;&amp;... args)
+<a href="#l103" class="line" id="l103">    103</a>         {
+<a href="#l104" class="line" id="l104">    104</a>             Require(Type::Sequence);
+<a href="#l105" class="line" id="l105">    105</a>             return m_sequence-&gt;emplace_back(std::forward&lt;Args&gt;(args)...);
+<a href="#l106" class="line" id="l106">    106</a>         }
+<a href="#l107" class="line" id="l107">    107</a> 
+<a href="#l108" class="line" id="l108">    108</a>         // Merges sequence nodes. If both sequence have the specified key with the same value
+<a href="#l109" class="line" id="l109">    109</a>         // they will get merged together. All elements in sequence must have the key.
+<a href="#l110" class="line" id="l110">    110</a>         void MergeSequenceNode(Node other, std::string_view key, bool caseInsensitive = false);
+<a href="#l111" class="line" id="l111">    111</a> 
+<a href="#l112" class="line" id="l112">    112</a>         // Adds a child node to the mapping.
+<a href="#l113" class="line" id="l113">    113</a>         template &lt;typename... Args&gt;
+<a href="#l114" class="line" id="l114">    114</a>         Node&amp; AddMappingNode(Node&amp;&amp; key, Args&amp;&amp;... args)
+<a href="#l115" class="line" id="l115">    115</a>         {
+<a href="#l116" class="line" id="l116">    116</a>             Require(Type::Mapping);
+<a href="#l117" class="line" id="l117">    117</a>             return m_mapping-&gt;emplace(std::move(key), Node(std::forward&lt;Args&gt;(args)...))-&gt;second;
+<a href="#l118" class="line" id="l118">    118</a>         }
+<a href="#l119" class="line" id="l119">    119</a> 
+<a href="#l120" class="line" id="l120">    120</a>         // Merge mapping node. If both contain a node with the same key preserve this.
+<a href="#l121" class="line" id="l121">    121</a>         void MergeMappingNode(Node other, bool caseInsensitive = false);
+<a href="#l122" class="line" id="l122">    122</a> 
+<a href="#l123" class="line" id="l123">    123</a>         bool IsDefined() const { return m_type != Type::Invalid; }
+<a href="#l124" class="line" id="l124">    124</a>         bool IsNull() const { return m_type == Type::Invalid || m_type == Type::None || (m_type == Type::Scalar &amp;&amp; m_scalar.empty()); }
+<a href="#l125" class="line" id="l125">    125</a>         bool IsScalar() const { return m_type == Type::Scalar; }
+<a href="#l126" class="line" id="l126">    126</a>         bool IsSequence() const { return m_type == Type::Sequence; }
+<a href="#l127" class="line" id="l127">    127</a>         bool IsMap() const { return m_type == Type::Mapping; }
+<a href="#l128" class="line" id="l128">    128</a>         Type GetType() const { return m_type; }
+<a href="#l129" class="line" id="l129">    129</a>         TagType GetTagType() const { return m_tagType; }
+<a href="#l130" class="line" id="l130">    130</a> 
+<a href="#l131" class="line" id="l131">    131</a>         explicit operator bool() const { return IsDefined(); }
+<a href="#l132" class="line" id="l132">    132</a> 
+<a href="#l133" class="line" id="l133">    133</a>         // Gets the scalar value as the requested type.
+<a href="#l134" class="line" id="l134">    134</a>         template &lt;typename T&gt;
+<a href="#l135" class="line" id="l135">    135</a>         T as() const
+<a href="#l136" class="line" id="l136">    136</a>         {
+<a href="#l137" class="line" id="l137">    137</a>             Require(Type::Scalar);
+<a href="#l138" class="line" id="l138">    138</a>             T* t = nullptr;
+<a href="#l139" class="line" id="l139">    139</a>             return as_dispatch(t);
+<a href="#l140" class="line" id="l140">    140</a>         }
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>         template &lt;typename T&gt;
+<a href="#l143" class="line" id="l143">    143</a>         std::optional&lt;T&gt; try_as() const
+<a href="#l144" class="line" id="l144">    144</a>         {
+<a href="#l145" class="line" id="l145">    145</a>             if (m_type != Type::Scalar)
+<a href="#l146" class="line" id="l146">    146</a>             {
+<a href="#l147" class="line" id="l147">    147</a>                 return {};
+<a href="#l148" class="line" id="l148">    148</a>             }
+<a href="#l149" class="line" id="l149">    149</a> 
+<a href="#l150" class="line" id="l150">    150</a>             T* t = nullptr;
+<a href="#l151" class="line" id="l151">    151</a>             return try_as_dispatch(t);
+<a href="#l152" class="line" id="l152">    152</a>         }
+<a href="#l153" class="line" id="l153">    153</a> 
+<a href="#l154" class="line" id="l154">    154</a>         bool operator&lt;(const Node&amp; other) const;
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a>         // Gets a child node from the mapping by its name.
+<a href="#l157" class="line" id="l157">    157</a>         Node&amp; operator[](std::string_view key);
+<a href="#l158" class="line" id="l158">    158</a>         const Node&amp; operator[](std::string_view key) const;
+<a href="#l159" class="line" id="l159">    159</a> 
+<a href="#l160" class="line" id="l160">    160</a>         // Gets a child node from the mapping by its name case-insensitive.
+<a href="#l161" class="line" id="l161">    161</a>         Node&amp; GetChildNode(std::string_view key);
+<a href="#l162" class="line" id="l162">    162</a>         const Node&amp; GetChildNode(std::string_view key) const;
+<a href="#l163" class="line" id="l163">    163</a> 
+<a href="#l164" class="line" id="l164">    164</a>         // Gets a child node from the sequence by its index.
+<a href="#l165" class="line" id="l165">    165</a>         Node&amp; operator[](size_t index);
+<a href="#l166" class="line" id="l166">    166</a>         const Node&amp; operator[](size_t index) const;
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a>         // Gets the number of child nodes.
+<a href="#l169" class="line" id="l169">    169</a>         size_t size() const;
+<a href="#l170" class="line" id="l170">    170</a> 
+<a href="#l171" class="line" id="l171">    171</a>         // Gets the mark for this node.
+<a href="#l172" class="line" id="l172">    172</a>         const Mark&amp; Mark() const { return m_mark; }
+<a href="#l173" class="line" id="l173">    173</a> 
+<a href="#l174" class="line" id="l174">    174</a>         // Gets the nodes in the sequence.
+<a href="#l175" class="line" id="l175">    175</a>         const std::vector&lt;Node&gt;&amp; Sequence() const;
+<a href="#l176" class="line" id="l176">    176</a> 
+<a href="#l177" class="line" id="l177">    177</a>         // Gets the nodes in the mapping.
+<a href="#l178" class="line" id="l178">    178</a>         const std::multimap&lt;Node, Node&gt;&amp; Mapping() const;
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>     private:
+<a href="#l181" class="line" id="l181">    181</a>         Node(std::string_view key) : m_type(Type::Scalar), m_scalar(key), m_tagType(TagType::Str) {}
+<a href="#l182" class="line" id="l182">    182</a> 
+<a href="#l183" class="line" id="l183">    183</a>         // Require certain node types to; throwing if the requirement is not met.
+<a href="#l184" class="line" id="l184">    184</a>         void Require(Type type) const;
+<a href="#l185" class="line" id="l185">    185</a> 
+<a href="#l186" class="line" id="l186">    186</a>         // The workers for the as function.
+<a href="#l187" class="line" id="l187">    187</a>         std::string as_dispatch(std::string*) const;
+<a href="#l188" class="line" id="l188">    188</a>         std::optional&lt;std::string&gt; try_as_dispatch(std::string*) const;
+<a href="#l189" class="line" id="l189">    189</a> 
+<a href="#l190" class="line" id="l190">    190</a>         std::wstring as_dispatch(std::wstring*) const;
+<a href="#l191" class="line" id="l191">    191</a>         std::optional&lt;std::wstring&gt; try_as_dispatch(std::wstring*) const;
+<a href="#l192" class="line" id="l192">    192</a> 
+<a href="#l193" class="line" id="l193">    193</a>         int64_t as_dispatch(int64_t*) const;
+<a href="#l194" class="line" id="l194">    194</a>         std::optional&lt;int64_t&gt; try_as_dispatch(int64_t*) const;
+<a href="#l195" class="line" id="l195">    195</a> 
+<a href="#l196" class="line" id="l196">    196</a>         int as_dispatch(int*) const;
+<a href="#l197" class="line" id="l197">    197</a>         std::optional&lt;int&gt; try_as_dispatch(int*) const;
+<a href="#l198" class="line" id="l198">    198</a> 
+<a href="#l199" class="line" id="l199">    199</a>         bool as_dispatch(bool*) const;
+<a href="#l200" class="line" id="l200">    200</a>         std::optional&lt;bool&gt; try_as_dispatch(bool*) const;
+<a href="#l201" class="line" id="l201">    201</a> 
+<a href="#l202" class="line" id="l202">    202</a>         Type m_type;
+<a href="#l203" class="line" id="l203">    203</a>         std::string m_tag;
+<a href="#l204" class="line" id="l204">    204</a>         TagType m_tagType;
+<a href="#l205" class="line" id="l205">    205</a>         YAML::Mark m_mark;
+<a href="#l206" class="line" id="l206">    206</a>         std::string m_scalar;
+<a href="#l207" class="line" id="l207">    207</a>         std::optional&lt;std::vector&lt;Node&gt;&gt; m_sequence;
+<a href="#l208" class="line" id="l208">    208</a>         std::optional&lt;std::multimap&lt;Node, Node&gt;&gt; m_mapping;
+<a href="#l209" class="line" id="l209">    209</a>     };
+<a href="#l210" class="line" id="l210">    210</a> 
+<a href="#l211" class="line" id="l211">    211</a>     // Loads from the input; returns the root node of the first document.
+<a href="#l212" class="line" id="l212">    212</a>     Node Load(std::string_view input);
+<a href="#l213" class="line" id="l213">    213</a>     Node Load(const std::string&amp; input);
+<a href="#l214" class="line" id="l214">    214</a>     Node Load(const std::filesystem::path&amp; input);
+<a href="#l215" class="line" id="l215">    215</a>     Node Load(const std::filesystem::path&amp; input, Utility::SHA256::HashBuffer&amp; hashOut);
+<a href="#l216" class="line" id="l216">    216</a> 
+<a href="#l217" class="line" id="l217">    217</a>     // Any emitter event.
+<a href="#l218" class="line" id="l218">    218</a>     // Not using enum class to enable existing code to function.
+<a href="#l219" class="line" id="l219">    219</a>     enum EmitterEvent
+<a href="#l220" class="line" id="l220">    220</a>     {
+<a href="#l221" class="line" id="l221">    221</a>         BeginSeq,
+<a href="#l222" class="line" id="l222">    222</a>         EndSeq,
+<a href="#l223" class="line" id="l223">    223</a>         BeginMap,
+<a href="#l224" class="line" id="l224">    224</a>         EndMap,
+<a href="#l225" class="line" id="l225">    225</a>         Key,
+<a href="#l226" class="line" id="l226">    226</a>         Value,
+<a href="#l227" class="line" id="l227">    227</a>     };
+<a href="#l228" class="line" id="l228">    228</a> 
+<a href="#l229" class="line" id="l229">    229</a>     // Sets the scalar style to use for the next scalar output.
+<a href="#l230" class="line" id="l230">    230</a>     enum class ScalarStyle
+<a href="#l231" class="line" id="l231">    231</a>     {
+<a href="#l232" class="line" id="l232">    232</a>         Any,
+<a href="#l233" class="line" id="l233">    233</a>         Plain,
+<a href="#l234" class="line" id="l234">    234</a>         SingleQuoted,
+<a href="#l235" class="line" id="l235">    235</a>         DoubleQuoted,
+<a href="#l236" class="line" id="l236">    236</a>         Literal,
+<a href="#l237" class="line" id="l237">    237</a>         Folded,
+<a href="#l238" class="line" id="l238">    238</a>     };
+<a href="#l239" class="line" id="l239">    239</a> 
+<a href="#l240" class="line" id="l240">    240</a>     // A schema header for a document.
+<a href="#l241" class="line" id="l241">    241</a>     struct DocumentSchemaHeader
+<a href="#l242" class="line" id="l242">    242</a>     {
+<a href="#l243" class="line" id="l243">    243</a>         DocumentSchemaHeader() = default;
+<a href="#l244" class="line" id="l244">    244</a>         DocumentSchemaHeader(std::string schemaHeaderString, const Mark&amp; mark) : SchemaHeader(std::move(schemaHeaderString)), Mark(mark) {}
+<a href="#l245" class="line" id="l245">    245</a> 
+<a href="#l246" class="line" id="l246">    246</a>         std::string SchemaHeader;
+<a href="#l247" class="line" id="l247">    247</a>         Mark Mark;
+<a href="#l248" class="line" id="l248">    248</a>         static constexpr std::string_view YamlLanguageServerKey = &quot;yaml-language-server&quot;;
+<a href="#l249" class="line" id="l249">    249</a>     };
+<a href="#l250" class="line" id="l250">    250</a> 
+<a href="#l251" class="line" id="l251">    251</a>     struct Document
+<a href="#l252" class="line" id="l252">    252</a>     {
+<a href="#l253" class="line" id="l253">    253</a>         Document() = default;
+<a href="#l254" class="line" id="l254">    254</a>         Document(Node root, DocumentSchemaHeader schemaHeader) : m_root(std::move(root)), m_schemaHeader(std::move(schemaHeader)) {}
+<a href="#l255" class="line" id="l255">    255</a> 
+<a href="#l256" class="line" id="l256">    256</a>         const DocumentSchemaHeader&amp; GetSchemaHeader() const { return m_schemaHeader; }
+<a href="#l257" class="line" id="l257">    257</a> 
+<a href="#l258" class="line" id="l258">    258</a>         // Return r-values for move semantics
+<a href="#l259" class="line" id="l259">    259</a>         Node&amp;&amp; GetRoot() &amp;&amp; { return std::move(m_root); }
+<a href="#l260" class="line" id="l260">    260</a> 
+<a href="#l261" class="line" id="l261">    261</a>     private:
+<a href="#l262" class="line" id="l262">    262</a>         Node m_root;
+<a href="#l263" class="line" id="l263">    263</a>         DocumentSchemaHeader m_schemaHeader;
+<a href="#l264" class="line" id="l264">    264</a>     };
+<a href="#l265" class="line" id="l265">    265</a> 
+<a href="#l266" class="line" id="l266">    266</a>     // Forward declaration to allow pImpl in this Emitter.
+<a href="#l267" class="line" id="l267">    267</a>     namespace Wrapper
+<a href="#l268" class="line" id="l268">    268</a>     {
+<a href="#l269" class="line" id="l269">    269</a>         struct Document;
+<a href="#l270" class="line" id="l270">    270</a>     }
+<a href="#l271" class="line" id="l271">    271</a> 
+<a href="#l272" class="line" id="l272">    272</a>     // Loads from the input; returns the root node of the first document.
+<a href="#l273" class="line" id="l273">    273</a>     Document LoadDocument(std::string_view input);
+<a href="#l274" class="line" id="l274">    274</a>     Document LoadDocument(const std::string&amp; input);
+<a href="#l275" class="line" id="l275">    275</a>     Document LoadDocument(const std::filesystem::path&amp; input);
+<a href="#l276" class="line" id="l276">    276</a>     Document LoadDocument(const std::filesystem::path&amp; input, Utility::SHA256::HashBuffer&amp; hashOut);
+<a href="#l277" class="line" id="l277">    277</a> 
+<a href="#l278" class="line" id="l278">    278</a>     // A YAML emitter.
+<a href="#l279" class="line" id="l279">    279</a>     struct Emitter
+<a href="#l280" class="line" id="l280">    280</a>     {
+<a href="#l281" class="line" id="l281">    281</a>         Emitter();
+<a href="#l282" class="line" id="l282">    282</a> 
+<a href="#l283" class="line" id="l283">    283</a>         Emitter(const Emitter&amp;) = delete;
+<a href="#l284" class="line" id="l284">    284</a>         Emitter&amp; operator=(const Emitter&amp;) = delete;
+<a href="#l285" class="line" id="l285">    285</a> 
+<a href="#l286" class="line" id="l286">    286</a>         Emitter(Emitter&amp;&amp;) noexcept;
+<a href="#l287" class="line" id="l287">    287</a>         Emitter&amp; operator=(Emitter&amp;&amp;) noexcept;
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>         ~Emitter();
+<a href="#l290" class="line" id="l290">    290</a> 
+<a href="#l291" class="line" id="l291">    291</a>         // Emit events and values.
+<a href="#l292" class="line" id="l292">    292</a>         Emitter&amp; operator&lt;&lt;(EmitterEvent event);
+<a href="#l293" class="line" id="l293">    293</a>         Emitter&amp; operator&lt;&lt;(std::string_view value);
+<a href="#l294" class="line" id="l294">    294</a>         Emitter&amp; operator&lt;&lt;(int64_t value);
+<a href="#l295" class="line" id="l295">    295</a>         Emitter&amp; operator&lt;&lt;(int value);
+<a href="#l296" class="line" id="l296">    296</a>         Emitter&amp; operator&lt;&lt;(bool value);
+<a href="#l297" class="line" id="l297">    297</a> 
+<a href="#l298" class="line" id="l298">    298</a>         Emitter&amp; operator&lt;&lt;(ScalarStyle style);
+<a href="#l299" class="line" id="l299">    299</a> 
+<a href="#l300" class="line" id="l300">    300</a>         // Gets the result of the emitter; can only be retrieved once.
+<a href="#l301" class="line" id="l301">    301</a>         std::string str();
+<a href="#l302" class="line" id="l302">    302</a> 
+<a href="#l303" class="line" id="l303">    303</a>         // Gets the result of the emitter to out stream; can only be retrieved once.
+<a href="#l304" class="line" id="l304">    304</a>         void Emit(std::ostream&amp; out);
+<a href="#l305" class="line" id="l305">    305</a> 
+<a href="#l306" class="line" id="l306">    306</a>     private:
+<a href="#l307" class="line" id="l307">    307</a>         // Appends the given node to the current container if applicable.
+<a href="#l308" class="line" id="l308">    308</a>         void AppendNode(int id);
+<a href="#l309" class="line" id="l309">    309</a> 
+<a href="#l310" class="line" id="l310">    310</a>         std::unique_ptr&lt;Wrapper::Document&gt; m_document;
+<a href="#l311" class="line" id="l311">    311</a> 
+<a href="#l312" class="line" id="l312">    312</a>         // If set, stores the last Key that was set.
+<a href="#l313" class="line" id="l313">    313</a>         std::optional&lt;int&gt; m_keyId;
+<a href="#l314" class="line" id="l314">    314</a> 
+<a href="#l315" class="line" id="l315">    315</a>         struct ContainerInfo
+<a href="#l316" class="line" id="l316">    316</a>         {
+<a href="#l317" class="line" id="l317">    317</a>             ContainerInfo(int id, bool map) : Id(id), IsMapping(map) {}
+<a href="#l318" class="line" id="l318">    318</a> 
+<a href="#l319" class="line" id="l319">    319</a>             int Id;
+<a href="#l320" class="line" id="l320">    320</a>             bool IsMapping;
+<a href="#l321" class="line" id="l321">    321</a>         };
+<a href="#l322" class="line" id="l322">    322</a> 
+<a href="#l323" class="line" id="l323">    323</a>         // The stack of containers being emitted.
+<a href="#l324" class="line" id="l324">    324</a>         std::stack&lt;ContainerInfo&gt; m_containers;
+<a href="#l325" class="line" id="l325">    325</a> 
+<a href="#l326" class="line" id="l326">    326</a>         // *** State Machine ***
+<a href="#l327" class="line" id="l327">    327</a> 
+<a href="#l328" class="line" id="l328">    328</a>         // The type of input coming into the emitter.
+<a href="#l329" class="line" id="l329">    329</a>         enum class InputType
+<a href="#l330" class="line" id="l330">    330</a>         {
+<a href="#l331" class="line" id="l331">    331</a>             Scalar,
+<a href="#l332" class="line" id="l332">    332</a>             BeginSeq,
+<a href="#l333" class="line" id="l333">    333</a>             EndSeq,
+<a href="#l334" class="line" id="l334">    334</a>             BeginMap,
+<a href="#l335" class="line" id="l335">    335</a>             EndMap,
+<a href="#l336" class="line" id="l336">    336</a>             Key,
+<a href="#l337" class="line" id="l337">    337</a>             Value,
+<a href="#l338" class="line" id="l338">    338</a>         };
+<a href="#l339" class="line" id="l339">    339</a> 
+<a href="#l340" class="line" id="l340">    340</a>         // If set, defines the type of the next scalar (Key or Value).
+<a href="#l341" class="line" id="l341">    341</a>         std::optional&lt;InputType&gt; m_scalarType;
+<a href="#l342" class="line" id="l342">    342</a> 
+<a href="#l343" class="line" id="l343">    343</a>         // If set, defines the style of the next scalar.
+<a href="#l344" class="line" id="l344">    344</a>         std::optional&lt;ScalarStyle&gt; m_scalarStyle;
+<a href="#l345" class="line" id="l345">    345</a> 
+<a href="#l346" class="line" id="l346">    346</a>         // Converts the input type to a bitmask value.
+<a href="#l347" class="line" id="l347">    347</a>         size_t GetInputBitmask(InputType type);
+<a href="#l348" class="line" id="l348">    348</a> 
+<a href="#l349" class="line" id="l349">    349</a>         // Checks the state of the emitter to ensure that the incoming value is acceptable.
+<a href="#l350" class="line" id="l350">    350</a>         void CheckInput(InputType type);
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>         // The currently allowed input types.
+<a href="#l353" class="line" id="l353">    353</a>         size_t m_allowedInputs = 0;
+<a href="#l354" class="line" id="l354">    354</a> 
+<a href="#l355" class="line" id="l355">    355</a>         template &lt;InputType... types&gt;
+<a href="#l356" class="line" id="l356">    356</a>         void SetAllowedInputs()
+<a href="#l357" class="line" id="l357">    357</a>         {
+<a href="#l358" class="line" id="l358">    358</a>             m_allowedInputs = (GetInputBitmask(types) | ...);
+<a href="#l359" class="line" id="l359">    359</a>         }
+<a href="#l360" class="line" id="l360">    360</a> 
+<a href="#l361" class="line" id="l361">    361</a>         // Sets the allowed inputs for the container on the top of the stack.
+<a href="#l362" class="line" id="l362">    362</a>         void SetAllowedInputsForContainer();
+<a href="#l363" class="line" id="l363">    363</a>     };
+<a href="#l364" class="line" id="l364">    364</a> }
+</pre>
+</div>
+</body>
+</html>

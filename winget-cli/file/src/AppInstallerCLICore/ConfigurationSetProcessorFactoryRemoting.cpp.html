@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>ConfigurationSetProcessorFactoryRemoting.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> ConfigurationSetProcessorFactoryRemoting.cpp (19775B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;Public/ConfigurationSetProcessorFactoryRemoting.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &lt;AppInstallerErrors.h&gt;
+<a href="#l6" class="line" id="l6">      6</a> #include &lt;AppInstallerLanguageUtilities.h&gt;
+<a href="#l7" class="line" id="l7">      7</a> #include &lt;AppInstallerLogging.h&gt;
+<a href="#l8" class="line" id="l8">      8</a> #include &lt;AppInstallerRuntime.h&gt;
+<a href="#l9" class="line" id="l9">      9</a> #include &lt;AppInstallerStrings.h&gt;
+<a href="#l10" class="line" id="l10">     10</a> #include &lt;winget/ExperimentalFeature.h&gt;
+<a href="#l11" class="line" id="l11">     11</a> #include &lt;winget/ILifetimeWatcher.h&gt;
+<a href="#l12" class="line" id="l12">     12</a> #include &lt;winrt/Microsoft.Management.Configuration.SetProcessorFactory.h&gt;
+<a href="#l13" class="line" id="l13">     13</a> 
+<a href="#l14" class="line" id="l14">     14</a> using namespace winrt::Windows::Foundation;
+<a href="#l15" class="line" id="l15">     15</a> using namespace winrt::Microsoft::Management::Configuration;
+<a href="#l16" class="line" id="l16">     16</a> using namespace std::string_view_literals;
+<a href="#l17" class="line" id="l17">     17</a> 
+<a href="#l18" class="line" id="l18">     18</a> namespace AppInstaller::CLI::ConfigurationRemoting
+<a href="#l19" class="line" id="l19">     19</a> {
+<a href="#l20" class="line" id="l20">     20</a>     namespace
+<a href="#l21" class="line" id="l21">     21</a>     {
+<a href="#l22" class="line" id="l22">     22</a>         // The executable file name for the remote server process.
+<a href="#l23" class="line" id="l23">     23</a>         constexpr std::wstring_view s_RemoteServerFileName = L&quot;DotNet\\ConfigurationRemotingServer.exe&quot;sv;
+<a href="#l24" class="line" id="l24">     24</a> 
+<a href="#l25" class="line" id="l25">     25</a>         constexpr std::wstring_view s_ProcessorEngine_PowerShell = L&quot;pwsh&quot;sv;
+<a href="#l26" class="line" id="l26">     26</a>         constexpr std::wstring_view s_ProcessorEngine_DSCv3 = L&quot;dscv3&quot;sv;
+<a href="#l27" class="line" id="l27">     27</a> 
+<a href="#l28" class="line" id="l28">     28</a>         // The string used to divide the arguments sent to the remote server
+<a href="#l29" class="line" id="l29">     29</a>         constexpr std::wstring_view s_ArgumentsDivider = L&quot;\n~~~~~~\n&quot;sv;
+<a href="#l30" class="line" id="l30">     30</a> 
+<a href="#l31" class="line" id="l31">     31</a>         // A helper with a convenient function that we use to receive the remote factory object.
+<a href="#l32" class="line" id="l32">     32</a>         struct RemoteFactoryCallback : winrt::implements&lt;RemoteFactoryCallback, IConfigurationStatics&gt;
+<a href="#l33" class="line" id="l33">     33</a>         {
+<a href="#l34" class="line" id="l34">     34</a>             RemoteFactoryCallback()
+<a href="#l35" class="line" id="l35">     35</a>             {
+<a href="#l36" class="line" id="l36">     36</a>                 m_initEvent.create();
+<a href="#l37" class="line" id="l37">     37</a>             }
+<a href="#l38" class="line" id="l38">     38</a> 
+<a href="#l39" class="line" id="l39">     39</a>             ConfigurationUnit CreateConfigurationUnit()
+<a href="#l40" class="line" id="l40">     40</a>             {
+<a href="#l41" class="line" id="l41">     41</a>                 THROW_HR(E_NOTIMPL);
+<a href="#l42" class="line" id="l42">     42</a>             }
+<a href="#l43" class="line" id="l43">     43</a> 
+<a href="#l44" class="line" id="l44">     44</a>             ConfigurationSet CreateConfigurationSet()
+<a href="#l45" class="line" id="l45">     45</a>             {
+<a href="#l46" class="line" id="l46">     46</a>                 THROW_HR(E_NOTIMPL);
+<a href="#l47" class="line" id="l47">     47</a>             }
+<a href="#l48" class="line" id="l48">     48</a> 
+<a href="#l49" class="line" id="l49">     49</a>             IAsyncOperation&lt;IConfigurationSetProcessorFactory&gt; CreateConfigurationSetProcessorFactoryAsync(winrt::hstring handler)
+<a href="#l50" class="line" id="l50">     50</a>             {
+<a href="#l51" class="line" id="l51">     51</a>                 // TODO: Ensure calling process has same package identity
+<a href="#l52" class="line" id="l52">     52</a>                 std::wstringstream stringStream{ std::wstring{ static_cast&lt;std::wstring_view&gt;(handler) } };
+<a href="#l53" class="line" id="l53">     53</a>                 stringStream &gt;&gt; m_result;
+<a href="#l54" class="line" id="l54">     54</a>                 m_initEvent.SetEvent();
+<a href="#l55" class="line" id="l55">     55</a>                 return nullptr;
+<a href="#l56" class="line" id="l56">     56</a>             }
+<a href="#l57" class="line" id="l57">     57</a> 
+<a href="#l58" class="line" id="l58">     58</a>             ConfigurationProcessor CreateConfigurationProcessor(IConfigurationSetProcessorFactory factory)
+<a href="#l59" class="line" id="l59">     59</a>             {
+<a href="#l60" class="line" id="l60">     60</a>                 // TODO: Ensure calling process has same package identity
+<a href="#l61" class="line" id="l61">     61</a>                 m_factory = factory;
+<a href="#l62" class="line" id="l62">     62</a>                 m_initEvent.SetEvent();
+<a href="#l63" class="line" id="l63">     63</a>                 return nullptr;
+<a href="#l64" class="line" id="l64">     64</a>             }
+<a href="#l65" class="line" id="l65">     65</a> 
+<a href="#l66" class="line" id="l66">     66</a>             bool IsConfigurationAvailable()
+<a href="#l67" class="line" id="l67">     67</a>             {
+<a href="#l68" class="line" id="l68">     68</a>                 THROW_HR(E_NOTIMPL);
+<a href="#l69" class="line" id="l69">     69</a>             }
+<a href="#l70" class="line" id="l70">     70</a> 
+<a href="#l71" class="line" id="l71">     71</a>             IAsyncActionWithProgress&lt;uint32_t&gt; EnsureConfigurationAvailableAsync()
+<a href="#l72" class="line" id="l72">     72</a>             {
+<a href="#l73" class="line" id="l73">     73</a>                 THROW_HR(E_NOTIMPL);
+<a href="#l74" class="line" id="l74">     74</a>             }
+<a href="#l75" class="line" id="l75">     75</a> 
+<a href="#l76" class="line" id="l76">     76</a>             IConfigurationSetProcessorFactory Wait(HANDLE process)
+<a href="#l77" class="line" id="l77">     77</a>             {
+<a href="#l78" class="line" id="l78">     78</a>                 HANDLE waitHandles[2];
+<a href="#l79" class="line" id="l79">     79</a>                 waitHandles[0] = m_initEvent.get();
+<a href="#l80" class="line" id="l80">     80</a>                 waitHandles[1] = process;
+<a href="#l81" class="line" id="l81">     81</a> 
+<a href="#l82" class="line" id="l82">     82</a>                 for (;;)
+<a href="#l83" class="line" id="l83">     83</a>                 {
+<a href="#l84" class="line" id="l84">     84</a>                     // Wait up to 10 seconds for the server to complete initialization.
+<a href="#l85" class="line" id="l85">     85</a>                     // This time is fairly arbitrary, although it does correspond with the maximum time for a COM fast rundown.
+<a href="#l86" class="line" id="l86">     86</a>                     DWORD waitResult = WaitForMultipleObjects(ARRAYSIZE(waitHandles), waitHandles, FALSE, 10000);
+<a href="#l87" class="line" id="l87">     87</a>                     THROW_LAST_ERROR_IF(waitResult == WAIT_FAILED);
+<a href="#l88" class="line" id="l88">     88</a> 
+<a href="#l89" class="line" id="l89">     89</a>                     // The init event was signaled.
+<a href="#l90" class="line" id="l90">     90</a>                     if (waitResult == WAIT_OBJECT_0)
+<a href="#l91" class="line" id="l91">     91</a>                     {
+<a href="#l92" class="line" id="l92">     92</a>                         break;
+<a href="#l93" class="line" id="l93">     93</a>                     }
+<a href="#l94" class="line" id="l94">     94</a> 
+<a href="#l95" class="line" id="l95">     95</a>                     // Don&#39;t break things if the process is being debugged
+<a href="#l96" class="line" id="l96">     96</a>                     if (waitResult == WAIT_TIMEOUT &amp;&amp; IsDebuggerPresent())
+<a href="#l97" class="line" id="l97">     97</a>                     {
+<a href="#l98" class="line" id="l98">     98</a>                         continue;
+<a href="#l99" class="line" id="l99">     99</a>                     }
+<a href="#l100" class="line" id="l100">    100</a> 
+<a href="#l101" class="line" id="l101">    101</a>                     // If the process exited, then try to use the exit code.
+<a href="#l102" class="line" id="l102">    102</a>                     DWORD processExitCode = 0;
+<a href="#l103" class="line" id="l103">    103</a>                     if (waitResult == (WAIT_OBJECT_0 + 1) &amp;&amp; GetExitCodeProcess(process, &amp;processExitCode) &amp;&amp; FAILED(processExitCode))
+<a href="#l104" class="line" id="l104">    104</a>                     {
+<a href="#l105" class="line" id="l105">    105</a>                         THROW_HR(static_cast&lt;HRESULT&gt;(processExitCode));
+<a href="#l106" class="line" id="l106">    106</a>                     }
+<a href="#l107" class="line" id="l107">    107</a>                     else
+<a href="#l108" class="line" id="l108">    108</a>                     {
+<a href="#l109" class="line" id="l109">    109</a>                         // The server timed out or didn&#39;t have a failed exit code.
+<a href="#l110" class="line" id="l110">    110</a>                         THROW_HR(E_FAIL);
+<a href="#l111" class="line" id="l111">    111</a>                     }
+<a href="#l112" class="line" id="l112">    112</a>                 }
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>                 THROW_IF_FAILED(m_result);
+<a href="#l115" class="line" id="l115">    115</a> 
+<a href="#l116" class="line" id="l116">    116</a>                 // Double-check the result
+<a href="#l117" class="line" id="l117">    117</a>                 THROW_HR_IF(E_POINTER, !m_factory);
+<a href="#l118" class="line" id="l118">    118</a>                 return m_factory;
+<a href="#l119" class="line" id="l119">    119</a>             }
+<a href="#l120" class="line" id="l120">    120</a> 
+<a href="#l121" class="line" id="l121">    121</a>         private:
+<a href="#l122" class="line" id="l122">    122</a>             IConfigurationSetProcessorFactory m_factory;
+<a href="#l123" class="line" id="l123">    123</a>             HRESULT m_result = S_OK;
+<a href="#l124" class="line" id="l124">    124</a>             wil::unique_event m_initEvent;
+<a href="#l125" class="line" id="l125">    125</a>         };
+<a href="#l126" class="line" id="l126">    126</a> 
+<a href="#l127" class="line" id="l127">    127</a>         // Represents a remote factory object that was created from a specific process.
+<a href="#l128" class="line" id="l128">    128</a>         struct RemoteFactory : winrt::implements&lt;RemoteFactory, IConfigurationSetProcessorFactory, SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties, Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;, winrt::cloaked&lt;WinRT::ILifetimeWatcher&gt;&gt;, WinRT::LifetimeWatcherBase
+<a href="#l129" class="line" id="l129">    129</a>         {
+<a href="#l130" class="line" id="l130">    130</a>             RemoteFactory(ProcessorEngine processorEngine, bool useRunAs, const std::string&amp; properties, const std::string&amp; restrictions)
+<a href="#l131" class="line" id="l131">    131</a>             {
+<a href="#l132" class="line" id="l132">    132</a>                 AICLI_LOG(Config, Verbose, &lt;&lt; &quot;Launching process for configuration processing...&quot;);
+<a href="#l133" class="line" id="l133">    133</a> 
+<a href="#l134" class="line" id="l134">    134</a>                 // Create our callback and marshal it
+<a href="#l135" class="line" id="l135">    135</a>                 auto callback = winrt::make_self&lt;RemoteFactoryCallback&gt;();
+<a href="#l136" class="line" id="l136">    136</a> 
+<a href="#l137" class="line" id="l137">    137</a>                 wil::com_ptr&lt;IStream&gt; stream;
+<a href="#l138" class="line" id="l138">    138</a>                 THROW_IF_FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &amp;stream));
+<a href="#l139" class="line" id="l139">    139</a> 
+<a href="#l140" class="line" id="l140">    140</a>                 THROW_IF_FAILED(CoMarshalInterface(stream.get(), winrt::guid_of&lt;IConfigurationStatics&gt;(), reinterpret_cast&lt;::IUnknown*&gt;(winrt::get_abi(callback.as&lt;IConfigurationStatics&gt;())), MSHCTX_LOCAL, nullptr, MSHLFLAGS_NORMAL));
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>                 ULARGE_INTEGER streamSize{};
+<a href="#l143" class="line" id="l143">    143</a>                 THROW_IF_FAILED(stream-&gt;Seek({}, STREAM_SEEK_CUR, &amp;streamSize));
+<a href="#l144" class="line" id="l144">    144</a> 
+<a href="#l145" class="line" id="l145">    145</a>                 ULONG bufferSize = static_cast&lt;ULONG&gt;(streamSize.QuadPart);
+<a href="#l146" class="line" id="l146">    146</a>                 std::vector&lt;uint8_t&gt; buffer;
+<a href="#l147" class="line" id="l147">    147</a>                 buffer.resize(bufferSize);
+<a href="#l148" class="line" id="l148">    148</a> 
+<a href="#l149" class="line" id="l149">    149</a>                 THROW_IF_FAILED(stream-&gt;Seek({}, STREAM_SEEK_SET, nullptr));
+<a href="#l150" class="line" id="l150">    150</a>                 ULONG bytesRead = 0;
+<a href="#l151" class="line" id="l151">    151</a>                 THROW_IF_FAILED(stream-&gt;Read(&amp;buffer[0], bufferSize, &amp;bytesRead));
+<a href="#l152" class="line" id="l152">    152</a>                 THROW_HR_IF(E_UNEXPECTED, bytesRead != bufferSize);
+<a href="#l153" class="line" id="l153">    153</a> 
+<a href="#l154" class="line" id="l154">    154</a>                 std::wstring marshalledCallback = Utility::ConvertToUTF16(Utility::ConvertToHexString(buffer));
+<a href="#l155" class="line" id="l155">    155</a> 
+<a href="#l156" class="line" id="l156">    156</a>                 // Create the event that the remote process will wait on to keep the object alive.
+<a href="#l157" class="line" id="l157">    157</a>                 std::wstring completionEventName = Utility::CreateNewGuidNameWString();
+<a href="#l158" class="line" id="l158">    158</a>                 m_completionEvent.create(wil::EventOptions::None, completionEventName.c_str());
+<a href="#l159" class="line" id="l159">    159</a>                 auto completeEventIfFailureDuringConstruction = wil::scope_exit([&amp;]() { m_completionEvent.SetEvent(); });
+<a href="#l160" class="line" id="l160">    160</a> 
+<a href="#l161" class="line" id="l161">    161</a>                 // This will be presented to the user so it must be formatted nicely.
+<a href="#l162" class="line" id="l162">    162</a>                 // Arguments are:
+<a href="#l163" class="line" id="l163">    163</a>                 // server.exe &lt;marshalled callback object&gt; &lt;completion event name&gt; &lt;this process id&gt;
+<a href="#l164" class="line" id="l164">    164</a>                 // 
+<a href="#l165" class="line" id="l165">    165</a>                 // Optionally, we may also place additional data that limits what the server may do as:
+<a href="#l166" class="line" id="l166">    166</a>                 // ~~~~~~
+<a href="#l167" class="line" id="l167">    167</a>                 // { &quot;JSON properties&quot; }
+<a href="#l168" class="line" id="l168">    168</a>                 // ~~~~~~
+<a href="#l169" class="line" id="l169">    169</a>                 // YAML configuration set definition
+<a href="#l170" class="line" id="l170">    170</a>                 std::wostringstream argumentsStream;
+<a href="#l171" class="line" id="l171">    171</a>                 argumentsStream &lt;&lt; s_RemoteServerFileName &lt;&lt; L&#39; &#39; &lt;&lt; marshalledCallback &lt;&lt; L&#39; &#39; &lt;&lt; completionEventName &lt;&lt; L&#39; &#39; &lt;&lt; GetCurrentProcessId() &lt;&lt; L&#39; &#39; &lt;&lt; ToString(processorEngine);
+<a href="#l172" class="line" id="l172">    172</a> 
+<a href="#l173" class="line" id="l173">    173</a>                 if (!properties.empty() &amp;&amp; !restrictions.empty())
+<a href="#l174" class="line" id="l174">    174</a>                 {
+<a href="#l175" class="line" id="l175">    175</a>                     argumentsStream &lt;&lt; L&#39; &#39; &lt;&lt; s_ArgumentsDivider &lt;&lt; Utility::ConvertToUTF16(properties) &lt;&lt; s_ArgumentsDivider &lt;&lt; Utility::ConvertToUTF16(restrictions);
+<a href="#l176" class="line" id="l176">    176</a>                 }
+<a href="#l177" class="line" id="l177">    177</a> 
+<a href="#l178" class="line" id="l178">    178</a>                 std::wstring arguments = argumentsStream.str();
+<a href="#l179" class="line" id="l179">    179</a> 
+<a href="#l180" class="line" id="l180">    180</a>                 std::filesystem::path serverPath = Runtime::GetPathTo(Runtime::PathName::SelfPackageRoot);
+<a href="#l181" class="line" id="l181">    181</a>                 serverPath /= s_RemoteServerFileName;
+<a href="#l182" class="line" id="l182">    182</a>                 std::wstring serverPathString = serverPath.wstring();
+<a href="#l183" class="line" id="l183">    183</a> 
+<a href="#l184" class="line" id="l184">    184</a>                 // Per documentation, the maximum length is 32767 *counting* the null.
+<a href="#l185" class="line" id="l185">    185</a>                 THROW_WIN32_IF(ERROR_BUFFER_OVERFLOW, serverPathString.length() &gt; 32766);
+<a href="#l186" class="line" id="l186">    186</a>                 THROW_WIN32_IF(ERROR_BUFFER_OVERFLOW, arguments.length() &gt; 32766);
+<a href="#l187" class="line" id="l187">    187</a>                 // Overflow safe since we verify that each of the individual strings is also small.
+<a href="#l188" class="line" id="l188">    188</a>                 // +1 for the space between the path and args.
+<a href="#l189" class="line" id="l189">    189</a>                 THROW_WIN32_IF(ERROR_BUFFER_OVERFLOW, serverPathString.length() + 1 + arguments.length() &gt; 32766);
+<a href="#l190" class="line" id="l190">    190</a> 
+<a href="#l191" class="line" id="l191">    191</a>                 SHELLEXECUTEINFOW execInfo = { 0 };
+<a href="#l192" class="line" id="l192">    192</a>                 execInfo.cbSize = sizeof(execInfo);
+<a href="#l193" class="line" id="l193">    193</a>                 execInfo.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI | SEE_MASK_NO_CONSOLE;
+<a href="#l194" class="line" id="l194">    194</a>                 execInfo.lpFile = serverPath.c_str();
+<a href="#l195" class="line" id="l195">    195</a>                 execInfo.lpParameters = arguments.c_str();
+<a href="#l196" class="line" id="l196">    196</a>                 execInfo.nShow = SW_HIDE;
+<a href="#l197" class="line" id="l197">    197</a> 
+<a href="#l198" class="line" id="l198">    198</a>                 if (useRunAs)
+<a href="#l199" class="line" id="l199">    199</a>                 {
+<a href="#l200" class="line" id="l200">    200</a>                     execInfo.lpVerb = L&quot;runas&quot;;
+<a href="#l201" class="line" id="l201">    201</a>                 }
+<a href="#l202" class="line" id="l202">    202</a> 
+<a href="#l203" class="line" id="l203">    203</a>                 THROW_LAST_ERROR_IF(!ShellExecuteExW(&amp;execInfo) || !execInfo.hProcess);
+<a href="#l204" class="line" id="l204">    204</a> 
+<a href="#l205" class="line" id="l205">    205</a>                 wil::unique_process_handle process{ execInfo.hProcess };
+<a href="#l206" class="line" id="l206">    206</a>                 AICLI_LOG(Config, Verbose, &lt;&lt; &quot;  Configuration remote PID is &quot; &lt;&lt; GetProcessId(process.get()));
+<a href="#l207" class="line" id="l207">    207</a> 
+<a href="#l208" class="line" id="l208">    208</a>                 m_remoteFactory = callback-&gt;Wait(process.get());
+<a href="#l209" class="line" id="l209">    209</a>                 AICLI_LOG(Config, Verbose, &lt;&lt; &quot;... configuration processing connection established.&quot;);
+<a href="#l210" class="line" id="l210">    210</a> 
+<a href="#l211" class="line" id="l211">    211</a>                 completeEventIfFailureDuringConstruction.release();
+<a href="#l212" class="line" id="l212">    212</a>             }
+<a href="#l213" class="line" id="l213">    213</a> 
+<a href="#l214" class="line" id="l214">    214</a>             ~RemoteFactory()
+<a href="#l215" class="line" id="l215">    215</a>             {
+<a href="#l216" class="line" id="l216">    216</a>                 m_completionEvent.SetEvent();
+<a href="#l217" class="line" id="l217">    217</a>             }
+<a href="#l218" class="line" id="l218">    218</a> 
+<a href="#l219" class="line" id="l219">    219</a>             IConfigurationSetProcessor CreateSetProcessor(const ConfigurationSet&amp; configurationSet)
+<a href="#l220" class="line" id="l220">    220</a>             {
+<a href="#l221" class="line" id="l221">    221</a>                 return m_remoteFactory.CreateSetProcessor(configurationSet);
+<a href="#l222" class="line" id="l222">    222</a>             }
+<a href="#l223" class="line" id="l223">    223</a> 
+<a href="#l224" class="line" id="l224">    224</a>             winrt::event_token Diagnostics(const EventHandler&lt;IDiagnosticInformation&gt;&amp; handler)
+<a href="#l225" class="line" id="l225">    225</a>             {
+<a href="#l226" class="line" id="l226">    226</a>                 return m_remoteFactory.Diagnostics(handler);
+<a href="#l227" class="line" id="l227">    227</a>             }
+<a href="#l228" class="line" id="l228">    228</a> 
+<a href="#l229" class="line" id="l229">    229</a>             void Diagnostics(const winrt::event_token&amp; token) noexcept
+<a href="#l230" class="line" id="l230">    230</a>             {
+<a href="#l231" class="line" id="l231">    231</a>                 m_remoteFactory.Diagnostics(token);
+<a href="#l232" class="line" id="l232">    232</a>             }
+<a href="#l233" class="line" id="l233">    233</a> 
+<a href="#l234" class="line" id="l234">    234</a>             DiagnosticLevel MinimumLevel()
+<a href="#l235" class="line" id="l235">    235</a>             {
+<a href="#l236" class="line" id="l236">    236</a>                 return m_remoteFactory.MinimumLevel();
+<a href="#l237" class="line" id="l237">    237</a>             }
+<a href="#l238" class="line" id="l238">    238</a> 
+<a href="#l239" class="line" id="l239">    239</a>             void MinimumLevel(DiagnosticLevel value)
+<a href="#l240" class="line" id="l240">    240</a>             {
+<a href="#l241" class="line" id="l241">    241</a>                 m_remoteFactory.MinimumLevel(value);
+<a href="#l242" class="line" id="l242">    242</a>             }
+<a href="#l243" class="line" id="l243">    243</a> 
+<a href="#l244" class="line" id="l244">    244</a>             Collections::IVectorView&lt;winrt::hstring&gt; AdditionalModulePaths() const
+<a href="#l245" class="line" id="l245">    245</a>             {
+<a href="#l246" class="line" id="l246">    246</a>                 return m_additionalModulePaths.GetView();
+<a href="#l247" class="line" id="l247">    247</a>             }
+<a href="#l248" class="line" id="l248">    248</a> 
+<a href="#l249" class="line" id="l249">    249</a>             void AdditionalModulePaths(const Collections::IVectorView&lt;winrt::hstring&gt;&amp; value)
+<a href="#l250" class="line" id="l250">    250</a>             {
+<a href="#l251" class="line" id="l251">    251</a>                 // Extract all values from incoming view
+<a href="#l252" class="line" id="l252">    252</a>                 std::vector&lt;winrt::hstring&gt; newModulePaths{ value.Size() };
+<a href="#l253" class="line" id="l253">    253</a>                 value.GetMany(0, newModulePaths);
+<a href="#l254" class="line" id="l254">    254</a> 
+<a href="#l255" class="line" id="l255">    255</a>                 // Create a copy for remote and set remote module paths
+<a href="#l256" class="line" id="l256">    256</a>                 std::vector&lt;winrt::hstring&gt; newRemotePaths{ newModulePaths };
+<a href="#l257" class="line" id="l257">    257</a>                 m_remoteAdditionalModulePaths = winrt::single_threaded_vector&lt;winrt::hstring&gt;(std::move(newRemotePaths));
+<a href="#l258" class="line" id="l258">    258</a>                 m_remoteFactory.as&lt;SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties&gt;().AdditionalModulePaths(m_remoteAdditionalModulePaths.GetView());
+<a href="#l259" class="line" id="l259">    259</a> 
+<a href="#l260" class="line" id="l260">    260</a>                 // Store the updated module paths that we were given
+<a href="#l261" class="line" id="l261">    261</a>                 m_additionalModulePaths = winrt::single_threaded_vector&lt;winrt::hstring&gt;(std::move(newModulePaths));
+<a href="#l262" class="line" id="l262">    262</a>             }
+<a href="#l263" class="line" id="l263">    263</a> 
+<a href="#l264" class="line" id="l264">    264</a>             SetProcessorFactory::PwshConfigurationProcessorPolicy Policy() const
+<a href="#l265" class="line" id="l265">    265</a>             {
+<a href="#l266" class="line" id="l266">    266</a>                 return m_remoteFactory.as&lt;SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties&gt;().Policy();
+<a href="#l267" class="line" id="l267">    267</a>             }
+<a href="#l268" class="line" id="l268">    268</a> 
+<a href="#l269" class="line" id="l269">    269</a>             void Policy(SetProcessorFactory::PwshConfigurationProcessorPolicy value)
+<a href="#l270" class="line" id="l270">    270</a>             {
+<a href="#l271" class="line" id="l271">    271</a>                 m_remoteFactory.as&lt;SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties&gt;().Policy(value);
+<a href="#l272" class="line" id="l272">    272</a>             }
+<a href="#l273" class="line" id="l273">    273</a> 
+<a href="#l274" class="line" id="l274">    274</a>             SetProcessorFactory::PwshConfigurationProcessorLocation Location() const
+<a href="#l275" class="line" id="l275">    275</a>             {
+<a href="#l276" class="line" id="l276">    276</a>                 return m_remoteFactory.as&lt;SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties&gt;().Location();
+<a href="#l277" class="line" id="l277">    277</a>             }
+<a href="#l278" class="line" id="l278">    278</a> 
+<a href="#l279" class="line" id="l279">    279</a>             void Location(SetProcessorFactory::PwshConfigurationProcessorLocation value)
+<a href="#l280" class="line" id="l280">    280</a>             {
+<a href="#l281" class="line" id="l281">    281</a>                 m_remoteFactory.as&lt;SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties&gt;().Location(value);
+<a href="#l282" class="line" id="l282">    282</a>             }
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a>             winrt::hstring CustomLocation() const
+<a href="#l285" class="line" id="l285">    285</a>             {
+<a href="#l286" class="line" id="l286">    286</a>                 return m_remoteFactory.as&lt;SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties&gt;().CustomLocation();
+<a href="#l287" class="line" id="l287">    287</a>             }
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>             void CustomLocation(winrt::hstring value)
+<a href="#l290" class="line" id="l290">    290</a>             {
+<a href="#l291" class="line" id="l291">    291</a>                 m_remoteFactory.as&lt;SetProcessorFactory::IPwshConfigurationSetProcessorFactoryProperties&gt;().CustomLocation(value);
+<a href="#l292" class="line" id="l292">    292</a>             }
+<a href="#l293" class="line" id="l293">    293</a> 
+<a href="#l294" class="line" id="l294">    294</a>             // Implement a subset of IMap to enable property bag semantics
+<a href="#l295" class="line" id="l295">    295</a>             uint32_t Size() { THROW_HR(E_NOTIMPL); }
+<a href="#l296" class="line" id="l296">    296</a>             void Clear() { THROW_HR(E_NOTIMPL); }
+<a href="#l297" class="line" id="l297">    297</a>             Collections::IMapView&lt;winrt::hstring, winrt::hstring&gt; GetView() { THROW_HR(E_NOTIMPL); }
+<a href="#l298" class="line" id="l298">    298</a>             bool HasKey(winrt::hstring) { THROW_HR(E_NOTIMPL); }
+<a href="#l299" class="line" id="l299">    299</a>             void Remove(winrt::hstring) { THROW_HR(E_NOTIMPL); }
+<a href="#l300" class="line" id="l300">    300</a> 
+<a href="#l301" class="line" id="l301">    301</a>             bool Insert(winrt::hstring key, winrt::hstring value)
+<a href="#l302" class="line" id="l302">    302</a>             {
+<a href="#l303" class="line" id="l303">    303</a>                 auto map = m_remoteFactory.try_as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;();
+<a href="#l304" class="line" id="l304">    304</a>                 return map ? map.Insert(key, value) : false;
+<a href="#l305" class="line" id="l305">    305</a>             }
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>             winrt::hstring Lookup(winrt::hstring key)
+<a href="#l308" class="line" id="l308">    308</a>             {
+<a href="#l309" class="line" id="l309">    309</a>                 auto map = m_remoteFactory.try_as&lt;Collections::IMap&lt;winrt::hstring, winrt::hstring&gt;&gt;();
+<a href="#l310" class="line" id="l310">    310</a>                 return map ? map.Lookup(key) : winrt::hstring{};
+<a href="#l311" class="line" id="l311">    311</a>             }
+<a href="#l312" class="line" id="l312">    312</a> 
+<a href="#l313" class="line" id="l313">    313</a>             HRESULT STDMETHODCALLTYPE SetLifetimeWatcher(IUnknown* watcher)
+<a href="#l314" class="line" id="l314">    314</a>             {
+<a href="#l315" class="line" id="l315">    315</a>                 return WinRT::LifetimeWatcherBase::SetLifetimeWatcher(watcher);
+<a href="#l316" class="line" id="l316">    316</a>             }
+<a href="#l317" class="line" id="l317">    317</a> 
+<a href="#l318" class="line" id="l318">    318</a>         private:
+<a href="#l319" class="line" id="l319">    319</a>             IConfigurationSetProcessorFactory m_remoteFactory;
+<a href="#l320" class="line" id="l320">    320</a>             wil::unique_event m_completionEvent;
+<a href="#l321" class="line" id="l321">    321</a>             Collections::IVector&lt;winrt::hstring&gt; m_additionalModulePaths{ winrt::single_threaded_vector&lt;winrt::hstring&gt;() };
+<a href="#l322" class="line" id="l322">    322</a>             Collections::IVector&lt;winrt::hstring&gt; m_remoteAdditionalModulePaths{ winrt::single_threaded_vector&lt;winrt::hstring&gt;() };
+<a href="#l323" class="line" id="l323">    323</a>         };
+<a href="#l324" class="line" id="l324">    324</a>     }
+<a href="#l325" class="line" id="l325">    325</a> 
+<a href="#l326" class="line" id="l326">    326</a>     IConfigurationSetProcessorFactory CreateOutOfProcessFactory(ProcessorEngine processorEngine, bool useRunAs, const std::string&amp; properties, const std::string&amp; restrictions)
+<a href="#l327" class="line" id="l327">    327</a>     {
+<a href="#l328" class="line" id="l328">    328</a>         return winrt::make&lt;RemoteFactory&gt;(processorEngine, useRunAs, properties, restrictions);
+<a href="#l329" class="line" id="l329">    329</a>     }
+<a href="#l330" class="line" id="l330">    330</a> 
+<a href="#l331" class="line" id="l331">    331</a>     ProcessorEngine DetermineProcessorEngine(ConfigurationSet set)
+<a href="#l332" class="line" id="l332">    332</a>     {
+<a href="#l333" class="line" id="l333">    333</a>         Utility::Version schemaVersion{ Utility::ConvertToUTF8(set.SchemaVersion()) };
+<a href="#l334" class="line" id="l334">    334</a> 
+<a href="#l335" class="line" id="l335">    335</a>         if (schemaVersion &lt;= Utility::Version{ &quot;0.3&quot; })
+<a href="#l336" class="line" id="l336">    336</a>         {
+<a href="#l337" class="line" id="l337">    337</a>             ProcessorEngine result = ProcessorEngine::Unknown;
+<a href="#l338" class="line" id="l338">    338</a> 
+<a href="#l339" class="line" id="l339">    339</a>             std::wstring processorIdentifier = Utility::ToLower(set.Environment().ProcessorIdentifier());
+<a href="#l340" class="line" id="l340">    340</a>             if (processorIdentifier.empty() || processorIdentifier == s_ProcessorEngine_PowerShell)
+<a href="#l341" class="line" id="l341">    341</a>             {
+<a href="#l342" class="line" id="l342">    342</a>                 // Default to PowerShell
+<a href="#l343" class="line" id="l343">    343</a>                 result = ProcessorEngine::PowerShell;
+<a href="#l344" class="line" id="l344">    344</a>             }
+<a href="#l345" class="line" id="l345">    345</a>             else if (processorIdentifier == s_ProcessorEngine_DSCv3)
+<a href="#l346" class="line" id="l346">    346</a>             {
+<a href="#l347" class="line" id="l347">    347</a>                 result = ProcessorEngine::DSCv3;
+<a href="#l348" class="line" id="l348">    348</a>             }
+<a href="#l349" class="line" id="l349">    349</a>             else
+<a href="#l350" class="line" id="l350">    350</a>             {
+<a href="#l351" class="line" id="l351">    351</a>                 AICLI_LOG(Config, Warning, &lt;&lt; &quot;Unknown processor: &quot; &lt;&lt; Utility::ConvertToUTF8(processorIdentifier));
+<a href="#l352" class="line" id="l352">    352</a>             }
+<a href="#l353" class="line" id="l353">    353</a> 
+<a href="#l354" class="line" id="l354">    354</a>             return result;
+<a href="#l355" class="line" id="l355">    355</a>         }
+<a href="#l356" class="line" id="l356">    356</a>         else
+<a href="#l357" class="line" id="l357">    357</a>         {
+<a href="#l358" class="line" id="l358">    358</a>             // Intentionally fail out here until a decision is made.
+<a href="#l359" class="line" id="l359">    359</a>             THROW_HR(E_NOTIMPL);
+<a href="#l360" class="line" id="l360">    360</a>         }
+<a href="#l361" class="line" id="l361">    361</a>     }
+<a href="#l362" class="line" id="l362">    362</a> 
+<a href="#l363" class="line" id="l363">    363</a>     std::wstring_view ToString(ProcessorEngine value)
+<a href="#l364" class="line" id="l364">    364</a>     {
+<a href="#l365" class="line" id="l365">    365</a>         switch (value)
+<a href="#l366" class="line" id="l366">    366</a>         {
+<a href="#l367" class="line" id="l367">    367</a>         case ProcessorEngine::PowerShell:
+<a href="#l368" class="line" id="l368">    368</a>             return s_ProcessorEngine_PowerShell;
+<a href="#l369" class="line" id="l369">    369</a>         case ProcessorEngine::DSCv3:
+<a href="#l370" class="line" id="l370">    370</a>             return s_ProcessorEngine_DSCv3;
+<a href="#l371" class="line" id="l371">    371</a>         default:
+<a href="#l372" class="line" id="l372">    372</a>             THROW_HR(E_UNEXPECTED);
+<a href="#l373" class="line" id="l373">    373</a>         }
+<a href="#l374" class="line" id="l374">    374</a>     }
+<a href="#l375" class="line" id="l375">    375</a> 
+<a href="#l376" class="line" id="l376">    376</a>     winrt::hstring ToHString(PropertyName name)
+<a href="#l377" class="line" id="l377">    377</a>     {
+<a href="#l378" class="line" id="l378">    378</a>         switch (name)
+<a href="#l379" class="line" id="l379">    379</a>         {
+<a href="#l380" class="line" id="l380">    380</a>         case PropertyName::DscExecutablePath: return L&quot;DscExecutablePath&quot;;
+<a href="#l381" class="line" id="l381">    381</a>         case PropertyName::FoundDscExecutablePath: return L&quot;FoundDscExecutablePath&quot;;
+<a href="#l382" class="line" id="l382">    382</a>         case PropertyName::DiagnosticTraceEnabled: return L&quot;DiagnosticTraceEnabled&quot;;
+<a href="#l383" class="line" id="l383">    383</a>         case PropertyName::FindDscStateMachine: return L&quot;FindDscStateMachine&quot;;
+<a href="#l384" class="line" id="l384">    384</a>         }
+<a href="#l385" class="line" id="l385">    385</a> 
+<a href="#l386" class="line" id="l386">    386</a>         THROW_HR(E_UNEXPECTED);
+<a href="#l387" class="line" id="l387">    387</a>     }
+<a href="#l388" class="line" id="l388">    388</a> }
+<a href="#l389" class="line" id="l389">    389</a> 
+<a href="#l390" class="line" id="l390">    390</a> HRESULT WindowsPackageManagerConfigurationCompleteOutOfProcessFactoryInitialization(HRESULT result, void* factory, LPWSTR staticsCallback, LPWSTR completionEventName, DWORD parentProcessId) try
+<a href="#l391" class="line" id="l391">    391</a> {
+<a href="#l392" class="line" id="l392">    392</a>     {
+<a href="#l393" class="line" id="l393">    393</a>         wil::com_ptr&lt;IGlobalOptions&gt; globalOptions;
+<a href="#l394" class="line" id="l394">    394</a>         RETURN_IF_FAILED(CoCreateInstance(CLSID_GlobalOptions, nullptr, CLSCTX_INPROC, IID_PPV_ARGS(&amp;globalOptions)));
+<a href="#l395" class="line" id="l395">    395</a>         RETURN_IF_FAILED(globalOptions-&gt;Set(COMGLB_RO_SETTINGS, COMGLB_FAST_RUNDOWN));
+<a href="#l396" class="line" id="l396">    396</a>         RETURN_IF_FAILED(globalOptions-&gt;Set(COMGLB_UNMARSHALING_POLICY, COMGLB_UNMARSHALING_POLICY_STRONG));
+<a href="#l397" class="line" id="l397">    397</a>         RETURN_IF_FAILED(globalOptions-&gt;Set(COMGLB_EXCEPTION_HANDLING, COMGLB_EXCEPTION_DONOT_HANDLE_ANY));
+<a href="#l398" class="line" id="l398">    398</a>     }
+<a href="#l399" class="line" id="l399">    399</a> 
+<a href="#l400" class="line" id="l400">    400</a>     using namespace AppInstaller;
+<a href="#l401" class="line" id="l401">    401</a>     using namespace AppInstaller::CLI::ConfigurationRemoting;
+<a href="#l402" class="line" id="l402">    402</a> 
+<a href="#l403" class="line" id="l403">    403</a>     RETURN_HR_IF(E_POINTER, !staticsCallback);
+<a href="#l404" class="line" id="l404">    404</a> 
+<a href="#l405" class="line" id="l405">    405</a>     auto callbackBytes = Utility::ParseFromHexString(Utility::ConvertToUTF8(staticsCallback));
+<a href="#l406" class="line" id="l406">    406</a>     RETURN_HR_IF(E_INVALIDARG, callbackBytes.size() &gt; (1 &lt;&lt; 15));
+<a href="#l407" class="line" id="l407">    407</a> 
+<a href="#l408" class="line" id="l408">    408</a>     wil::com_ptr&lt;IStream&gt; stream;
+<a href="#l409" class="line" id="l409">    409</a>     RETURN_IF_FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &amp;stream));
+<a href="#l410" class="line" id="l410">    410</a>     RETURN_IF_FAILED(stream-&gt;Write(&amp;callbackBytes[0], static_cast&lt;ULONG&gt;(callbackBytes.size()), nullptr));
+<a href="#l411" class="line" id="l411">    411</a>     RETURN_IF_FAILED(stream-&gt;Seek({}, STREAM_SEEK_SET, nullptr));
+<a href="#l412" class="line" id="l412">    412</a> 
+<a href="#l413" class="line" id="l413">    413</a>     wil::com_ptr&lt;::IUnknown&gt; output;
+<a href="#l414" class="line" id="l414">    414</a>     RETURN_IF_FAILED(CoUnmarshalInterface(stream.get(), winrt::guid_of&lt;IConfigurationStatics&gt;(), reinterpret_cast&lt;void**&gt;(&amp;output)));
+<a href="#l415" class="line" id="l415">    415</a> 
+<a href="#l416" class="line" id="l416">    416</a>     IConfigurationStatics callback{ output.detach(), winrt::take_ownership_from_abi };
+<a href="#l417" class="line" id="l417">    417</a> 
+<a href="#l418" class="line" id="l418">    418</a>     if (FAILED(result))
+<a href="#l419" class="line" id="l419">    419</a>     {
+<a href="#l420" class="line" id="l420">    420</a>         std::ignore = callback.CreateConfigurationSetProcessorFactoryAsync(std::to_wstring(result));
+<a href="#l421" class="line" id="l421">    421</a>     }
+<a href="#l422" class="line" id="l422">    422</a>     else
+<a href="#l423" class="line" id="l423">    423</a>     {
+<a href="#l424" class="line" id="l424">    424</a>         IConfigurationSetProcessorFactory factoryObject;
+<a href="#l425" class="line" id="l425">    425</a>         winrt::copy_from_abi(factoryObject, factory);
+<a href="#l426" class="line" id="l426">    426</a>         std::ignore = callback.CreateConfigurationProcessor(factoryObject);
+<a href="#l427" class="line" id="l427">    427</a>     }
+<a href="#l428" class="line" id="l428">    428</a> 
+<a href="#l429" class="line" id="l429">    429</a>     // Wait until the caller releases the object (signalling the event) or the parent process exits
+<a href="#l430" class="line" id="l430">    430</a>     wil::unique_event completionEvent;
+<a href="#l431" class="line" id="l431">    431</a>     completionEvent.open(completionEventName);
+<a href="#l432" class="line" id="l432">    432</a>     wil::unique_process_handle parentProcess{ OpenProcess(SYNCHRONIZE, FALSE, parentProcessId) };
+<a href="#l433" class="line" id="l433">    433</a> 
+<a href="#l434" class="line" id="l434">    434</a>     HANDLE waitHandles[2];
+<a href="#l435" class="line" id="l435">    435</a>     waitHandles[0] = completionEvent.get();
+<a href="#l436" class="line" id="l436">    436</a>     waitHandles[1] = parentProcess.get();
+<a href="#l437" class="line" id="l437">    437</a> 
+<a href="#l438" class="line" id="l438">    438</a>     std::ignore = WaitForMultipleObjects(ARRAYSIZE(waitHandles), waitHandles, FALSE, INFINITE);
+<a href="#l439" class="line" id="l439">    439</a> 
+<a href="#l440" class="line" id="l440">    440</a>     return S_OK;
+<a href="#l441" class="line" id="l441">    441</a> }
+<a href="#l442" class="line" id="l442">    442</a> CATCH_RETURN();
+</pre>
+</div>
+</body>
+</html>

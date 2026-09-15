@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Make CTRL signal able to take multiple contexts (#1172) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/e03eb11c81fc1c559ac01572d00c5ea58bb03974.html">e03eb11c81fc1c559ac01572d00c5ea58bb03974</a>
+<b>parent</b> <a href="../commit/5d6b04b557d8485bcbe2a2accaac933d347f820f.html">5d6b04b557d8485bcbe2a2accaac933d347f820f</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed, 16 Jun 2021 15:13:26 -0700
+
+Make CTRL signal able to take multiple contexts (#1172)
+
+Update the CTRL signal handler to be able to fan out to multiple contexts, and make all cases of using sub-contexts both connected to the signal handler and better handle cancellation.
+
+Additionally, improve the COM API install method to properly cancel any in progress task rather than just terminating the context.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/allow.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/ExecutionContext.cpp</a></td><td> | </td><td class="num">130</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/ExecutionContext.h</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Workflows/ImportExportFlow.cpp</a></td><td> | </td><td class="num">8</td><td><span class="i">+++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/Microsoft.Management.Deployment/PackageManager.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+</table></pre><pre>7 files changed, 121 insertions(+), 38 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a> b/<a href="../file/.github/actions/spelling/allow.txt.html">.github/actions/spelling/allow.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -424,6 +424,7 @@ STRINGIFY
+</a> STRINGIZE
+ stringstream
+ strstr
+<a href="#h0-0-3" id="h0-0-3" class="i">+subcontext
+</a> SUBLANG
+ subresource
+ subselect
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/ExecutionContext.cpp.html">src/AppInstallerCLICore/ExecutionContext.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionContext.cpp.html">src/AppInstallerCLICore/ExecutionContext.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -10,54 +10,101 @@ namespace AppInstaller::CLI::Execution
+</a> 
+     namespace
+     {
+<a href="#h1-0-3" id="h1-0-3" class="d">-        // The context that will receive CTRL signals
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-        Context* s_contextForCtrlHandler = nullptr;
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-
+</a><a href="#h1-0-6" id="h1-0-6" class="d">-        BOOL WINAPI CtrlHandlerForContext(DWORD ctrlType)
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+        // Type to contain the CTRL signal handler.
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        struct CtrlHandler
+</a>         {
+<a href="#h1-0-10" id="h1-0-10" class="d">-            AICLI_LOG(CLI, Info, &lt;&lt; &quot;Got CTRL type: &quot; &lt;&lt; ctrlType);
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+            static CtrlHandler&amp; Instance()
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+            {
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+                static CtrlHandler s_instance;
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+                return s_instance;
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+            }
+</a> 
+<a href="#h1-0-17" id="h1-0-17" class="d">-            // Won&#39;t save us from every crash, but a few more than direct access.
+</a><a href="#h1-0-18" id="h1-0-18" class="d">-            Context* context = s_contextForCtrlHandler;
+</a><a href="#h1-0-19" id="h1-0-19" class="d">-            if (!context)
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+            void AddContext(Context* context)
+</a>             {
+<a href="#h1-0-22" id="h1-0-22" class="d">-                return FALSE;
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+                std::lock_guard&lt;std::mutex&gt; lock{ m_contextsLock };
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+                auto itr = std::find(m_contexts.begin(), m_contexts.end(), context);
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+                THROW_HR_IF(E_NOT_VALID_STATE, itr != m_contexts.end());
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+                m_contexts.push_back(context);
+</a>             }
+ 
+<a href="#h1-0-30" id="h1-0-30" class="d">-            switch (ctrlType)
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+            void RemoveContext(Context* context)
+</a>             {
+<a href="#h1-0-33" id="h1-0-33" class="d">-            case CTRL_C_EVENT:
+</a><a href="#h1-0-34" id="h1-0-34" class="d">-            case CTRL_BREAK_EVENT:
+</a><a href="#h1-0-35" id="h1-0-35" class="d">-                context-&gt;Terminate(APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED);
+</a><a href="#h1-0-36" id="h1-0-36" class="d">-                context-&gt;Reporter.CancelInProgressTask(false);
+</a><a href="#h1-0-37" id="h1-0-37" class="d">-                return TRUE;
+</a><a href="#h1-0-38" id="h1-0-38" class="d">-                // According to MSDN, we should never receive these due to having gdi32/user32 loaded in our process.
+</a><a href="#h1-0-39" id="h1-0-39" class="d">-                // But handle them as a force terminate anyway.
+</a><a href="#h1-0-40" id="h1-0-40" class="d">-            case CTRL_CLOSE_EVENT:
+</a><a href="#h1-0-41" id="h1-0-41" class="d">-            case CTRL_LOGOFF_EVENT:
+</a><a href="#h1-0-42" id="h1-0-42" class="d">-            case CTRL_SHUTDOWN_EVENT:
+</a><a href="#h1-0-43" id="h1-0-43" class="d">-                context-&gt;Terminate(APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED);
+</a><a href="#h1-0-44" id="h1-0-44" class="d">-                context-&gt;Reporter.CancelInProgressTask(true);
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+                std::lock_guard&lt;std::mutex&gt; lock{ m_contextsLock };
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+                auto itr = std::find(m_contexts.begin(), m_contexts.end(), context);
+</a><a href="#h1-0-48" id="h1-0-48" class="i">+                THROW_HR_IF(E_NOT_VALID_STATE, itr == m_contexts.end());
+</a><a href="#h1-0-49" id="h1-0-49" class="i">+                m_contexts.erase(itr);
+</a><a href="#h1-0-50" id="h1-0-50" class="i">+            }
+</a><a href="#h1-0-51" id="h1-0-51" class="i">+
+</a><a href="#h1-0-52" id="h1-0-52" class="i">+        private:
+</a><a href="#h1-0-53" id="h1-0-53" class="i">+            CtrlHandler()
+</a><a href="#h1-0-54" id="h1-0-54" class="i">+            {
+</a><a href="#h1-0-55" id="h1-0-55" class="i">+                LOG_IF_WIN32_BOOL_FALSE(SetConsoleCtrlHandler(StaticCtrlHandlerFunction, TRUE));
+</a><a href="#h1-0-56" id="h1-0-56" class="i">+            }
+</a><a href="#h1-0-57" id="h1-0-57" class="i">+
+</a><a href="#h1-0-58" id="h1-0-58" class="i">+            static BOOL WINAPI StaticCtrlHandlerFunction(DWORD ctrlType)
+</a><a href="#h1-0-59" id="h1-0-59" class="i">+            {
+</a><a href="#h1-0-60" id="h1-0-60" class="i">+                return Instance().CtrlHandlerFunction(ctrlType);
+</a><a href="#h1-0-61" id="h1-0-61" class="i">+            }
+</a><a href="#h1-0-62" id="h1-0-62" class="i">+
+</a><a href="#h1-0-63" id="h1-0-63" class="i">+            BOOL CtrlHandlerFunction(DWORD ctrlType)
+</a><a href="#h1-0-64" id="h1-0-64" class="i">+            {
+</a><a href="#h1-0-65" id="h1-0-65" class="i">+                switch (ctrlType)
+</a><a href="#h1-0-66" id="h1-0-66" class="i">+                {
+</a><a href="#h1-0-67" id="h1-0-67" class="i">+                case CTRL_C_EVENT:
+</a><a href="#h1-0-68" id="h1-0-68" class="i">+                case CTRL_BREAK_EVENT:
+</a><a href="#h1-0-69" id="h1-0-69" class="i">+                    return TerminateContexts(ctrlType, false);
+</a><a href="#h1-0-70" id="h1-0-70" class="i">+                    // According to MSDN, we should never receive these due to having gdi32/user32 loaded in our process.
+</a><a href="#h1-0-71" id="h1-0-71" class="i">+                    // But handle them as a force terminate anyway.
+</a><a href="#h1-0-72" id="h1-0-72" class="i">+                case CTRL_CLOSE_EVENT:
+</a><a href="#h1-0-73" id="h1-0-73" class="i">+                case CTRL_LOGOFF_EVENT:
+</a><a href="#h1-0-74" id="h1-0-74" class="i">+                case CTRL_SHUTDOWN_EVENT:
+</a><a href="#h1-0-75" id="h1-0-75" class="i">+                    return TerminateContexts(ctrlType, true);
+</a><a href="#h1-0-76" id="h1-0-76" class="i">+                default:
+</a><a href="#h1-0-77" id="h1-0-77" class="i">+                    return FALSE;
+</a><a href="#h1-0-78" id="h1-0-78" class="i">+                }
+</a><a href="#h1-0-79" id="h1-0-79" class="i">+            }
+</a><a href="#h1-0-80" id="h1-0-80" class="i">+
+</a><a href="#h1-0-81" id="h1-0-81" class="i">+            // Terminates the currently attached contexts.
+</a><a href="#h1-0-82" id="h1-0-82" class="i">+            // Returns FALSE if no contexts attached; TRUE otherwise.
+</a><a href="#h1-0-83" id="h1-0-83" class="i">+            BOOL TerminateContexts(DWORD ctrlType, bool force)
+</a><a href="#h1-0-84" id="h1-0-84" class="i">+            {
+</a><a href="#h1-0-85" id="h1-0-85" class="i">+                if (m_contexts.empty())
+</a><a href="#h1-0-86" id="h1-0-86" class="i">+                {
+</a><a href="#h1-0-87" id="h1-0-87" class="i">+                    return FALSE;
+</a><a href="#h1-0-88" id="h1-0-88" class="i">+                }
+</a><a href="#h1-0-89" id="h1-0-89" class="i">+
+</a><a href="#h1-0-90" id="h1-0-90" class="i">+                {
+</a><a href="#h1-0-91" id="h1-0-91" class="i">+                    std::lock_guard&lt;std::mutex&gt; lock{ m_contextsLock };
+</a><a href="#h1-0-92" id="h1-0-92" class="i">+
+</a><a href="#h1-0-93" id="h1-0-93" class="i">+                    // TODO: Move this to be logged per active context when we have thread static globals
+</a><a href="#h1-0-94" id="h1-0-94" class="i">+                    AICLI_LOG(CLI, Info, &lt;&lt; &quot;Got CTRL type: &quot; &lt;&lt; ctrlType);
+</a><a href="#h1-0-95" id="h1-0-95" class="i">+
+</a><a href="#h1-0-96" id="h1-0-96" class="i">+                    for (auto&amp; context : m_contexts)
+</a><a href="#h1-0-97" id="h1-0-97" class="i">+                    {
+</a><a href="#h1-0-98" id="h1-0-98" class="i">+                        context-&gt;Cancel(true, force);
+</a><a href="#h1-0-99" id="h1-0-99" class="i">+                    }
+</a><a href="#h1-0-100" id="h1-0-100" class="i">+                }
+</a><a href="#h1-0-101" id="h1-0-101" class="i">+
+</a>                 return TRUE;
+<a href="#h1-0-103" id="h1-0-103" class="d">-            default:
+</a><a href="#h1-0-104" id="h1-0-104" class="d">-                return FALSE;
+</a>             }
+<a href="#h1-0-106" id="h1-0-106" class="d">-        }
+</a> 
+<a href="#h1-0-108" id="h1-0-108" class="d">-        void SetCtrlHandlerContext(Context* context)
+</a><a href="#h1-0-109" id="h1-0-109" class="i">+            std::mutex m_contextsLock;
+</a><a href="#h1-0-110" id="h1-0-110" class="i">+            std::vector&lt;Context*&gt; m_contexts;
+</a><a href="#h1-0-111" id="h1-0-111" class="i">+        };
+</a><a href="#h1-0-112" id="h1-0-112" class="i">+
+</a><a href="#h1-0-113" id="h1-0-113" class="i">+        void SetCtrlHandlerContext(bool add, Context* context)
+</a>         {
+<a href="#h1-0-115" id="h1-0-115" class="d">-            // Only one is allowed right now.
+</a><a href="#h1-0-116" id="h1-0-116" class="d">-            THROW_HR_IF(E_UNEXPECTED, s_contextForCtrlHandler != nullptr &amp;&amp; context != nullptr);
+</a><a href="#h1-0-117" id="h1-0-117" class="i">+            THROW_HR_IF(E_POINTER, context == nullptr);
+</a> 
+<a href="#h1-0-119" id="h1-0-119" class="d">-            if (context == nullptr)
+</a><a href="#h1-0-120" id="h1-0-120" class="i">+            if (add)
+</a>             {
+<a href="#h1-0-122" id="h1-0-122" class="d">-                LOG_IF_WIN32_BOOL_FALSE(SetConsoleCtrlHandler(CtrlHandlerForContext, FALSE));
+</a><a href="#h1-0-123" id="h1-0-123" class="d">-                s_contextForCtrlHandler = nullptr;
+</a><a href="#h1-0-124" id="h1-0-124" class="i">+                CtrlHandler::Instance().AddContext(context);
+</a>             }
+             else
+             {
+<a href="#h1-0-128" id="h1-0-128" class="d">-                s_contextForCtrlHandler = context;
+</a><a href="#h1-0-129" id="h1-0-129" class="d">-                LOG_IF_WIN32_BOOL_FALSE(SetConsoleCtrlHandler(CtrlHandlerForContext, TRUE));
+</a><a href="#h1-0-130" id="h1-0-130" class="i">+                CtrlHandler::Instance().RemoveContext(context);
+</a>             }
+         }
+     }
+<a href="#h1-1" id="h1-1" class="h">@@ -74,12 +121,17 @@ namespace AppInstaller::CLI::Execution
+</a>     {
+         auto clone = std::make_unique&lt;Context&gt;(Reporter);
+         clone-&gt;m_flags = m_flags;
+<a href="#h1-1-3" id="h1-1-3" class="i">+        // If the parent is hooked up to the CTRL signal, have the clone be as well
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+        if (m_disableCtrlHandlerOnExit)
+</a><a href="#h1-1-5" id="h1-1-5" class="i">+        {
+</a><a href="#h1-1-6" id="h1-1-6" class="i">+            clone-&gt;EnableCtrlHandler();
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+        }
+</a>         return clone;
+     }
+ 
+     void Context::EnableCtrlHandler(bool enabled)
+     {
+<a href="#h1-1-13" id="h1-1-13" class="d">-        SetCtrlHandlerContext(enabled ? this : nullptr);
+</a><a href="#h1-1-14" id="h1-1-14" class="i">+        SetCtrlHandlerContext(enabled, this);
+</a>         m_disableCtrlHandlerOnExit = enabled;
+     }
+ 
+<a href="#h1-2" id="h1-2" class="h">@@ -126,9 +178,15 @@ namespace AppInstaller::CLI::Execution
+</a>         m_isTerminated = true;
+         m_terminationHR = hr;
+     }
+<a href="#h1-2-3" id="h1-2-3" class="d">-    
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+    void Context::Cancel(bool exitIfStuck, bool bypassUser)
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+    {
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+        Terminate(exitIfStuck ? APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED : E_ABORT);
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        Reporter.CancelInProgressTask(bypassUser);
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+    }
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+
+</a>     void Context::SetExecutionStage(Workflow::ExecutionStage stage, bool allowBackward)
+<a href="#h1-2-12" id="h1-2-12" class="d">-    {     
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+    {
+</a>         if (m_executionStage == stage)
+         {
+             return;
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/ExecutionContext.h.html">src/AppInstallerCLICore/ExecutionContext.h</a> b/<a href="../file/src/AppInstallerCLICore/ExecutionContext.h.html">src/AppInstallerCLICore/ExecutionContext.h</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -82,6 +82,11 @@ namespace AppInstaller::CLI::Execution
+</a>         // Set the context to the terminated state.
+         void Terminate(HRESULT hr, std::string_view file = {}, size_t line = {});
+ 
+<a href="#h2-0-3" id="h2-0-3" class="i">+        // Cancel the context; this terminates it as well as informing any in progress task to stop cooperatively.
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+        // Multiple attempts with exitIfStuck == true may cause the process to simply exit.
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+        // The bypassUser indicates whether the user should be asked for cancellation (does not currently have any effect).
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+        void Cancel(bool exitIfStuck = false, bool bypassUser = false);
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+
+</a>         // Gets context flags
+         ContextFlag GetFlags() const
+         {
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Workflows/ImportExportFlow.cpp.html">src/AppInstallerCLICore/Workflows/ImportExportFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/ImportExportFlow.cpp.html">src/AppInstallerCLICore/Workflows/ImportExportFlow.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -284,7 +284,13 @@ namespace AppInstaller::CLI::Workflow
+</a> 
+                 if (searchContext.IsTerminated())
+                 {
+<a href="#h3-0-3" id="h3-0-3" class="d">-                    if (searchContext.GetTerminationHR() == APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE)
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+                    if (context.IsTerminated() &amp;&amp; context.GetTerminationHR() == E_ABORT)
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+                    {
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+                        // This means that the subcontext being terminated is due to an overall abort
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+                        context.Reporter.Info() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+                        return;
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+                    }
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+                    else if (searchContext.GetTerminationHR() == APPINSTALLER_CLI_ERROR_UPDATE_NOT_APPLICABLE)
+</a>                     {
+                         AICLI_LOG(CLI, Info, &lt;&lt; &quot;Package is already installed: [&quot; &lt;&lt; packageRequest.Id &lt;&lt; &quot;]&quot;);
+                         context.Reporter.Info() &lt;&lt; Resource::String::ImportPackageAlreadyInstalled &lt;&lt; &#39; &#39; &lt;&lt; packageRequest.Id &lt;&lt; std::endl;
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/InstallFlow.cpp.html">src/AppInstallerCLICore/Workflows/InstallFlow.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -432,6 +432,13 @@ namespace AppInstaller::CLI::Workflow
+</a>             installContext &lt;&lt; InstallPackageVersion;
+             if (installContext.IsTerminated())
+             {
+<a href="#h4-0-3" id="h4-0-3" class="i">+                if (context.IsTerminated() &amp;&amp; context.GetTerminationHR() == E_ABORT)
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+                {
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+                    // This means that the subcontext being terminated is due to an overall abort
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+                    context.Reporter.Info() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+                    return;
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+                }
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+
+</a>                 allSucceeded = false;
+             }
+         }
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerCLICore/Workflows/UpdateFlow.cpp.html">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/UpdateFlow.cpp.html">src/AppInstallerCLICore/Workflows/UpdateFlow.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -121,6 +121,12 @@ namespace AppInstaller::CLI::Workflow
+</a>             {
+                 updateAllHasFailure = true;
+             }
+<a href="#h5-0-3" id="h5-0-3" class="i">+
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+            if (context.IsTerminated() &amp;&amp; context.GetTerminationHR() == E_ABORT)
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+            {
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+                context.Reporter.Info() &lt;&lt; Resource::String::Cancelled &lt;&lt; std::endl;
+</a><a href="#h5-0-7" id="h5-0-7" class="i">+                return;
+</a><a href="#h5-0-8" id="h5-0-8" class="i">+            }
+</a>         }
+ 
+         if (!updateAllFoundUpdate)
+<b>diff --git a/<a id="h6" href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageManager.cpp.html">src/Microsoft.Management.Deployment/PackageManager.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -299,7 +299,7 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a> 
+         cancellationToken.callback([&amp;context]
+             {
+<a href="#h6-0-3" id="h6-0-3" class="d">-                context.Terminate(APPINSTALLER_CLI_ERROR_CTRL_SIGNAL_RECEIVED);
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+                context.Cancel(false, true);
+</a>             });
+         // Wait for the execute operation to finish. 
+         // The cancellation of the AsyncOperation triggers Terminate which causes the executeOperation to end.
+</pre>
+</div>
+</body>
+</html>

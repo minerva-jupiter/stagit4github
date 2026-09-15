@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Initialize logging of global logger for inproc invocations (#4490) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/4bfc7cb7b1ebe814a95d1440be93535be35a55fb.html">4bfc7cb7b1ebe814a95d1440be93535be35a55fb</a>
+<b>parent</b> <a href="../commit/e1ee49ec871ea8abee547aa16acc635e47164339.html">e1ee49ec871ea8abee547aa16acc635e47164339</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Fri, 17 May 2024 10:27:46 -0700
+
+Initialize logging of global logger for inproc invocations (#4490)
+
+With Inproc invocation, logging was only enabled at context level
+(during an actual package operation). This change initializes the global
+logger for inproc invocations so package catalog, package search and
+package correlation can be logged too.
+
+Manually validated logs exist after the change.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/COMContext.cpp</a></td><td> | </td><td class="num">6</td><td><span class="i">+++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/COMContext.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLICore/Core.cpp</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerCLICore/Public/AppInstallerCLICore.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Deployment/PackageManagerSettings.cpp</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/WindowsPackageManager/main.cpp</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+</table></pre><pre>6 files changed, 26 insertions(+), 4 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/COMContext.cpp.html">src/AppInstallerCLICore/COMContext.cpp</a> b/<a href="../file/src/AppInstallerCLICore/COMContext.cpp.html">src/AppInstallerCLICore/COMContext.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -75,10 +75,10 @@ namespace AppInstaller::CLI::Execution
+</a>         return m_correlationData;
+     }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="d">-    void COMContext::SetLoggers()
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+    void COMContext::SetLoggers(std::optional&lt;AppInstaller::Logging::Channel&gt; channel, std::optional&lt;AppInstaller::Logging::Level&gt; level)
+</a>     {
+<a href="#h0-0-6" id="h0-0-6" class="d">-        Logging::Log().EnableChannel(Settings::User().Get&lt;Settings::Setting::LoggingChannelPreference&gt;());
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-        Logging::Log().SetLevel(Settings::User().Get&lt;Settings::Setting::LoggingLevelPreference&gt;());
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+        Logging::Log().EnableChannel(channel.has_value() ? channel.value() : Settings::User().Get&lt;Settings::Setting::LoggingChannelPreference&gt;());
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+        Logging::Log().SetLevel(level.has_value() ? level.value() : Settings::User().Get&lt;Settings::Setting::LoggingLevelPreference&gt;());
+</a> 
+         // TODO: Log to file for COM API calls only when debugging in visual studio
+         Logging::FileLogger::Add(s_comLogFileNamePrefix);
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/COMContext.h.html">src/AppInstallerCLICore/COMContext.h</a> b/<a href="../file/src/AppInstallerCLICore/COMContext.h.html">src/AppInstallerCLICore/COMContext.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -66,7 +66,7 @@ namespace AppInstaller::CLI::Execution
+</a> 
+         // Set Diagnostic and Telemetry loggers, Wil failure callback
+         // This should be called only once per COM Server instance
+<a href="#h1-0-3" id="h1-0-3" class="d">-        static void SetLoggers();
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        static void SetLoggers(std::optional&lt;AppInstaller::Logging::Channel&gt; channel = std::nullopt, std::optional&lt;AppInstaller::Logging::Level&gt; level = std::nullopt);
+</a> 
+         // Set COM call context for diagnostic and telemetry loggers
+         // This should be called for every COMContext object instance
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLICore/Core.cpp.html">src/AppInstallerCLICore/Core.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Core.cpp.html">src/AppInstallerCLICore/Core.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -179,5 +179,18 @@ namespace AppInstaller::CLI
+</a> #endif
+ 
+         AppInstaller::CLI::Execution::COMContext::SetLoggers();
+<a href="#h2-0-3" id="h2-0-3" class="i">+    }
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+
+</a><a href="#h2-0-5" id="h2-0-5" class="i">+    void InProcInitialize()
+</a><a href="#h2-0-6" id="h2-0-6" class="i">+    {
+</a><a href="#h2-0-7" id="h2-0-7" class="i">+#ifndef AICLI_DISABLE_TEST_HOOKS
+</a><a href="#h2-0-8" id="h2-0-8" class="i">+        if (Settings::User().Get&lt;Settings::Setting::EnableSelfInitiatedMinidump&gt;())
+</a><a href="#h2-0-9" id="h2-0-9" class="i">+        {
+</a><a href="#h2-0-10" id="h2-0-10" class="i">+            Debugging::EnableSelfInitiatedMinidump();
+</a><a href="#h2-0-11" id="h2-0-11" class="i">+        }
+</a><a href="#h2-0-12" id="h2-0-12" class="i">+#endif
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+
+</a><a href="#h2-0-14" id="h2-0-14" class="i">+        // Explicitly set default channel and level before user settings from PackageManagerSettings
+</a><a href="#h2-0-15" id="h2-0-15" class="i">+        AppInstaller::CLI::Execution::COMContext::SetLoggers(AppInstaller::Logging::Channel::Defaults, AppInstaller::Logging::Level::Info);
+</a>     }
+ }
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerCLICore/Public/AppInstallerCLICore.h.html">src/AppInstallerCLICore/Public/AppInstallerCLICore.h</a> b/<a href="../file/src/AppInstallerCLICore/Public/AppInstallerCLICore.h.html">src/AppInstallerCLICore/Public/AppInstallerCLICore.h</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -9,4 +9,7 @@ namespace AppInstaller::CLI
+</a> 
+     // Initializes the Windows Package Manager COM server.
+     void ServerInitialize();
+<a href="#h3-0-3" id="h3-0-3" class="i">+
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    // Initializations for InProc invocation.
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+    void InProcInitialize();
+</a> }
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Deployment/PackageManagerSettings.cpp.html">src/Microsoft.Management.Deployment/PackageManagerSettings.cpp</a> b/<a href="../file/src/Microsoft.Management.Deployment/PackageManagerSettings.cpp.html">src/Microsoft.Management.Deployment/PackageManagerSettings.cpp</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -48,6 +48,11 @@ namespace winrt::Microsoft::Management::Deployment::implementation
+</a>             [&amp;]()
+             {
+                 success = AppInstaller::Settings::TryInitializeCustomUserSettings(AppInstaller::Utility::ConvertToUTF8(settingsContent));
+<a href="#h4-0-3" id="h4-0-3" class="i">+                if (success)
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+                {
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+                    AppInstaller::Logging::Log().EnableChannel(AppInstaller::Settings::User().Get&lt;AppInstaller::Settings::Setting::LoggingChannelPreference&gt;());
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+                    AppInstaller::Logging::Log().SetLevel(AppInstaller::Settings::User().Get&lt;AppInstaller::Settings::Setting::LoggingLevelPreference&gt;());
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+                }
+</a>             });
+         return success;
+     }
+<b>diff --git a/<a id="h5" href="../file/src/WindowsPackageManager/main.cpp.html">src/WindowsPackageManager/main.cpp</a> b/<a href="../file/src/WindowsPackageManager/main.cpp.html">src/WindowsPackageManager/main.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -86,6 +86,7 @@ extern &quot;C&quot;
+</a>     WINDOWS_PACKAGE_MANAGER_API WindowsPackageManagerInProcModuleInitialize() try
+     {
+         ::Microsoft::WRL::Module&lt;::Microsoft::WRL::ModuleType::InProc&gt;::Create();
+<a href="#h5-0-3" id="h5-0-3" class="i">+        AppInstaller::CLI::InProcInitialize();
+</a>         return S_OK;
+     }
+     CATCH_RETURN();
+</pre>
+</div>
+</body>
+</html>

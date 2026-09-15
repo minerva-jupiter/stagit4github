@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Use atomic functions to ensure single initialization of tracking catalog (#4592) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/a7f7c21c782a9029b0db8e40273e15648fb74ff2.html">a7f7c21c782a9029b0db8e40273e15648fb74ff2</a>
+<b>parent</b> <a href="../commit/986f2409fdeed2e46b3c36a8e346708363312a38.html">986f2409fdeed2e46b3c36a8e346708363312a38</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 27 Jun 2024 15:33:58 -0700
+
+Use atomic functions to ensure single initialization of tracking catalog (#4592)
+
+Fixes #4587 
+
+## Change
+Hold the tracking catalog object in a `shared_ptr` and use the atomic
+functions to ensure that only one thread can initialize it.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></td><td> | </td><td class="num">13</td><td><span class="i">++++++++++</span><span class="d">---</span></td></tr>
+</table></pre><pre>2 files changed, 11 insertions(+), 4 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h.html">src/AppInstallerRepositoryCore/Public/winget/RepositorySource.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -344,6 +344,6 @@ namespace AppInstaller::Repository
+</a>         bool m_isComposite = false;
+         std::optional&lt;TimeSpan&gt; m_backgroundUpdateInterval;
+         bool m_installedPackageInformationOnly = false;
+<a href="#h0-0-3" id="h0-0-3" class="d">-        mutable PackageTrackingCatalog m_trackingCatalog;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        mutable std::shared_ptr&lt;PackageTrackingCatalog&gt; m_trackingCatalog;
+</a>     };
+ }
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/RepositorySource.cpp.html">src/AppInstallerRepositoryCore/RepositorySource.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -983,12 +983,19 @@ namespace AppInstaller::Repository
+</a> 
+     PackageTrackingCatalog Source::GetTrackingCatalog() const
+     {
+<a href="#h1-0-3" id="h1-0-3" class="d">-        if (!m_trackingCatalog)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        // With C++20, consider removing the shared_ptr here and making the one inside PackageTrackingCatalog atomic.
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        std::shared_ptr&lt;PackageTrackingCatalog&gt; currentTrackingCatalog = std::atomic_load(&amp;m_trackingCatalog);
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        if (!currentTrackingCatalog)
+</a>         {
+<a href="#h1-0-8" id="h1-0-8" class="d">-            m_trackingCatalog = PackageTrackingCatalog::CreateForSource(*this);
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+            std::shared_ptr&lt;PackageTrackingCatalog&gt; newTrackingCatalog = std::make_shared&lt;PackageTrackingCatalog&gt;(PackageTrackingCatalog::CreateForSource(*this));
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+            if (std::atomic_compare_exchange_strong(&amp;m_trackingCatalog, &amp;currentTrackingCatalog, newTrackingCatalog))
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+            {
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+                currentTrackingCatalog = newTrackingCatalog;
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+            }
+</a>         }
+ 
+<a href="#h1-0-17" id="h1-0-17" class="d">-        return m_trackingCatalog;
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+        return *currentTrackingCatalog;
+</a>     }
+ 
+     std::vector&lt;SourceDetails&gt; Source::GetCurrentSources()
+</pre>
+</div>
+</body>
+</html>

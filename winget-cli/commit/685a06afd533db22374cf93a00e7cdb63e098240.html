@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Enable mechanism for some control over correlation (#2577) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/685a06afd533db22374cf93a00e7cdb63e098240.html">685a06afd533db22374cf93a00e7cdb63e098240</a>
+<b>parent</b> <a href="../commit/d54c5a3d438b25289e574d305b9b2e8881b27b59.html">d54c5a3d438b25289e574d305b9b2e8881b27b59</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Mon, 10 Oct 2022 14:12:29 -0700
+
+Enable mechanism for some control over correlation (#2577)
+
+## Change
+The primary change is to enable some control over the correlation functionality so that different situations can behave differently.  Specifically, the utility functionality of metadata collection, which is intended to be run in a &quot;clean room&quot; environment, can assume that a single change to ARP represents the target entry.
+
+In addition, this change enables diagnostic information to be output by the metadata collection.  This includes the reason that an entry was chosen, and the confidence value for various possible entries if the heuristic matching is attempted.
+
+Finally, the correlation testbed is enhanced to run the metadata collection, allowing it to be tested alongside the inline correlation.  The scripts have various improvements, such as a `-Wait` to leave the sandbox active and forcing the CSV to be output with a UTF8-BOM (Excel requires the BOM in order to open the CSV as UTF8).
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/Correlation.cpp</a></td><td> | </td><td class="num">3</td><td><span class="i">++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp</a></td><td> | </td><td class="num">2</td><td><span class="i">+</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/ARPCorrelation.cpp</a></td><td> | </td><td class="num">71</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp</a></td><td> | </td><td class="num">51</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h</a></td><td> | </td><td class="num">57</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">tools/CorrelationTestbed/InSandboxScript.ps1</a></td><td> | </td><td class="num">10</td><td><span class="i">+++++++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a></td><td> | </td><td class="num">185</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.vcxproj</a></td><td> | </td><td class="num">4</td><td><span class="i">++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">tools/CorrelationTestbed/Process-CorrelationResults.ps1</a></td><td> | </td><td class="num">26</td><td><span class="i">++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1</a></td><td> | </td><td class="num">51</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+</table></pre><pre>10 files changed, 389 insertions(+), 71 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/Correlation.cpp.html">src/AppInstallerCLITests/Correlation.cpp</a> b/<a href="../file/src/AppInstallerCLITests/Correlation.cpp.html">src/AppInstallerCLITests/Correlation.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -113,7 +113,8 @@ ResultSummary EvaluateDataSetWithHeuristic(const DataSet&amp; dataSet, IARPMatchConf
+</a>     for (const auto&amp; testCase : dataSet.TestCases)
+     {
+         arpEntries.push_back(GetARPEntryFromTestCase(testCase, /* isNew */ true));
+<a href="#h0-0-3" id="h0-0-3" class="d">-        auto match = FindARPEntryForNewlyInstalledPackageWithHeuristics(GetManifestFromTestCase(testCase), arpEntries, correlationAlgorithm);
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        ARPHeuristicsCorrelationResult correlationResult = FindARPEntryForNewlyInstalledPackageWithHeuristics(GetManifestFromTestCase(testCase), arpEntries, correlationAlgorithm);
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        auto match = correlationResult.Package;
+</a>         arpEntries.pop_back();
+ 
+         if (match)
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp</a> b/<a href="../file/src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerCLITests/InstallerMetadataCollectionContext.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -229,7 +229,7 @@ namespace
+</a> 
+     struct TestARPCorrelationData : public ARPCorrelationData
+     {
+<a href="#h1-0-3" id="h1-0-3" class="d">-        ARPCorrelationResult CorrelateForNewlyInstalled(const Manifest::Manifest&amp;) override
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        ARPCorrelationResult CorrelateForNewlyInstalled(const Manifest::Manifest&amp;, const ARPCorrelationSettings&amp;) override
+</a>         {
+             return CorrelateForNewlyInstalledResult;
+         }
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/ARPCorrelation.cpp.html">src/AppInstallerRepositoryCore/ARPCorrelation.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/ARPCorrelation.cpp.html">src/AppInstallerRepositoryCore/ARPCorrelation.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -17,6 +17,7 @@ namespace AppInstaller::Repository::Correlation
+</a>     namespace
+     {
+         constexpr double MatchingThreshold = 0.5;
+<a href="#h2-0-3" id="h2-0-3" class="i">+        constexpr double MinimumDifferentiationThreshold = 0.05;
+</a> 
+         IARPMatchConfidenceAlgorithm&amp; InstanceInternal(std::optional&lt;IARPMatchConfidenceAlgorithm*&gt; algorithmOverride = {})
+         {
+<a href="#h2-1" id="h2-1" class="h">@@ -57,7 +58,7 @@ namespace AppInstaller::Repository::Correlation
+</a> #endif
+ 
+     // Find the best match using heuristics
+<a href="#h2-1-3" id="h2-1-3" class="d">-    std::shared_ptr&lt;IPackageVersion&gt; FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+    ARPHeuristicsCorrelationResult FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a>         const Manifest::Manifest&amp; manifest,
+         const std::vector&lt;ARPEntry&gt;&amp; arpEntries)
+     {
+<a href="#h2-2" id="h2-2" class="h">@@ -65,46 +66,52 @@ namespace AppInstaller::Repository::Correlation
+</a>         return FindARPEntryForNewlyInstalledPackageWithHeuristics(manifest, arpEntries, IARPMatchConfidenceAlgorithm::Instance());
+     }
+ 
+<a href="#h2-2-3" id="h2-2-3" class="d">-    std::shared_ptr&lt;IPackageVersion&gt; FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+    ARPHeuristicsCorrelationResult FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a>         const AppInstaller::Manifest::Manifest&amp; manifest,
+         const std::vector&lt;ARPEntry&gt;&amp; arpEntries,
+         IARPMatchConfidenceAlgorithm&amp; algorithm)
+     {
+<a href="#h2-2-9" id="h2-2-9" class="i">+        if (arpEntries.empty())
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+        {
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+            AICLI_LOG(Repo, Warning, &lt;&lt; &quot;Empty ARP entries given&quot;);
+</a><a href="#h2-2-12" id="h2-2-12" class="i">+            return {};
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+        }
+</a><a href="#h2-2-14" id="h2-2-14" class="i">+
+</a>         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Looking for best match in ARP for manifest &quot; &lt;&lt; manifest.Id);
+ 
+         algorithm.Init(manifest);
+ 
+<a href="#h2-2-19" id="h2-2-19" class="d">-        std::optional&lt;ARPEntry&gt; bestMatch;
+</a><a href="#h2-2-20" id="h2-2-20" class="d">-        double bestScore = 0;
+</a><a href="#h2-2-21" id="h2-2-21" class="i">+        ARPHeuristicsCorrelationResult result;
+</a><a href="#h2-2-22" id="h2-2-22" class="i">+        result.Measures.reserve(arpEntries.size());
+</a> 
+         for (const auto&amp; arpEntry : arpEntries)
+         {
+             auto score = algorithm.ComputeConfidence(arpEntry);
+             AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Match confidence for &quot; &lt;&lt; arpEntry.Entry-&gt;GetProperty(PackageProperty::Id) &lt;&lt; &quot;: &quot; &lt;&lt; score);
+ 
+<a href="#h2-2-29" id="h2-2-29" class="d">-            if (score &lt; MatchingThreshold)
+</a><a href="#h2-2-30" id="h2-2-30" class="d">-            {
+</a><a href="#h2-2-31" id="h2-2-31" class="d">-                AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Score is lower than threshold&quot;);
+</a><a href="#h2-2-32" id="h2-2-32" class="d">-                continue;
+</a><a href="#h2-2-33" id="h2-2-33" class="d">-            }
+</a><a href="#h2-2-34" id="h2-2-34" class="d">-
+</a><a href="#h2-2-35" id="h2-2-35" class="d">-            if (!bestMatch || bestScore &lt; score)
+</a><a href="#h2-2-36" id="h2-2-36" class="d">-            {
+</a><a href="#h2-2-37" id="h2-2-37" class="d">-                bestMatch = arpEntry;
+</a><a href="#h2-2-38" id="h2-2-38" class="d">-                bestScore = score;
+</a><a href="#h2-2-39" id="h2-2-39" class="d">-            }
+</a><a href="#h2-2-40" id="h2-2-40" class="i">+            result.Measures.emplace_back(CorrelationMeasure{ score, arpEntry.Entry-&gt;GetInstalledVersion() });
+</a>         }
+ 
+<a href="#h2-2-43" id="h2-2-43" class="d">-        if (bestMatch)
+</a><a href="#h2-2-44" id="h2-2-44" class="i">+        std::sort(result.Measures.begin(), result.Measures.end(), [](const CorrelationMeasure&amp; a, const CorrelationMeasure&amp; b) { return a.Measure &gt; b.Measure; });
+</a><a href="#h2-2-45" id="h2-2-45" class="i">+
+</a><a href="#h2-2-46" id="h2-2-46" class="i">+        if (result.Measures[0].Measure &lt; MatchingThreshold)
+</a>         {
+<a href="#h2-2-48" id="h2-2-48" class="d">-            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Best match is &quot; &lt;&lt; bestMatch-&gt;Entry-&gt;GetProperty(PackageProperty::Id));
+</a><a href="#h2-2-49" id="h2-2-49" class="i">+            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Maximum score [&quot; &lt;&lt; result.Measures[0].Measure &lt;&lt; &quot;] is lower than threshold [&quot; &lt;&lt; MatchingThreshold &lt;&lt; &quot;]&quot;);
+</a><a href="#h2-2-50" id="h2-2-50" class="i">+            result.Reason = &quot;maximum score below threshold&quot;;
+</a><a href="#h2-2-51" id="h2-2-51" class="i">+        }
+</a><a href="#h2-2-52" id="h2-2-52" class="i">+        else if (result.Measures.size() &gt;= 2 &amp;&amp; (result.Measures[0].Measure - result.Measures[1].Measure) &lt; MinimumDifferentiationThreshold)
+</a><a href="#h2-2-53" id="h2-2-53" class="i">+        {
+</a><a href="#h2-2-54" id="h2-2-54" class="i">+            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Top two scores, [&quot; &lt;&lt; result.Measures[0].Measure &lt;&lt; &quot;] and [&quot; &lt;&lt; result.Measures[1].Measure &lt;&lt; &quot;] are not significantly different [&quot; &lt;&lt; MinimumDifferentiationThreshold &lt;&lt; &quot;]&quot;);
+</a><a href="#h2-2-55" id="h2-2-55" class="i">+            result.Reason = &quot;top two scores are not significantly different&quot;;
+</a>         }
+         else
+         {
+<a href="#h2-2-59" id="h2-2-59" class="d">-            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;No ARP entry had a correlation score surpassing the required threshold&quot;);
+</a><a href="#h2-2-60" id="h2-2-60" class="i">+            AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Best match is &quot; &lt;&lt; result.Measures[0].Package-&gt;GetProperty(PackageVersionProperty::Id));
+</a><a href="#h2-2-61" id="h2-2-61" class="i">+            result.Package = result.Measures[0].Package;
+</a><a href="#h2-2-62" id="h2-2-62" class="i">+            result.Reason = &quot;heuristics match&quot;;
+</a>         }
+ 
+<a href="#h2-2-65" id="h2-2-65" class="d">-        return bestMatch ? bestMatch-&gt;Entry-&gt;GetInstalledVersion() : nullptr;
+</a><a href="#h2-2-66" id="h2-2-66" class="i">+        return result;
+</a>     }
+ 
+     void ARPCorrelationData::CapturePreInstallSnapshot()
+<a href="#h2-3" id="h2-3" class="h">@@ -146,19 +153,12 @@ namespace AppInstaller::Repository::Correlation
+</a>                     installed-&gt;GetProperty(PackageVersionProperty::Channel));
+ 
+                 auto itr = std::lower_bound(m_preInstallSnapshot.begin(), m_preInstallSnapshot.end(), entryKey);
+<a href="#h2-3-3" id="h2-3-3" class="d">-                if (itr == m_preInstallSnapshot.end() || *itr != entryKey)
+</a><a href="#h2-3-4" id="h2-3-4" class="d">-                {
+</a><a href="#h2-3-5" id="h2-3-5" class="d">-                    m_postInstallSnapshot.emplace_back(entry.Package, true);
+</a><a href="#h2-3-6" id="h2-3-6" class="d">-                }
+</a><a href="#h2-3-7" id="h2-3-7" class="d">-                else
+</a><a href="#h2-3-8" id="h2-3-8" class="d">-                {
+</a><a href="#h2-3-9" id="h2-3-9" class="d">-                    m_postInstallSnapshot.emplace_back(entry.Package, false);
+</a><a href="#h2-3-10" id="h2-3-10" class="d">-                }
+</a><a href="#h2-3-11" id="h2-3-11" class="i">+                m_postInstallSnapshot.emplace_back(entry.Package, itr == m_preInstallSnapshot.end() || *itr != entryKey);
+</a>             }
+         }
+     }
+ 
+<a href="#h2-3-16" id="h2-3-16" class="d">-    ARPCorrelationResult ARPCorrelationData::CorrelateForNewlyInstalled(const Manifest::Manifest&amp; manifest)
+</a><a href="#h2-3-17" id="h2-3-17" class="i">+    ARPCorrelationResult ARPCorrelationData::CorrelateForNewlyInstalled(const Manifest::Manifest&amp; manifest, const ARPCorrelationSettings&amp; settings)
+</a>     {
+         AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;Finding ARP entry matching newly installed package&quot;);
+ 
+<a href="#h2-4" id="h2-4" class="h">@@ -211,7 +211,7 @@ namespace AppInstaller::Repository::Correlation
+</a>                 }
+ 
+                 // Add each ProductCode and UpgradeCode only once;
+<a href="#h2-4-3" id="h2-4-3" class="d">-                if (!appsAndFeaturesEntry.ProductCode.empty() &amp;&amp; upgradeCodes.insert(appsAndFeaturesEntry.ProductCode).second)
+</a><a href="#h2-4-4" id="h2-4-4" class="i">+                if (!appsAndFeaturesEntry.ProductCode.empty() &amp;&amp; productCodes.insert(appsAndFeaturesEntry.ProductCode).second)
+</a>                 {
+                     manifestSearchRequest.Inclusions.emplace_back(PackageMatchFilter(PackageMatchField::ProductCode, MatchType::Exact, appsAndFeaturesEntry.ProductCode));
+                 }
+<a href="#h2-5" id="h2-5" class="h">@@ -264,14 +264,21 @@ namespace AppInstaller::Repository::Correlation
+</a>         result.CountOfIntersectionOfChangesAndMatches = packagesInBoth.size();
+ 
+         // If there is only a single common package (changed and matches), it is almost certainly the correct one.
+<a href="#h2-5-3" id="h2-5-3" class="d">-        if (packagesInBoth.size() == 1)
+</a><a href="#h2-5-4" id="h2-5-4" class="i">+        if (settings.AllowNormalization &amp;&amp; packagesInBoth.size() == 1)
+</a>         {
+             result.Package = packagesInBoth[0]-&gt;GetInstalledVersion();
+<a href="#h2-5-7" id="h2-5-7" class="i">+            result.Reason = &quot;normalization match and new/changed&quot;;
+</a>         }
+         // If it wasn&#39;t changed but we still find a match, that is the best thing to report.
+<a href="#h2-5-10" id="h2-5-10" class="d">-        else if (findByManifest.Matches.size() == 1)
+</a><a href="#h2-5-11" id="h2-5-11" class="i">+        else if (settings.AllowNormalization &amp;&amp; findByManifest.Matches.size() == 1)
+</a>         {
+             result.Package = findByManifest.Matches[0].Package-&gt;GetInstalledVersion();
+<a href="#h2-5-14" id="h2-5-14" class="i">+            result.Reason = &quot;normalization match (not new/changed)&quot;;
+</a><a href="#h2-5-15" id="h2-5-15" class="i">+        }
+</a><a href="#h2-5-16" id="h2-5-16" class="i">+        else if (settings.AllowSingleChange &amp;&amp; result.ChangesToARP == 1)
+</a><a href="#h2-5-17" id="h2-5-17" class="i">+        {
+</a><a href="#h2-5-18" id="h2-5-18" class="i">+            result.Package = std::find_if(m_postInstallSnapshot.begin(), m_postInstallSnapshot.end(), [](const ARPEntry&amp; e) { return e.IsNewOrUpdated; })-&gt;Entry-&gt;GetInstalledVersion();
+</a><a href="#h2-5-19" id="h2-5-19" class="i">+            result.Reason = &quot;only new/changed value&quot;;
+</a>         }
+         else
+         {
+<a href="#h2-6" id="h2-6" class="h">@@ -279,7 +286,7 @@ namespace AppInstaller::Repository::Correlation
+</a>             // to try and match the package with some ARP entry by assigning them scores.
+             AICLI_LOG(Repo, Verbose, &lt;&lt; &quot;No exact ARP match found. Trying to find one with heuristics&quot;);
+ 
+<a href="#h2-6-3" id="h2-6-3" class="d">-            result.Package = FindARPEntryForNewlyInstalledPackageWithHeuristics(manifest, m_postInstallSnapshot);
+</a><a href="#h2-6-4" id="h2-6-4" class="i">+            result = FindARPEntryForNewlyInstalledPackageWithHeuristics(manifest, m_postInstallSnapshot);
+</a>         }
+ 
+         return result;
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp.html">src/AppInstallerRepositoryCore/InstallerMetadataCollectionContext.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -65,9 +65,23 @@ namespace AppInstaller::Repository::Metadata
+</a>             utility::string_t Status = L&quot;status&quot;;
+             utility::string_t Metadata = L&quot;metadata&quot;;
+             utility::string_t Diagnostics = L&quot;diagnostics&quot;;
+<a href="#h3-0-3" id="h3-0-3" class="d">-
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        };
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        struct DiagnosticFields
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+        {
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+            // Eerror case
+</a>             utility::string_t ErrorHR = L&quot;errorHR&quot;;
+             utility::string_t ErrorText = L&quot;errorText&quot;;
+<a href="#h3-0-11" id="h3-0-11" class="i">+
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+            // Non-error case
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+            utility::string_t Reason = L&quot;reason&quot;;
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+            utility::string_t ChangedEntryCount = L&quot;changedEntryCount&quot;;
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+            utility::string_t MatchedEntryCount = L&quot;matchedEntryCount&quot;;
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+            utility::string_t IntersectionCount = L&quot;intersectionCount&quot;;
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+            utility::string_t CorrelationMeasures = L&quot;correlationMeasures&quot;;
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+            utility::string_t Value = L&quot;value&quot;;
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+            utility::string_t Name = L&quot;name&quot;;
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+            utility::string_t Publisher = L&quot;publisher&quot;;
+</a>         };
+ 
+         std::string GetRequiredString(const web::json::value&amp; value, const utility::string_t&amp; field)
+<a href="#h3-1" id="h3-1" class="h">@@ -736,7 +750,11 @@ namespace AppInstaller::Repository::Metadata
+</a>         // Copy the metadata from the current; this function takes care of moving data to historical if the submission is new.
+         m_outputMetadata.CopyFrom(m_currentMetadata, m_submissionIdentifier);
+ 
+<a href="#h3-1-3" id="h3-1-3" class="d">-        Correlation::ARPCorrelationResult correlationResult = m_correlationData-&gt;CorrelateForNewlyInstalled(m_incomingManifest);
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+        Correlation::ARPCorrelationSettings settings;
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+        // As this code is typically run in a controlled environment, we can assume that a single value change is very likely the correct value.
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+        settings.AllowSingleChange = true;
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+
+</a><a href="#h3-1-8" id="h3-1-8" class="i">+        Correlation::ARPCorrelationResult correlationResult = m_correlationData-&gt;CorrelateForNewlyInstalled(m_incomingManifest, settings);
+</a> 
+         if (correlationResult.Package)
+         {
+<a href="#h3-2" id="h3-2" class="h">@@ -814,9 +832,31 @@ namespace AppInstaller::Repository::Metadata
+</a>         else
+         {
+             m_outputStatus = OutputStatus::LowConfidence;
+<a href="#h3-2-3" id="h3-2-3" class="i">+        }
+</a> 
+<a href="#h3-2-5" id="h3-2-5" class="d">-            // TODO: Output diagnostics such as the top 10 entries by confidence.
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+        // Create the diagnostics data, based on the other values from the correlation result.
+</a><a href="#h3-2-7" id="h3-2-7" class="i">+        DiagnosticFields fields;
+</a><a href="#h3-2-8" id="h3-2-8" class="i">+
+</a><a href="#h3-2-9" id="h3-2-9" class="i">+        m_outputDiagnostics[fields.Reason] = AppInstaller::JSON::GetStringValue(correlationResult.Reason);
+</a><a href="#h3-2-10" id="h3-2-10" class="i">+        m_outputDiagnostics[fields.ChangedEntryCount] = web::json::value::number(static_cast&lt;int64_t&gt;(correlationResult.ChangesToARP));
+</a><a href="#h3-2-11" id="h3-2-11" class="i">+        m_outputDiagnostics[fields.MatchedEntryCount] = web::json::value::number(static_cast&lt;int64_t&gt;(correlationResult.MatchesInARP));
+</a><a href="#h3-2-12" id="h3-2-12" class="i">+        m_outputDiagnostics[fields.IntersectionCount] = web::json::value::number(static_cast&lt;int64_t&gt;(correlationResult.CountOfIntersectionOfChangesAndMatches));
+</a><a href="#h3-2-13" id="h3-2-13" class="i">+
+</a><a href="#h3-2-14" id="h3-2-14" class="i">+        constexpr size_t MaximumDiagnosticMeasures = 10;
+</a><a href="#h3-2-15" id="h3-2-15" class="i">+        web::json::value measuresArray = web::json::value::array();
+</a><a href="#h3-2-16" id="h3-2-16" class="i">+        for (size_t i = 0; i &lt; correlationResult.Measures.size() &amp;&amp; i &lt; MaximumDiagnosticMeasures; ++i)
+</a><a href="#h3-2-17" id="h3-2-17" class="i">+        {
+</a><a href="#h3-2-18" id="h3-2-18" class="i">+            web::json::value measureValue;
+</a><a href="#h3-2-19" id="h3-2-19" class="i">+            const auto&amp; measure = correlationResult.Measures[i];
+</a><a href="#h3-2-20" id="h3-2-20" class="i">+
+</a><a href="#h3-2-21" id="h3-2-21" class="i">+            measureValue[fields.Value] = web::json::value::number(measure.Measure);
+</a><a href="#h3-2-22" id="h3-2-22" class="i">+            measureValue[fields.Name] = AppInstaller::JSON::GetStringValue(measure.Package-&gt;GetProperty(PackageVersionProperty::Name));
+</a><a href="#h3-2-23" id="h3-2-23" class="i">+            measureValue[fields.Publisher] = AppInstaller::JSON::GetStringValue(measure.Package-&gt;GetProperty(PackageVersionProperty::Publisher));
+</a><a href="#h3-2-24" id="h3-2-24" class="i">+
+</a><a href="#h3-2-25" id="h3-2-25" class="i">+            measuresArray[i] = std::move(measureValue);
+</a>         }
+<a href="#h3-2-27" id="h3-2-27" class="i">+
+</a><a href="#h3-2-28" id="h3-2-28" class="i">+        m_outputDiagnostics[fields.CorrelationMeasures] = std::move(measuresArray);
+</a>     }
+ 
+     void InstallerMetadataCollectionContext::ParseInputJson_1_0(web::json::value&amp; input)
+<a href="#h3-3" id="h3-3" class="h">@@ -968,6 +1008,7 @@ namespace AppInstaller::Repository::Metadata
+</a>         AICLI_LOG(Repo, Info, &lt;&lt; &quot;Setting error JSON 1.0 fields&quot;);
+ 
+         OutputFields_1_0 fields;
+<a href="#h3-3-3" id="h3-3-3" class="i">+        DiagnosticFields diagnosticFields;
+</a> 
+         web::json::value result;
+ 
+<a href="#h3-4" id="h3-4" class="h">@@ -979,8 +1020,8 @@ namespace AppInstaller::Repository::Metadata
+</a> 
+         web::json::value error;
+ 
+<a href="#h3-4-3" id="h3-4-3" class="d">-        error[fields.ErrorHR] = web::json::value::number(static_cast&lt;int64_t&gt;(m_errorHR));
+</a><a href="#h3-4-4" id="h3-4-4" class="d">-        error[fields.ErrorText] = AppInstaller::JSON::GetStringValue(m_errorText);
+</a><a href="#h3-4-5" id="h3-4-5" class="i">+        error[diagnosticFields.ErrorHR] = web::json::value::number(static_cast&lt;int64_t&gt;(m_errorHR));
+</a><a href="#h3-4-6" id="h3-4-6" class="i">+        error[diagnosticFields.ErrorText] = AppInstaller::JSON::GetStringValue(m_errorText);
+</a> 
+         result[fields.Diagnostics] = std::move(error);
+ 
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h.html">src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h.html">src/AppInstallerRepositoryCore/Public/winget/ARPCorrelation.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -42,16 +42,65 @@ namespace AppInstaller::Repository::Correlation
+</a>         bool IsNewOrUpdated;
+     };
+ 
+<a href="#h4-0-3" id="h4-0-3" class="d">-    struct ARPCorrelationResult
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+    // One of the possible options that could be chosen for correlation.
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+    struct CorrelationMeasure
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+    {
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+        // The value that the correlation algorithm assigned to the match with the package.
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+        double Measure{};
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+        // The package that was measured.
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+        std::shared_ptr&lt;AppInstaller::Repository::IPackageVersion&gt; Package{};
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+    };
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+    // The result of a heuristics correlation attempt.
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+    struct ARPHeuristicsCorrelationResult
+</a>     {
+         // Correlated package from ARP
+         std::shared_ptr&lt;AppInstaller::Repository::IPackageVersion&gt; Package{};
+<a href="#h4-0-19" id="h4-0-19" class="i">+
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+        // The reason for the correlation (for diagnostics).
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+        std::string Reason;
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+        // The correlation metrics and their associated ARP package information (for diagnostics).
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+        std::vector&lt;CorrelationMeasure&gt; Measures;
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+    };
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+    // The result of a correlation attempt.
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+    struct ARPCorrelationResult : public ARPHeuristicsCorrelationResult
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+    {
+</a>         // Number of ARP entries that are new or updated
+         size_t ChangesToARP{};
+<a href="#h4-0-32" id="h4-0-32" class="i">+
+</a>         // Number of ARP entries that match with the installed package
+         size_t MatchesInARP{};
+<a href="#h4-0-35" id="h4-0-35" class="i">+
+</a>         // Number of changed ARP entries that match the installed package
+         size_t CountOfIntersectionOfChangesAndMatches{};
+<a href="#h4-0-38" id="h4-0-38" class="i">+
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+        ARPCorrelationResult&amp; operator=(ARPHeuristicsCorrelationResult&amp;&amp; other)
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+        {
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+            *static_cast&lt;ARPHeuristicsCorrelationResult*&gt;(this) = std::move(other);
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+            return *this;
+</a><a href="#h4-0-43" id="h4-0-43" class="i">+        }
+</a><a href="#h4-0-44" id="h4-0-44" class="i">+    };
+</a><a href="#h4-0-45" id="h4-0-45" class="i">+
+</a><a href="#h4-0-46" id="h4-0-46" class="i">+    // Allows callers finer control over how the correlation result will be chosen.
+</a><a href="#h4-0-47" id="h4-0-47" class="i">+    // The values appear in order of their application in the correlation algorithm, meaning that a later
+</a><a href="#h4-0-48" id="h4-0-48" class="i">+    // setting that is set to true can be pre-empted by an earlier setting, if a correlation occurs with the
+</a><a href="#h4-0-49" id="h4-0-49" class="i">+    // earlier setting.
+</a><a href="#h4-0-50" id="h4-0-50" class="i">+    // The default values are chosen to reflect what is used after an install on a consumer system.
+</a><a href="#h4-0-51" id="h4-0-51" class="i">+    struct ARPCorrelationSettings
+</a><a href="#h4-0-52" id="h4-0-52" class="i">+    {
+</a><a href="#h4-0-53" id="h4-0-53" class="i">+        // This setting controls whether the name and publisher normalization algorithm will be used for correlation.
+</a><a href="#h4-0-54" id="h4-0-54" class="i">+        // When true, normalization will be the first choice for correlation. This means that a normalized name+publisher
+</a><a href="#h4-0-55" id="h4-0-55" class="i">+        // match will result in correlation (unless there are multiple matches).
+</a><a href="#h4-0-56" id="h4-0-56" class="i">+        // When false, normalization will only be used for the statistics (MatchesInARP), but the correlation result package
+</a><a href="#h4-0-57" id="h4-0-57" class="i">+        // will not be based on normalization.
+</a><a href="#h4-0-58" id="h4-0-58" class="i">+        bool AllowNormalization = true;
+</a><a href="#h4-0-59" id="h4-0-59" class="i">+
+</a><a href="#h4-0-60" id="h4-0-60" class="i">+        // This settings controls whether a single changed ARP entry is sufficient to result in correlation.
+</a><a href="#h4-0-61" id="h4-0-61" class="i">+        // When true, if only a single ARP entry is detected as new or changed, it will be chosen as the correlated result.
+</a><a href="#h4-0-62" id="h4-0-62" class="i">+        bool AllowSingleChange = false;
+</a>     };
+ 
+     struct IARPMatchConfidenceAlgorithm
+<a href="#h4-1" id="h4-1" class="h">@@ -70,11 +119,11 @@ namespace AppInstaller::Repository::Correlation
+</a> #endif
+     };
+ 
+<a href="#h4-1-3" id="h4-1-3" class="d">-    std::shared_ptr&lt;AppInstaller::Repository::IPackageVersion&gt; FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a><a href="#h4-1-4" id="h4-1-4" class="i">+    ARPHeuristicsCorrelationResult FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a>         const AppInstaller::Manifest::Manifest&amp; manifest,
+         const std::vector&lt;ARPEntry&gt;&amp; arpEntries);
+ 
+<a href="#h4-1-8" id="h4-1-8" class="d">-    std::shared_ptr&lt;AppInstaller::Repository::IPackageVersion&gt; FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+    ARPHeuristicsCorrelationResult FindARPEntryForNewlyInstalledPackageWithHeuristics(
+</a>         const AppInstaller::Manifest::Manifest&amp; manifest,
+         const std::vector&lt;ARPEntry&gt;&amp; arpEntries,
+         IARPMatchConfidenceAlgorithm&amp; algorithm);
+<a href="#h4-2" id="h4-2" class="h">@@ -92,7 +141,7 @@ namespace AppInstaller::Repository::Correlation
+</a>         void CapturePostInstallSnapshot();
+ 
+         // Correlates the given manifest against the data previously collected with capture calls.
+<a href="#h4-2-3" id="h4-2-3" class="d">-        virtual ARPCorrelationResult CorrelateForNewlyInstalled(const Manifest::Manifest&amp; manifest);
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+        virtual ARPCorrelationResult CorrelateForNewlyInstalled(const Manifest::Manifest&amp; manifest, const ARPCorrelationSettings&amp; settings = {});
+</a> 
+         const std::vector&lt;ARPEntrySnapshot&gt;&amp; GetPreInstallSnapshot() const { return m_preInstallSnapshot; }
+ 
+<b>diff --git a/<a id="h5" href="../file/tools/CorrelationTestbed/InSandboxScript.ps1.html">tools/CorrelationTestbed/InSandboxScript.ps1</a> b/<a href="../file/tools/CorrelationTestbed/InSandboxScript.ps1.html">tools/CorrelationTestbed/InSandboxScript.ps1</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -4,7 +4,9 @@ Param(
+</a>   [String] $PackageIdentifier,
+   [String] $SourceName,
+   [String] $OutputPath,
+<a href="#h5-0-3" id="h5-0-3" class="d">-  [Switch] $UseDev
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+  [Switch] $UseDev,
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+  [Switch] $MetadataCollection,
+</a><a href="#h5-0-6" id="h5-0-6" class="i">+  [String] $System32Path
+</a> )
+ 
+ function Get-ARPTable {
+<a href="#h5-1" id="h5-1" class="h">@@ -81,6 +83,12 @@ if ($UseDev)
+</a>   $installAndCorrelationExpression = -join($installAndCorrelationExpression, &#39; -dev&#39;)
+ }
+ 
+<a href="#h5-1-3" id="h5-1-3" class="i">+if ($MetadataCollection)
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+{
+</a><a href="#h5-1-5" id="h5-1-5" class="i">+  $wingetUtilPath = Join-Path $PSScriptRoot &quot;WinGetUtil.dll&quot;
+</a><a href="#h5-1-6" id="h5-1-6" class="i">+  $installAndCorrelationExpression = -join($installAndCorrelationExpression, &#39; -meta &quot;&#39;, $wingetUtilPath, &#39;&quot; -sys32 &quot;&#39;, $System32Path,&#39;&quot;&#39;)
+</a><a href="#h5-1-7" id="h5-1-7" class="i">+}
+</a><a href="#h5-1-8" id="h5-1-8" class="i">+
+</a> Invoke-Expression $installAndCorrelationExpression
+ 
+ Write-Host @&quot;
+<b>diff --git a/<a id="h6" href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a> b/<a href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.cpp</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -13,6 +13,9 @@
+</a> #include &lt;iostream&gt;
+ #include &lt;filesystem&gt;
+ #include &lt;fstream&gt;
+<a href="#h6-0-3" id="h6-0-3" class="i">+#include &lt;sstream&gt;
+</a><a href="#h6-0-4" id="h6-0-4" class="i">+
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+#include &lt;WinGetUtil.h&gt;
+</a> 
+ using namespace std::string_view_literals;
+ using namespace winrt::Microsoft::Management::Deployment;
+<a href="#h6-1" id="h6-1" class="h">@@ -31,33 +34,46 @@ struct JSONPair
+</a> };
+ 
+ template &lt;typename T&gt;
+<a href="#h6-1-3" id="h6-1-3" class="d">-struct JSONQuote
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+struct JSONControl
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+{
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+    constexpr static bool quote = true;
+</a><a href="#h6-1-7" id="h6-1-7" class="i">+    constexpr static bool output = true;
+</a><a href="#h6-1-8" id="h6-1-8" class="i">+};
+</a><a href="#h6-1-9" id="h6-1-9" class="i">+
+</a><a href="#h6-1-10" id="h6-1-10" class="i">+template &lt;&gt;
+</a><a href="#h6-1-11" id="h6-1-11" class="i">+struct JSONControl&lt;HRESULT&gt;
+</a> {
+<a href="#h6-1-13" id="h6-1-13" class="d">-    constexpr static bool value = true;
+</a><a href="#h6-1-14" id="h6-1-14" class="i">+    constexpr static bool quote = false;
+</a><a href="#h6-1-15" id="h6-1-15" class="i">+    constexpr static bool output = true;
+</a> };
+ 
+ template &lt;&gt;
+<a href="#h6-1-19" id="h6-1-19" class="d">-struct JSONQuote&lt;HRESULT&gt;
+</a><a href="#h6-1-20" id="h6-1-20" class="i">+struct JSONControl&lt;bool&gt;
+</a> {
+<a href="#h6-1-22" id="h6-1-22" class="d">-    constexpr static bool value = false;
+</a><a href="#h6-1-23" id="h6-1-23" class="i">+    constexpr static bool quote = false;
+</a><a href="#h6-1-24" id="h6-1-24" class="i">+    constexpr static bool output = true;
+</a> };
+ 
+ template &lt;&gt;
+<a href="#h6-1-28" id="h6-1-28" class="d">-struct JSONQuote&lt;bool&gt;
+</a><a href="#h6-1-29" id="h6-1-29" class="i">+struct JSONControl&lt;nullptr_t&gt;
+</a> {
+<a href="#h6-1-31" id="h6-1-31" class="d">-    constexpr static bool value = false;
+</a><a href="#h6-1-32" id="h6-1-32" class="i">+    constexpr static bool quote = false;
+</a><a href="#h6-1-33" id="h6-1-33" class="i">+    constexpr static bool output = false;
+</a> };
+ 
+ template &lt;typename T&gt;
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const JSONPair&lt;T&gt;&amp; pair)
+ {
+     out &lt;&lt; &#39;&quot;&#39; &lt;&lt; pair.Name &lt;&lt; &quot;\&quot;: &quot;;
+<a href="#h6-1-40" id="h6-1-40" class="d">-    if (JSONQuote&lt;T&gt;::value)
+</a><a href="#h6-1-41" id="h6-1-41" class="i">+    if (JSONControl&lt;T&gt;::quote)
+</a>     {
+         out &lt;&lt; &#39;&quot;&#39;;
+     }
+<a href="#h6-1-45" id="h6-1-45" class="d">-    out &lt;&lt; pair.Value;
+</a><a href="#h6-1-46" id="h6-1-46" class="d">-    if (JSONQuote&lt;T&gt;::value)
+</a><a href="#h6-1-47" id="h6-1-47" class="i">+    if (JSONControl&lt;T&gt;::output)
+</a><a href="#h6-1-48" id="h6-1-48" class="i">+    {
+</a><a href="#h6-1-49" id="h6-1-49" class="i">+        out &lt;&lt; pair.Value;
+</a><a href="#h6-1-50" id="h6-1-50" class="i">+    }
+</a><a href="#h6-1-51" id="h6-1-51" class="i">+    if (JSONControl&lt;T&gt;::quote)
+</a>     {
+         out &lt;&lt; &#39;&quot;&#39;;
+     }
+<a href="#h6-2" id="h6-2" class="h">@@ -128,6 +144,9 @@ struct Main
+</a>     std::string packageIdentifier;
+     std::string sourceName;
+     std::filesystem::path outputPath;
+<a href="#h6-2-3" id="h6-2-3" class="i">+    bool metadataCollection = false;
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+    std::filesystem::path wingetUtilPath;
+</a><a href="#h6-2-5" id="h6-2-5" class="i">+    std::filesystem::path sys32Path;
+</a>     bool useDevCLSIDs = false;
+     bool onlyCorrelate = false;
+ 
+<a href="#h6-3" id="h6-3" class="h">@@ -154,6 +173,15 @@ struct Main
+</a>             {
+                 outputPath = argv[++i];
+             }
+<a href="#h6-3-3" id="h6-3-3" class="i">+            else if (&quot;-meta&quot;sv == argv[i] &amp;&amp; i + 1 &lt; argc)
+</a><a href="#h6-3-4" id="h6-3-4" class="i">+            {
+</a><a href="#h6-3-5" id="h6-3-5" class="i">+                metadataCollection = true;
+</a><a href="#h6-3-6" id="h6-3-6" class="i">+                wingetUtilPath = argv[++i];
+</a><a href="#h6-3-7" id="h6-3-7" class="i">+            }
+</a><a href="#h6-3-8" id="h6-3-8" class="i">+            else if (&quot;-sys32&quot;sv == argv[i] &amp;&amp; i + 1 &lt; argc)
+</a><a href="#h6-3-9" id="h6-3-9" class="i">+            {
+</a><a href="#h6-3-10" id="h6-3-10" class="i">+                sys32Path = argv[++i];
+</a><a href="#h6-3-11" id="h6-3-11" class="i">+            }
+</a>             else if (&quot;-dev&quot;sv == argv[i])
+             {
+                 useDevCLSIDs = true;
+<a href="#h6-4" id="h6-4" class="h">@@ -266,6 +294,99 @@ struct Main
+</a>             error = &quot;A source name must be supplied, use -src&quot;;
+             return;
+         }
+<a href="#h6-4-3" id="h6-4-3" class="i">+
+</a><a href="#h6-4-4" id="h6-4-4" class="i">+        if (metadataCollection &amp;&amp; sys32Path.empty())
+</a><a href="#h6-4-5" id="h6-4-5" class="i">+        {
+</a><a href="#h6-4-6" id="h6-4-6" class="i">+            hr = E_INVALIDARG;
+</a><a href="#h6-4-7" id="h6-4-7" class="i">+            error = &quot;Metadata collection requires mapping in the host&#39;s System32&quot;;
+</a><a href="#h6-4-8" id="h6-4-8" class="i">+            return;
+</a><a href="#h6-4-9" id="h6-4-9" class="i">+        }
+</a><a href="#h6-4-10" id="h6-4-10" class="i">+    }
+</a><a href="#h6-4-11" id="h6-4-11" class="i">+
+</a><a href="#h6-4-12" id="h6-4-12" class="i">+    using WinGetBeginInstallerMetadataCollectionPtr = HRESULT (__stdcall *)(
+</a><a href="#h6-4-13" id="h6-4-13" class="i">+        WINGET_STRING inputJSON,
+</a><a href="#h6-4-14" id="h6-4-14" class="i">+        WINGET_STRING logFilePath,
+</a><a href="#h6-4-15" id="h6-4-15" class="i">+        WinGetBeginInstallerMetadataCollectionOptions options,
+</a><a href="#h6-4-16" id="h6-4-16" class="i">+        WINGET_INSTALLER_METADATA_COLLECTION_HANDLE* collectionHandle);
+</a><a href="#h6-4-17" id="h6-4-17" class="i">+
+</a><a href="#h6-4-18" id="h6-4-18" class="i">+    using WinGetCompleteInstallerMetadataCollectionPtr = HRESULT(__stdcall*)(
+</a><a href="#h6-4-19" id="h6-4-19" class="i">+        WINGET_INSTALLER_METADATA_COLLECTION_HANDLE collectionHandle,
+</a><a href="#h6-4-20" id="h6-4-20" class="i">+        WINGET_STRING outputFilePath,
+</a><a href="#h6-4-21" id="h6-4-21" class="i">+        WinGetCompleteInstallerMetadataCollectionOptions options);
+</a><a href="#h6-4-22" id="h6-4-22" class="i">+
+</a><a href="#h6-4-23" id="h6-4-23" class="i">+    WinGetBeginInstallerMetadataCollectionPtr WinGetBeginInstallerMetadataCollection = nullptr;
+</a><a href="#h6-4-24" id="h6-4-24" class="i">+    WinGetCompleteInstallerMetadataCollectionPtr WinGetCompleteInstallerMetadataCollection = nullptr;
+</a><a href="#h6-4-25" id="h6-4-25" class="i">+    WINGET_INSTALLER_METADATA_COLLECTION_HANDLE MetadataCollectionHandle = nullptr;
+</a><a href="#h6-4-26" id="h6-4-26" class="i">+
+</a><a href="#h6-4-27" id="h6-4-27" class="i">+    void LoadWingetUtil()
+</a><a href="#h6-4-28" id="h6-4-28" class="i">+    {
+</a><a href="#h6-4-29" id="h6-4-29" class="i">+        AddDllDirectory(sys32Path.wstring().c_str());
+</a><a href="#h6-4-30" id="h6-4-30" class="i">+        HMODULE wingetutilModule = LoadLibraryExW(wingetUtilPath.wstring().c_str(), nullptr, LOAD_LIBRARY_SEARCH_USER_DIRS);
+</a><a href="#h6-4-31" id="h6-4-31" class="i">+        if (!wingetutilModule)
+</a><a href="#h6-4-32" id="h6-4-32" class="i">+        {
+</a><a href="#h6-4-33" id="h6-4-33" class="i">+            hr = HRESULT_FROM_WIN32(GetLastError());
+</a><a href="#h6-4-34" id="h6-4-34" class="i">+            return;
+</a><a href="#h6-4-35" id="h6-4-35" class="i">+        }
+</a><a href="#h6-4-36" id="h6-4-36" class="i">+
+</a><a href="#h6-4-37" id="h6-4-37" class="i">+        this-&gt;WinGetBeginInstallerMetadataCollection = reinterpret_cast&lt;WinGetBeginInstallerMetadataCollectionPtr&gt;(GetProcAddress(wingetutilModule, &quot;WinGetBeginInstallerMetadataCollection&quot;));
+</a><a href="#h6-4-38" id="h6-4-38" class="i">+        if (!this-&gt;WinGetBeginInstallerMetadataCollection)
+</a><a href="#h6-4-39" id="h6-4-39" class="i">+        {
+</a><a href="#h6-4-40" id="h6-4-40" class="i">+            hr = HRESULT_FROM_WIN32(GetLastError());
+</a><a href="#h6-4-41" id="h6-4-41" class="i">+            return;
+</a><a href="#h6-4-42" id="h6-4-42" class="i">+        }
+</a><a href="#h6-4-43" id="h6-4-43" class="i">+
+</a><a href="#h6-4-44" id="h6-4-44" class="i">+        this-&gt;WinGetCompleteInstallerMetadataCollection = reinterpret_cast&lt;WinGetCompleteInstallerMetadataCollectionPtr&gt;(GetProcAddress(wingetutilModule, &quot;WinGetCompleteInstallerMetadataCollection&quot;));
+</a><a href="#h6-4-45" id="h6-4-45" class="i">+        if (!this-&gt;WinGetCompleteInstallerMetadataCollection)
+</a><a href="#h6-4-46" id="h6-4-46" class="i">+        {
+</a><a href="#h6-4-47" id="h6-4-47" class="i">+            hr = HRESULT_FROM_WIN32(GetLastError());
+</a><a href="#h6-4-48" id="h6-4-48" class="i">+            return;
+</a><a href="#h6-4-49" id="h6-4-49" class="i">+        }
+</a><a href="#h6-4-50" id="h6-4-50" class="i">+    }
+</a><a href="#h6-4-51" id="h6-4-51" class="i">+
+</a><a href="#h6-4-52" id="h6-4-52" class="i">+    void BeginMetadataCollection()
+</a><a href="#h6-4-53" id="h6-4-53" class="i">+    {
+</a><a href="#h6-4-54" id="h6-4-54" class="i">+        std::filesystem::path metadataInputPath = outputPath.parent_path();
+</a><a href="#h6-4-55" id="h6-4-55" class="i">+        metadataInputPath /= &quot;metadata_input.json&quot;;
+</a><a href="#h6-4-56" id="h6-4-56" class="i">+        std::ofstream stream{ metadataInputPath };
+</a><a href="#h6-4-57" id="h6-4-57" class="i">+
+</a><a href="#h6-4-58" id="h6-4-58" class="i">+        stream &lt;&lt; &quot;{&quot; &lt;&lt; std::endl;
+</a><a href="#h6-4-59" id="h6-4-59" class="i">+        stream &lt;&lt; JSONPair{ &quot;supportedMetadataVersion&quot;, &quot;1.1&quot;};
+</a><a href="#h6-4-60" id="h6-4-60" class="i">+        // TODO: Could theoretically produce this if we could enumerate the data via COM
+</a><a href="#h6-4-61" id="h6-4-61" class="i">+        // stream &lt;&lt; JSONPair{ &quot;currentMetadata&quot;, &quot;&quot; };
+</a><a href="#h6-4-62" id="h6-4-62" class="i">+        stream &lt;&lt; JSONPair{ &quot;submissionData&quot;, nullptr, false } &lt;&lt; &quot;\n{\n&quot;;
+</a><a href="#h6-4-63" id="h6-4-63" class="i">+        stream &lt;&lt; JSONPair{ &quot;submissionIdentifier&quot;, packageIdentifier, false };
+</a><a href="#h6-4-64" id="h6-4-64" class="i">+        stream &lt;&lt; &quot;\n},\n&quot;;
+</a><a href="#h6-4-65" id="h6-4-65" class="i">+        stream &lt;&lt; JSONPair{ &quot;packageData&quot;, nullptr, false } &lt;&lt; &quot;\n{\n&quot;;
+</a><a href="#h6-4-66" id="h6-4-66" class="i">+        stream &lt;&lt; JSONPair{ &quot;installerHash&quot;, &quot;none&quot; };
+</a><a href="#h6-4-67" id="h6-4-67" class="i">+            stream &lt;&lt; JSONPair{ &quot;DefaultLocale&quot;, nullptr, false } &lt;&lt; &quot;\n{\n&quot;;
+</a><a href="#h6-4-68" id="h6-4-68" class="i">+            stream &lt;&lt; JSONPair{ &quot;PackageLocale&quot;, &quot;x-neutral&quot; };
+</a><a href="#h6-4-69" id="h6-4-69" class="i">+            stream &lt;&lt; JSONPair{ &quot;PackageName&quot;, packageName };
+</a><a href="#h6-4-70" id="h6-4-70" class="i">+            stream &lt;&lt; JSONPair{ &quot;Publisher&quot;, packagePublisher, false };
+</a><a href="#h6-4-71" id="h6-4-71" class="i">+            stream &lt;&lt; &quot;\n}\n&quot;;
+</a><a href="#h6-4-72" id="h6-4-72" class="i">+        stream &lt;&lt; &quot;\n},\n&quot;;
+</a><a href="#h6-4-73" id="h6-4-73" class="i">+        // Keep at the end to prevent a dangling comma
+</a><a href="#h6-4-74" id="h6-4-74" class="i">+        stream &lt;&lt; JSONPair{ &quot;version&quot;, &quot;1.0&quot;, false } &lt;&lt; &quot;}&quot; &lt;&lt; std::endl;
+</a><a href="#h6-4-75" id="h6-4-75" class="i">+
+</a><a href="#h6-4-76" id="h6-4-76" class="i">+        std::filesystem::path metadataLogPath = outputPath.parent_path();
+</a><a href="#h6-4-77" id="h6-4-77" class="i">+        metadataLogPath /= &quot;metadata_log.txt&quot;;
+</a><a href="#h6-4-78" id="h6-4-78" class="i">+
+</a><a href="#h6-4-79" id="h6-4-79" class="i">+        hr = this-&gt;WinGetBeginInstallerMetadataCollection(metadataInputPath.wstring().c_str(), metadataLogPath.wstring().c_str(), WinGetBeginInstallerMetadataCollectionOption_InputIsFilePath, &amp;MetadataCollectionHandle);
+</a><a href="#h6-4-80" id="h6-4-80" class="i">+        if (FAILED(hr))
+</a><a href="#h6-4-81" id="h6-4-81" class="i">+        {
+</a><a href="#h6-4-82" id="h6-4-82" class="i">+            return;
+</a><a href="#h6-4-83" id="h6-4-83" class="i">+        }
+</a><a href="#h6-4-84" id="h6-4-84" class="i">+    }
+</a><a href="#h6-4-85" id="h6-4-85" class="i">+
+</a><a href="#h6-4-86" id="h6-4-86" class="i">+    void CompleteMetadataCollection()
+</a><a href="#h6-4-87" id="h6-4-87" class="i">+    {
+</a><a href="#h6-4-88" id="h6-4-88" class="i">+        std::filesystem::path metadataOutputPath = outputPath.parent_path();
+</a><a href="#h6-4-89" id="h6-4-89" class="i">+        metadataOutputPath /= &quot;metadata_output.json&quot;;
+</a><a href="#h6-4-90" id="h6-4-90" class="i">+
+</a><a href="#h6-4-91" id="h6-4-91" class="i">+        hr = this-&gt;WinGetCompleteInstallerMetadataCollection(MetadataCollectionHandle, metadataOutputPath.wstring().c_str(), WinGetCompleteInstallerMetadataCollectionOption_None);
+</a><a href="#h6-4-92" id="h6-4-92" class="i">+        if (FAILED(hr))
+</a><a href="#h6-4-93" id="h6-4-93" class="i">+        {
+</a><a href="#h6-4-94" id="h6-4-94" class="i">+            return;
+</a><a href="#h6-4-95" id="h6-4-95" class="i">+        }
+</a>     }
+ 
+     void Install()
+<a href="#h6-5" id="h6-5" class="h">@@ -306,7 +427,9 @@ struct Main
+</a>             if (findResult.Status() != FindPackagesResultStatus::Ok)
+             {
+                 hr = E_FAIL;
+<a href="#h6-5-3" id="h6-5-3" class="d">-                error = &quot;Error finding packages&quot;;
+</a><a href="#h6-5-4" id="h6-5-4" class="i">+                std::ostringstream stream;
+</a><a href="#h6-5-5" id="h6-5-5" class="i">+                stream &lt;&lt; &quot;Error &quot; &lt;&lt; static_cast&lt;int&gt;(findResult.Status()) &lt;&lt; &quot; finding package&quot;;
+</a><a href="#h6-5-6" id="h6-5-6" class="i">+                error = std::move(stream).str();
+</a>                 return;
+             }
+ 
+<a href="#h6-6" id="h6-6" class="h">@@ -325,10 +448,15 @@ struct Main
+</a>             action = &quot;Inspect package&quot;;
+             auto installVersion = package.DefaultInstallVersion();
+             packageName = ConvertToUTF8(installVersion.DisplayName());
+<a href="#h6-6-3" id="h6-6-3" class="d">-            if (useDevCLSIDs)
+</a><a href="#h6-6-4" id="h6-6-4" class="i">+            packagePublisher = ConvertToUTF8(installVersion.Publisher());
+</a><a href="#h6-6-5" id="h6-6-5" class="i">+
+</a><a href="#h6-6-6" id="h6-6-6" class="i">+            if (metadataCollection)
+</a>             {
+<a href="#h6-6-8" id="h6-6-8" class="d">-                // Publisher is not yet available on the release version; make this unconditional when it is
+</a><a href="#h6-6-9" id="h6-6-9" class="d">-                packagePublisher = ConvertToUTF8(installVersion.Publisher());
+</a><a href="#h6-6-10" id="h6-6-10" class="i">+                BeginMetadataCollection();
+</a><a href="#h6-6-11" id="h6-6-11" class="i">+                if (FAILED(hr))
+</a><a href="#h6-6-12" id="h6-6-12" class="i">+                {
+</a><a href="#h6-6-13" id="h6-6-13" class="i">+                    return;
+</a><a href="#h6-6-14" id="h6-6-14" class="i">+                }
+</a>             }
+ 
+             if (!onlyCorrelate)
+<a href="#h6-7" id="h6-7" class="h">@@ -340,6 +468,7 @@ struct Main
+</a>                 installOptions.PackageInstallMode(PackageInstallMode::Silent);
+ 
+                 std::cout &lt;&lt; &quot;Beginning to install &quot; &lt;&lt; packageIdentifier &lt;&lt; &quot; (&quot; &lt;&lt; packageName &lt;&lt; &quot;) from &quot; &lt;&lt; sourceName &lt;&lt; &quot;...&quot; &lt;&lt; std::endl;
+<a href="#h6-7-3" id="h6-7-3" class="i">+                action = &quot;Install package&quot;;
+</a>                 auto installOperation = packageManager.InstallPackageAsync(package, installOptions);
+ 
+                 if (installOperation.wait_for(std::chrono::minutes(10)) != AsyncStatus::Completed)
+<a href="#h6-8" id="h6-8" class="h">@@ -357,6 +486,15 @@ struct Main
+</a>                     return;
+                 }
+             }
+<a href="#h6-8-3" id="h6-8-3" class="i">+
+</a><a href="#h6-8-4" id="h6-8-4" class="i">+            if (metadataCollection)
+</a><a href="#h6-8-5" id="h6-8-5" class="i">+            {
+</a><a href="#h6-8-6" id="h6-8-6" class="i">+                CompleteMetadataCollection();
+</a><a href="#h6-8-7" id="h6-8-7" class="i">+                if (FAILED(hr))
+</a><a href="#h6-8-8" id="h6-8-8" class="i">+                {
+</a><a href="#h6-8-9" id="h6-8-9" class="i">+                    return;
+</a><a href="#h6-8-10" id="h6-8-10" class="i">+                }
+</a><a href="#h6-8-11" id="h6-8-11" class="i">+            }
+</a>         }
+         catch (const winrt::hresult_error&amp; hre)
+         {
+<a href="#h6-9" id="h6-9" class="h">@@ -435,11 +573,7 @@ struct Main
+</a>             {
+                 correlatePackageKnown = true;
+                 packageKnownName = ConvertToUTF8(installed.DisplayName());
+<a href="#h6-9-3" id="h6-9-3" class="d">-                if (useDevCLSIDs)
+</a><a href="#h6-9-4" id="h6-9-4" class="d">-                {
+</a><a href="#h6-9-5" id="h6-9-5" class="d">-                    // Publisher is not yet available on the release version; make this unconditional when it is
+</a><a href="#h6-9-6" id="h6-9-6" class="d">-                    packageKnownPublisher = ConvertToUTF8(installed.Publisher());
+</a><a href="#h6-9-7" id="h6-9-7" class="d">-                }
+</a><a href="#h6-9-8" id="h6-9-8" class="i">+                packageKnownPublisher = ConvertToUTF8(installed.Publisher());
+</a>             }
+         }
+         catch (const winrt::hresult_error&amp; hre)
+<a href="#h6-10" id="h6-10" class="h">@@ -520,11 +654,7 @@ struct Main
+</a>                     {
+                         correlateArchive = true;
+                         archiveName = ConvertToUTF8(installed.DisplayName());
+<a href="#h6-10-3" id="h6-10-3" class="d">-                        if (useDevCLSIDs)
+</a><a href="#h6-10-4" id="h6-10-4" class="d">-                        {
+</a><a href="#h6-10-5" id="h6-10-5" class="d">-                            // Publisher is not yet available on the release version; make this unconditional when it is
+</a><a href="#h6-10-6" id="h6-10-6" class="d">-                            archivePublisher = ConvertToUTF8(installed.Publisher());
+</a><a href="#h6-10-7" id="h6-10-7" class="d">-                        }
+</a><a href="#h6-10-8" id="h6-10-8" class="i">+                        archivePublisher = ConvertToUTF8(installed.Publisher());
+</a>                         break;
+                     }
+                 }
+<a href="#h6-11" id="h6-11" class="h">@@ -575,6 +705,15 @@ struct Main
+</a>             return;
+         }
+ 
+<a href="#h6-11-3" id="h6-11-3" class="i">+        if (metadataCollection)
+</a><a href="#h6-11-4" id="h6-11-4" class="i">+        {
+</a><a href="#h6-11-5" id="h6-11-5" class="i">+            LoadWingetUtil();
+</a><a href="#h6-11-6" id="h6-11-6" class="i">+            if (FAILED(hr))
+</a><a href="#h6-11-7" id="h6-11-7" class="i">+            {
+</a><a href="#h6-11-8" id="h6-11-8" class="i">+                return;
+</a><a href="#h6-11-9" id="h6-11-9" class="i">+            }
+</a><a href="#h6-11-10" id="h6-11-10" class="i">+        }
+</a><a href="#h6-11-11" id="h6-11-11" class="i">+
+</a>         auto co_uninitialize = wil::CoInitializeEx();
+ 
+         // Execute the install step
+<b>diff --git a/<a id="h7" href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.vcxproj.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.vcxproj</a> b/<a href="../file/tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.vcxproj.html">tools/CorrelationTestbed/InstallAndCheckCorrelation/InstallAndCheckCorrelation/InstallAndCheckCorrelation.vcxproj</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -90,6 +90,7 @@
+</a>       &lt;PreprocessorDefinitions&gt;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)&lt;/PreprocessorDefinitions&gt;
+       &lt;ConformanceMode&gt;true&lt;/ConformanceMode&gt;
+       &lt;LanguageStandard&gt;stdcpp17&lt;/LanguageStandard&gt;
+<a href="#h7-0-3" id="h7-0-3" class="i">+      &lt;AdditionalIncludeDirectories&gt;$(SolutionDir)..\..\..\src\WinGetUtil;%(AdditionalIncludeDirectories)&lt;/AdditionalIncludeDirectories&gt;
+</a>     &lt;/ClCompile&gt;
+     &lt;Link&gt;
+       &lt;SubSystem&gt;Console&lt;/SubSystem&gt;
+<a href="#h7-1" id="h7-1" class="h">@@ -105,6 +106,7 @@
+</a>       &lt;PreprocessorDefinitions&gt;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)&lt;/PreprocessorDefinitions&gt;
+       &lt;ConformanceMode&gt;true&lt;/ConformanceMode&gt;
+       &lt;LanguageStandard&gt;stdcpp17&lt;/LanguageStandard&gt;
+<a href="#h7-1-3" id="h7-1-3" class="i">+      &lt;AdditionalIncludeDirectories&gt;$(SolutionDir)..\..\..\src\WinGetUtil;%(AdditionalIncludeDirectories)&lt;/AdditionalIncludeDirectories&gt;
+</a>     &lt;/ClCompile&gt;
+     &lt;Link&gt;
+       &lt;SubSystem&gt;Console&lt;/SubSystem&gt;
+<a href="#h7-2" id="h7-2" class="h">@@ -120,6 +122,7 @@
+</a>       &lt;PreprocessorDefinitions&gt;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)&lt;/PreprocessorDefinitions&gt;
+       &lt;ConformanceMode&gt;true&lt;/ConformanceMode&gt;
+       &lt;LanguageStandard&gt;stdcpp17&lt;/LanguageStandard&gt;
+<a href="#h7-2-3" id="h7-2-3" class="i">+      &lt;AdditionalIncludeDirectories&gt;$(SolutionDir)..\..\..\src\WinGetUtil;%(AdditionalIncludeDirectories)&lt;/AdditionalIncludeDirectories&gt;
+</a>     &lt;/ClCompile&gt;
+     &lt;Link&gt;
+       &lt;SubSystem&gt;Console&lt;/SubSystem&gt;
+<a href="#h7-3" id="h7-3" class="h">@@ -136,6 +139,7 @@
+</a>       &lt;ConformanceMode&gt;true&lt;/ConformanceMode&gt;
+       &lt;LanguageStandard&gt;stdcpp17&lt;/LanguageStandard&gt;
+       &lt;RuntimeLibrary&gt;MultiThreaded&lt;/RuntimeLibrary&gt;
+<a href="#h7-3-3" id="h7-3-3" class="i">+      &lt;AdditionalIncludeDirectories&gt;$(SolutionDir)..\..\..\src\WinGetUtil;%(AdditionalIncludeDirectories)&lt;/AdditionalIncludeDirectories&gt;
+</a>     &lt;/ClCompile&gt;
+     &lt;Link&gt;
+       &lt;SubSystem&gt;Console&lt;/SubSystem&gt;
+<b>diff --git a/<a id="h8" href="../file/tools/CorrelationTestbed/Process-CorrelationResults.ps1.html">tools/CorrelationTestbed/Process-CorrelationResults.ps1</a> b/<a href="../file/tools/CorrelationTestbed/Process-CorrelationResults.ps1.html">tools/CorrelationTestbed/Process-CorrelationResults.ps1</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -24,6 +24,8 @@ $stats = @{
+</a>     Failed = 0
+     CorrelatePackageKnown = 0
+     CorrelateArchive = 0
+<a href="#h8-0-3" id="h8-0-3" class="i">+    CorrelateMetadata = 0
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+    CorrelationDisagreement = 0
+</a> }
+ 
+ # Aggregate results in a single CSV file
+<a href="#h8-1" id="h8-1" class="h">@@ -44,17 +46,35 @@ foreach ($result in (Get-ChildItem $ResultsPath -Directory))
+</a>         continue
+     }
+ 
+<a href="#h8-1-3" id="h8-1-3" class="i">+    $metadataJSON = Join-Path $result.FullName &quot;metadata_output.json&quot;
+</a><a href="#h8-1-4" id="h8-1-4" class="i">+    if (Test-Path $metadataJSON)
+</a><a href="#h8-1-5" id="h8-1-5" class="i">+    {
+</a><a href="#h8-1-6" id="h8-1-6" class="i">+        $metadataObj = (Get-Content -Path $metadataJSON -Encoding utf8 | ConvertFrom-Json)
+</a><a href="#h8-1-7" id="h8-1-7" class="i">+    }
+</a><a href="#h8-1-8" id="h8-1-8" class="i">+
+</a>     if ($resultObj.HRESULT -eq 0)
+     {
+         $stats.Completed++
+         $stats.CorrelateArchive += $resultObj.CorrelateArchive
+         $stats.CorrelatePackageKnown += $resultObj.CorrelatePackageKnown
+<a href="#h8-1-14" id="h8-1-14" class="d">-        Export-Csv -InputObject ($resultObj | Select-Object -Property * -ExcludeProperty @(&quot;Error&quot;, &quot;Phase&quot;, &quot;Action&quot;, &quot;HRESULT&quot;) ) -Path $resultFile -Append
+</a><a href="#h8-1-15" id="h8-1-15" class="i">+        if ($metadataObj -and $metadataObj.status -eq &quot;Success&quot;)
+</a><a href="#h8-1-16" id="h8-1-16" class="i">+        {
+</a><a href="#h8-1-17" id="h8-1-17" class="i">+            $stats.CorrelateMetadata += 1
+</a><a href="#h8-1-18" id="h8-1-18" class="i">+            Add-Member -InputObject $resultObj -MemberType NoteProperty -Name &quot;CorrelateMetadata&quot; -Value 1 -Force
+</a><a href="#h8-1-19" id="h8-1-19" class="i">+            Add-Member -InputObject $resultObj -MemberType NoteProperty -Name &quot;MetadataName&quot; -Value $metadataObj.metadata[0].metadata[0].AppsAndFeaturesEntries[0].DisplayName -Force
+</a><a href="#h8-1-20" id="h8-1-20" class="i">+            Add-Member -InputObject $resultObj -MemberType NoteProperty -Name &quot;MetadataPublisher&quot; -Value $metadataObj.metadata[0].metadata[0].AppsAndFeaturesEntries[0].Publisher -Force
+</a><a href="#h8-1-21" id="h8-1-21" class="i">+
+</a><a href="#h8-1-22" id="h8-1-22" class="i">+            if ($resultObj.PackageKnownName -ne &quot;&quot; -and $resultObj.MetadataName -ne &quot;&quot; -and $resultObj.PackageKnownName -ne $resultObj.MetadataName)
+</a><a href="#h8-1-23" id="h8-1-23" class="i">+            {
+</a><a href="#h8-1-24" id="h8-1-24" class="i">+                $stats.CorrelationDisagreement += 1
+</a><a href="#h8-1-25" id="h8-1-25" class="i">+            }
+</a><a href="#h8-1-26" id="h8-1-26" class="i">+        }
+</a><a href="#h8-1-27" id="h8-1-27" class="i">+        Export-Csv -InputObject ($resultObj | Select-Object -Property * -ExcludeProperty @(&quot;Error&quot;, &quot;Phase&quot;, &quot;Action&quot;, &quot;HRESULT&quot;) ) -Path $resultFile -Append -Encoding UTF8BOM
+</a>     }
+     else
+     {
+         $stats.Failed++
+<a href="#h8-1-32" id="h8-1-32" class="d">-        Export-Csv -InputObject $resultObj -Path $failedFile -Append
+</a><a href="#h8-1-33" id="h8-1-33" class="i">+        Export-Csv -InputObject $resultObj -Path $failedFile -Append -Encoding UTF8BOM
+</a>     }
+ }
+ 
+<a href="#h8-2" id="h8-2" class="h">@@ -62,4 +82,6 @@ foreach ($result in (Get-ChildItem $ResultsPath -Directory))
+</a> $stats.CompletedRatio = $stats.Completed / $stats.Total
+ $stats.CorrelateArchiveRatio = $stats.CorrelateArchive / $stats.Completed
+ $stats.CorrelatePackageKnownRatio = $stats.CorrelatePackageKnown / $stats.Completed
+<a href="#h8-2-3" id="h8-2-3" class="i">+$stats.CorrelateMetadataRatio = $stats.CorrelateMetadata / $stats.Completed
+</a><a href="#h8-2-4" id="h8-2-4" class="i">+$stats.CorrelationDisagreementRatio = $stats.CorrelationDisagreement / $stats.Completed
+</a> $stats | ConvertTo-Json | Out-File $statsFile -Force
+<b>diff --git a/<a id="h9" href="../file/tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1.html">tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1</a> b/<a href="../file/tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1.html">tools/CorrelationTestbed/Test-CorrelationInSandbox.ps1</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -15,7 +15,13 @@ Param(
+</a>   [Parameter(HelpMessage = &quot;The results output path.&quot;)]
+   [String] $ResultsPath,
+   [Parameter(HelpMessage = &quot;The path to registry files that should be injected before the test.&quot;)]
+<a href="#h9-0-3" id="h9-0-3" class="d">-  [String] $RegFileDirectory
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+  [String] $RegFileDirectory,
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+  [Parameter(HelpMessage = &quot;Indicates that the metadata collection process should be run.&quot;)]
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+  [Switch] $MetadataCollection,
+</a><a href="#h9-0-7" id="h9-0-7" class="i">+  [Parameter(HelpMessage = &quot;The path to WinGetUtil.dll; only the release build works.&quot;)]
+</a><a href="#h9-0-8" id="h9-0-8" class="i">+  [String] $WingetUtilPath,
+</a><a href="#h9-0-9" id="h9-0-9" class="i">+  [Parameter(HelpMessage = &quot;Wait for user input before tearing down each sandbox.&quot;)]
+</a><a href="#h9-0-10" id="h9-0-10" class="i">+  [Switch] $Wait
+</a> )
+ 
+ $ErrorActionPreference = &quot;Stop&quot;
+<a href="#h9-1" id="h9-1" class="h">@@ -65,6 +71,26 @@ Either build the local dev package, or provide the location using -DevPackagePat
+</a>   }
+ }
+ 
+<a href="#h9-1-3" id="h9-1-3" class="i">+# Validate that WinGetUtil.dll exists if metadata collection is requested
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+if ($MetadataCollection)
+</a><a href="#h9-1-6" id="h9-1-6" class="i">+{
+</a><a href="#h9-1-7" id="h9-1-7" class="i">+  if (-not $WingetUtilPath)
+</a><a href="#h9-1-8" id="h9-1-8" class="i">+  {
+</a><a href="#h9-1-9" id="h9-1-9" class="i">+    $WingetUtilPath = Join-Path $PSScriptRoot &quot;..\..\src\x64\Debug\WinGetUtil\WinGetUtil.dll&quot;
+</a><a href="#h9-1-10" id="h9-1-10" class="i">+  }
+</a><a href="#h9-1-11" id="h9-1-11" class="i">+
+</a><a href="#h9-1-12" id="h9-1-12" class="i">+  $WingetUtilPath = [System.IO.Path]::GetFullPath($WingetUtilPath)
+</a><a href="#h9-1-13" id="h9-1-13" class="i">+
+</a><a href="#h9-1-14" id="h9-1-14" class="i">+  if (-not (Test-Path $WingetUtilPath))
+</a><a href="#h9-1-15" id="h9-1-15" class="i">+  {
+</a><a href="#h9-1-16" id="h9-1-16" class="i">+    Write-Error -Category InvalidArgument -Message @&quot;
+</a><a href="#h9-1-17" id="h9-1-17" class="i">+WinGetUtil.dll does not exist in the path $WingetUtilPath
+</a><a href="#h9-1-18" id="h9-1-18" class="i">+Either build the binary, or provide the location using -WingetUtilPath
+</a><a href="#h9-1-19" id="h9-1-19" class="i">+&quot;@
+</a><a href="#h9-1-20" id="h9-1-20" class="i">+  }
+</a><a href="#h9-1-21" id="h9-1-21" class="i">+}
+</a><a href="#h9-1-22" id="h9-1-22" class="i">+
+</a> # Check if Windows Sandbox is enabled
+ 
+ if (-Not (Get-Command &#39;WindowsSandbox&#39; -ErrorAction SilentlyContinue))
+<a href="#h9-2" id="h9-2" class="h">@@ -249,6 +275,11 @@ if (-not $UseDev)
+</a>   Write-Host
+ }
+ 
+<a href="#h9-2-3" id="h9-2-3" class="i">+if ($MetadataCollection)
+</a><a href="#h9-2-4" id="h9-2-4" class="i">+{ 
+</a><a href="#h9-2-5" id="h9-2-5" class="i">+  Copy-Item -Path $WingetUtilPath -Destination $tempFolder -Force
+</a><a href="#h9-2-6" id="h9-2-6" class="i">+}
+</a><a href="#h9-2-7" id="h9-2-7" class="i">+
+</a> # Copy main script
+ 
+ $mainPs1FileName = &#39;InSandboxScript.ps1&#39;
+<a href="#h9-3" id="h9-3" class="h">@@ -262,6 +293,7 @@ foreach ($packageIdentifier in $PackageIdentifiers)
+</a>     New-Item -ItemType Directory $outPath  | Out-Null
+ 
+     $outPathInSandbox = Join-Path -Path $desktopInSandbox -ChildPath (Split-Path -Path $outPath -Leaf)
+<a href="#h9-3-3" id="h9-3-3" class="i">+    $system32PathInSandbox = Join-Path -Path $desktopInSandbox -ChildPath &quot;hostSystem32&quot;
+</a> 
+     if ($UseDev)
+     {
+<a href="#h9-4" id="h9-4" class="h">@@ -272,7 +304,7 @@ foreach ($packageIdentifier in $PackageIdentifiers)
+</a>       $dependenciesPathsInSandbox = &quot;@(&#39;$($vcLibsUwp.pathInSandbox)&#39;, &#39;$($uiLibsUwp.pathInSandbox)&#39;)&quot;
+     }
+ 
+<a href="#h9-4-3" id="h9-4-3" class="d">-    $bootstrapPs1Content = &quot;.\$mainPs1FileName -DesktopAppInstallerDependencyPath @($dependenciesPathsInSandbox) -PackageIdentifier &#39;$packageIdentifier&#39; -SourceName &#39;$Source&#39; -OutputPath &#39;$outPathInSandbox&#39;&quot;
+</a><a href="#h9-4-4" id="h9-4-4" class="i">+    $bootstrapPs1Content = &quot;.\$mainPs1FileName -DesktopAppInstallerDependencyPath @($dependenciesPathsInSandbox) -PackageIdentifier &#39;$packageIdentifier&#39; -SourceName &#39;$Source&#39; -OutputPath &#39;$outPathInSandbox&#39; -System32Path &#39;$system32PathInSandbox&#39;&quot;
+</a> 
+     if ($UseDev)
+     {
+<a href="#h9-5" id="h9-5" class="h">@@ -282,6 +314,11 @@ foreach ($packageIdentifier in $PackageIdentifiers)
+</a>     {
+       $bootstrapPs1Content += &quot; -DesktopAppInstallerPath &#39;$($desktopAppInstaller.pathInSandbox)&#39;&quot;
+     }
+<a href="#h9-5-3" id="h9-5-3" class="i">+    
+</a><a href="#h9-5-4" id="h9-5-4" class="i">+    if ($MetadataCollection)
+</a><a href="#h9-5-5" id="h9-5-5" class="i">+    {
+</a><a href="#h9-5-6" id="h9-5-6" class="i">+      $bootstrapPs1Content += &quot; -MetadataCollection&quot;
+</a><a href="#h9-5-7" id="h9-5-7" class="i">+    }
+</a> 
+     $bootstrapPs1FileName = &#39;Bootstrap.ps1&#39;
+     $bootstrapPs1Content | Out-File (Join-Path $tempFolder $bootstrapPs1FileName) -Force
+<a href="#h9-6" id="h9-6" class="h">@@ -331,6 +368,11 @@ foreach ($packageIdentifier in $PackageIdentifiers)
+</a>         &lt;SandboxFolder&gt;$exePathInSandbox&lt;/SandboxFolder&gt;
+         &lt;ReadOnly&gt;true&lt;/ReadOnly&gt;
+     &lt;/MappedFolder&gt;
+<a href="#h9-6-3" id="h9-6-3" class="i">+    &lt;MappedFolder&gt;
+</a><a href="#h9-6-4" id="h9-6-4" class="i">+        &lt;HostFolder&gt;C:\Windows\System32&lt;/HostFolder&gt;
+</a><a href="#h9-6-5" id="h9-6-5" class="i">+        &lt;SandboxFolder&gt;$system32PathInSandbox&lt;/SandboxFolder&gt;
+</a><a href="#h9-6-6" id="h9-6-6" class="i">+        &lt;ReadOnly&gt;true&lt;/ReadOnly&gt;
+</a><a href="#h9-6-7" id="h9-6-7" class="i">+    &lt;/MappedFolder&gt;
+</a>     $devPackageXMLFragment
+     $regFileDirXMLFragment
+     &lt;MappedFolder&gt;
+<a href="#h9-7" id="h9-7" class="h">@@ -373,6 +415,11 @@ foreach ($packageIdentifier in $PackageIdentifiers)
+</a>         Start-Sleep 1
+     }
+ 
+<a href="#h9-7-3" id="h9-7-3" class="i">+    if ($Wait)
+</a><a href="#h9-7-4" id="h9-7-4" class="i">+    {
+</a><a href="#h9-7-5" id="h9-7-5" class="i">+        Read-Host &quot;Press Enter to close sandbox and continue...&quot;
+</a><a href="#h9-7-6" id="h9-7-6" class="i">+    }
+</a><a href="#h9-7-7" id="h9-7-7" class="i">+
+</a>     Close-WindowsSandbox
+ }
+ 
+</pre>
+</div>
+</body>
+</html>

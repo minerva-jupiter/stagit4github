@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Repair-WinGetPackage download VCLibs if needed (#3180) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/26a2173bc1a9ac0b3c5c66802a4fb44f16361fe1.html">26a2173bc1a9ac0b3c5c66802a4fb44f16361fe1</a>
+<b>parent</b> <a href="../commit/f74a4e0dfe31cbd5d2cacf9a9cba91d0bfc22c48.html">f74a4e0dfe31cbd5d2cacf9a9cba91d0bfc22c48</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Fri, 28 Apr 2023 11:18:54 -0700
+
+Repair-WinGetPackage download VCLibs if needed (#3180)
+
+Add-AppxPackage -Path &lt;vclibs urls&gt; fails in Windows Sandbox. This change detects it and download the package and installs is from a file path.
+
+Add more debug information to Repair and Assert cmdlets.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs</a></td><td> | </td><td class="num">7</td><td><span class="i">+++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs</a></td><td> | </td><td class="num">5</td><td><span class="i">++++</span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs</a></td><td> | </td><td class="num">219</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubRelease.cs</a></td><td> | </td><td class="num">17</td><td><span class="i">++++++++</span><span class="d">---------</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h4">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs</a></td><td> | </td><td class="num">110</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+</table></pre><pre>6 files changed, 302 insertions(+), 57 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -176,17 +176,20 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a> 
+         private bool DownloadAndInstall(string versionTag, bool downgrade)
+         {
+<a href="#h0-0-3" id="h0-0-3" class="i">+            using var tempFile = new TempFile();
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+
+</a>             // Download and install.
+             var gitHubRelease = new GitHubRelease();
+<a href="#h0-0-7" id="h0-0-7" class="d">-            var downloadedMsixBundlePath = gitHubRelease.DownloadRelease(versionTag);
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+            gitHubRelease.DownloadRelease(versionTag, tempFile.FullPath);
+</a> 
+             var appxModule = new AppxModuleHelper(this.PsCmdlet);
+<a href="#h0-0-11" id="h0-0-11" class="d">-            appxModule.AddAppInstallerBundle(downloadedMsixBundlePath, downgrade);
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+            appxModule.AddAppInstallerBundle(tempFile.FullPath, downgrade);
+</a> 
+             // Verify that is installed
+             var integrityCategory = WinGetIntegrity.GetIntegrityCategory(this.PsCmdlet, versionTag);
+             if (integrityCategory != IntegrityCategory.Installed)
+             {
+<a href="#h0-0-18" id="h0-0-18" class="i">+                this.PsCmdlet.WriteDebug($&quot;Failed installing {versionTag}. IntegrityCategory after attempt: &#39;{integrityCategory}&#39;&quot;);
+</a>                 return false;
+             }
+ 
+<b>diff --git a/<a id="h1" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -46,16 +46,19 @@ namespace Microsoft.WinGet.Client.Engine.Common
+</a>                 var result = wingetCliWrapper.RunCommand(&quot;--version&quot;);
+                 result.VerifyExitCode();
+             }
+<a href="#h1-0-3" id="h1-0-3" class="d">-            catch (Win32Exception)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+            catch (Win32Exception e)
+</a>             {
+<a href="#h1-0-6" id="h1-0-6" class="i">+                psCmdlet.WriteDebug($&quot;&#39;winget.exe&#39; Win32Exception {e.Message}&quot;);
+</a>                 throw new WinGetIntegrityException(GetReason(psCmdlet));
+             }
+             catch (Exception e) when (e is WinGetCLIException || e is WinGetCLITimeoutException)
+             {
+<a href="#h1-0-11" id="h1-0-11" class="i">+                psCmdlet.WriteDebug($&quot;&#39;winget.exe&#39; WinGetCLIException {e.Message}&quot;);
+</a>                 throw new WinGetIntegrityException(IntegrityCategory.Failure, e);
+             }
+             catch (Exception e)
+             {
+<a href="#h1-0-16" id="h1-0-16" class="i">+                psCmdlet.WriteDebug($&quot;&#39;winget.exe&#39; Exception {e.Message}&quot;);
+</a>                 throw new WinGetIntegrityException(IntegrityCategory.Unknown, e);
+             }
+ 
+<b>diff --git a/<a id="h2" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -7,13 +7,10 @@
+</a> namespace Microsoft.WinGet.Client.Engine.Helpers
+ {
+     using System.Collections.Generic;
+<a href="#h2-0-3" id="h2-0-3" class="d">-    using System.IO;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+    using System.Collections.ObjectModel;
+</a>     using System.Linq;
+     using System.Management.Automation;
+<a href="#h2-0-7" id="h2-0-7" class="d">-    using System.Management.Automation.Runspaces;
+</a><a href="#h2-0-8" id="h2-0-8" class="d">-    using System.Resources;
+</a>     using System.Runtime.InteropServices;
+<a href="#h2-0-10" id="h2-0-10" class="d">-    using System.Text;
+</a>     using Microsoft.WinGet.Client.Engine.Common;
+     using Microsoft.WinGet.Client.Engine.Properties;
+ 
+<a href="#h2-1" id="h2-1" class="h">@@ -22,13 +19,27 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>     /// &lt;/summary&gt;
+     internal class AppxModuleHelper
+     {
+<a href="#h2-1-3" id="h2-1-3" class="d">-        private const string GetAppxModule = &quot;Get-Module Appx&quot;;
+</a><a href="#h2-1-4" id="h2-1-4" class="d">-        private const string ImportModuleCore = &quot;Import-Module Appx -UseWindowsPowerShell&quot;;
+</a><a href="#h2-1-5" id="h2-1-5" class="d">-        private const string GetAppxPackageCommand = &quot;Get-AppxPackage {0}&quot;;
+</a><a href="#h2-1-6" id="h2-1-6" class="d">-        private const string AddAppxPackageFormat = &quot;Add-AppxPackage -Path {0}&quot;;
+</a><a href="#h2-1-7" id="h2-1-7" class="d">-        private const string AddAppxPackageRegisterFormat = &quot;Add-AppxPackage -Path {0} -Register -DisableDevelopmentMode&quot;;
+</a><a href="#h2-1-8" id="h2-1-8" class="d">-        private const string ForceUpdateFromAnyVersion = &quot; -ForceUpdateFromAnyVersion&quot;;
+</a><a href="#h2-1-9" id="h2-1-9" class="d">-        private const string GetAppxPackageByVersionCommand = &quot;Get-AppxPackage {0} | Where-Object -Property Version -eq {1}&quot;;
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+        // Cmdlets
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+        private const string ImportModule = &quot;Import-Module&quot;;
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+        private const string GetAppxPackage = &quot;Get-AppxPackage&quot;;
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+        private const string AddAppxPackage = &quot;Add-AppxPackage&quot;;
+</a><a href="#h2-1-14" id="h2-1-14" class="i">+
+</a><a href="#h2-1-15" id="h2-1-15" class="i">+        // Parameters name
+</a><a href="#h2-1-16" id="h2-1-16" class="i">+        private const string Name = &quot;Name&quot;;
+</a><a href="#h2-1-17" id="h2-1-17" class="i">+        private const string Path = &quot;Path&quot;;
+</a><a href="#h2-1-18" id="h2-1-18" class="i">+        private const string ErrorAction = &quot;ErrorAction&quot;;
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+        private const string WarningAction = &quot;WarningAction&quot;;
+</a><a href="#h2-1-20" id="h2-1-20" class="i">+
+</a><a href="#h2-1-21" id="h2-1-21" class="i">+        // Parameter Values
+</a><a href="#h2-1-22" id="h2-1-22" class="i">+        private const string Appx = &quot;Appx&quot;;
+</a><a href="#h2-1-23" id="h2-1-23" class="i">+        private const string Stop = &quot;Stop&quot;;
+</a><a href="#h2-1-24" id="h2-1-24" class="i">+        private const string SilentlyContinue = &quot;SilentlyContinue&quot;;
+</a><a href="#h2-1-25" id="h2-1-25" class="i">+
+</a><a href="#h2-1-26" id="h2-1-26" class="i">+        // Options
+</a><a href="#h2-1-27" id="h2-1-27" class="i">+        private const string UseWindowsPowerShell = &quot;UseWindowsPowerShell&quot;;
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+        private const string ForceUpdateFromAnyVersion = &quot;ForceUpdateFromAnyVersion&quot;;
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+        private const string Register = &quot;Register&quot;;
+</a><a href="#h2-1-30" id="h2-1-30" class="i">+        private const string DisableDevelopmentMode = &quot;DisableDevelopmentMode&quot;;
+</a> 
+         private const string AppInstallerName = &quot;Microsoft.DesktopAppInstaller&quot;;
+         private const string AppxManifest = &quot;AppxManifest.xml&quot;;
+<a href="#h2-2" id="h2-2" class="h">@@ -53,18 +64,6 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         public AppxModuleHelper(PSCmdlet psCmdlet)
+         {
+             this.psCmdlet = psCmdlet;
+<a href="#h2-2-3" id="h2-2-3" class="d">-
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-            // There&#39;s a bug in the Appx Module that it can&#39;t be loaded from Core in pre 10.0.22453.0 builds without
+</a><a href="#h2-2-5" id="h2-2-5" class="d">-            // the -UseWindowsPowerShell option. In post 10.0.22453.0 builds there&#39;s really no difference between
+</a><a href="#h2-2-6" id="h2-2-6" class="d">-            // using or not -UseWindowsPowerShell as it will automatically get loaded using WinPSCompatSession remoting session.
+</a><a href="#h2-2-7" id="h2-2-7" class="d">-            // https://github.com/PowerShell/PowerShell/issues/13138.
+</a><a href="#h2-2-8" id="h2-2-8" class="d">-#if !POWERSHELL_WINDOWS
+</a><a href="#h2-2-9" id="h2-2-9" class="d">-            var appxModule = this.psCmdlet.InvokeCommand.InvokeScript(GetAppxModule);
+</a><a href="#h2-2-10" id="h2-2-10" class="d">-            if (appxModule is null)
+</a><a href="#h2-2-11" id="h2-2-11" class="d">-            {
+</a><a href="#h2-2-12" id="h2-2-12" class="d">-                this.psCmdlet.InvokeCommand.InvokeScript(ImportModuleCore);
+</a><a href="#h2-2-13" id="h2-2-13" class="d">-            }
+</a><a href="#h2-2-14" id="h2-2-14" class="d">-#endif
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-3" id="h2-3" class="h">@@ -113,21 +112,28 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>             this.InstallVCLibsDependencies();
+             this.InstallUiXaml();
+ 
+<a href="#h2-3-3" id="h2-3-3" class="d">-            StringBuilder sb = new StringBuilder();
+</a><a href="#h2-3-4" id="h2-3-4" class="d">-            sb.Append(string.Format(AddAppxPackageFormat, localPath));
+</a><a href="#h2-3-5" id="h2-3-5" class="d">-
+</a><a href="#h2-3-6" id="h2-3-6" class="i">+            var options = new List&lt;string&gt;();
+</a>             if (downgrade)
+             {
+<a href="#h2-3-9" id="h2-3-9" class="d">-                sb.Append(ForceUpdateFromAnyVersion);
+</a><a href="#h2-3-10" id="h2-3-10" class="i">+                options.Add(ForceUpdateFromAnyVersion);
+</a>             }
+ 
+<a href="#h2-3-13" id="h2-3-13" class="d">-            // Using this method simplifies a lot of things, but the error is not propagated with
+</a><a href="#h2-3-14" id="h2-3-14" class="d">-            // the default parameters. PipelineResultTypes.Error will at least output it in the terminal.
+</a><a href="#h2-3-15" id="h2-3-15" class="d">-            this.psCmdlet.InvokeCommand.InvokeScript(
+</a><a href="#h2-3-16" id="h2-3-16" class="d">-                sb.ToString(),
+</a><a href="#h2-3-17" id="h2-3-17" class="d">-                useNewScope: true,
+</a><a href="#h2-3-18" id="h2-3-18" class="d">-                PipelineResultTypes.Error,
+</a><a href="#h2-3-19" id="h2-3-19" class="d">-                input: null);
+</a><a href="#h2-3-20" id="h2-3-20" class="i">+            try
+</a><a href="#h2-3-21" id="h2-3-21" class="i">+            {
+</a><a href="#h2-3-22" id="h2-3-22" class="i">+                _ = this.ExecuteAppxCmdlet(
+</a><a href="#h2-3-23" id="h2-3-23" class="i">+                AddAppxPackage,
+</a><a href="#h2-3-24" id="h2-3-24" class="i">+                new Dictionary&lt;string, object&gt;
+</a><a href="#h2-3-25" id="h2-3-25" class="i">+                {
+</a><a href="#h2-3-26" id="h2-3-26" class="i">+                    { Path, localPath },
+</a><a href="#h2-3-27" id="h2-3-27" class="i">+                    { ErrorAction, Stop },
+</a><a href="#h2-3-28" id="h2-3-28" class="i">+                },
+</a><a href="#h2-3-29" id="h2-3-29" class="i">+                options);
+</a><a href="#h2-3-30" id="h2-3-30" class="i">+            }
+</a><a href="#h2-3-31" id="h2-3-31" class="i">+            catch (RuntimeException e)
+</a><a href="#h2-3-32" id="h2-3-32" class="i">+            {
+</a><a href="#h2-3-33" id="h2-3-33" class="i">+                this.psCmdlet.WriteError(e.ErrorRecord);
+</a><a href="#h2-3-34" id="h2-3-34" class="i">+                throw e;
+</a><a href="#h2-3-35" id="h2-3-35" class="i">+            }
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-4" id="h2-4" class="h">@@ -136,30 +142,64 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         public void RegisterAppInstaller()
+         {
+             string packageFullName = this.GetAppInstallerPropertyValue(PackageFullName);
+<a href="#h2-4-3" id="h2-4-3" class="d">-            string appxManifestPath = Path.Combine(
+</a><a href="#h2-4-4" id="h2-4-4" class="i">+            string appxManifestPath = System.IO.Path.Combine(
+</a>                 Utilities.ProgramFilesWindowsAppPath,
+                 packageFullName,
+                 AppxManifest);
+ 
+<a href="#h2-4-9" id="h2-4-9" class="d">-            this.psCmdlet.InvokeCommand.InvokeScript(
+</a><a href="#h2-4-10" id="h2-4-10" class="d">-                string.Format(AddAppxPackageRegisterFormat, appxManifestPath));
+</a><a href="#h2-4-11" id="h2-4-11" class="i">+            _ = this.ExecuteAppxCmdlet(
+</a><a href="#h2-4-12" id="h2-4-12" class="i">+                AddAppxPackage,
+</a><a href="#h2-4-13" id="h2-4-13" class="i">+                new Dictionary&lt;string, object&gt;
+</a><a href="#h2-4-14" id="h2-4-14" class="i">+                {
+</a><a href="#h2-4-15" id="h2-4-15" class="i">+                    { Path, appxManifestPath },
+</a><a href="#h2-4-16" id="h2-4-16" class="i">+                },
+</a><a href="#h2-4-17" id="h2-4-17" class="i">+                new List&lt;string&gt;
+</a><a href="#h2-4-18" id="h2-4-18" class="i">+                {
+</a><a href="#h2-4-19" id="h2-4-19" class="i">+                    Register,
+</a><a href="#h2-4-20" id="h2-4-20" class="i">+                    DisableDevelopmentMode,
+</a><a href="#h2-4-21" id="h2-4-21" class="i">+                });
+</a>         }
+ 
+         private PSObject GetAppxObject(string packageName)
+         {
+<a href="#h2-4-26" id="h2-4-26" class="d">-            return this.psCmdlet.InvokeCommand
+</a><a href="#h2-4-27" id="h2-4-27" class="d">-                .InvokeScript(string.Format(GetAppxPackageCommand, packageName))
+</a><a href="#h2-4-28" id="h2-4-28" class="i">+            return this.ExecuteAppxCmdlet(
+</a><a href="#h2-4-29" id="h2-4-29" class="i">+                GetAppxPackage,
+</a><a href="#h2-4-30" id="h2-4-30" class="i">+                new Dictionary&lt;string, object&gt;
+</a><a href="#h2-4-31" id="h2-4-31" class="i">+                {
+</a><a href="#h2-4-32" id="h2-4-32" class="i">+                    { Name, packageName },
+</a><a href="#h2-4-33" id="h2-4-33" class="i">+                })
+</a>                 .FirstOrDefault();
+         }
+ 
+         private IReadOnlyList&lt;string&gt; GetVCLibsDependencies()
+         {
+             var vcLibsDependencies = new List&lt;string&gt;();
+<a href="#h2-4-40" id="h2-4-40" class="d">-            var vcLibsPackageObjs = this.psCmdlet.InvokeCommand
+</a><a href="#h2-4-41" id="h2-4-41" class="d">-                .InvokeScript(string.Format(GetAppxPackageByVersionCommand, VCLibsUWPDesktop, VCLibsUWPDesktopVersion));
+</a><a href="#h2-4-42" id="h2-4-42" class="d">-            if (vcLibsPackageObjs is null ||
+</a><a href="#h2-4-43" id="h2-4-43" class="d">-                vcLibsPackageObjs.Count == 0)
+</a><a href="#h2-4-44" id="h2-4-44" class="i">+
+</a><a href="#h2-4-45" id="h2-4-45" class="i">+            var result = this.ExecuteAppxCmdlet(
+</a><a href="#h2-4-46" id="h2-4-46" class="i">+                GetAppxPackage,
+</a><a href="#h2-4-47" id="h2-4-47" class="i">+                new Dictionary&lt;string, object&gt;
+</a><a href="#h2-4-48" id="h2-4-48" class="i">+                {
+</a><a href="#h2-4-49" id="h2-4-49" class="i">+                    { Name, VCLibsUWPDesktop },
+</a><a href="#h2-4-50" id="h2-4-50" class="i">+                });
+</a><a href="#h2-4-51" id="h2-4-51" class="i">+
+</a><a href="#h2-4-52" id="h2-4-52" class="i">+            // See if the required version is installed.
+</a><a href="#h2-4-53" id="h2-4-53" class="i">+            bool isInstalled = false;
+</a><a href="#h2-4-54" id="h2-4-54" class="i">+            if (result != null &amp;&amp;
+</a><a href="#h2-4-55" id="h2-4-55" class="i">+                result.Count &gt; 0)
+</a><a href="#h2-4-56" id="h2-4-56" class="i">+            {
+</a><a href="#h2-4-57" id="h2-4-57" class="i">+                foreach (dynamic psobject in result)
+</a><a href="#h2-4-58" id="h2-4-58" class="i">+                {
+</a><a href="#h2-4-59" id="h2-4-59" class="i">+                    if (psobject?.Version == VCLibsUWPDesktopVersion)
+</a><a href="#h2-4-60" id="h2-4-60" class="i">+                    {
+</a><a href="#h2-4-61" id="h2-4-61" class="i">+                        isInstalled = true;
+</a><a href="#h2-4-62" id="h2-4-62" class="i">+                        break;
+</a><a href="#h2-4-63" id="h2-4-63" class="i">+                    }
+</a><a href="#h2-4-64" id="h2-4-64" class="i">+                }
+</a><a href="#h2-4-65" id="h2-4-65" class="i">+            }
+</a><a href="#h2-4-66" id="h2-4-66" class="i">+
+</a><a href="#h2-4-67" id="h2-4-67" class="i">+            if (!isInstalled)
+</a>             {
+<a href="#h2-4-69" id="h2-4-69" class="i">+                this.psCmdlet.WriteDebug(&quot;Couldn&#39;t find required VCLibs package&quot;);
+</a>                 var arch = RuntimeInformation.OSArchitecture;
+                 if (arch == Architecture.X64)
+                 {
+<a href="#h2-5" id="h2-5" class="h">@@ -195,8 +235,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>             var packages = this.GetVCLibsDependencies();
+             foreach (var package in packages)
+             {
+<a href="#h2-5-3" id="h2-5-3" class="d">-                this.psCmdlet.WriteDebug($&quot;Installing VCLibs {package}&quot;);
+</a><a href="#h2-5-4" id="h2-5-4" class="d">-                this.psCmdlet.InvokeCommand.InvokeScript(string.Format(AddAppxPackageFormat, package));
+</a><a href="#h2-5-5" id="h2-5-5" class="i">+                this.AddAppxPackageAsUri(package);
+</a>             }
+         }
+ 
+<a href="#h2-6" id="h2-6" class="h">@@ -210,5 +249,95 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>                 throw new PSNotImplementedException(Resources.MicrosoftUIXaml27Message);
+             }
+         }
+<a href="#h2-6-3" id="h2-6-3" class="i">+
+</a><a href="#h2-6-4" id="h2-6-4" class="i">+        private void AddAppxPackageAsUri(string packageUri)
+</a><a href="#h2-6-5" id="h2-6-5" class="i">+        {
+</a><a href="#h2-6-6" id="h2-6-6" class="i">+            try
+</a><a href="#h2-6-7" id="h2-6-7" class="i">+            {
+</a><a href="#h2-6-8" id="h2-6-8" class="i">+                _ = this.ExecuteAppxCmdlet(
+</a><a href="#h2-6-9" id="h2-6-9" class="i">+                    AddAppxPackage,
+</a><a href="#h2-6-10" id="h2-6-10" class="i">+                    new Dictionary&lt;string, object&gt;
+</a><a href="#h2-6-11" id="h2-6-11" class="i">+                    {
+</a><a href="#h2-6-12" id="h2-6-12" class="i">+                        { Path, packageUri },
+</a><a href="#h2-6-13" id="h2-6-13" class="i">+                        { ErrorAction, Stop },
+</a><a href="#h2-6-14" id="h2-6-14" class="i">+                    });
+</a><a href="#h2-6-15" id="h2-6-15" class="i">+            }
+</a><a href="#h2-6-16" id="h2-6-16" class="i">+            catch (RuntimeException e)
+</a><a href="#h2-6-17" id="h2-6-17" class="i">+            {
+</a><a href="#h2-6-18" id="h2-6-18" class="i">+                // If we couldn&#39;t install it via URI, try download and install.
+</a><a href="#h2-6-19" id="h2-6-19" class="i">+                if (e.ErrorRecord.CategoryInfo.Category == ErrorCategory.OpenError)
+</a><a href="#h2-6-20" id="h2-6-20" class="i">+                {
+</a><a href="#h2-6-21" id="h2-6-21" class="i">+                    this.psCmdlet.WriteDebug($&quot;Failed adding package [{packageUri}]. Retrying downloading it.&quot;);
+</a><a href="#h2-6-22" id="h2-6-22" class="i">+                    this.DownloadPackageAndAdd(packageUri);
+</a><a href="#h2-6-23" id="h2-6-23" class="i">+                }
+</a><a href="#h2-6-24" id="h2-6-24" class="i">+                else
+</a><a href="#h2-6-25" id="h2-6-25" class="i">+                {
+</a><a href="#h2-6-26" id="h2-6-26" class="i">+                    this.psCmdlet.WriteError(e.ErrorRecord);
+</a><a href="#h2-6-27" id="h2-6-27" class="i">+                    throw e;
+</a><a href="#h2-6-28" id="h2-6-28" class="i">+                }
+</a><a href="#h2-6-29" id="h2-6-29" class="i">+            }
+</a><a href="#h2-6-30" id="h2-6-30" class="i">+        }
+</a><a href="#h2-6-31" id="h2-6-31" class="i">+
+</a><a href="#h2-6-32" id="h2-6-32" class="i">+        private void DownloadPackageAndAdd(string packageUrl)
+</a><a href="#h2-6-33" id="h2-6-33" class="i">+        {
+</a><a href="#h2-6-34" id="h2-6-34" class="i">+            var tempFile = new TempFile();
+</a><a href="#h2-6-35" id="h2-6-35" class="i">+
+</a><a href="#h2-6-36" id="h2-6-36" class="i">+            // This is weird but easy.
+</a><a href="#h2-6-37" id="h2-6-37" class="i">+            var githubRelease = new GitHubRelease();
+</a><a href="#h2-6-38" id="h2-6-38" class="i">+            githubRelease.DownloadUrl(packageUrl, tempFile.FullPath);
+</a><a href="#h2-6-39" id="h2-6-39" class="i">+
+</a><a href="#h2-6-40" id="h2-6-40" class="i">+            _ = this.ExecuteAppxCmdlet(
+</a><a href="#h2-6-41" id="h2-6-41" class="i">+                AddAppxPackage,
+</a><a href="#h2-6-42" id="h2-6-42" class="i">+                new Dictionary&lt;string, object&gt;
+</a><a href="#h2-6-43" id="h2-6-43" class="i">+                {
+</a><a href="#h2-6-44" id="h2-6-44" class="i">+                    { Path, tempFile.FullPath },
+</a><a href="#h2-6-45" id="h2-6-45" class="i">+                    { ErrorAction, Stop },
+</a><a href="#h2-6-46" id="h2-6-46" class="i">+                });
+</a><a href="#h2-6-47" id="h2-6-47" class="i">+        }
+</a><a href="#h2-6-48" id="h2-6-48" class="i">+
+</a><a href="#h2-6-49" id="h2-6-49" class="i">+        private Collection&lt;PSObject&gt; ExecuteAppxCmdlet(string cmdlet, Dictionary&lt;string, object&gt; parameters = null, IList&lt;string&gt; options = null)
+</a><a href="#h2-6-50" id="h2-6-50" class="i">+        {
+</a><a href="#h2-6-51" id="h2-6-51" class="i">+            var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h2-6-52" id="h2-6-52" class="i">+
+</a><a href="#h2-6-53" id="h2-6-53" class="i">+            // There&#39;s a bug in the Appx Module that it can&#39;t be loaded from Core in pre 10.0.22453.0 builds without
+</a><a href="#h2-6-54" id="h2-6-54" class="i">+            // the -UseWindowsPowerShell option. In post 10.0.22453.0 builds there&#39;s really no difference between
+</a><a href="#h2-6-55" id="h2-6-55" class="i">+            // using or not -UseWindowsPowerShell as it will automatically get loaded using WinPSCompatSession remoting session.
+</a><a href="#h2-6-56" id="h2-6-56" class="i">+            // https://github.com/PowerShell/PowerShell/issues/13138.
+</a><a href="#h2-6-57" id="h2-6-57" class="i">+            // Set warning action to silently continue to avoid the console with
+</a><a href="#h2-6-58" id="h2-6-58" class="i">+            // &#39;Module Appx is loaded in Windows PowerShell using WinPSCompatSession remoting session&#39;
+</a><a href="#h2-6-59" id="h2-6-59" class="i">+#if !POWERSHELL_WINDOWS
+</a><a href="#h2-6-60" id="h2-6-60" class="i">+            ps.AddCommand(ImportModule)
+</a><a href="#h2-6-61" id="h2-6-61" class="i">+              .AddParameter(Name, Appx)
+</a><a href="#h2-6-62" id="h2-6-62" class="i">+              .AddParameter(UseWindowsPowerShell)
+</a><a href="#h2-6-63" id="h2-6-63" class="i">+              .AddParameter(WarningAction, SilentlyContinue)
+</a><a href="#h2-6-64" id="h2-6-64" class="i">+              .AddStatement();
+</a><a href="#h2-6-65" id="h2-6-65" class="i">+#endif
+</a><a href="#h2-6-66" id="h2-6-66" class="i">+
+</a><a href="#h2-6-67" id="h2-6-67" class="i">+            string cmd = cmdlet;
+</a><a href="#h2-6-68" id="h2-6-68" class="i">+            ps.AddCommand(cmdlet);
+</a><a href="#h2-6-69" id="h2-6-69" class="i">+
+</a><a href="#h2-6-70" id="h2-6-70" class="i">+            if (parameters != null)
+</a><a href="#h2-6-71" id="h2-6-71" class="i">+            {
+</a><a href="#h2-6-72" id="h2-6-72" class="i">+                foreach (var p in parameters)
+</a><a href="#h2-6-73" id="h2-6-73" class="i">+                {
+</a><a href="#h2-6-74" id="h2-6-74" class="i">+                    cmd += $&quot; -{p.Key} {p.Value}&quot;;
+</a><a href="#h2-6-75" id="h2-6-75" class="i">+                }
+</a><a href="#h2-6-76" id="h2-6-76" class="i">+
+</a><a href="#h2-6-77" id="h2-6-77" class="i">+                ps.AddParameters(parameters);
+</a><a href="#h2-6-78" id="h2-6-78" class="i">+            }
+</a><a href="#h2-6-79" id="h2-6-79" class="i">+
+</a><a href="#h2-6-80" id="h2-6-80" class="i">+            if (options != null)
+</a><a href="#h2-6-81" id="h2-6-81" class="i">+            {
+</a><a href="#h2-6-82" id="h2-6-82" class="i">+                foreach (var option in options)
+</a><a href="#h2-6-83" id="h2-6-83" class="i">+                {
+</a><a href="#h2-6-84" id="h2-6-84" class="i">+                    cmd += $&quot; -{option}&quot;;
+</a><a href="#h2-6-85" id="h2-6-85" class="i">+                    ps.AddParameter(option);
+</a><a href="#h2-6-86" id="h2-6-86" class="i">+                }
+</a><a href="#h2-6-87" id="h2-6-87" class="i">+            }
+</a><a href="#h2-6-88" id="h2-6-88" class="i">+
+</a><a href="#h2-6-89" id="h2-6-89" class="i">+            this.psCmdlet.WriteDebug($&quot;Executing Appx cmdlet {cmd}&quot;);
+</a><a href="#h2-6-90" id="h2-6-90" class="i">+            var result = ps.Invoke();
+</a><a href="#h2-6-91" id="h2-6-91" class="i">+            return result;
+</a><a href="#h2-6-92" id="h2-6-92" class="i">+        }
+</a>     }
+ }
+<b>diff --git a/<a id="h3" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubRelease.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubRelease.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubRelease.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubRelease.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -39,10 +39,10 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         /// Download a release from winget-cli.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;releaseTag&quot;&gt;Optional release name. If null, gets latest.&lt;/param&gt;
+<a href="#h3-0-3" id="h3-0-3" class="d">-        /// &lt;returns&gt;Path where the msix bundle is downloaded.&lt;/returns&gt;
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-        public string DownloadRelease(string releaseTag)
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        /// &lt;param name=&quot;outputFile&quot;&gt;Output file.&lt;/param&gt;
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+        public void DownloadRelease(string releaseTag, string outputFile)
+</a>         {
+<a href="#h3-0-8" id="h3-0-8" class="d">-            return this.DownloadReleaseAsync(releaseTag).GetAwaiter().GetResult();
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+            this.DownloadReleaseAsync(releaseTag, outputFile).GetAwaiter().GetResult();
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h3-1" id="h3-1" class="h">@@ -69,17 +69,16 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         /// Download asynchronously a release from winget-cli.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;releaseTag&quot;&gt;Optional release name. If null, gets latest.&lt;/param&gt;
+<a href="#h3-1-3" id="h3-1-3" class="d">-        /// &lt;returns&gt;Path where the msix bundle is downloaded.&lt;/returns&gt;
+</a><a href="#h3-1-4" id="h3-1-4" class="d">-        public async Task&lt;string&gt; DownloadReleaseAsync(string releaseTag)
+</a><a href="#h3-1-5" id="h3-1-5" class="i">+        /// &lt;param name=&quot;outputFile&quot;&gt;Output file.&lt;/param&gt;
+</a><a href="#h3-1-6" id="h3-1-6" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous operation.&lt;/returns&gt;
+</a><a href="#h3-1-7" id="h3-1-7" class="i">+        public async Task DownloadReleaseAsync(string releaseTag, string outputFile)
+</a>         {
+             Release release = await this.gitHubClient.Repository.Release.Get(Owner, Repo, releaseTag);
+ 
+             // Get asset and download.
+             var msixBundleAsset = release.Assets.Where(a =&gt; a.Name == MsixBundleName).First();
+ 
+<a href="#h3-1-14" id="h3-1-14" class="d">-            var tmpFile = Path.GetTempFileName();
+</a><a href="#h3-1-15" id="h3-1-15" class="d">-            await this.DownloadUrlAsync(msixBundleAsset.Url, tmpFile);
+</a><a href="#h3-1-16" id="h3-1-16" class="d">-            return tmpFile;
+</a><a href="#h3-1-17" id="h3-1-17" class="i">+            await this.DownloadUrlAsync(msixBundleAsset.Url, outputFile);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h3-2" id="h3-2" class="h">@@ -96,7 +95,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>                 ContentType);
+ 
+             using var memoryStream = new MemoryStream((byte[])response.Body);
+<a href="#h3-2-3" id="h3-2-3" class="d">-            using var fileStream = File.Open(fileName, FileMode.Open);
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+            using var fileStream = File.Open(fileName, FileMode.OpenOrCreate);
+</a>             memoryStream.Position = 0;
+             await memoryStream.CopyToAsync(fileStream);
+         }
+<b>diff --git a/<a id="h4" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -0,0 +1,110 @@
+</a><a href="#h4-0-0" id="h4-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h4-0-1" id="h4-0-1" class="i">+// &lt;copyright file=&quot;TempFile.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h4-0-2" id="h4-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h4-0-3" id="h4-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+namespace Microsoft.WinGet.Client.Engine.Helpers
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+{
+</a><a href="#h4-0-8" id="h4-0-8" class="i">+    using System;
+</a><a href="#h4-0-9" id="h4-0-9" class="i">+    using System.IO;
+</a><a href="#h4-0-10" id="h4-0-10" class="i">+
+</a><a href="#h4-0-11" id="h4-0-11" class="i">+    /// &lt;summary&gt;
+</a><a href="#h4-0-12" id="h4-0-12" class="i">+    /// Creates a temporary file in the user&#39;s temporary directory.
+</a><a href="#h4-0-13" id="h4-0-13" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h4-0-14" id="h4-0-14" class="i">+    internal class TempFile : IDisposable
+</a><a href="#h4-0-15" id="h4-0-15" class="i">+    {
+</a><a href="#h4-0-16" id="h4-0-16" class="i">+        private readonly bool cleanup;
+</a><a href="#h4-0-17" id="h4-0-17" class="i">+
+</a><a href="#h4-0-18" id="h4-0-18" class="i">+        private bool disposed = false;
+</a><a href="#h4-0-19" id="h4-0-19" class="i">+
+</a><a href="#h4-0-20" id="h4-0-20" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-21" id="h4-0-21" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;TempFile&quot;/&gt; class.
+</a><a href="#h4-0-22" id="h4-0-22" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-23" id="h4-0-23" class="i">+        /// &lt;param name=&quot;fileName&quot;&gt;Optional file name. If null, creates a random file name.&lt;/param&gt;
+</a><a href="#h4-0-24" id="h4-0-24" class="i">+        /// &lt;param name=&quot;deleteIfExists&quot;&gt;Delete file if already exists. Default true.&lt;/param&gt;
+</a><a href="#h4-0-25" id="h4-0-25" class="i">+        /// &lt;param name=&quot;content&quot;&gt;Optional content. If not null or empty, creates file and writes to it.&lt;/param&gt;
+</a><a href="#h4-0-26" id="h4-0-26" class="i">+        /// &lt;param name=&quot;cleanup&quot;&gt;Deletes file at disposing time. Default true.&lt;/param&gt;
+</a><a href="#h4-0-27" id="h4-0-27" class="i">+        public TempFile(
+</a><a href="#h4-0-28" id="h4-0-28" class="i">+            string fileName = null,
+</a><a href="#h4-0-29" id="h4-0-29" class="i">+            bool deleteIfExists = true,
+</a><a href="#h4-0-30" id="h4-0-30" class="i">+            string content = null,
+</a><a href="#h4-0-31" id="h4-0-31" class="i">+            bool cleanup = true)
+</a><a href="#h4-0-32" id="h4-0-32" class="i">+        {
+</a><a href="#h4-0-33" id="h4-0-33" class="i">+            if (fileName is null)
+</a><a href="#h4-0-34" id="h4-0-34" class="i">+            {
+</a><a href="#h4-0-35" id="h4-0-35" class="i">+                this.FileName = Path.GetRandomFileName();
+</a><a href="#h4-0-36" id="h4-0-36" class="i">+            }
+</a><a href="#h4-0-37" id="h4-0-37" class="i">+            else
+</a><a href="#h4-0-38" id="h4-0-38" class="i">+            {
+</a><a href="#h4-0-39" id="h4-0-39" class="i">+                this.FileName = fileName;
+</a><a href="#h4-0-40" id="h4-0-40" class="i">+            }
+</a><a href="#h4-0-41" id="h4-0-41" class="i">+
+</a><a href="#h4-0-42" id="h4-0-42" class="i">+            this.FullPath = Path.Combine(Path.GetTempPath(), this.FileName);
+</a><a href="#h4-0-43" id="h4-0-43" class="i">+
+</a><a href="#h4-0-44" id="h4-0-44" class="i">+            if (deleteIfExists &amp;&amp; File.Exists(this.FullPath))
+</a><a href="#h4-0-45" id="h4-0-45" class="i">+            {
+</a><a href="#h4-0-46" id="h4-0-46" class="i">+                File.Delete(this.FullPath);
+</a><a href="#h4-0-47" id="h4-0-47" class="i">+            }
+</a><a href="#h4-0-48" id="h4-0-48" class="i">+
+</a><a href="#h4-0-49" id="h4-0-49" class="i">+            if (!string.IsNullOrWhiteSpace(content))
+</a><a href="#h4-0-50" id="h4-0-50" class="i">+            {
+</a><a href="#h4-0-51" id="h4-0-51" class="i">+                this.CreateFile(content);
+</a><a href="#h4-0-52" id="h4-0-52" class="i">+            }
+</a><a href="#h4-0-53" id="h4-0-53" class="i">+
+</a><a href="#h4-0-54" id="h4-0-54" class="i">+            this.cleanup = cleanup;
+</a><a href="#h4-0-55" id="h4-0-55" class="i">+        }
+</a><a href="#h4-0-56" id="h4-0-56" class="i">+
+</a><a href="#h4-0-57" id="h4-0-57" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-58" id="h4-0-58" class="i">+        /// Gets the file name.
+</a><a href="#h4-0-59" id="h4-0-59" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-60" id="h4-0-60" class="i">+        public string FileName { get; }
+</a><a href="#h4-0-61" id="h4-0-61" class="i">+
+</a><a href="#h4-0-62" id="h4-0-62" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-63" id="h4-0-63" class="i">+        /// Gets the full path.
+</a><a href="#h4-0-64" id="h4-0-64" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-65" id="h4-0-65" class="i">+        public string FullPath { get; }
+</a><a href="#h4-0-66" id="h4-0-66" class="i">+
+</a><a href="#h4-0-67" id="h4-0-67" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-68" id="h4-0-68" class="i">+        /// IDisposable.Dispose.
+</a><a href="#h4-0-69" id="h4-0-69" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-70" id="h4-0-70" class="i">+        public void Dispose()
+</a><a href="#h4-0-71" id="h4-0-71" class="i">+        {
+</a><a href="#h4-0-72" id="h4-0-72" class="i">+            this.Dispose(true);
+</a><a href="#h4-0-73" id="h4-0-73" class="i">+            GC.SuppressFinalize(this);
+</a><a href="#h4-0-74" id="h4-0-74" class="i">+        }
+</a><a href="#h4-0-75" id="h4-0-75" class="i">+
+</a><a href="#h4-0-76" id="h4-0-76" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-77" id="h4-0-77" class="i">+        /// Creates the file.
+</a><a href="#h4-0-78" id="h4-0-78" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-79" id="h4-0-79" class="i">+        /// &lt;param name=&quot;content&quot;&gt;Content.&lt;/param&gt;
+</a><a href="#h4-0-80" id="h4-0-80" class="i">+        public void CreateFile(string content = null)
+</a><a href="#h4-0-81" id="h4-0-81" class="i">+        {
+</a><a href="#h4-0-82" id="h4-0-82" class="i">+            if (content is null)
+</a><a href="#h4-0-83" id="h4-0-83" class="i">+            {
+</a><a href="#h4-0-84" id="h4-0-84" class="i">+                using var fs = File.Create(this.FullPath);
+</a><a href="#h4-0-85" id="h4-0-85" class="i">+            }
+</a><a href="#h4-0-86" id="h4-0-86" class="i">+            else
+</a><a href="#h4-0-87" id="h4-0-87" class="i">+            {
+</a><a href="#h4-0-88" id="h4-0-88" class="i">+                File.WriteAllText(this.FullPath, content);
+</a><a href="#h4-0-89" id="h4-0-89" class="i">+            }
+</a><a href="#h4-0-90" id="h4-0-90" class="i">+        }
+</a><a href="#h4-0-91" id="h4-0-91" class="i">+
+</a><a href="#h4-0-92" id="h4-0-92" class="i">+        /// &lt;summary&gt;
+</a><a href="#h4-0-93" id="h4-0-93" class="i">+        /// Protected disposed.
+</a><a href="#h4-0-94" id="h4-0-94" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h4-0-95" id="h4-0-95" class="i">+        /// &lt;param name=&quot;disposing&quot;&gt;Disposing.&lt;/param&gt;
+</a><a href="#h4-0-96" id="h4-0-96" class="i">+        protected virtual void Dispose(bool disposing)
+</a><a href="#h4-0-97" id="h4-0-97" class="i">+        {
+</a><a href="#h4-0-98" id="h4-0-98" class="i">+            if (!this.disposed)
+</a><a href="#h4-0-99" id="h4-0-99" class="i">+            {
+</a><a href="#h4-0-100" id="h4-0-100" class="i">+                if (this.cleanup &amp;&amp; File.Exists(this.FullPath))
+</a><a href="#h4-0-101" id="h4-0-101" class="i">+                {
+</a><a href="#h4-0-102" id="h4-0-102" class="i">+                    File.Delete(this.FullPath);
+</a><a href="#h4-0-103" id="h4-0-103" class="i">+                }
+</a><a href="#h4-0-104" id="h4-0-104" class="i">+
+</a><a href="#h4-0-105" id="h4-0-105" class="i">+                this.disposed = true;
+</a><a href="#h4-0-106" id="h4-0-106" class="i">+            }
+</a><a href="#h4-0-107" id="h4-0-107" class="i">+        }
+</a><a href="#h4-0-108" id="h4-0-108" class="i">+    }
+</a><a href="#h4-0-109" id="h4-0-109" class="i">+}
+</a><b>diff --git a/<a id="h5" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -36,6 +36,7 @@
+</a>     &lt;/PackageReference&gt;
+     &lt;PackageReference Include=&quot;System.Security.Principal.Windows&quot; Version=&quot;5.0.0&quot; /&gt;
+     &lt;PackageReference Include=&quot;Newtonsoft.Json&quot; Version=&quot;13.0.2&quot; /&gt;
+<a href="#h5-0-3" id="h5-0-3" class="i">+    &lt;PackageReference Include=&quot;Microsoft.CSharp&quot; Version=&quot;4.7.0&quot; Condition=&quot;&#39;$(TargetFramework)&#39; == &#39;$(DesktopFramework)&#39;&quot;/&gt;
+</a>   &lt;/ItemGroup&gt;
+ 
+   &lt;ItemGroup&gt;
+</pre>
+</div>
+</body>
+</html>

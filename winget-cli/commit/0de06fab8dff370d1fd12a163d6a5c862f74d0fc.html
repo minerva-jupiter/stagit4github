@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Make entitlement best effort (#3172) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/0de06fab8dff370d1fd12a163d6a5c862f74d0fc.html">0de06fab8dff370d1fd12a163d6a5c862f74d0fc</a>
+<b>parent</b> <a href="../commit/26a2173bc1a9ac0b3c5c66802a4fb44f16361fe1.html">26a2173bc1a9ac0b3c5c66802a4fb44f16361fe1</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Fri, 28 Apr 2023 12:18:20 -0700
+
+Make entitlement best effort (#3172)
+
+Make entitlement acquisition best effort rather than required. A recent change caused some issues for us regarding the entitlement process, and since the entitlement isn&#39;t actually required to install, just attempt to get it and log if it failed.  Even if the underlying issue is resolved, this change will prevent future issues from having the same level of impact.
+
+This may lead to an issue where the entitlement acquisition fails, the package is installed, but attempting to run it fails because the entitlement cannot be acquired then either (by the OS in the background).  Given the choice between the two failure modes though, it seems far better to remove these false negatives and create the (my gut says fewer) false positives that will result.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/Resources.h</a></td><td> | </td><td class="num">4</td><td><span class="i"></span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp</a></td><td> | </td><td class="num">75</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></td><td> | </td><td class="num">12</td><td><span class="i"></span><span class="d">------------</span></td></tr>
+</table></pre><pre>3 files changed, 45 insertions(+), 46 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a> b/<a href="../file/src/AppInstallerCLICore/Resources.h.html">src/AppInstallerCLICore/Resources.h</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -266,10 +266,6 @@ namespace AppInstaller::CLI::Resource
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(MsixArgumentDescription);
+         WINGET_DEFINE_RESOURCE_STRINGID(MsixSignatureHashFailed);
+         WINGET_DEFINE_RESOURCE_STRINGID(MSStoreAppBlocked);
+<a href="#h0-0-3" id="h0-0-3" class="d">-        WINGET_DEFINE_RESOURCE_STRINGID(MSStoreInstallGetEntitlementNetworkError);
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-        WINGET_DEFINE_RESOURCE_STRINGID(MSStoreInstallGetEntitlementNoStoreAccount);
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-        WINGET_DEFINE_RESOURCE_STRINGID(MSStoreInstallGetEntitlementServerError);
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-        WINGET_DEFINE_RESOURCE_STRINGID(MSStoreInstallGetEntitlementSuccess);
+</a>         WINGET_DEFINE_RESOURCE_STRINGID(MSStoreInstallOrUpdateFailed);
+         WINGET_DEFINE_RESOURCE_STRINGID(MSStoreInstallTryGetEntitlement);
+         WINGET_DEFINE_RESOURCE_STRINGID(MSStoreStoreClientBlocked);
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp</a> b/<a href="../file/src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp.html">src/AppInstallerCLICore/Workflows/MSStoreInstallerHandler.cpp</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -79,48 +79,69 @@ namespace AppInstaller::CLI::Workflow
+</a>             return errorCode;
+         }
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        bool GetFreeEntitlement(Execution::Context&amp; context, const std::wstring&amp; productId)
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        // The type of entitlement we were able to acquire/ensure.
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        enum class EntitlementType
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        {
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+            None,
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+            User,
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+            Device,
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+        };
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+        EntitlementType EnsureFreeEntitlement(Execution::Context&amp; context, const std::wstring&amp; productId)
+</a>         {
+             AppInstallManager installManager;
+ 
+<a href="#h1-0-16" id="h1-0-16" class="i">+            AICLI_LOG(CLI, Error, &lt;&lt; &quot;Getting entitlement for ProductId: &quot; &lt;&lt; Utility::ConvertToUTF8(productId));
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+
+</a>             // Verifying/Acquiring product ownership
+             context.Reporter.Info() &lt;&lt; Resource::String::MSStoreInstallTryGetEntitlement &lt;&lt; std::endl;
+ 
+<a href="#h1-0-21" id="h1-0-21" class="d">-            GetEntitlementResult result{ nullptr };
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+            GetEntitlementResult entitlementResult{ nullptr };
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+            EntitlementType result = EntitlementType::None;
+</a> 
+             if (Manifest::ConvertToScopeEnum(context.Args.GetArg(Execution::Args::Type::InstallScope)) == Manifest::ScopeEnum::Machine)
+             {
+<a href="#h1-0-27" id="h1-0-27" class="d">-                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get device entitlement.&quot;);
+</a><a href="#h1-0-28" id="h1-0-28" class="d">-                result = installManager.GetFreeDeviceEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+                AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get device entitlement (machine scope install).&quot;);
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+                result = EntitlementType::Device;
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+                entitlementResult = installManager.GetFreeDeviceEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a>             }
+             else
+             {
+                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get user entitlement.&quot;);
+<a href="#h1-0-36" id="h1-0-36" class="d">-                result = installManager.GetFreeUserEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a><a href="#h1-0-37" id="h1-0-37" class="d">-                if (result.Status() == GetEntitlementStatus::NoStoreAccount)
+</a><a href="#h1-0-38" id="h1-0-38" class="i">+                result = EntitlementType::User;
+</a><a href="#h1-0-39" id="h1-0-39" class="i">+                entitlementResult = installManager.GetFreeUserEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a><a href="#h1-0-40" id="h1-0-40" class="i">+
+</a><a href="#h1-0-41" id="h1-0-41" class="i">+                if (entitlementResult.Status() == GetEntitlementStatus::NoStoreAccount)
+</a>                 {
+<a href="#h1-0-43" id="h1-0-43" class="d">-                    AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get device entitlement.&quot;);
+</a><a href="#h1-0-44" id="h1-0-44" class="d">-                    result = installManager.GetFreeDeviceEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+                    AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get device entitlement (no store account).&quot;);
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+                    result = EntitlementType::Device;
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+                    entitlementResult = installManager.GetFreeDeviceEntitlementAsync(productId, winrt::hstring(), winrt::hstring()).get();
+</a>                 }
+             }
+ 
+<a href="#h1-0-51" id="h1-0-51" class="d">-            if (result.Status() == GetEntitlementStatus::Succeeded)
+</a><a href="#h1-0-52" id="h1-0-52" class="i">+            if (entitlementResult.Status() == GetEntitlementStatus::Succeeded)
+</a>             {
+<a href="#h1-0-54" id="h1-0-54" class="d">-                context.Reporter.Info() &lt;&lt; Resource::String::MSStoreInstallGetEntitlementSuccess &lt;&lt; std::endl;
+</a>                 AICLI_LOG(CLI, Info, &lt;&lt; &quot;Get entitlement succeeded.&quot;);
+             }
+<a href="#h1-0-57" id="h1-0-57" class="d">-            else if (result.Status() == GetEntitlementStatus::NetworkError)
+</a><a href="#h1-0-58" id="h1-0-58" class="d">-            {
+</a><a href="#h1-0-59" id="h1-0-59" class="d">-                context.Reporter.Info() &lt;&lt; Resource::String::MSStoreInstallGetEntitlementNetworkError &lt;&lt; std::endl;
+</a><a href="#h1-0-60" id="h1-0-60" class="d">-                AICLI_LOG(CLI, Error, &lt;&lt; &quot;Get entitlement failed. Network error.&quot;);
+</a><a href="#h1-0-61" id="h1-0-61" class="d">-            }
+</a><a href="#h1-0-62" id="h1-0-62" class="d">-            else if (result.Status() == GetEntitlementStatus::ServerError)
+</a><a href="#h1-0-63" id="h1-0-63" class="i">+            else
+</a>             {
+<a href="#h1-0-65" id="h1-0-65" class="d">-                context.Reporter.Info() &lt;&lt; Resource::String::MSStoreInstallGetEntitlementServerError &lt;&lt; std::endl;
+</a><a href="#h1-0-66" id="h1-0-66" class="d">-                AICLI_LOG(CLI, Error, &lt;&lt; &quot;Get entitlement failed Server error. ProductId: &quot; &lt;&lt; Utility::ConvertToUTF8(productId));
+</a><a href="#h1-0-67" id="h1-0-67" class="i">+                result = EntitlementType::None;
+</a><a href="#h1-0-68" id="h1-0-68" class="i">+
+</a><a href="#h1-0-69" id="h1-0-69" class="i">+                if (entitlementResult.Status() == GetEntitlementStatus::NetworkError)
+</a><a href="#h1-0-70" id="h1-0-70" class="i">+                {
+</a><a href="#h1-0-71" id="h1-0-71" class="i">+                    AICLI_LOG(CLI, Error, &lt;&lt; &quot;Get entitlement failed. Network error.&quot;);
+</a><a href="#h1-0-72" id="h1-0-72" class="i">+                }
+</a><a href="#h1-0-73" id="h1-0-73" class="i">+                else if (entitlementResult.Status() == GetEntitlementStatus::ServerError)
+</a><a href="#h1-0-74" id="h1-0-74" class="i">+                {
+</a><a href="#h1-0-75" id="h1-0-75" class="i">+                    AICLI_LOG(CLI, Error, &lt;&lt; &quot;Get entitlement failed. Server error.&quot;);
+</a><a href="#h1-0-76" id="h1-0-76" class="i">+                }
+</a><a href="#h1-0-77" id="h1-0-77" class="i">+                else
+</a><a href="#h1-0-78" id="h1-0-78" class="i">+                {
+</a><a href="#h1-0-79" id="h1-0-79" class="i">+                    AICLI_LOG(CLI, Error, &lt;&lt; &quot;Get entitlement failed. Unknown status: &quot; &lt;&lt; static_cast&lt;int32_t&gt;(entitlementResult.Status()));
+</a><a href="#h1-0-80" id="h1-0-80" class="i">+                }
+</a>             }
+ 
+<a href="#h1-0-83" id="h1-0-83" class="d">-            return result.Status() == GetEntitlementStatus::Succeeded;
+</a><a href="#h1-0-84" id="h1-0-84" class="i">+            return result;
+</a>         }
+     }
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -135,11 +156,8 @@ namespace AppInstaller::CLI::Workflow
+</a>     {
+         auto productId = Utility::ConvertToUTF16(context.Get&lt;Execution::Data::Installer&gt;()-&gt;ProductId);
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-        // Verifying/Acquiring product ownership
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-        if (!GetFreeEntitlement(context, productId))
+</a><a href="#h1-1-5" id="h1-1-5" class="d">-        {
+</a><a href="#h1-1-6" id="h1-1-6" class="d">-            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_MSSTORE_INSTALL_FAILED);
+</a><a href="#h1-1-7" id="h1-1-7" class="d">-        }
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+        // Best effort verifying/acquiring product ownership.
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+        std::ignore = EnsureFreeEntitlement(context, productId);
+</a> 
+         AppInstallManager installManager;
+         AppInstallOptions installOptions;
+<a href="#h1-2" id="h1-2" class="h">@@ -184,7 +202,7 @@ namespace AppInstaller::CLI::Workflow
+</a>         else
+         {
+             auto errorCodeString = GetErrorCodeString(errorCode);
+<a href="#h1-2-3" id="h1-2-3" class="d">-            context.Reporter.Info() &lt;&lt; Resource::String::MSStoreInstallOrUpdateFailed(errorCodeString) &lt;&lt; std::endl;
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+            context.Reporter.Error() &lt;&lt; Resource::String::MSStoreInstallOrUpdateFailed(errorCodeString) &lt;&lt; std::endl;
+</a>             context.Add&lt;Execution::Data::OperationReturnCode&gt;(errorCode);
+             AICLI_LOG(CLI, Error, &lt;&lt; &quot;MSStore install failed. ProductId: &quot; &lt;&lt; Utility::ConvertToUTF8(productId) &lt;&lt; &quot; HResult: &quot; &lt;&lt; errorCodeString);
+             AICLI_TERMINATE_CONTEXT(errorCode);
+<a href="#h1-3" id="h1-3" class="h">@@ -195,11 +213,8 @@ namespace AppInstaller::CLI::Workflow
+</a>     {
+         auto productId = Utility::ConvertToUTF16(context.Get&lt;Execution::Data::Installer&gt;()-&gt;ProductId);
+ 
+<a href="#h1-3-3" id="h1-3-3" class="d">-        // Verifying/Acquiring product ownership
+</a><a href="#h1-3-4" id="h1-3-4" class="d">-        if (!GetFreeEntitlement(context, productId))
+</a><a href="#h1-3-5" id="h1-3-5" class="d">-        {
+</a><a href="#h1-3-6" id="h1-3-6" class="d">-            AICLI_TERMINATE_CONTEXT(APPINSTALLER_CLI_ERROR_MSSTORE_INSTALL_FAILED);
+</a><a href="#h1-3-7" id="h1-3-7" class="d">-        }
+</a><a href="#h1-3-8" id="h1-3-8" class="i">+        // Best effort verifying/acquiring product ownership.
+</a><a href="#h1-3-9" id="h1-3-9" class="i">+        std::ignore = EnsureFreeEntitlement(context, productId);
+</a> 
+         AppInstallManager installManager;
+         AppUpdateOptions updateOptions;
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a> b/<a href="../file/src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw.html">src/AppInstallerCLIPackage/Shared/Strings/en-us/winget.resw</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -386,18 +386,6 @@ They can be configured through the settings file &#39;winget settings&#39;.&lt;/value&gt;
+</a>     &lt;value&gt;Failed to install or upgrade Microsoft Store package. Error code: {0}&lt;/value&gt;
+     &lt;comment&gt;{Locked=&quot;{0}&quot;} Error message displayed when a Microsoft Store application package fails to install or upgrade. {0} is a placeholder replaced by an error code.&lt;/comment&gt;
+   &lt;/data&gt;
+<a href="#h2-0-3" id="h2-0-3" class="d">-  &lt;data name=&quot;MSStoreInstallGetEntitlementNetworkError&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-    &lt;value&gt;Verifying/Requesting package acquisition failed: network error&lt;/value&gt;
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-  &lt;/data&gt;
+</a><a href="#h2-0-6" id="h2-0-6" class="d">-  &lt;data name=&quot;MSStoreInstallGetEntitlementNoStoreAccount&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h2-0-7" id="h2-0-7" class="d">-    &lt;value&gt;Verifying/Requesting package acquisition failed: no store account found&lt;/value&gt;
+</a><a href="#h2-0-8" id="h2-0-8" class="d">-  &lt;/data&gt;
+</a><a href="#h2-0-9" id="h2-0-9" class="d">-  &lt;data name=&quot;MSStoreInstallGetEntitlementServerError&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h2-0-10" id="h2-0-10" class="d">-    &lt;value&gt;Verifying/Requesting package acquisition failed: server error&lt;/value&gt;
+</a><a href="#h2-0-11" id="h2-0-11" class="d">-  &lt;/data&gt;
+</a><a href="#h2-0-12" id="h2-0-12" class="d">-  &lt;data name=&quot;MSStoreInstallGetEntitlementSuccess&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h2-0-13" id="h2-0-13" class="d">-    &lt;value&gt;Verifying/Requesting package acquisition success&lt;/value&gt;
+</a><a href="#h2-0-14" id="h2-0-14" class="d">-  &lt;/data&gt;
+</a>   &lt;data name=&quot;MSStoreStoreClientBlocked&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Failed to install or upgrade Microsoft Store package because Microsoft Store client is blocked by policy&lt;/value&gt;
+   &lt;/data&gt;
+</pre>
+</div>
+</body>
+</html>

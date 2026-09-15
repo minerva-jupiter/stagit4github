@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Move Temp path to the user&#39;s location (#1146) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/c3b8d305ec5d039af8a3d1553f26548cdc2c208d.html">c3b8d305ec5d039af8a3d1553f26548cdc2c208d</a>
+<b>parent</b> <a href="../commit/854750e29736d96c314630a2b259a1ec19aa4339.html">854750e29736d96c314630a2b259a1ec19aa4339</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 10 Jun 2021 13:39:40 -0700
+
+Move Temp path to the user&#39;s location (#1146)
+
+Move the temp directory that is used from the package specific temp to the user&#39;s temp location.  This should prevent the Mandatory Low ACL that was apparently causing #189 from being inherited.  While this is more avoiding the problem than fixing it, given the relatively low rate of occurrence it might be hard to ensure that it was truly fixed by actually changing the ACLs (and would require much more time and code to write).
+
+Additionally changes the behavior of `Runtime::GetPathTo` to delete non-directories when they are encountered rather than just erroring directly.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCommonCore/Runtime.cpp</a></td><td> | </td><td class="num">34</td><td><span class="i">+++++++++++++++++++</span><span class="d">---------------</span></td></tr>
+</table></pre><pre>1 file changed, 19 insertions(+), 15 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a> b/<a href="../file/src/AppInstallerCommonCore/Runtime.cpp.html">src/AppInstallerCommonCore/Runtime.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -88,6 +88,16 @@ namespace AppInstaller::Runtime
+</a>             return knownFolder.get();
+         }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+        // Gets the user&#39;s temp path
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+        std::filesystem::path GetPathToUserTemp()
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+        {
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+            wchar_t tempPath[MAX_PATH + 1];
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+            DWORD tempChars = GetTempPathW(ARRAYSIZE(tempPath), tempPath);
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+            THROW_LAST_ERROR_IF(!tempChars);
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+            THROW_HR_IF(E_UNEXPECTED, tempChars &gt; ARRAYSIZE(tempPath));
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+            return { std::wstring_view{ tempPath, static_cast&lt;size_t&gt;(tempChars) } };
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+        }
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+
+</a>         // Gets the path to the appdata root.
+         // *Only used by non packaged version!*
+         std::filesystem::path GetPathToAppDataRoot()
+<a href="#h0-1" id="h0-1" class="h">@@ -225,8 +235,10 @@ namespace AppInstaller::Runtime
+</a>             switch (path)
+             {
+             case PathName::Temp:
+<a href="#h0-1-3" id="h0-1-3" class="d">-                result.assign(appStorage.TemporaryFolder().Path().c_str());
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+            {
+</a><a href="#h0-1-5" id="h0-1-5" class="i">+                result = GetPathToUserTemp();
+</a>                 result /= s_DefaultTempDirectory;
+<a href="#h0-1-7" id="h0-1-7" class="i">+            }
+</a>                 break;
+             case PathName::LocalState:
+             case PathName::UserFileSettings:
+<a href="#h0-2" id="h0-2" class="h">@@ -297,16 +309,14 @@ namespace AppInstaller::Runtime
+</a>             case PathName::Temp:
+             case PathName::DefaultLogLocation:
+             {
+<a href="#h0-2-3" id="h0-2-3" class="d">-                wchar_t tempPath[MAX_PATH + 1];
+</a><a href="#h0-2-4" id="h0-2-4" class="d">-                DWORD tempChars = GetTempPathW(ARRAYSIZE(tempPath), tempPath);
+</a><a href="#h0-2-5" id="h0-2-5" class="d">-                result.assign(std::wstring_view{ tempPath, static_cast&lt;size_t&gt;(tempChars) });
+</a><a href="#h0-2-6" id="h0-2-6" class="d">-
+</a><a href="#h0-2-7" id="h0-2-7" class="i">+                result = GetPathToUserTemp();
+</a>                 result /= s_DefaultTempDirectory;
+             }
+                 break;
+             case PathName::DefaultLogLocationForDisplay:
+                 result.assign(&quot;%TEMP%&quot;);
+                 result /= s_DefaultTempDirectory;
+<a href="#h0-2-14" id="h0-2-14" class="i">+                create = false;
+</a>                 break;
+             case PathName::LocalState:
+                 result = GetPathToAppDataDir(s_AppDataDir_State);
+<a href="#h0-3" id="h0-3" class="h">@@ -343,18 +353,12 @@ namespace AppInstaller::Runtime
+</a> 
+         if (create &amp;&amp; result.is_absolute())
+         {
+<a href="#h0-3-3" id="h0-3-3" class="d">-            if (std::filesystem::exists(result))
+</a><a href="#h0-3-4" id="h0-3-4" class="d">-            {
+</a><a href="#h0-3-5" id="h0-3-5" class="d">-                if (!std::filesystem::is_directory(result))
+</a><a href="#h0-3-6" id="h0-3-6" class="d">-                {
+</a><a href="#h0-3-7" id="h0-3-7" class="d">-                    // STATUS_NOT_A_DIRECTORY: A requested opened file is not a directory.
+</a><a href="#h0-3-8" id="h0-3-8" class="d">-                    THROW_NTSTATUS_MSG(0xC0000103, &quot;Location is not a directory&quot;);
+</a><a href="#h0-3-9" id="h0-3-9" class="d">-                }
+</a><a href="#h0-3-10" id="h0-3-10" class="d">-            }
+</a><a href="#h0-3-11" id="h0-3-11" class="d">-            else
+</a><a href="#h0-3-12" id="h0-3-12" class="i">+            if (std::filesystem::exists(result) &amp;&amp; !std::filesystem::is_directory(result))
+</a>             {
+<a href="#h0-3-14" id="h0-3-14" class="d">-                std::filesystem::create_directories(result);
+</a><a href="#h0-3-15" id="h0-3-15" class="i">+                std::filesystem::remove(result);
+</a>             }
+<a href="#h0-3-17" id="h0-3-17" class="i">+
+</a><a href="#h0-3-18" id="h0-3-18" class="i">+            std::filesystem::create_directories(result);
+</a>         }
+ 
+         return result;
+</pre>
+</div>
+</body>
+</html>

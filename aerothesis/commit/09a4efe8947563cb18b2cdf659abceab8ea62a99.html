@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>feat(engine): refactor acoustic modeling to use discrete delay resonance - aerothesis - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="aerothesis.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>aerothesis</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/09a4efe8947563cb18b2cdf659abceab8ea62a99.html">09a4efe8947563cb18b2cdf659abceab8ea62a99</a>
+<b>parent</b> <a href="../commit/6bdb5e079c6e3fabb5f667e42f4eced3bfc4d7b8.html">6bdb5e079c6e3fabb5f667e42f4eced3bfc4d7b8</a>
+<b>Author:</b> minerva-jupiter &lt;<a href="mailto:ryouturn@gmail.com">ryouturn@gmail.com</a>&gt;
+<b>Date:</b>   Fri, 19 Jun 2026 12:15:28 +0900
+
+feat(engine): refactor acoustic modeling to use discrete delay resonance
+
+- Remove Bore and Reed structs in favor of a centralized resonance implementation using x_history and VecDeque.
+- Update Aerothesis to support OpenPipe and ClosedPipe resonance types with configurable decay.
+- Cleanup documentation and simulation code in main.rs.
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">README.md</a></td><td> | </td><td class="num">94</td><td><span class="i"></span><span class="d">-------------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/lib.rs</a></td><td> | </td><td class="num">357</td><td><span class="i">+++++++++++++++++++</span><span class="d">------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/main.rs</a></td><td> | </td><td class="num">117</td><td><span class="i">+++++++++++++++++++</span><span class="d">-------------------------------------------------------------</span></td></tr>
+</table></pre><pre>3 files changed, 110 insertions(+), 458 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/README.md.html">README.md</a> b/<a href="../file/README.md.html">README.md</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -150,97 +150,3 @@ $$f[n] = \pm \frac{1}{2} \rho v_f[n]^2 g[n]$$
+</a> $$v_f[n] = \frac{-\alpha + \sqrt{\alpha^2 + 4 B[n] \Gamma[n-1]}}{2 B[n]}$$
+ 
+ #### Resonance Part
+<a href="#h0-0-3" id="h0-0-3" class="d">-
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-&lt;details&gt;
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-&lt;summary&gt;Physical Modeling of Boundary Dissipation in Open-Ended Acoustic Tubes&lt;/summary&gt;
+</a><a href="#h0-0-6" id="h0-0-6" class="d">-
+</a><a href="#h0-0-7" id="h0-0-7" class="d">-## 1. Physical Phenomenon: Open-End Reflection and Turbulence
+</a><a href="#h0-0-8" id="h0-0-8" class="d">-
+</a><a href="#h0-0-9" id="h0-0-9" class="d">-When an acoustic wave propagating inside a tube reaches an open end, it transitions from a highly constrained, one-dimensional channel to a free, unconstrained three-dimensional space.
+</a><a href="#h0-0-10" id="h0-0-10" class="d">-
+</a><a href="#h0-0-11" id="h0-0-11" class="d">-1. **Inertial Overshoot:** As a high-pressure (condensation) wave arrives at the exit, the air particles are suddenly liberated and accelerate outward into the ambient atmosphere. Due to their mass (inertia), these particles overshoot, evacuation the region just inside the exit. This creates a local localized low-pressure (rarefaction) zone, which propagates back into the tube as a phase-inverted ($-1$) reflection.
+</a><a href="#h0-0-12" id="h0-0-12" class="d">-2. **Nonlinear Energy Dissipation ($v|v|$ Loss):** When air particles exhaust violently out of the tube orifice, the sharp edge causes flow separation, generating **local vortices and turbulence**. In fluid dynamics, this rapid change in cross-sectional area converts kinetic energy into unrecoverable thermal and acoustic radiation losses. The pressure drop $\Delta P$ across such an orifice is dominated by dynamic pressure, meaning it is proportional to the **square of the particle velocity** ($v^2$).
+</a><a href="#h0-0-13" id="h0-0-13" class="d">-
+</a><a href="#h0-0-14" id="h0-0-14" class="d">----
+</a><a href="#h0-0-15" id="h0-0-15" class="d">-
+</a><a href="#h0-0-16" id="h0-0-16" class="d">-## 2. Continuous-Time Governing Equation
+</a><a href="#h0-0-17" id="h0-0-17" class="d">-
+</a><a href="#h0-0-18" id="h0-0-18" class="d">-We model the air plug at the open end as an effective acoustic mass (inertial slug) $M_e$ subject to a nonlinear aerodynamic resistance proportional to $v|v|$ to ensure that the damping force always opposes the direction of flow.
+</a><a href="#h0-0-19" id="h0-0-19" class="d">-
+</a><a href="#h0-0-20" id="h0-0-20" class="d">-Let $p_{total}(t)$ be the total acoustic pressure at the boundary, $S$ be the cross-sectional area of the tube, and $v(t)$ be the acoustic particle velocity. The force balance equation at the boundary $x = L$ is formulated as follows:
+</a><a href="#h0-0-21" id="h0-0-21" class="d">-
+</a><a href="#h0-0-22" id="h0-0-22" class="d">-$$S \cdot p_{total}(t) = M_e \frac{dv(t)}{dt} + r_{loss} v(t) |v(t)|$$
+</a><a href="#h0-0-23" id="h0-0-23" class="d">-
+</a><a href="#h0-0-24" id="h0-0-24" class="d">-Where:
+</a><a href="#h0-0-25" id="h0-0-25" class="d">-
+</a><a href="#h0-0-26" id="h0-0-26" class="d">-* $M_e = \rho_0 S \Delta L$ is the effective mass of the air plug (where $\Delta L \approx 0.613 \cdot \text{radius}$ is the open-end boundary correction length).
+</a><a href="#h0-0-27" id="h0-0-27" class="d">-* $r_{loss} = \frac{1}{2} \rho_0 S$ is the nonlinear loss coefficient derived from the dynamic pressure dissipation rate.
+</a><a href="#h0-0-28" id="h0-0-28" class="d">-* $\rho_0$ is the ambient air density.
+</a><a href="#h0-0-29" id="h0-0-29" class="d">-
+</a><a href="#h0-0-30" id="h0-0-30" class="d">----
+</a><a href="#h0-0-31" id="h0-0-31" class="d">-
+</a><a href="#h0-0-32" id="h0-0-32" class="d">-## 3. Boundary Coupling with Digital Waveguide
+</a><a href="#h0-0-33" id="h0-0-33" class="d">-
+</a><a href="#h0-0-34" id="h0-0-34" class="d">-In a digital waveguide framework, the total pressure $p_{total}$ at the boundary is the sum of the incoming progressive wave (right-going wave $p^+$) and the reflected wave (left-going wave $p^-$):
+</a><a href="#h0-0-35" id="h0-0-35" class="d">-
+</a><a href="#h0-0-36" id="h0-0-36" class="d">-$$p_{total}(t) = p^+(t) + p^-(t)$$
+</a><a href="#h0-0-37" id="h0-0-37" class="d">-
+</a><a href="#h0-0-38" id="h0-0-38" class="d">-The particle velocity $v(t)$ is related to these traveling components via the characteristic acoustic impedance of the tube, $Z_0 = \frac{\rho_0 c}{S}$:
+</a><a href="#h0-0-39" id="h0-0-39" class="d">-
+</a><a href="#h0-0-40" id="h0-0-40" class="d">-$$v(t) = \frac{1}{Z_0} \left( p^+(t) - p^-(t) \right)$$
+</a><a href="#h0-0-41" id="h0-0-41" class="d">-
+</a><a href="#h0-0-42" id="h0-0-42" class="d">-By rewriting the reflected wave $p^-(t)$ in terms of the current velocity and the incident wave, we eliminate the algebraic loop:
+</a><a href="#h0-0-43" id="h0-0-43" class="d">-
+</a><a href="#h0-0-44" id="h0-0-44" class="d">-$$p^-(t) = p^+(t) - Z_0 v(t)$$
+</a><a href="#h0-0-45" id="h0-0-45" class="d">-
+</a><a href="#h0-0-46" id="h0-0-46" class="d">-Substituting this back into the total pressure equation yields:
+</a><a href="#h0-0-47" id="h0-0-47" class="d">-
+</a><a href="#h0-0-48" id="h0-0-48" class="d">-$$p_{total}(t) = 2p^+(t) - Z_0 v(t)$$
+</a><a href="#h0-0-49" id="h0-0-49" class="d">-
+</a><a href="#h0-0-50" id="h0-0-50" class="d">----
+</a><a href="#h0-0-51" id="h0-0-51" class="d">-
+</a><a href="#h0-0-52" id="h0-0-52" class="d">-## 4. Discrete-Time Derivation via Backward Euler Discretization
+</a><a href="#h0-0-53" id="h0-0-53" class="d">-
+</a><a href="#h0-0-54" id="h0-0-54" class="d">-To solve the differential equation numerically without implicit algebraic loops, we apply a first-order Backward Euler finite difference approximation to the derivative term:
+</a><a href="#h0-0-55" id="h0-0-55" class="d">-
+</a><a href="#h0-0-56" id="h0-0-56" class="d">-$$\frac{dv(t)}{dt} \approx \frac{v[n] - v[n-1]}{T}$$
+</a><a href="#h0-0-57" id="h0-0-57" class="d">-
+</a><a href="#h0-0-58" id="h0-0-58" class="d">-Where $T = 1/f_s$ is the sampling period. Substituting the discrete derivative and the impedance-coupled total pressure into the continuous governing equation gives:
+</a><a href="#h0-0-59" id="h0-0-59" class="d">-
+</a><a href="#h0-0-60" id="h0-0-60" class="d">-$$S \left( 2p^+[n] - Z_0 v[n] \right) = M_e \left( \frac{v[n] - v[n-1]}{T} \right) + r_{loss} v[n] |v[n]|$$
+</a><a href="#h0-0-61" id="h0-0-61" class="d">-
+</a><a href="#h0-0-62" id="h0-0-62" class="d">-Assuming a positive outward flow ($v[n] &gt; 0 \implies v[n]|v[n]| = v[n]^2$) during the primary exhaust cycle, we collect terms to form a standard quadratic equation with respect to the current velocity $v[n]$:
+</a><a href="#h0-0-63" id="h0-0-63" class="d">-
+</a><a href="#h0-0-64" id="h0-0-64" class="d">-$$r_{loss} v[n]^2 + \left( \frac{M_e}{T} + S Z_0 \right) v[n] - \left( 2S p^+[n] + \frac{M_e}{T} v[n-1] \right) = 0$$
+</a><a href="#h0-0-65" id="h0-0-65" class="d">-
+</a><a href="#h0-0-66" id="h0-0-66" class="d">-Let us define the discrete time-invariant and time-varying coefficients as:
+</a><a href="#h0-0-67" id="h0-0-67" class="d">-
+</a><a href="#h0-0-68" id="h0-0-68" class="d">-$$\begin{aligned}
+</a><a href="#h0-0-69" id="h0-0-69" class="d">-A_{bc} &amp;= r_{loss} \\
+</a><a href="#h0-0-70" id="h0-0-70" class="d">-B_{bc} &amp;= \frac{M_e}{T} + S Z_0 \\
+</a><a href="#h0-0-71" id="h0-0-71" class="d">-C_{bc}[n] &amp;= 2S p^+[n] + \frac{M_e}{T} v[n-1]
+</a><a href="#h0-0-72" id="h0-0-72" class="d">-\end{aligned}$$
+</a><a href="#h0-0-73" id="h0-0-73" class="d">-
+</a><a href="#h0-0-74" id="h0-0-74" class="d">-The equation reduces to:
+</a><a href="#h0-0-75" id="h0-0-75" class="d">-
+</a><a href="#h0-0-76" id="h0-0-76" class="d">-$$A_{bc} v[n]^2 + B_{bc} v[n] - C_{bc}[n] = 0$$
+</a><a href="#h0-0-77" id="h0-0-77" class="d">-
+</a><a href="#h0-0-78" id="h0-0-78" class="d">-Applying the quadratic formula yields the explicit, stable algebraic solution for the particle velocity at the current sample step $n$:
+</a><a href="#h0-0-79" id="h0-0-79" class="d">-
+</a><a href="#h0-0-80" id="h0-0-80" class="d">-$$v[n] = \frac{-B_{bc} + \sqrt{B_{bc}^2 + 4 A_{bc} C_{bc}[n]}}{2 A_{bc}}$$
+</a><a href="#h0-0-81" id="h0-0-81" class="d">-
+</a><a href="#h0-0-82" id="h0-0-82" class="d">-Once $v[n]$ is evaluated, the true physical reflected wave $p^-[n]$ injected back into the delay line is determined deterministically:
+</a><a href="#h0-0-83" id="h0-0-83" class="d">-
+</a><a href="#h0-0-84" id="h0-0-84" class="d">-$$p^-[n] = p^+[n] - Z_0 v[n]$$
+</a><a href="#h0-0-85" id="h0-0-85" class="d">-
+</a><a href="#h0-0-86" id="h0-0-86" class="d">----
+</a><a href="#h0-0-87" id="h0-0-87" class="d">-
+</a><a href="#h0-0-88" id="h0-0-88" class="d">-## 5. Why This Causes High-Frequency Decay
+</a><a href="#h0-0-89" id="h0-0-89" class="d">-
+</a><a href="#h0-0-90" id="h0-0-90" class="d">-This mathematical formulation inherently explains why higher frequencies experience more severe damping without artificially implementing a digital filter:
+</a><a href="#h0-0-91" id="h0-0-91" class="d">-
+</a><a href="#h0-0-92" id="h0-0-92" class="d">-1. **Velocity-Dependent Damping:** High-frequency components undergo rapid structural changes over time ($\frac{dv}{dt}$ is large), forcing higher transient particle velocities $v[n]$.
+</a><a href="#h0-0-93" id="h0-0-93" class="d">-2. **Quadratic Penalty:** Because the dissipative term scales with $v[n]^2$, these high-velocity, high-frequency transients encounter a nonlinearly magnified resistance compared to slow, low-frequency pressure oscillations.
+</a><a href="#h0-0-94" id="h0-0-94" class="d">-3. **Impedance Matching Shift:** At low velocities, the quadratic term vanishes, and the system matches an ideal open boundary, achieving an inversion coefficient close to $-1$. At high velocities, the effective boundary impedance changes due to $r_{loss}v^2$, allowing energy to escape into the environment as radiation or heat rather than reflecting back into the pipe.
+</a><a href="#h0-0-95" id="h0-0-95" class="d">-
+</a><a href="#h0-0-96" id="h0-0-96" class="d">-&lt;/details&gt;
+</a><b>diff --git a/<a id="h1" href="../file/src/lib.rs.html">src/lib.rs</a> b/<a href="../file/src/lib.rs.html">src/lib.rs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -1,194 +1,10 @@
+</a> use nih_plug::prelude::*;
+<a href="#h1-0-1" id="h1-0-1" class="d">-use std::sync::Arc;
+</a><a href="#h1-0-2" id="h1-0-2" class="i">+use std::{collections::VecDeque, sync::Arc};
+</a> 
+ // This is a shortened version of the gain example with most comments removed, check out
+ // https://github.com/robbert-vdh/nih-plug/blob/master/plugins/examples/gain/src/lib.rs to get
+ // started
+ 
+<a href="#h1-0-8" id="h1-0-8" class="d">-const RHO: f32 = 1.2;
+</a><a href="#h1-0-9" id="h1-0-9" class="d">-const C_SPEED: f32 = 340.0;
+</a><a href="#h1-0-10" id="h1-0-10" class="d">-const RADIUS: f32 = 0.015;
+</a><a href="#h1-0-11" id="h1-0-11" class="d">-
+</a><a href="#h1-0-12" id="h1-0-12" class="d">-pub struct Bore {
+</a><a href="#h1-0-13" id="h1-0-13" class="d">-    pub delay_buffer: Vec&lt;f32&gt;,
+</a><a href="#h1-0-14" id="h1-0-14" class="d">-    pub pointer: usize,
+</a><a href="#h1-0-15" id="h1-0-15" class="d">-    pub z0: f32,
+</a><a href="#h1-0-16" id="h1-0-16" class="d">-    pub m_e: f32,
+</a><a href="#h1-0-17" id="h1-0-17" class="d">-    pub r_loss: f32,
+</a><a href="#h1-0-18" id="h1-0-18" class="d">-    pub v_prev: f32,
+</a><a href="#h1-0-19" id="h1-0-19" class="d">-}
+</a><a href="#h1-0-20" id="h1-0-20" class="d">-
+</a><a href="#h1-0-21" id="h1-0-21" class="d">-impl Bore {
+</a><a href="#h1-0-22" id="h1-0-22" class="d">-    pub fn new(target_freq: f32, sample_rate: f32, boundary_type: BoundaryType) -&gt; Self {
+</a><a href="#h1-0-23" id="h1-0-23" class="d">-        let wavelength_factor = match boundary_type {
+</a><a href="#h1-0-24" id="h1-0-24" class="d">-            BoundaryType::NonlinearDissipative =&gt; 2.0,
+</a><a href="#h1-0-25" id="h1-0-25" class="d">-            BoundaryType::Fixed =&gt; 1.0,
+</a><a href="#h1-0-26" id="h1-0-26" class="d">-        };
+</a><a href="#h1-0-27" id="h1-0-27" class="d">-        let delay_samples = (sample_rate / (target_freq * wavelength_factor)).round() as usize;
+</a><a href="#h1-0-28" id="h1-0-28" class="d">-        let s = std::f32::consts::PI * RADIUS * RADIUS;
+</a><a href="#h1-0-29" id="h1-0-29" class="d">-        let z0 = (RHO * C_SPEED) / s;
+</a><a href="#h1-0-30" id="h1-0-30" class="d">-        let delta_l = 0.613 * RADIUS;
+</a><a href="#h1-0-31" id="h1-0-31" class="d">-        let m_e = RHO * s * delta_l;
+</a><a href="#h1-0-32" id="h1-0-32" class="d">-        let r_loss = 0.5 * RHO * s;
+</a><a href="#h1-0-33" id="h1-0-33" class="d">-
+</a><a href="#h1-0-34" id="h1-0-34" class="d">-        Self {
+</a><a href="#h1-0-35" id="h1-0-35" class="d">-            delay_buffer: vec![0.0; delay_samples],
+</a><a href="#h1-0-36" id="h1-0-36" class="d">-            pointer: 0,
+</a><a href="#h1-0-37" id="h1-0-37" class="d">-            z0,
+</a><a href="#h1-0-38" id="h1-0-38" class="d">-            m_e,
+</a><a href="#h1-0-39" id="h1-0-39" class="d">-            r_loss,
+</a><a href="#h1-0-40" id="h1-0-40" class="d">-            v_prev: 0.0,
+</a><a href="#h1-0-41" id="h1-0-41" class="d">-        }
+</a><a href="#h1-0-42" id="h1-0-42" class="d">-    }
+</a><a href="#h1-0-43" id="h1-0-43" class="d">-
+</a><a href="#h1-0-44" id="h1-0-44" class="d">-    pub fn set_frequency(
+</a><a href="#h1-0-45" id="h1-0-45" class="d">-        &amp;mut self,
+</a><a href="#h1-0-46" id="h1-0-46" class="d">-        target_freq: f32,
+</a><a href="#h1-0-47" id="h1-0-47" class="d">-        sample_rate: f32,
+</a><a href="#h1-0-48" id="h1-0-48" class="d">-        boundary_type: BoundaryType,
+</a><a href="#h1-0-49" id="h1-0-49" class="d">-    ) {
+</a><a href="#h1-0-50" id="h1-0-50" class="d">-        let wavelength_factor = match boundary_type {
+</a><a href="#h1-0-51" id="h1-0-51" class="d">-            BoundaryType::NonlinearDissipative =&gt; 2.0,
+</a><a href="#h1-0-52" id="h1-0-52" class="d">-            BoundaryType::Fixed =&gt; 1.0,
+</a><a href="#h1-0-53" id="h1-0-53" class="d">-        };
+</a><a href="#h1-0-54" id="h1-0-54" class="d">-        let delay_samples = (sample_rate / (target_freq * wavelength_factor)).round() as usize;
+</a><a href="#h1-0-55" id="h1-0-55" class="d">-        if delay_samples != self.delay_buffer.len() &amp;&amp; delay_samples &gt; 0 {
+</a><a href="#h1-0-56" id="h1-0-56" class="d">-            self.delay_buffer.resize(delay_samples, 0.0);
+</a><a href="#h1-0-57" id="h1-0-57" class="d">-            if self.pointer &gt;= delay_samples {
+</a><a href="#h1-0-58" id="h1-0-58" class="d">-                self.pointer = 0;
+</a><a href="#h1-0-59" id="h1-0-59" class="d">-            }
+</a><a href="#h1-0-60" id="h1-0-60" class="d">-        }
+</a><a href="#h1-0-61" id="h1-0-61" class="d">-    }
+</a><a href="#h1-0-62" id="h1-0-62" class="d">-
+</a><a href="#h1-0-63" id="h1-0-63" class="d">-    pub fn step(&amp;mut self, p_plus_in: f32, t: f32, boundary_type: BoundaryType) -&gt; f32 {
+</a><a href="#h1-0-64" id="h1-0-64" class="d">-        if self.delay_buffer.is_empty() {
+</a><a href="#h1-0-65" id="h1-0-65" class="d">-            return 0.0;
+</a><a href="#h1-0-66" id="h1-0-66" class="d">-        }
+</a><a href="#h1-0-67" id="h1-0-67" class="d">-
+</a><a href="#h1-0-68" id="h1-0-68" class="d">-        let p_minus_out = self.delay_buffer[self.pointer];
+</a><a href="#h1-0-69" id="h1-0-69" class="d">-
+</a><a href="#h1-0-70" id="h1-0-70" class="d">-        let p_minus_reflected = match boundary_type {
+</a><a href="#h1-0-71" id="h1-0-71" class="d">-            BoundaryType::NonlinearDissipative =&gt; {
+</a><a href="#h1-0-72" id="h1-0-72" class="d">-                let s = std::f32::consts::PI * RADIUS * RADIUS;
+</a><a href="#h1-0-73" id="h1-0-73" class="d">-                let b_bc = (self.m_e / t) + (s * self.z0);
+</a><a href="#h1-0-74" id="h1-0-74" class="d">-                let c_bc = 2.0 * s * p_plus_in + (self.m_e / t) * self.v_prev;
+</a><a href="#h1-0-75" id="h1-0-75" class="d">-
+</a><a href="#h1-0-76" id="h1-0-76" class="d">-                let discriminant = (b_bc * b_bc + 4.0 * self.r_loss * c_bc).max(0.0);
+</a><a href="#h1-0-77" id="h1-0-77" class="d">-                let v_current = (-b_bc + discriminant.sqrt()) / (2.0 * self.r_loss);
+</a><a href="#h1-0-78" id="h1-0-78" class="d">-
+</a><a href="#h1-0-79" id="h1-0-79" class="d">-                let res = p_plus_in - self.z0 * v_current;
+</a><a href="#h1-0-80" id="h1-0-80" class="d">-                self.v_prev = v_current;
+</a><a href="#h1-0-81" id="h1-0-81" class="d">-                res
+</a><a href="#h1-0-82" id="h1-0-82" class="d">-            }
+</a><a href="#h1-0-83" id="h1-0-83" class="d">-            BoundaryType::Fixed =&gt; p_plus_in,
+</a><a href="#h1-0-84" id="h1-0-84" class="d">-        };
+</a><a href="#h1-0-85" id="h1-0-85" class="d">-
+</a><a href="#h1-0-86" id="h1-0-86" class="d">-        self.delay_buffer[self.pointer] = p_minus_reflected;
+</a><a href="#h1-0-87" id="h1-0-87" class="d">-        self.pointer = (self.pointer + 1) % self.delay_buffer.len();
+</a><a href="#h1-0-88" id="h1-0-88" class="d">-
+</a><a href="#h1-0-89" id="h1-0-89" class="d">-        p_minus_out
+</a><a href="#h1-0-90" id="h1-0-90" class="d">-    }
+</a><a href="#h1-0-91" id="h1-0-91" class="d">-
+</a><a href="#h1-0-92" id="h1-0-92" class="d">-    pub fn reset(&amp;mut self) {
+</a><a href="#h1-0-93" id="h1-0-93" class="d">-        for val in self.delay_buffer.iter_mut() {
+</a><a href="#h1-0-94" id="h1-0-94" class="d">-            *val = 0.0;
+</a><a href="#h1-0-95" id="h1-0-95" class="d">-        }
+</a><a href="#h1-0-96" id="h1-0-96" class="d">-        self.pointer = 0;
+</a><a href="#h1-0-97" id="h1-0-97" class="d">-        self.v_prev = 0.0;
+</a><a href="#h1-0-98" id="h1-0-98" class="d">-    }
+</a><a href="#h1-0-99" id="h1-0-99" class="d">-}
+</a><a href="#h1-0-100" id="h1-0-100" class="d">-
+</a><a href="#h1-0-101" id="h1-0-101" class="d">-pub struct Reed {
+</a><a href="#h1-0-102" id="h1-0-102" class="d">-    pub x_prev1: f32,
+</a><a href="#h1-0-103" id="h1-0-103" class="d">-    pub x_prev2: f32,
+</a><a href="#h1-0-104" id="h1-0-104" class="d">-    pub f_prev1: f32,
+</a><a href="#h1-0-105" id="h1-0-105" class="d">-    pub f_prev2: f32,
+</a><a href="#h1-0-106" id="h1-0-106" class="d">-    pub vf_prev1: f32,
+</a><a href="#h1-0-107" id="h1-0-107" class="d">-}
+</a><a href="#h1-0-108" id="h1-0-108" class="d">-
+</a><a href="#h1-0-109" id="h1-0-109" class="d">-impl Reed {
+</a><a href="#h1-0-110" id="h1-0-110" class="d">-    pub fn new() -&gt; Self {
+</a><a href="#h1-0-111" id="h1-0-111" class="d">-        Self {
+</a><a href="#h1-0-112" id="h1-0-112" class="d">-            x_prev1: 0.0,
+</a><a href="#h1-0-113" id="h1-0-113" class="d">-            x_prev2: 0.0,
+</a><a href="#h1-0-114" id="h1-0-114" class="d">-            f_prev1: 0.0,
+</a><a href="#h1-0-115" id="h1-0-115" class="d">-            f_prev2: 0.0,
+</a><a href="#h1-0-116" id="h1-0-116" class="d">-            vf_prev1: 0.0,
+</a><a href="#h1-0-117" id="h1-0-117" class="d">-        }
+</a><a href="#h1-0-118" id="h1-0-118" class="d">-    }
+</a><a href="#h1-0-119" id="h1-0-119" class="d">-
+</a><a href="#h1-0-120" id="h1-0-120" class="d">-    pub fn step(
+</a><a href="#h1-0-121" id="h1-0-121" class="d">-        &amp;mut self,
+</a><a href="#h1-0-122" id="h1-0-122" class="d">-        p_total: f32,
+</a><a href="#h1-0-123" id="h1-0-123" class="d">-        oscillation_type: OscillationType,
+</a><a href="#h1-0-124" id="h1-0-124" class="d">-        sample_rate: f32,
+</a><a href="#h1-0-125" id="h1-0-125" class="d">-        params: &amp;AerothesisParams,
+</a><a href="#h1-0-126" id="h1-0-126" class="d">-        v_bite: f32,
+</a><a href="#h1-0-127" id="h1-0-127" class="d">-    ) -&gt; (f32, f32) {
+</a><a href="#h1-0-128" id="h1-0-128" class="d">-        let t = 1.0 / sample_rate;
+</a><a href="#h1-0-129" id="h1-0-129" class="d">-        const EPS: f32 = 1e-5;
+</a><a href="#h1-0-130" id="h1-0-130" class="d">-
+</a><a href="#h1-0-131" id="h1-0-131" class="d">-        let gap_curr = (2.0 - self.x_prev1).max(EPS);
+</a><a href="#h1-0-132" id="h1-0-132" class="d">-        let b_curr = RHO / (4.0 * gap_curr * gap_curr);
+</a><a href="#h1-0-133" id="h1-0-133" class="d">-        let a_fluid = (RHO * params.reed_length.value()) / t;
+</a><a href="#h1-0-134" id="h1-0-134" class="d">-
+</a><a href="#h1-0-135" id="h1-0-135" class="d">-        let c_prev = p_total - b_curr * (self.vf_prev1 * self.vf_prev1);
+</a><a href="#h1-0-136" id="h1-0-136" class="d">-        let discriminant =
+</a><a href="#h1-0-137" id="h1-0-137" class="d">-            (a_fluid * a_fluid + 4.0 * b_curr * (a_fluid * self.vf_prev1 + c_prev)).max(0.0);
+</a><a href="#h1-0-138" id="h1-0-138" class="d">-        let vf_current = (-a_fluid + discriminant.sqrt()) / (2.0 * b_curr);
+</a><a href="#h1-0-139" id="h1-0-139" class="d">-
+</a><a href="#h1-0-140" id="h1-0-140" class="d">-        let mut f_current = if self.x_prev1 &gt;= 2.0 {
+</a><a href="#h1-0-141" id="h1-0-141" class="d">-            0.0
+</a><a href="#h1-0-142" id="h1-0-142" class="d">-        } else {
+</a><a href="#h1-0-143" id="h1-0-143" class="d">-            0.5 * RHO * (vf_current * vf_current) * gap_curr
+</a><a href="#h1-0-144" id="h1-0-144" class="d">-        };
+</a><a href="#h1-0-145" id="h1-0-145" class="d">-
+</a><a href="#h1-0-146" id="h1-0-146" class="d">-        if oscillation_type == OscillationType::LipReed {
+</a><a href="#h1-0-147" id="h1-0-147" class="d">-            f_current = -f_current;
+</a><a href="#h1-0-148" id="h1-0-148" class="d">-        }
+</a><a href="#h1-0-149" id="h1-0-149" class="d">-
+</a><a href="#h1-0-150" id="h1-0-150" class="d">-        let m = params.base_mass.value() * (1.0 - params.bite_mass_scale.value() * v_bite);
+</a><a href="#h1-0-151" id="h1-0-151" class="d">-        let r = params.base_damping.value() * (1.0 + params.bite_damping_scale.value() * v_bite);
+</a><a href="#h1-0-152" id="h1-0-152" class="d">-        let k =
+</a><a href="#h1-0-153" id="h1-0-153" class="d">-            params.base_stiffness.value() * (1.0 + params.bite_stiffness_scale.value() * v_bite);
+</a><a href="#h1-0-154" id="h1-0-154" class="d">-
+</a><a href="#h1-0-155" id="h1-0-155" class="d">-        let b0 = t * t;
+</a><a href="#h1-0-156" id="h1-0-156" class="d">-        let b1 = 2.0 * t * t;
+</a><a href="#h1-0-157" id="h1-0-157" class="d">-        let b2 = t * t;
+</a><a href="#h1-0-158" id="h1-0-158" class="d">-
+</a><a href="#h1-0-159" id="h1-0-159" class="d">-        let a0 = 4.0 * m + 2.0 * r * t + k * t * t;
+</a><a href="#h1-0-160" id="h1-0-160" class="d">-        let a1 = -8.0 * m + 2.0 * k * t * t;
+</a><a href="#h1-0-161" id="h1-0-161" class="d">-        let a2 = 4.0 * m - 2.0 * r * t + k * t * t;
+</a><a href="#h1-0-162" id="h1-0-162" class="d">-
+</a><a href="#h1-0-163" id="h1-0-163" class="d">-        let mut x_n = (b0 * f_current + b1 * self.f_prev1 + b2 * self.f_prev2
+</a><a href="#h1-0-164" id="h1-0-164" class="d">-            - a1 * self.x_prev1
+</a><a href="#h1-0-165" id="h1-0-165" class="d">-            - a2 * self.x_prev2)
+</a><a href="#h1-0-166" id="h1-0-166" class="d">-            / a0;
+</a><a href="#h1-0-167" id="h1-0-167" class="d">-
+</a><a href="#h1-0-168" id="h1-0-168" class="d">-        if x_n &gt;= 2.0 {
+</a><a href="#h1-0-169" id="h1-0-169" class="d">-            x_n = 2.0;
+</a><a href="#h1-0-170" id="h1-0-170" class="d">-        } else if x_n &lt; 0.0 {
+</a><a href="#h1-0-171" id="h1-0-171" class="d">-            x_n = 0.0;
+</a><a href="#h1-0-172" id="h1-0-172" class="d">-        }
+</a><a href="#h1-0-173" id="h1-0-173" class="d">-
+</a><a href="#h1-0-174" id="h1-0-174" class="d">-        self.x_prev2 = self.x_prev1;
+</a><a href="#h1-0-175" id="h1-0-175" class="d">-        self.x_prev1 = x_n;
+</a><a href="#h1-0-176" id="h1-0-176" class="d">-        self.f_prev2 = self.f_prev1;
+</a><a href="#h1-0-177" id="h1-0-177" class="d">-        self.f_prev1 = f_current;
+</a><a href="#h1-0-178" id="h1-0-178" class="d">-        self.vf_prev1 = vf_current;
+</a><a href="#h1-0-179" id="h1-0-179" class="d">-
+</a><a href="#h1-0-180" id="h1-0-180" class="d">-        (x_n, vf_current)
+</a><a href="#h1-0-181" id="h1-0-181" class="d">-    }
+</a><a href="#h1-0-182" id="h1-0-182" class="d">-
+</a><a href="#h1-0-183" id="h1-0-183" class="d">-    pub fn reset(&amp;mut self) {
+</a><a href="#h1-0-184" id="h1-0-184" class="d">-        self.x_prev1 = 0.0;
+</a><a href="#h1-0-185" id="h1-0-185" class="d">-        self.x_prev2 = 0.0;
+</a><a href="#h1-0-186" id="h1-0-186" class="d">-        self.f_prev1 = 0.0;
+</a><a href="#h1-0-187" id="h1-0-187" class="d">-        self.f_prev2 = 0.0;
+</a><a href="#h1-0-188" id="h1-0-188" class="d">-        self.vf_prev1 = 0.0;
+</a><a href="#h1-0-189" id="h1-0-189" class="d">-    }
+</a><a href="#h1-0-190" id="h1-0-190" class="d">-}
+</a><a href="#h1-0-191" id="h1-0-191" class="d">-
+</a> pub struct Aerothesis {
+     pub params: Arc&lt;AerothesisParams&gt;,
+ 
+<a href="#h1-1" id="h1-1" class="h">@@ -206,26 +22,25 @@ pub struct Aerothesis {
+</a> 
+     pub v_fluid_prev: f32,
+ 
+<a href="#h1-1-3" id="h1-1-3" class="d">-    pub bore: Bore,
+</a><a href="#h1-1-4" id="h1-1-4" class="d">-    pub reed: Reed,
+</a><a href="#h1-1-5" id="h1-1-5" class="d">-    pub p_minus: f32,
+</a><a href="#h1-1-6" id="h1-1-6" class="d">-    pub current_frequency: f32,
+</a><a href="#h1-1-7" id="h1-1-7" class="i">+    pub x_history: VecDeque&lt;f32&gt;,
+</a><a href="#h1-1-8" id="h1-1-8" class="i">+
+</a><a href="#h1-1-9" id="h1-1-9" class="i">+    pub note_frequency: f32,
+</a> }
+ 
+ #[derive(Enum, PartialEq, Clone, Copy)]
+<a href="#h1-1-13" id="h1-1-13" class="d">-pub enum OscillationType {
+</a><a href="#h1-1-14" id="h1-1-14" class="i">+pub enum InstrumentType {
+</a>     #[name = &quot;Single Reed&quot;]
+     SingleReed,
+<a href="#h1-1-17" id="h1-1-17" class="d">-    #[name = &quot;Lip Reed&quot;]
+</a><a href="#h1-1-18" id="h1-1-18" class="i">+    #[name = &quot;Rip Reed&quot;]
+</a>     LipReed,
+ }
+ 
+ #[derive(Enum, PartialEq, Clone, Copy)]
+<a href="#h1-1-23" id="h1-1-23" class="d">-pub enum BoundaryType {
+</a><a href="#h1-1-24" id="h1-1-24" class="d">-    #[name = &quot;Nonlinear Dissipative&quot;]
+</a><a href="#h1-1-25" id="h1-1-25" class="d">-    NonlinearDissipative,
+</a><a href="#h1-1-26" id="h1-1-26" class="d">-    #[name = &quot;Fixed End&quot;]
+</a><a href="#h1-1-27" id="h1-1-27" class="d">-    Fixed,
+</a><a href="#h1-1-28" id="h1-1-28" class="i">+pub enum ResonanceType {
+</a><a href="#h1-1-29" id="h1-1-29" class="i">+    #[name = &quot;Open Pipe&quot;]
+</a><a href="#h1-1-30" id="h1-1-30" class="i">+    OpenPipe,
+</a><a href="#h1-1-31" id="h1-1-31" class="i">+    #[name = &quot;Closed Pipe&quot;]
+</a><a href="#h1-1-32" id="h1-1-32" class="i">+    ClosedPipe,
+</a> }
+ 
+ #[derive(Params)]
+<a href="#h1-2" id="h1-2" class="h">@@ -237,14 +52,8 @@ pub struct AerothesisParams {
+</a>     #[id = &quot;gain&quot;]
+     pub gain: FloatParam,
+ 
+<a href="#h1-2-3" id="h1-2-3" class="d">-    #[id = &quot;output_gain&quot;]
+</a><a href="#h1-2-4" id="h1-2-4" class="d">-    pub output_gain: FloatParam,
+</a><a href="#h1-2-5" id="h1-2-5" class="d">-
+</a><a href="#h1-2-6" id="h1-2-6" class="d">-    #[id = &quot;oscillation_type&quot;]
+</a><a href="#h1-2-7" id="h1-2-7" class="d">-    pub oscillation_type: EnumParam&lt;OscillationType&gt;,
+</a><a href="#h1-2-8" id="h1-2-8" class="d">-
+</a><a href="#h1-2-9" id="h1-2-9" class="d">-    #[id = &quot;boundary_type&quot;]
+</a><a href="#h1-2-10" id="h1-2-10" class="d">-    pub boundary_type: EnumParam&lt;BoundaryType&gt;,
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+    #[id = &quot;instrument_type&quot;]
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+    pub instrument_type: EnumParam&lt;InstrumentType&gt;,
+</a> 
+     #[id = &quot;ReedLength&quot;]
+     pub reed_length: FloatParam,
+<a href="#h1-3" id="h1-3" class="h">@@ -272,30 +81,32 @@ pub struct AerothesisParams {
+</a>     pub breath_cc: IntParam,
+     #[id = &quot;bite_cc&quot;]
+     pub bite_cc: IntParam,
+<a href="#h1-3-3" id="h1-3-3" class="i">+
+</a><a href="#h1-3-4" id="h1-3-4" class="i">+    #[id = &quot;resonance_type&quot;]
+</a><a href="#h1-3-5" id="h1-3-5" class="i">+    pub resonance_type: EnumParam&lt;ResonanceType&gt;,
+</a><a href="#h1-3-6" id="h1-3-6" class="i">+
+</a><a href="#h1-3-7" id="h1-3-7" class="i">+    #[id = &quot;resonance_decay&quot;]
+</a><a href="#h1-3-8" id="h1-3-8" class="i">+    pub resonance_decay: FloatParam,
+</a> }
+ 
+ impl Default for Aerothesis {
+     fn default() -&gt; Self {
+<a href="#h1-3-13" id="h1-3-13" class="d">-        let sample_rate = 44100.0;
+</a><a href="#h1-3-14" id="h1-3-14" class="d">-        let target_freq = 220.0;
+</a><a href="#h1-3-15" id="h1-3-15" class="d">-        let params = Arc::new(AerothesisParams::default());
+</a>         Self {
+<a href="#h1-3-17" id="h1-3-17" class="d">-            bore: Bore::new(target_freq, sample_rate, params.boundary_type.value()),
+</a><a href="#h1-3-18" id="h1-3-18" class="d">-            params,
+</a><a href="#h1-3-19" id="h1-3-19" class="i">+            params: Arc::new(AerothesisParams::default()),
+</a>             x_prev: 0.0,
+             x_prev2: 0.0,
+             v_prev: 0.0,
+             f_prev: 0.0,
+             f_prev2: 0.0,
+<a href="#h1-3-25" id="h1-3-25" class="d">-            sample_rate,
+</a><a href="#h1-3-26" id="h1-3-26" class="i">+            sample_rate: 44100.0,
+</a> 
+<a href="#h1-3-28" id="h1-3-28" class="d">-            v_breath: 0.0,
+</a><a href="#h1-3-29" id="h1-3-29" class="i">+            v_breath: 0.1,
+</a>             v_bite: 0.0,
+             v_fluid_prev: 0.0,
+ 
+<a href="#h1-3-33" id="h1-3-33" class="d">-            reed: Reed::new(),
+</a><a href="#h1-3-34" id="h1-3-34" class="d">-            p_minus: 0.0,
+</a><a href="#h1-3-35" id="h1-3-35" class="d">-            current_frequency: target_freq,
+</a><a href="#h1-3-36" id="h1-3-36" class="i">+            x_history: VecDeque::new(),
+</a><a href="#h1-3-37" id="h1-3-37" class="i">+
+</a><a href="#h1-3-38" id="h1-3-38" class="i">+            note_frequency: 0.0,
+</a>         }
+     }
+ }
+<a href="#h1-4" id="h1-4" class="h">@@ -327,19 +138,7 @@ impl Default for AerothesisParams {
+</a>             .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
+             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+ 
+<a href="#h1-4-3" id="h1-4-3" class="d">-            output_gain: FloatParam::new(
+</a><a href="#h1-4-4" id="h1-4-4" class="d">-                &quot;Output Gain&quot;,
+</a><a href="#h1-4-5" id="h1-4-5" class="d">-                0.01,
+</a><a href="#h1-4-6" id="h1-4-6" class="d">-                FloatRange::Skewed {
+</a><a href="#h1-4-7" id="h1-4-7" class="d">-                    min: 0.0,
+</a><a href="#h1-4-8" id="h1-4-8" class="d">-                    max: 1.0,
+</a><a href="#h1-4-9" id="h1-4-9" class="d">-                    factor: 0.2,
+</a><a href="#h1-4-10" id="h1-4-10" class="d">-                },
+</a><a href="#h1-4-11" id="h1-4-11" class="d">-            ),
+</a><a href="#h1-4-12" id="h1-4-12" class="d">-
+</a><a href="#h1-4-13" id="h1-4-13" class="d">-            oscillation_type: EnumParam::new(&quot;Oscillation Type&quot;, OscillationType::SingleReed),
+</a><a href="#h1-4-14" id="h1-4-14" class="d">-
+</a><a href="#h1-4-15" id="h1-4-15" class="d">-            boundary_type: EnumParam::new(&quot;Boundary Type&quot;, BoundaryType::NonlinearDissipative),
+</a><a href="#h1-4-16" id="h1-4-16" class="i">+            instrument_type: EnumParam::new(&quot;Instrument Type&quot;, InstrumentType::SingleReed),
+</a> 
+             reed_length: FloatParam::new(
+                 &quot;Reed Length&quot;,
+<a href="#h1-5" id="h1-5" class="h">@@ -420,6 +219,17 @@ impl Default for AerothesisParams {
+</a> 
+             breath_cc: IntParam::new(&quot;Breath CC&quot;, 2, IntRange::Linear { min: 0, max: 127 }),
+             bite_cc: IntParam::new(&quot;Bite CC&quot;, 11, IntRange::Linear { min: 0, max: 127 }),
+<a href="#h1-5-3" id="h1-5-3" class="i">+
+</a><a href="#h1-5-4" id="h1-5-4" class="i">+            resonance_type: EnumParam::new(&quot;Resonance Type&quot;, ResonanceType::OpenPipe),
+</a><a href="#h1-5-5" id="h1-5-5" class="i">+            resonance_decay: FloatParam::new(
+</a><a href="#h1-5-6" id="h1-5-6" class="i">+                &quot;Resonance Decay&quot;,
+</a><a href="#h1-5-7" id="h1-5-7" class="i">+                0.9,
+</a><a href="#h1-5-8" id="h1-5-8" class="i">+                FloatRange::Skewed {
+</a><a href="#h1-5-9" id="h1-5-9" class="i">+                    min: 0.0,
+</a><a href="#h1-5-10" id="h1-5-10" class="i">+                    max: 1.0,
+</a><a href="#h1-5-11" id="h1-5-11" class="i">+                    factor: 0.8,
+</a><a href="#h1-5-12" id="h1-5-12" class="i">+                },
+</a><a href="#h1-5-13" id="h1-5-13" class="i">+            ),
+</a>         }
+     }
+ }
+<a href="#h1-6" id="h1-6" class="h">@@ -465,6 +275,7 @@ impl Aerothesis {
+</a>         let b_prev = RHO / (4.0 * (gap_prev * gap_prev));
+         let c_prev = self.v_breath - b_prev * (self.v_fluid_prev * self.v_fluid_prev);
+ 
+<a href="#h1-6-3" id="h1-6-3" class="i">+        // Current gap is also based on x_prev in this discrete model for stability
+</a>         let gap_curr = (2.0 - self.x_prev).clamp(EPS, 2.0);
+         let b_curr = RHO / (4.0 * (gap_curr * gap_curr));
+ 
+<a href="#h1-7" id="h1-7" class="h">@@ -519,6 +330,29 @@ impl Aerothesis {
+</a>         let t = 1.0 / self.sample_rate;
+         (2.0 / t) * (x - self.x_prev) - self.v_prev
+     }
+<a href="#h1-7-3" id="h1-7-3" class="i">+
+</a><a href="#h1-7-4" id="h1-7-4" class="i">+    pub fn resonance(&amp;mut self) -&gt; f32 {
+</a><a href="#h1-7-5" id="h1-7-5" class="i">+        let x_n = self.step();
+</a><a href="#h1-7-6" id="h1-7-6" class="i">+        let x_oscillator = x_n - self.equilibrium_offset();
+</a><a href="#h1-7-7" id="h1-7-7" class="i">+
+</a><a href="#h1-7-8" id="h1-7-8" class="i">+        let resonance = if self.resonance_delay_samples() &gt; self.x_history.len() as f32 {
+</a><a href="#h1-7-9" id="h1-7-9" class="i">+            0.0
+</a><a href="#h1-7-10" id="h1-7-10" class="i">+        } else {
+</a><a href="#h1-7-11" id="h1-7-11" class="i">+            let decay: f32 = if self.params.resonance_type.value() == ResonanceType::OpenPipe {
+</a><a href="#h1-7-12" id="h1-7-12" class="i">+                1.0
+</a><a href="#h1-7-13" id="h1-7-13" class="i">+            } else {
+</a><a href="#h1-7-14" id="h1-7-14" class="i">+                -1.0
+</a><a href="#h1-7-15" id="h1-7-15" class="i">+            } * self.params.resonance_decay.value();
+</a><a href="#h1-7-16" id="h1-7-16" class="i">+            let x_delay = self.x_history.pop_front().unwrap_or(0.0);
+</a><a href="#h1-7-17" id="h1-7-17" class="i">+            decay * x_delay
+</a><a href="#h1-7-18" id="h1-7-18" class="i">+        };
+</a><a href="#h1-7-19" id="h1-7-19" class="i">+
+</a><a href="#h1-7-20" id="h1-7-20" class="i">+        let x_current = x_oscillator + resonance;
+</a><a href="#h1-7-21" id="h1-7-21" class="i">+        self.x_history.push_back(x_current);
+</a><a href="#h1-7-22" id="h1-7-22" class="i">+
+</a><a href="#h1-7-23" id="h1-7-23" class="i">+        x_current
+</a><a href="#h1-7-24" id="h1-7-24" class="i">+    }
+</a><a href="#h1-7-25" id="h1-7-25" class="i">+
+</a>     fn equilibrium_offset(&amp;self) -&gt; f32 {
+         let f = self.f();
+         let k = self.k();
+<a href="#h1-8" id="h1-8" class="h">@@ -528,6 +362,16 @@ impl Aerothesis {
+</a>             0.0
+         }
+     }
+<a href="#h1-8-3" id="h1-8-3" class="i">+    fn resonance_delay_samples(&amp;self) -&gt; f32 {
+</a><a href="#h1-8-4" id="h1-8-4" class="i">+        if self.params.resonance_type.value() == ResonanceType::OpenPipe {
+</a><a href="#h1-8-5" id="h1-8-5" class="i">+            self.sample_rate / self.note_frequency
+</a><a href="#h1-8-6" id="h1-8-6" class="i">+        } else {
+</a><a href="#h1-8-7" id="h1-8-7" class="i">+            self.sample_rate / 2.0 / self.note_frequency
+</a><a href="#h1-8-8" id="h1-8-8" class="i">+        }
+</a><a href="#h1-8-9" id="h1-8-9" class="i">+    }
+</a><a href="#h1-8-10" id="h1-8-10" class="i">+    fn avg_x_history(&amp;self) -&gt; f32 {
+</a><a href="#h1-8-11" id="h1-8-11" class="i">+        self.x_history.iter().sum::&lt;f32&gt;() / self.x_history.len() as f32
+</a><a href="#h1-8-12" id="h1-8-12" class="i">+    }
+</a> }
+ 
+ impl Plugin for Aerothesis {
+<a href="#h1-9" id="h1-9" class="h">@@ -578,21 +422,13 @@ impl Plugin for Aerothesis {
+</a>         _context: &amp;mut impl InitContext&lt;Self&gt;,
+     ) -&gt; bool {
+         self.sample_rate = buffer_config.sample_rate;
+<a href="#h1-9-3" id="h1-9-3" class="d">-        self.bore = Bore::new(
+</a><a href="#h1-9-4" id="h1-9-4" class="d">-            self.current_frequency,
+</a><a href="#h1-9-5" id="h1-9-5" class="d">-            self.sample_rate,
+</a><a href="#h1-9-6" id="h1-9-6" class="d">-            self.params.boundary_type.value(),
+</a><a href="#h1-9-7" id="h1-9-7" class="d">-        );
+</a>         true
+     }
+ 
+     fn reset(&amp;mut self) {
+         // Reset buffers and envelopes here. This can be called from the audio thread and may not
+         // allocate. You can remove this function if you do not need it.
+<a href="#h1-9-14" id="h1-9-14" class="d">-        self.bore.reset();
+</a><a href="#h1-9-15" id="h1-9-15" class="d">-        self.reed.reset();
+</a><a href="#h1-9-16" id="h1-9-16" class="d">-        self.p_minus = 0.0;
+</a><a href="#h1-9-17" id="h1-9-17" class="d">-        self.v_breath = 0.0;
+</a><a href="#h1-9-18" id="h1-9-18" class="i">+        self.x_history.clear();
+</a>     }
+ 
+     fn process(
+<a href="#h1-10" id="h1-10" class="h">@@ -615,52 +451,26 @@ impl Plugin for Aerothesis {
+</a>                         self.v_bite = value;
+                     }
+                 }
+<a href="#h1-10-3" id="h1-10-3" class="d">-                NoteEvent::NoteOn { note, .. } =&gt; {
+</a><a href="#h1-10-4" id="h1-10-4" class="d">-                    self.current_frequency = util::midi_note_to_freq(note);
+</a><a href="#h1-10-5" id="h1-10-5" class="d">-                    self.bore.set_frequency(
+</a><a href="#h1-10-6" id="h1-10-6" class="d">-                        self.current_frequency,
+</a><a href="#h1-10-7" id="h1-10-7" class="d">-                        self.sample_rate,
+</a><a href="#h1-10-8" id="h1-10-8" class="d">-                        self.params.boundary_type.value(),
+</a><a href="#h1-10-9" id="h1-10-9" class="d">-                    );
+</a><a href="#h1-10-10" id="h1-10-10" class="i">+                NoteEvent::NoteOn {
+</a><a href="#h1-10-11" id="h1-10-11" class="i">+                    timing: _,
+</a><a href="#h1-10-12" id="h1-10-12" class="i">+                    voice_id: _,
+</a><a href="#h1-10-13" id="h1-10-13" class="i">+                    channel: _,
+</a><a href="#h1-10-14" id="h1-10-14" class="i">+                    note,
+</a><a href="#h1-10-15" id="h1-10-15" class="i">+                    velocity: _,
+</a><a href="#h1-10-16" id="h1-10-16" class="i">+                } =&gt; {
+</a><a href="#h1-10-17" id="h1-10-17" class="i">+                    self.reset();
+</a><a href="#h1-10-18" id="h1-10-18" class="i">+                    self.note_frequency = util::midi_note_to_freq(note);
+</a>                 }
+                 _ =&gt; (),
+             }
+         }
+ 
+<a href="#h1-10-24" id="h1-10-24" class="d">-        let t = 1.0 / self.sample_rate;
+</a><a href="#h1-10-25" id="h1-10-25" class="d">-
+</a>         for channel_samples in buffer.iter_samples() {
+             let gain = self.params.gain.smoothed.next();
+<a href="#h1-10-28" id="h1-10-28" class="d">-
+</a><a href="#h1-10-29" id="h1-10-29" class="d">-            let p_total = self.v_breath + self.p_minus;
+</a><a href="#h1-10-30" id="h1-10-30" class="d">-            let (x_n, vf_n) = self.reed.step(
+</a><a href="#h1-10-31" id="h1-10-31" class="d">-                p_total,
+</a><a href="#h1-10-32" id="h1-10-32" class="d">-                self.params.oscillation_type.value(),
+</a><a href="#h1-10-33" id="h1-10-33" class="d">-                self.sample_rate,
+</a><a href="#h1-10-34" id="h1-10-34" class="d">-                &amp;self.params,
+</a><a href="#h1-10-35" id="h1-10-35" class="d">-                self.v_bite,
+</a><a href="#h1-10-36" id="h1-10-36" class="d">-            );
+</a><a href="#h1-10-37" id="h1-10-37" class="d">-
+</a><a href="#h1-10-38" id="h1-10-38" class="d">-            let gap = (2.0 - x_n).max(1e-5);
+</a><a href="#h1-10-39" id="h1-10-39" class="d">-            let u = vf_n * gap;
+</a><a href="#h1-10-40" id="h1-10-40" class="d">-            let p_mouth = self.p_minus + self.bore.z0 * u;
+</a><a href="#h1-10-41" id="h1-10-41" class="d">-            let p_plus = p_mouth - self.p_minus;
+</a><a href="#h1-10-42" id="h1-10-42" class="d">-
+</a><a href="#h1-10-43" id="h1-10-43" class="d">-            self.p_minus = self.bore.step(p_plus, t, self.params.boundary_type.value());
+</a><a href="#h1-10-44" id="h1-10-44" class="d">-
+</a><a href="#h1-10-45" id="h1-10-45" class="d">-            let mut output = (p_mouth * self.params.output_gain.value()).clamp(-1.0, 1.0);
+</a><a href="#h1-10-46" id="h1-10-46" class="d">-
+</a><a href="#h1-10-47" id="h1-10-47" class="d">-            if self.v_breath &lt; 1e-4 {
+</a><a href="#h1-10-48" id="h1-10-48" class="d">-                output = 0.0;
+</a><a href="#h1-10-49" id="h1-10-49" class="d">-                self.bore.reset();
+</a><a href="#h1-10-50" id="h1-10-50" class="d">-                self.reed.reset();
+</a><a href="#h1-10-51" id="h1-10-51" class="d">-                self.p_minus = 0.0;
+</a><a href="#h1-10-52" id="h1-10-52" class="d">-            }
+</a><a href="#h1-10-53" id="h1-10-53" class="d">-
+</a><a href="#h1-10-54" id="h1-10-54" class="d">-            let final_output = output * gain;
+</a><a href="#h1-10-55" id="h1-10-55" class="i">+            let x_current = self.resonance() - self.avg_x_history();
+</a> 
+             for sample in channel_samples {
+<a href="#h1-10-58" id="h1-10-58" class="d">-                *sample = final_output;
+</a><a href="#h1-10-59" id="h1-10-59" class="i">+                *sample = (x_current * gain).clamp(-1.0, 1.0);
+</a>             }
+         }
+ 
+<a href="#h1-11" id="h1-11" class="h">@@ -679,7 +489,6 @@ impl ClapPlugin for Aerothesis {
+</a>         ClapFeature::AudioEffect,
+         ClapFeature::Stereo,
+         ClapFeature::NoteDetector,
+<a href="#h1-11-3" id="h1-11-3" class="d">-        ClapFeature::Instrument,
+</a>     ];
+ }
+ 
+<b>diff --git a/<a id="h2" href="../file/src/main.rs.html">src/main.rs</a> b/<a href="../file/src/main.rs.html">src/main.rs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -1,117 +1,53 @@
+</a><a href="#h2-0-0" id="h2-0-0" class="d">-use aerothesis::{Aerothesis, BoundaryType, OscillationType};
+</a><a href="#h2-0-1" id="h2-0-1" class="i">+use aerothesis::Aerothesis;
+</a><a href="#h2-0-2" id="h2-0-2" class="i">+use nih_plug::prelude::util;
+</a> use rustfft::{num_complex::Complex, FftPlanner};
+ use textplots::{Chart, Plot, Shape};
+ 
+<a href="#h2-0-6" id="h2-0-6" class="d">-fn custom_step(plugin: &amp;mut Aerothesis, m: f32, r: f32, k: f32) -&gt; f32 {
+</a><a href="#h2-0-7" id="h2-0-7" class="d">-    let t = 1.0 / plugin.sample_rate;
+</a><a href="#h2-0-8" id="h2-0-8" class="d">-    const EPS: f32 = 1e-5;
+</a><a href="#h2-0-9" id="h2-0-9" class="d">-    const RHO: f32 = 1.2;
+</a><a href="#h2-0-10" id="h2-0-10" class="d">-
+</a><a href="#h2-0-11" id="h2-0-11" class="d">-    // vf logic (Current flow velocity)
+</a><a href="#h2-0-12" id="h2-0-12" class="d">-    let vf = {
+</a><a href="#h2-0-13" id="h2-0-13" class="d">-        let a_fluid = (RHO * plugin.params.reed_length.value()) / t;
+</a><a href="#h2-0-14" id="h2-0-14" class="d">-        let gap_prev = (2.0 - plugin.x_prev).clamp(EPS, 2.0);
+</a><a href="#h2-0-15" id="h2-0-15" class="d">-        let b_prev = RHO / (4.0 * (gap_prev * gap_prev));
+</a><a href="#h2-0-16" id="h2-0-16" class="d">-        let c_prev = plugin.v_breath - b_prev * (plugin.v_fluid_prev * plugin.v_fluid_prev);
+</a><a href="#h2-0-17" id="h2-0-17" class="d">-
+</a><a href="#h2-0-18" id="h2-0-18" class="d">-        let gap_curr = (2.0 - plugin.x_prev).clamp(EPS, 2.0);
+</a><a href="#h2-0-19" id="h2-0-19" class="d">-        let b_curr = RHO / (4.0 * (gap_curr * gap_curr));
+</a><a href="#h2-0-20" id="h2-0-20" class="d">-
+</a><a href="#h2-0-21" id="h2-0-21" class="d">-        if gap_curr &lt;= EPS {
+</a><a href="#h2-0-22" id="h2-0-22" class="d">-            0.0
+</a><a href="#h2-0-23" id="h2-0-23" class="d">-        } else {
+</a><a href="#h2-0-24" id="h2-0-24" class="d">-            let disc = (a_fluid * a_fluid
+</a><a href="#h2-0-25" id="h2-0-25" class="d">-                + 4.0 * b_curr * (a_fluid * plugin.v_fluid_prev + c_prev))
+</a><a href="#h2-0-26" id="h2-0-26" class="d">-                .max(0.0);
+</a><a href="#h2-0-27" id="h2-0-27" class="d">-            (-a_fluid + disc.sqrt()) / (2.0 * b_curr)
+</a><a href="#h2-0-28" id="h2-0-28" class="d">-        }
+</a><a href="#h2-0-29" id="h2-0-29" class="d">-    };
+</a><a href="#h2-0-30" id="h2-0-30" class="d">-
+</a><a href="#h2-0-31" id="h2-0-31" class="d">-    // f logic (Force)
+</a><a href="#h2-0-32" id="h2-0-32" class="d">-    let f = {
+</a><a href="#h2-0-33" id="h2-0-33" class="d">-        let gap_curr = (2.0 - plugin.x_prev).clamp(EPS, 2.0);
+</a><a href="#h2-0-34" id="h2-0-34" class="d">-        0.5 * RHO * (vf * vf) * gap_curr
+</a><a href="#h2-0-35" id="h2-0-35" class="d">-    };
+</a><a href="#h2-0-36" id="h2-0-36" class="d">-
+</a><a href="#h2-0-37" id="h2-0-37" class="d">-    // x logic (Displacement)
+</a><a href="#h2-0-38" id="h2-0-38" class="d">-    let x_n = {
+</a><a href="#h2-0-39" id="h2-0-39" class="d">-        let b0 = t * t;
+</a><a href="#h2-0-40" id="h2-0-40" class="d">-        let b1 = 2.0 * t * t;
+</a><a href="#h2-0-41" id="h2-0-41" class="d">-        let b2 = t * t;
+</a><a href="#h2-0-42" id="h2-0-42" class="d">-        let a0 = 4.0 * m + 2.0 * r * t + k * t * t;
+</a><a href="#h2-0-43" id="h2-0-43" class="d">-        let a1 = -8.0 * m + 2.0 * k * t * t;
+</a><a href="#h2-0-44" id="h2-0-44" class="d">-        let a2 = 4.0 * m - 2.0 * r * t + k * t * t;
+</a><a href="#h2-0-45" id="h2-0-45" class="d">-        ((b0 * f + b1 * plugin.f_prev + b2 * plugin.f_prev2
+</a><a href="#h2-0-46" id="h2-0-46" class="d">-            - a1 * plugin.x_prev
+</a><a href="#h2-0-47" id="h2-0-47" class="d">-            - a2 * plugin.x_prev2)
+</a><a href="#h2-0-48" id="h2-0-48" class="d">-            / a0)
+</a><a href="#h2-0-49" id="h2-0-49" class="d">-            .clamp(0.0, 2.0)
+</a><a href="#h2-0-50" id="h2-0-50" class="d">-    };
+</a><a href="#h2-0-51" id="h2-0-51" class="d">-
+</a><a href="#h2-0-52" id="h2-0-52" class="d">-    plugin.x_prev2 = plugin.x_prev;
+</a><a href="#h2-0-53" id="h2-0-53" class="d">-    plugin.x_prev = x_n;
+</a><a href="#h2-0-54" id="h2-0-54" class="d">-    plugin.f_prev2 = plugin.f_prev;
+</a><a href="#h2-0-55" id="h2-0-55" class="d">-    plugin.f_prev = f;
+</a><a href="#h2-0-56" id="h2-0-56" class="d">-    plugin.v_fluid_prev = vf;
+</a><a href="#h2-0-57" id="h2-0-57" class="d">-
+</a><a href="#h2-0-58" id="h2-0-58" class="d">-    x_n
+</a><a href="#h2-0-59" id="h2-0-59" class="d">-}
+</a><a href="#h2-0-60" id="h2-0-60" class="d">-
+</a> fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+     let mut plugin = Aerothesis::default();
+     let sample_rate = 44100.0;
+<a href="#h2-0-64" id="h2-0-64" class="d">-    let seconds = 1.0;
+</a><a href="#h2-0-65" id="h2-0-65" class="i">+    let seconds = 0.5;
+</a>     let num_samples = (sample_rate * seconds) as usize;
+<a href="#h2-0-67" id="h2-0-67" class="d">-    let mut data = Vec::with_capacity(num_samples);
+</a><a href="#h2-0-68" id="h2-0-68" class="d">-    let mut p_mouth_signal = Vec::with_capacity(num_samples);
+</a> 
+     plugin.sample_rate = sample_rate;
+<a href="#h2-0-71" id="h2-0-71" class="i">+    plugin.note_frequency = util::midi_note_to_freq(48); // C3 (u8)
+</a><a href="#h2-0-72" id="h2-0-72" class="i">+
+</a><a href="#h2-0-73" id="h2-0-73" class="i">+    // For simulation in main.rs, we use the default parameters from AerothesisParams::default()
+</a><a href="#h2-0-74" id="h2-0-74" class="i">+    // because nih-plug parameters are designed to be managed by a host and don&#39;t have
+</a><a href="#h2-0-75" id="h2-0-75" class="i">+    // simple setter methods for plain values without a ParamSetter context.
+</a><a href="#h2-0-76" id="h2-0-76" class="i">+    // Default resonance: OpenPipe, Decay: 0.9
+</a><a href="#h2-0-77" id="h2-0-77" class="i">+
+</a><a href="#h2-0-78" id="h2-0-78" class="i">+    let mut data = Vec::with_capacity(num_samples);
+</a><a href="#h2-0-79" id="h2-0-79" class="i">+    let mut signal = Vec::with_capacity(num_samples);
+</a> 
+     for i in 0..num_samples {
+<a href="#h2-0-82" id="h2-0-82" class="d">-        plugin.v_breath = if i &lt; 1000 {
+</a><a href="#h2-0-83" id="h2-0-83" class="d">-            (i as f32 / 1000.0) * 40.0
+</a><a href="#h2-0-84" id="h2-0-84" class="i">+        // Simple attack envelope for breath pressure
+</a><a href="#h2-0-85" id="h2-0-85" class="i">+        plugin.v_breath = if i &lt; 2000 {
+</a><a href="#h2-0-86" id="h2-0-86" class="i">+            (i as f32 / 2000.0) * 100.0
+</a>         } else {
+<a href="#h2-0-88" id="h2-0-88" class="d">-            40.0
+</a><a href="#h2-0-89" id="h2-0-89" class="i">+            100.0
+</a>         };
+ 
+<a href="#h2-0-92" id="h2-0-92" class="d">-        let p_total = plugin.v_breath + plugin.p_minus;
+</a><a href="#h2-0-93" id="h2-0-93" class="d">-        let (x_n, vf_n) = plugin.reed.step(
+</a><a href="#h2-0-94" id="h2-0-94" class="d">-            p_total,
+</a><a href="#h2-0-95" id="h2-0-95" class="d">-            plugin.params.oscillation_type.value(),
+</a><a href="#h2-0-96" id="h2-0-96" class="d">-            plugin.sample_rate,
+</a><a href="#h2-0-97" id="h2-0-97" class="d">-            &amp;plugin.params,
+</a><a href="#h2-0-98" id="h2-0-98" class="d">-            plugin.v_bite,
+</a><a href="#h2-0-99" id="h2-0-99" class="d">-        );
+</a><a href="#h2-0-100" id="h2-0-100" class="d">-
+</a><a href="#h2-0-101" id="h2-0-101" class="d">-        let gap = (2.0 - x_n).max(1e-5);
+</a><a href="#h2-0-102" id="h2-0-102" class="d">-        let u = vf_n * gap;
+</a><a href="#h2-0-103" id="h2-0-103" class="d">-        let p_mouth = plugin.p_minus + plugin.bore.z0 * u;
+</a><a href="#h2-0-104" id="h2-0-104" class="d">-        let p_plus = p_mouth - plugin.p_minus;
+</a><a href="#h2-0-105" id="h2-0-105" class="d">-
+</a><a href="#h2-0-106" id="h2-0-106" class="d">-        plugin.p_minus = plugin.bore.step(
+</a><a href="#h2-0-107" id="h2-0-107" class="d">-            p_plus,
+</a><a href="#h2-0-108" id="h2-0-108" class="d">-            1.0 / sample_rate,
+</a><a href="#h2-0-109" id="h2-0-109" class="d">-            BoundaryType::NonlinearDissipative,
+</a><a href="#h2-0-110" id="h2-0-110" class="d">-        );
+</a><a href="#h2-0-111" id="h2-0-111" class="i">+        let sample = plugin.resonance();
+</a> 
+<a href="#h2-0-113" id="h2-0-113" class="i">+        // Collect first 50ms for waveform plot
+</a>         if i &lt; (sample_rate * 0.05) as usize {
+<a href="#h2-0-115" id="h2-0-115" class="d">-            data.push((i as f32, p_mouth));
+</a><a href="#h2-0-116" id="h2-0-116" class="i">+            data.push((i as f32, sample));
+</a>         }
+<a href="#h2-0-118" id="h2-0-118" class="d">-        p_mouth_signal.push(p_mouth);
+</a><a href="#h2-0-119" id="h2-0-119" class="i">+        signal.push(sample);
+</a>     }
+ 
+<a href="#h2-0-122" id="h2-0-122" class="i">+    println!(&quot;--- Waveform (first 50ms) ---&quot;);
+</a>     Chart::new(180, 60, 0.0, data.len() as f32)
+         .lineplot(&amp;Shape::Lines(&amp;data))
+         .display();
+ 
+<a href="#h2-0-127" id="h2-0-127" class="d">-    let fft_len = p_mouth_signal.len().next_power_of_two();
+</a><a href="#h2-0-128" id="h2-0-128" class="i">+    let fft_len = signal.len().next_power_of_two();
+</a>     let mut planner = FftPlanner::new();
+     let fft = planner.plan_fft_forward(fft_len);
+ 
+<a href="#h2-0-132" id="h2-0-132" class="d">-    let mut buffer: Vec&lt;Complex&lt;f32&gt;&gt; = p_mouth_signal
+</a><a href="#h2-0-133" id="h2-0-133" class="d">-        .iter()
+</a><a href="#h2-0-134" id="h2-0-134" class="d">-        .map(|&amp;p| Complex { re: p, im: 0.0 })
+</a><a href="#h2-0-135" id="h2-0-135" class="d">-        .collect();
+</a><a href="#h2-0-136" id="h2-0-136" class="i">+    let mut buffer: Vec&lt;Complex&lt;f32&gt;&gt; =
+</a><a href="#h2-0-137" id="h2-0-137" class="i">+        signal.iter().map(|&amp;s| Complex { re: s, im: 0.0 }).collect();
+</a>     buffer.resize(fft_len, Complex { re: 0.0, im: 0.0 });
+ 
+     fft.process(&amp;mut buffer);
+<a href="#h2-1" id="h2-1" class="h">@@ -119,13 +55,14 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+</a>     let mut spectrum_data = Vec::with_capacity(fft_len / 2);
+     for (i, complex) in buffer.iter().enumerate().take(fft_len / 2) {
+         let freq = (i as f32 * sample_rate) / fft_len as f32;
+<a href="#h2-1-3" id="h2-1-3" class="d">-        if freq &gt; 1500.0 {
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        if freq &gt; 2000.0 {
+</a>             break;
+         }
+         spectrum_data.push((freq, complex.norm()));
+     }
+ 
+<a href="#h2-1-10" id="h2-1-10" class="d">-    Chart::new(180, 60, 0.0, 1500.0)
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+    println!(&quot;\n--- Spectrum (0 - 2000Hz) ---&quot;);
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+    Chart::new(180, 60, 0.0, 2000.0)
+</a>         .lineplot(&amp;Shape::Lines(&amp;spectrum_data))
+         .display();
+ 
+</pre>
+</div>
+</body>
+</html>

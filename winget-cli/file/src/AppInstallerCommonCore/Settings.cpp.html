@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Settings.cpp - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../"><img src="../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../log.html">Log</a> | <a href="../../../files.html">Files</a> | <a href="../../../refs.html">Refs</a> | <a href="../../../file/README.md.html">README</a> | <a href="../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> Settings.cpp (16768B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // Copyright (c) Microsoft Corporation.
+<a href="#l2" class="line" id="l2">      2</a> // Licensed under the MIT License.
+<a href="#l3" class="line" id="l3">      3</a> #include &quot;pch.h&quot;
+<a href="#l4" class="line" id="l4">      4</a> #include &quot;Public/winget/Settings.h&quot;
+<a href="#l5" class="line" id="l5">      5</a> #include &quot;Public/AppInstallerLogging.h&quot;
+<a href="#l6" class="line" id="l6">      6</a> #include &quot;Public/AppInstallerRuntime.h&quot;
+<a href="#l7" class="line" id="l7">      7</a> #include &quot;Public/AppInstallerStrings.h&quot;
+<a href="#l8" class="line" id="l8">      8</a> #include &quot;Public/AppInstallerSHA256.h&quot;
+<a href="#l9" class="line" id="l9">      9</a> #include &quot;Public/winget/Yaml.h&quot;
+<a href="#l10" class="line" id="l10">     10</a> 
+<a href="#l11" class="line" id="l11">     11</a> namespace AppInstaller::Settings
+<a href="#l12" class="line" id="l12">     12</a> {
+<a href="#l13" class="line" id="l13">     13</a>     using namespace std::string_view_literals;
+<a href="#l14" class="line" id="l14">     14</a>     using namespace Runtime;
+<a href="#l15" class="line" id="l15">     15</a>     using namespace Utility;
+<a href="#l16" class="line" id="l16">     16</a> 
+<a href="#l17" class="line" id="l17">     17</a>     namespace
+<a href="#l18" class="line" id="l18">     18</a>     {
+<a href="#l19" class="line" id="l19">     19</a>         void ValidateSettingNamePath(const std::filesystem::path&amp; name)
+<a href="#l20" class="line" id="l20">     20</a>         {
+<a href="#l21" class="line" id="l21">     21</a>             THROW_HR_IF(E_INVALIDARG, !name.has_relative_path());
+<a href="#l22" class="line" id="l22">     22</a>             THROW_HR_IF(E_INVALIDARG, name.has_root_path());
+<a href="#l23" class="line" id="l23">     23</a>             THROW_HR_IF(E_INVALIDARG, !name.has_filename());
+<a href="#l24" class="line" id="l24">     24</a>         }
+<a href="#l25" class="line" id="l25">     25</a> 
+<a href="#l26" class="line" id="l26">     26</a>         void LogSettingAction(std::string_view action, const StreamDefinition&amp; def)
+<a href="#l27" class="line" id="l27">     27</a>         {
+<a href="#l28" class="line" id="l28">     28</a>             AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Setting action: &quot; &lt;&lt; action &lt;&lt; &quot;, Type: &quot; &lt;&lt; ToString(def.Type) &lt;&lt; &quot;, Name: &quot; &lt;&lt; def.Name);
+<a href="#l29" class="line" id="l29">     29</a>         }
+<a href="#l30" class="line" id="l30">     30</a> 
+<a href="#l31" class="line" id="l31">     31</a> #ifndef WINGET_DISABLE_FOR_FUZZING
+<a href="#l32" class="line" id="l32">     32</a>         // A settings container backed by the ApplicationDataContainer functionality.
+<a href="#l33" class="line" id="l33">     33</a>         struct ApplicationDataSettingsContainer : public details::ISettingsContainer
+<a href="#l34" class="line" id="l34">     34</a>         {
+<a href="#l35" class="line" id="l35">     35</a>             using Container = winrt::Windows::Storage::ApplicationDataContainer;
+<a href="#l36" class="line" id="l36">     36</a> 
+<a href="#l37" class="line" id="l37">     37</a>             ApplicationDataSettingsContainer(const Container&amp; container, const std::filesystem::path&amp; name)
+<a href="#l38" class="line" id="l38">     38</a>             {
+<a href="#l39" class="line" id="l39">     39</a>                 m_parentContainer = GetRelativeContainer(container, name.parent_path());
+<a href="#l40" class="line" id="l40">     40</a>                 m_settingName = winrt::to_hstring(name.filename().c_str());
+<a href="#l41" class="line" id="l41">     41</a>             }
+<a href="#l42" class="line" id="l42">     42</a> 
+<a href="#l43" class="line" id="l43">     43</a>             static Container GetRelativeContainer(const Container&amp; container, const std::filesystem::path&amp; offset)
+<a href="#l44" class="line" id="l44">     44</a>             {
+<a href="#l45" class="line" id="l45">     45</a>                 auto result = container;
+<a href="#l46" class="line" id="l46">     46</a> 
+<a href="#l47" class="line" id="l47">     47</a>                 for (const auto&amp; part : offset)
+<a href="#l48" class="line" id="l48">     48</a>                 {
+<a href="#l49" class="line" id="l49">     49</a>                     auto partHstring = winrt::to_hstring(part.c_str());
+<a href="#l50" class="line" id="l50">     50</a>                     result = result.CreateContainer(partHstring, winrt::Windows::Storage::ApplicationDataCreateDisposition::Always);
+<a href="#l51" class="line" id="l51">     51</a>                 }
+<a href="#l52" class="line" id="l52">     52</a> 
+<a href="#l53" class="line" id="l53">     53</a>                 return result;
+<a href="#l54" class="line" id="l54">     54</a>             }
+<a href="#l55" class="line" id="l55">     55</a> 
+<a href="#l56" class="line" id="l56">     56</a>             std::unique_ptr&lt;std::istream&gt; Get() override
+<a href="#l57" class="line" id="l57">     57</a>             {
+<a href="#l58" class="line" id="l58">     58</a>                 auto settingsValues = m_parentContainer.Values();
+<a href="#l59" class="line" id="l59">     59</a>                 if (settingsValues.HasKey(m_settingName))
+<a href="#l60" class="line" id="l60">     60</a>                 {
+<a href="#l61" class="line" id="l61">     61</a>                     auto value = winrt::unbox_value&lt;winrt::hstring&gt;(settingsValues.Lookup(m_settingName));
+<a href="#l62" class="line" id="l62">     62</a>                     return std::make_unique&lt;std::istringstream&gt;(Utility::ConvertToUTF8(value.c_str()));
+<a href="#l63" class="line" id="l63">     63</a>                 }
+<a href="#l64" class="line" id="l64">     64</a>                 else
+<a href="#l65" class="line" id="l65">     65</a>                 {
+<a href="#l66" class="line" id="l66">     66</a>                     return {};
+<a href="#l67" class="line" id="l67">     67</a>                 }
+<a href="#l68" class="line" id="l68">     68</a>             }
+<a href="#l69" class="line" id="l69">     69</a> 
+<a href="#l70" class="line" id="l70">     70</a>             bool Set(std::string_view value) override
+<a href="#l71" class="line" id="l71">     71</a>             {
+<a href="#l72" class="line" id="l72">     72</a>                 m_parentContainer.Values().Insert(m_settingName, winrt::box_value(winrt::to_hstring(value)));
+<a href="#l73" class="line" id="l73">     73</a>                 return true;
+<a href="#l74" class="line" id="l74">     74</a>             }
+<a href="#l75" class="line" id="l75">     75</a> 
+<a href="#l76" class="line" id="l76">     76</a>             void Remove() override
+<a href="#l77" class="line" id="l77">     77</a>             {
+<a href="#l78" class="line" id="l78">     78</a>                 m_parentContainer.Values().Remove(m_settingName);
+<a href="#l79" class="line" id="l79">     79</a>             }
+<a href="#l80" class="line" id="l80">     80</a> 
+<a href="#l81" class="line" id="l81">     81</a>             std::filesystem::path PathTo() override
+<a href="#l82" class="line" id="l82">     82</a>             {
+<a href="#l83" class="line" id="l83">     83</a>                 THROW_HR(E_UNEXPECTED);
+<a href="#l84" class="line" id="l84">     84</a>             }
+<a href="#l85" class="line" id="l85">     85</a> 
+<a href="#l86" class="line" id="l86">     86</a>         private:
+<a href="#l87" class="line" id="l87">     87</a>             Container m_parentContainer = nullptr;
+<a href="#l88" class="line" id="l88">     88</a>             winrt::hstring m_settingName;
+<a href="#l89" class="line" id="l89">     89</a>         };
+<a href="#l90" class="line" id="l90">     90</a> #endif
+<a href="#l91" class="line" id="l91">     91</a> 
+<a href="#l92" class="line" id="l92">     92</a>         // A settings container backed by the filesystem.
+<a href="#l93" class="line" id="l93">     93</a>         struct FileSettingsContainer : public details::ISettingsContainer
+<a href="#l94" class="line" id="l94">     94</a>         {
+<a href="#l95" class="line" id="l95">     95</a>             FileSettingsContainer(std::filesystem::path root, const std::filesystem::path&amp; name) : m_settingFile(std::move(root))
+<a href="#l96" class="line" id="l96">     96</a>             {
+<a href="#l97" class="line" id="l97">     97</a>                 m_settingFile /= name;
+<a href="#l98" class="line" id="l98">     98</a>             }
+<a href="#l99" class="line" id="l99">     99</a> 
+<a href="#l100" class="line" id="l100">    100</a>             std::unique_ptr&lt;std::istream&gt; Get() override
+<a href="#l101" class="line" id="l101">    101</a>             {
+<a href="#l102" class="line" id="l102">    102</a>                 if (std::filesystem::exists(m_settingFile))
+<a href="#l103" class="line" id="l103">    103</a>                 {
+<a href="#l104" class="line" id="l104">    104</a>                     auto result = std::make_unique&lt;std::ifstream&gt;(m_settingFile);
+<a href="#l105" class="line" id="l105">    105</a>                     THROW_LAST_ERROR_IF(result-&gt;fail());
+<a href="#l106" class="line" id="l106">    106</a>                     return result;
+<a href="#l107" class="line" id="l107">    107</a>                 }
+<a href="#l108" class="line" id="l108">    108</a>                 else
+<a href="#l109" class="line" id="l109">    109</a>                 {
+<a href="#l110" class="line" id="l110">    110</a>                     return {};
+<a href="#l111" class="line" id="l111">    111</a>                 }
+<a href="#l112" class="line" id="l112">    112</a>             }
+<a href="#l113" class="line" id="l113">    113</a> 
+<a href="#l114" class="line" id="l114">    114</a>             bool Set(std::string_view value) override
+<a href="#l115" class="line" id="l115">    115</a>             {
+<a href="#l116" class="line" id="l116">    116</a>                 EnsureParentPath();
+<a href="#l117" class="line" id="l117">    117</a> 
+<a href="#l118" class="line" id="l118">    118</a>                 std::ofstream stream(m_settingFile, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+<a href="#l119" class="line" id="l119">    119</a>                 THROW_LAST_ERROR_IF(stream.fail());
+<a href="#l120" class="line" id="l120">    120</a>                 stream &lt;&lt; value &lt;&lt; std::flush;
+<a href="#l121" class="line" id="l121">    121</a>                 THROW_LAST_ERROR_IF(stream.fail());
+<a href="#l122" class="line" id="l122">    122</a> 
+<a href="#l123" class="line" id="l123">    123</a>                 return true;
+<a href="#l124" class="line" id="l124">    124</a>             }
+<a href="#l125" class="line" id="l125">    125</a> 
+<a href="#l126" class="line" id="l126">    126</a>             void Remove() override
+<a href="#l127" class="line" id="l127">    127</a>             {
+<a href="#l128" class="line" id="l128">    128</a>                 std::filesystem::remove(m_settingFile);
+<a href="#l129" class="line" id="l129">    129</a>             }
+<a href="#l130" class="line" id="l130">    130</a> 
+<a href="#l131" class="line" id="l131">    131</a>             std::filesystem::path PathTo() override
+<a href="#l132" class="line" id="l132">    132</a>             {
+<a href="#l133" class="line" id="l133">    133</a>                 return m_settingFile;
+<a href="#l134" class="line" id="l134">    134</a>             }
+<a href="#l135" class="line" id="l135">    135</a> 
+<a href="#l136" class="line" id="l136">    136</a>         private:
+<a href="#l137" class="line" id="l137">    137</a>             void EnsureParentPath()
+<a href="#l138" class="line" id="l138">    138</a>             {
+<a href="#l139" class="line" id="l139">    139</a>                 std::filesystem::create_directories(m_settingFile.parent_path());
+<a href="#l140" class="line" id="l140">    140</a>             }
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>             std::filesystem::path m_settingFile;
+<a href="#l143" class="line" id="l143">    143</a>         };
+<a href="#l144" class="line" id="l144">    144</a> 
+<a href="#l145" class="line" id="l145">    145</a>         // A settings container that manages safely writing to its value with exchange semantics.
+<a href="#l146" class="line" id="l146">    146</a>         // Only allows Set to succeed if the hash value of the setting is the same as the last time it was read.
+<a href="#l147" class="line" id="l147">    147</a>         struct ExchangeSettingsContainer : public details::ISettingsContainer
+<a href="#l148" class="line" id="l148">    148</a>         {
+<a href="#l149" class="line" id="l149">    149</a>             ExchangeSettingsContainer(std::unique_ptr&lt;ISettingsContainer&gt;&amp;&amp; container, const std::string_view&amp; name) :
+<a href="#l150" class="line" id="l150">    150</a>                 m_container(std::move(container)), m_name(name) {}
+<a href="#l151" class="line" id="l151">    151</a> 
+<a href="#l152" class="line" id="l152">    152</a>             std::unique_ptr&lt;std::istream&gt; Get() override
+<a href="#l153" class="line" id="l153">    153</a>             {
+<a href="#l154" class="line" id="l154">    154</a>                 return GetInternal(m_hash);
+<a href="#l155" class="line" id="l155">    155</a>             }
+<a href="#l156" class="line" id="l156">    156</a> 
+<a href="#l157" class="line" id="l157">    157</a>             bool Set(std::string_view value) override
+<a href="#l158" class="line" id="l158">    158</a>             {
+<a href="#l159" class="line" id="l159">    159</a>                 THROW_HR_IF(E_UNEXPECTED, value.size() &gt; std::numeric_limits&lt;uint32_t&gt;::max());
+<a href="#l160" class="line" id="l160">    160</a> 
+<a href="#l161" class="line" id="l161">    161</a>                 // If Set is called without ever reading the value, then we can assume that caller wants
+<a href="#l162" class="line" id="l162">    162</a>                 // to overwrite it regardless. Also, we don&#39;t have any previous value to compare against
+<a href="#l163" class="line" id="l163">    163</a>                 // anyway so the only other option would be to always reject it.
+<a href="#l164" class="line" id="l164">    164</a>                 if (m_hash)
+<a href="#l165" class="line" id="l165">    165</a>                 {
+<a href="#l166" class="line" id="l166">    166</a>                     std::optional&lt;SHA256::HashBuffer&gt; currentHash;
+<a href="#l167" class="line" id="l167">    167</a>                     std::ignore = GetInternal(currentHash);
+<a href="#l168" class="line" id="l168">    168</a> 
+<a href="#l169" class="line" id="l169">    169</a>                     if (currentHash &amp;&amp; !SHA256::AreEqual(m_hash.value(), currentHash.value()))
+<a href="#l170" class="line" id="l170">    170</a>                     {
+<a href="#l171" class="line" id="l171">    171</a>                         AICLI_LOG(Core, Verbose, &lt;&lt; &quot;Setting value for &#39;&quot; &lt;&lt; m_name &lt;&lt; &quot;&#39; has changed since last read; rejecting Set&quot;);
+<a href="#l172" class="line" id="l172">    172</a>                         return false;
+<a href="#l173" class="line" id="l173">    173</a>                     }
+<a href="#l174" class="line" id="l174">    174</a>                 }
+<a href="#l175" class="line" id="l175">    175</a> 
+<a href="#l176" class="line" id="l176">    176</a>                 SHA256::HashBuffer newHash = SHA256::ComputeHash(reinterpret_cast&lt;const uint8_t*&gt;(value.data()), static_cast&lt;uint32_t&gt;(value.size()));
+<a href="#l177" class="line" id="l177">    177</a>                 if (m_container-&gt;Set(value))
+<a href="#l178" class="line" id="l178">    178</a>                 {
+<a href="#l179" class="line" id="l179">    179</a>                     m_hash = std::move(newHash);
+<a href="#l180" class="line" id="l180">    180</a>                     return true;
+<a href="#l181" class="line" id="l181">    181</a>                 }
+<a href="#l182" class="line" id="l182">    182</a>                 else
+<a href="#l183" class="line" id="l183">    183</a>                 {
+<a href="#l184" class="line" id="l184">    184</a>                     return false;
+<a href="#l185" class="line" id="l185">    185</a>                 }
+<a href="#l186" class="line" id="l186">    186</a>             }
+<a href="#l187" class="line" id="l187">    187</a> 
+<a href="#l188" class="line" id="l188">    188</a>             void Remove() override
+<a href="#l189" class="line" id="l189">    189</a>             {
+<a href="#l190" class="line" id="l190">    190</a>                 m_container-&gt;Remove();
+<a href="#l191" class="line" id="l191">    191</a>                 m_hash.reset();
+<a href="#l192" class="line" id="l192">    192</a>             }
+<a href="#l193" class="line" id="l193">    193</a> 
+<a href="#l194" class="line" id="l194">    194</a>             std::filesystem::path PathTo() override
+<a href="#l195" class="line" id="l195">    195</a>             {
+<a href="#l196" class="line" id="l196">    196</a>                 return m_container-&gt;PathTo();
+<a href="#l197" class="line" id="l197">    197</a>             }
+<a href="#l198" class="line" id="l198">    198</a> 
+<a href="#l199" class="line" id="l199">    199</a>         protected:
+<a href="#l200" class="line" id="l200">    200</a>             std::string_view m_name;
+<a href="#l201" class="line" id="l201">    201</a>             std::optional&lt;SHA256::HashBuffer&gt; m_hash;
+<a href="#l202" class="line" id="l202">    202</a> 
+<a href="#l203" class="line" id="l203">    203</a>         private:
+<a href="#l204" class="line" id="l204">    204</a>             std::unique_ptr&lt;std::istream&gt; GetInternal(std::optional&lt;SHA256::HashBuffer&gt;&amp; hashStorage)
+<a href="#l205" class="line" id="l205">    205</a>             {
+<a href="#l206" class="line" id="l206">    206</a>                 std::unique_ptr&lt;std::istream&gt; stream = m_container-&gt;Get();
+<a href="#l207" class="line" id="l207">    207</a> 
+<a href="#l208" class="line" id="l208">    208</a>                 if (!stream)
+<a href="#l209" class="line" id="l209">    209</a>                 {
+<a href="#l210" class="line" id="l210">    210</a>                     // If no stream exists, then no hashing needs to be done.
+<a href="#l211" class="line" id="l211">    211</a>                     // Return an empty hash vector to indicate the attempted read but no result.
+<a href="#l212" class="line" id="l212">    212</a>                     hashStorage.emplace();
+<a href="#l213" class="line" id="l213">    213</a>                     return stream;
+<a href="#l214" class="line" id="l214">    214</a>                 }
+<a href="#l215" class="line" id="l215">    215</a> 
+<a href="#l216" class="line" id="l216">    216</a>                 std::string streamContents = Utility::ReadEntireStream(*stream);
+<a href="#l217" class="line" id="l217">    217</a>                 THROW_HR_IF(E_UNEXPECTED, streamContents.size() &gt; std::numeric_limits&lt;uint32_t&gt;::max());
+<a href="#l218" class="line" id="l218">    218</a> 
+<a href="#l219" class="line" id="l219">    219</a>                 hashStorage = SHA256::ComputeHash(reinterpret_cast&lt;const uint8_t*&gt;(streamContents.c_str()), static_cast&lt;uint32_t&gt;(streamContents.size()));
+<a href="#l220" class="line" id="l220">    220</a> 
+<a href="#l221" class="line" id="l221">    221</a>                 // Return a stream over the contents that we read in and hashed, to prevent a race.
+<a href="#l222" class="line" id="l222">    222</a>                 return std::make_unique&lt;std::istringstream&gt;(streamContents);
+<a href="#l223" class="line" id="l223">    223</a>             }
+<a href="#l224" class="line" id="l224">    224</a> 
+<a href="#l225" class="line" id="l225">    225</a>             std::unique_ptr&lt;ISettingsContainer&gt; m_container;
+<a href="#l226" class="line" id="l226">    226</a>         };
+<a href="#l227" class="line" id="l227">    227</a> 
+<a href="#l228" class="line" id="l228">    228</a>         // A settings container wrapper that enforces security.
+<a href="#l229" class="line" id="l229">    229</a>         struct SecureSettingsContainer : public ExchangeSettingsContainer
+<a href="#l230" class="line" id="l230">    230</a>         {
+<a href="#l231" class="line" id="l231">    231</a>             constexpr static std::string_view NodeName_Sha256 = &quot;SHA256&quot;sv;
+<a href="#l232" class="line" id="l232">    232</a> 
+<a href="#l233" class="line" id="l233">    233</a>             SecureSettingsContainer(std::unique_ptr&lt;ISettingsContainer&gt;&amp;&amp; container, const std::string_view&amp; name) :
+<a href="#l234" class="line" id="l234">    234</a>                 ExchangeSettingsContainer(std::move(container), name), m_secure(GetPathTo(PathName::SecureSettingsForRead), name) {}
+<a href="#l235" class="line" id="l235">    235</a> 
+<a href="#l236" class="line" id="l236">    236</a>         private:
+<a href="#l237" class="line" id="l237">    237</a>             struct VerificationData
+<a href="#l238" class="line" id="l238">    238</a>             {
+<a href="#l239" class="line" id="l239">    239</a>                 bool Found = false;
+<a href="#l240" class="line" id="l240">    240</a>                 SHA256::HashBuffer Hash;
+<a href="#l241" class="line" id="l241">    241</a>             };
+<a href="#l242" class="line" id="l242">    242</a> 
+<a href="#l243" class="line" id="l243">    243</a>             VerificationData GetVerificationData()
+<a href="#l244" class="line" id="l244">    244</a>             {
+<a href="#l245" class="line" id="l245">    245</a>                 std::unique_ptr&lt;std::istream&gt; stream = m_secure.Get();
+<a href="#l246" class="line" id="l246">    246</a> 
+<a href="#l247" class="line" id="l247">    247</a>                 if (!stream)
+<a href="#l248" class="line" id="l248">    248</a>                 {
+<a href="#l249" class="line" id="l249">    249</a>                     return {};
+<a href="#l250" class="line" id="l250">    250</a>                 }
+<a href="#l251" class="line" id="l251">    251</a> 
+<a href="#l252" class="line" id="l252">    252</a>                 std::string streamContents = Utility::ReadEntireStream(*stream);
+<a href="#l253" class="line" id="l253">    253</a> 
+<a href="#l254" class="line" id="l254">    254</a>                 YAML::Node document;
+<a href="#l255" class="line" id="l255">    255</a>                 try
+<a href="#l256" class="line" id="l256">    256</a>                 {
+<a href="#l257" class="line" id="l257">    257</a>                     document = YAML::Load(streamContents);
+<a href="#l258" class="line" id="l258">    258</a>                 }
+<a href="#l259" class="line" id="l259">    259</a>                 catch (const std::runtime_error&amp; e)
+<a href="#l260" class="line" id="l260">    260</a>                 {
+<a href="#l261" class="line" id="l261">    261</a>                     AICLI_LOG(Core, Error, &lt;&lt; &quot;Secure setting metadata for &#39;&quot; &lt;&lt; m_name &lt;&lt; &quot;&#39; contained invalid YAML (&quot; &lt;&lt; e.what() &lt;&lt; &quot;):\n&quot; &lt;&lt; streamContents);
+<a href="#l262" class="line" id="l262">    262</a>                     return {};
+<a href="#l263" class="line" id="l263">    263</a>                 }
+<a href="#l264" class="line" id="l264">    264</a> 
+<a href="#l265" class="line" id="l265">    265</a>                 std::string hashString;
+<a href="#l266" class="line" id="l266">    266</a> 
+<a href="#l267" class="line" id="l267">    267</a>                 try
+<a href="#l268" class="line" id="l268">    268</a>                 {
+<a href="#l269" class="line" id="l269">    269</a>                     hashString = document[NodeName_Sha256].as&lt;std::string&gt;();
+<a href="#l270" class="line" id="l270">    270</a>                 }
+<a href="#l271" class="line" id="l271">    271</a>                 catch (const std::runtime_error&amp; e)
+<a href="#l272" class="line" id="l272">    272</a>                 {
+<a href="#l273" class="line" id="l273">    273</a>                     AICLI_LOG(Core, Error, &lt;&lt; &quot;Secure setting metadata for &#39;&quot; &lt;&lt; m_name &lt;&lt; &quot;&#39; contained invalid YAML (&quot; &lt;&lt; e.what() &lt;&lt; &quot;):\n&quot; &lt;&lt; streamContents);
+<a href="#l274" class="line" id="l274">    274</a>                     return {};
+<a href="#l275" class="line" id="l275">    275</a>                 }
+<a href="#l276" class="line" id="l276">    276</a> 
+<a href="#l277" class="line" id="l277">    277</a>                 VerificationData result;
+<a href="#l278" class="line" id="l278">    278</a>                 result.Found = true;
+<a href="#l279" class="line" id="l279">    279</a>                 result.Hash = SHA256::ConvertToBytes(hashString);
+<a href="#l280" class="line" id="l280">    280</a> 
+<a href="#l281" class="line" id="l281">    281</a>                 return result;
+<a href="#l282" class="line" id="l282">    282</a>             }
+<a href="#l283" class="line" id="l283">    283</a> 
+<a href="#l284" class="line" id="l284">    284</a>             void SetVerificationData(VerificationData data)
+<a href="#l285" class="line" id="l285">    285</a>             {
+<a href="#l286" class="line" id="l286">    286</a>                 YAML::Emitter out;
+<a href="#l287" class="line" id="l287">    287</a>                 out &lt;&lt; YAML::BeginMap;
+<a href="#l288" class="line" id="l288">    288</a>                 out &lt;&lt; YAML::Key &lt;&lt; NodeName_Sha256 &lt;&lt; YAML::Value &lt;&lt; SHA256::ConvertToString(data.Hash);
+<a href="#l289" class="line" id="l289">    289</a>                 out &lt;&lt; YAML::EndMap;
+<a href="#l290" class="line" id="l290">    290</a> 
+<a href="#l291" class="line" id="l291">    291</a>                 m_secure.Set(out.str());
+<a href="#l292" class="line" id="l292">    292</a>             }
+<a href="#l293" class="line" id="l293">    293</a> 
+<a href="#l294" class="line" id="l294">    294</a>         public:
+<a href="#l295" class="line" id="l295">    295</a>             std::unique_ptr&lt;std::istream&gt; Get() override
+<a href="#l296" class="line" id="l296">    296</a>             {
+<a href="#l297" class="line" id="l297">    297</a>                 std::unique_ptr&lt;std::istream&gt; stream = ExchangeSettingsContainer::Get();
+<a href="#l298" class="line" id="l298">    298</a> 
+<a href="#l299" class="line" id="l299">    299</a>                 if (!stream)
+<a href="#l300" class="line" id="l300">    300</a>                 {
+<a href="#l301" class="line" id="l301">    301</a>                     // If no stream exists, then no verification needs to be done.
+<a href="#l302" class="line" id="l302">    302</a>                     return stream;
+<a href="#l303" class="line" id="l303">    303</a>                 }
+<a href="#l304" class="line" id="l304">    304</a> 
+<a href="#l305" class="line" id="l305">    305</a>                 VerificationData verData = GetVerificationData();
+<a href="#l306" class="line" id="l306">    306</a> 
+<a href="#l307" class="line" id="l307">    307</a>                 // This case should be very rare, so a very identifiable error is helpful.
+<a href="#l308" class="line" id="l308">    308</a>                 // Plus the text for this one is fairly on point for what has happened.
+<a href="#l309" class="line" id="l309">    309</a>                 THROW_HR_IF(SPAPI_E_FILE_HASH_NOT_IN_CATALOG, !verData.Found);
+<a href="#l310" class="line" id="l310">    310</a> 
+<a href="#l311" class="line" id="l311">    311</a>                 THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_DATA_CHECKSUM_ERROR), !SHA256::AreEqual(m_hash.value(), verData.Hash));
+<a href="#l312" class="line" id="l312">    312</a> 
+<a href="#l313" class="line" id="l313">    313</a>                 // ExchangeSettingsContainer already produces an in memory stream that we can use.
+<a href="#l314" class="line" id="l314">    314</a>                 return stream;
+<a href="#l315" class="line" id="l315">    315</a>             }
+<a href="#l316" class="line" id="l316">    316</a> 
+<a href="#l317" class="line" id="l317">    317</a>             bool Set(std::string_view value) override
+<a href="#l318" class="line" id="l318">    318</a>             {
+<a href="#l319" class="line" id="l319">    319</a>                 // Force the creation of the secure settings location with appropriate ACLs
+<a href="#l320" class="line" id="l320">    320</a>                 GetPathTo(PathName::SecureSettingsForWrite);
+<a href="#l321" class="line" id="l321">    321</a> 
+<a href="#l322" class="line" id="l322">    322</a>                 bool exchangeResult = ExchangeSettingsContainer::Set(value);
+<a href="#l323" class="line" id="l323">    323</a> 
+<a href="#l324" class="line" id="l324">    324</a>                 if (exchangeResult)
+<a href="#l325" class="line" id="l325">    325</a>                 {
+<a href="#l326" class="line" id="l326">    326</a>                     VerificationData verData;
+<a href="#l327" class="line" id="l327">    327</a>                     verData.Hash = m_hash.value();
+<a href="#l328" class="line" id="l328">    328</a> 
+<a href="#l329" class="line" id="l329">    329</a>                     SetVerificationData(verData);
+<a href="#l330" class="line" id="l330">    330</a>                 }
+<a href="#l331" class="line" id="l331">    331</a> 
+<a href="#l332" class="line" id="l332">    332</a>                 return exchangeResult;
+<a href="#l333" class="line" id="l333">    333</a>             }
+<a href="#l334" class="line" id="l334">    334</a> 
+<a href="#l335" class="line" id="l335">    335</a>             void Remove() override
+<a href="#l336" class="line" id="l336">    336</a>             {
+<a href="#l337" class="line" id="l337">    337</a>                 ExchangeSettingsContainer::Remove();
+<a href="#l338" class="line" id="l338">    338</a>                 m_secure.Remove();
+<a href="#l339" class="line" id="l339">    339</a>             }
+<a href="#l340" class="line" id="l340">    340</a> 
+<a href="#l341" class="line" id="l341">    341</a>             std::filesystem::path PathTo() override
+<a href="#l342" class="line" id="l342">    342</a>             {
+<a href="#l343" class="line" id="l343">    343</a>                 THROW_HR(E_UNEXPECTED);
+<a href="#l344" class="line" id="l344">    344</a>             }
+<a href="#l345" class="line" id="l345">    345</a> 
+<a href="#l346" class="line" id="l346">    346</a>         private:
+<a href="#l347" class="line" id="l347">    347</a>             FileSettingsContainer m_secure;
+<a href="#l348" class="line" id="l348">    348</a>         };
+<a href="#l349" class="line" id="l349">    349</a> 
+<a href="#l350" class="line" id="l350">    350</a>         std::unique_ptr&lt;details::ISettingsContainer&gt; GetRawSettingsContainer(Type type, const std::string_view&amp; name)
+<a href="#l351" class="line" id="l351">    351</a>         {
+<a href="#l352" class="line" id="l352">    352</a> #ifndef WINGET_DISABLE_FOR_FUZZING
+<a href="#l353" class="line" id="l353">    353</a>             if (IsRunningInPackagedContext())
+<a href="#l354" class="line" id="l354">    354</a>             {
+<a href="#l355" class="line" id="l355">    355</a>                 switch (type)
+<a href="#l356" class="line" id="l356">    356</a>                 {
+<a href="#l357" class="line" id="l357">    357</a>                 case Type::Standard:
+<a href="#l358" class="line" id="l358">    358</a>                     return std::make_unique&lt;ApplicationDataSettingsContainer&gt;(
+<a href="#l359" class="line" id="l359">    359</a>                         ApplicationDataSettingsContainer::GetRelativeContainer(
+<a href="#l360" class="line" id="l360">    360</a>                             winrt::Windows::Storage::ApplicationData::Current().LocalSettings(), GetPathTo(PathName::StandardSettings)),
+<a href="#l361" class="line" id="l361">    361</a>                         name);
+<a href="#l362" class="line" id="l362">    362</a>                 default:
+<a href="#l363" class="line" id="l363">    363</a>                     THROW_HR(E_UNEXPECTED);
+<a href="#l364" class="line" id="l364">    364</a>                 }
+<a href="#l365" class="line" id="l365">    365</a>             }
+<a href="#l366" class="line" id="l366">    366</a>             else
+<a href="#l367" class="line" id="l367">    367</a> #endif
+<a href="#l368" class="line" id="l368">    368</a>             {
+<a href="#l369" class="line" id="l369">    369</a>                 switch (type)
+<a href="#l370" class="line" id="l370">    370</a>                 {
+<a href="#l371" class="line" id="l371">    371</a>                 case Type::Standard:
+<a href="#l372" class="line" id="l372">    372</a>                     return std::make_unique&lt;FileSettingsContainer&gt;(GetPathTo(PathName::StandardSettings), name);
+<a href="#l373" class="line" id="l373">    373</a>                 default:
+<a href="#l374" class="line" id="l374">    374</a>                     THROW_HR(E_UNEXPECTED);
+<a href="#l375" class="line" id="l375">    375</a>                 }
+<a href="#l376" class="line" id="l376">    376</a>             }
+<a href="#l377" class="line" id="l377">    377</a>         }
+<a href="#l378" class="line" id="l378">    378</a> 
+<a href="#l379" class="line" id="l379">    379</a>         // The default is not a raw container, so we wrap some of the underlying containers to enable higher order behaviors.
+<a href="#l380" class="line" id="l380">    380</a>         std::unique_ptr&lt;details::ISettingsContainer&gt; GetSettingsContainer(Type type, const std::string_view&amp; name)
+<a href="#l381" class="line" id="l381">    381</a>         {
+<a href="#l382" class="line" id="l382">    382</a>             switch (type)
+<a href="#l383" class="line" id="l383">    383</a>             {
+<a href="#l384" class="line" id="l384">    384</a>             case Type::Standard:
+<a href="#l385" class="line" id="l385">    385</a>                 // Standard settings should use exchange semantics to prevent overwrites
+<a href="#l386" class="line" id="l386">    386</a>                 return std::make_unique&lt;ExchangeSettingsContainer&gt;(GetRawSettingsContainer(type, name), name);
+<a href="#l387" class="line" id="l387">    387</a> 
+<a href="#l388" class="line" id="l388">    388</a>             case Type::UserFile:
+<a href="#l389" class="line" id="l389">    389</a>                 // User file settings are not typically modified by us, so there is no need for exchange
+<a href="#l390" class="line" id="l390">    390</a>                 return std::make_unique&lt;FileSettingsContainer&gt;(GetPathTo(PathName::UserFileSettings), name);
+<a href="#l391" class="line" id="l391">    391</a> 
+<a href="#l392" class="line" id="l392">    392</a>             case Type::Secure:
+<a href="#l393" class="line" id="l393">    393</a>                 // Secure settings add hash verification on reads on top of exchange semantics
+<a href="#l394" class="line" id="l394">    394</a>                 return std::make_unique&lt;SecureSettingsContainer&gt;(GetRawSettingsContainer(Type::Standard, name), name);
+<a href="#l395" class="line" id="l395">    395</a> 
+<a href="#l396" class="line" id="l396">    396</a>             default:
+<a href="#l397" class="line" id="l397">    397</a>                 THROW_HR(E_UNEXPECTED);
+<a href="#l398" class="line" id="l398">    398</a>             }
+<a href="#l399" class="line" id="l399">    399</a>         }
+<a href="#l400" class="line" id="l400">    400</a> 
+<a href="#l401" class="line" id="l401">    401</a>         std::unique_ptr&lt;details::ISettingsContainer&gt; GetSettingsContainer(const StreamDefinition&amp; streamDefinition)
+<a href="#l402" class="line" id="l402">    402</a>         {
+<a href="#l403" class="line" id="l403">    403</a>             return GetSettingsContainer(streamDefinition.Type, streamDefinition.Name);
+<a href="#l404" class="line" id="l404">    404</a>         }
+<a href="#l405" class="line" id="l405">    405</a>     }
+<a href="#l406" class="line" id="l406">    406</a> 
+<a href="#l407" class="line" id="l407">    407</a>     std::string_view ToString(Type type)
+<a href="#l408" class="line" id="l408">    408</a>     {
+<a href="#l409" class="line" id="l409">    409</a>         switch (type)
+<a href="#l410" class="line" id="l410">    410</a>         {
+<a href="#l411" class="line" id="l411">    411</a>         case Type::Standard:
+<a href="#l412" class="line" id="l412">    412</a>             return &quot;Standard&quot;sv;
+<a href="#l413" class="line" id="l413">    413</a>         case Type::UserFile:
+<a href="#l414" class="line" id="l414">    414</a>             return &quot;UserFile&quot;sv;
+<a href="#l415" class="line" id="l415">    415</a>         case Type::Secure:
+<a href="#l416" class="line" id="l416">    416</a>             return &quot;Secure&quot;sv;
+<a href="#l417" class="line" id="l417">    417</a>         default:
+<a href="#l418" class="line" id="l418">    418</a>             THROW_HR(E_UNEXPECTED);
+<a href="#l419" class="line" id="l419">    419</a>         }
+<a href="#l420" class="line" id="l420">    420</a>     }
+<a href="#l421" class="line" id="l421">    421</a> 
+<a href="#l422" class="line" id="l422">    422</a>     Stream::Stream(const StreamDefinition&amp; streamDefinition) :
+<a href="#l423" class="line" id="l423">    423</a>         m_streamDefinition(streamDefinition), m_container(GetSettingsContainer(streamDefinition))
+<a href="#l424" class="line" id="l424">    424</a>     {
+<a href="#l425" class="line" id="l425">    425</a>         ValidateSettingNamePath(m_streamDefinition.Name);
+<a href="#l426" class="line" id="l426">    426</a>     }
+<a href="#l427" class="line" id="l427">    427</a> 
+<a href="#l428" class="line" id="l428">    428</a>     std::unique_ptr&lt;std::istream&gt; Stream::Get()
+<a href="#l429" class="line" id="l429">    429</a>     {
+<a href="#l430" class="line" id="l430">    430</a>         LogSettingAction(&quot;Get&quot;, m_streamDefinition);
+<a href="#l431" class="line" id="l431">    431</a>         return m_container-&gt;Get();
+<a href="#l432" class="line" id="l432">    432</a>     }
+<a href="#l433" class="line" id="l433">    433</a> 
+<a href="#l434" class="line" id="l434">    434</a>     [[nodiscard]] bool Stream::Set(std::string_view value)
+<a href="#l435" class="line" id="l435">    435</a>     {
+<a href="#l436" class="line" id="l436">    436</a>         LogSettingAction(&quot;Set&quot;, m_streamDefinition);
+<a href="#l437" class="line" id="l437">    437</a>         return m_container-&gt;Set(value);
+<a href="#l438" class="line" id="l438">    438</a>     }
+<a href="#l439" class="line" id="l439">    439</a> 
+<a href="#l440" class="line" id="l440">    440</a>     void Stream::Remove()
+<a href="#l441" class="line" id="l441">    441</a>     {
+<a href="#l442" class="line" id="l442">    442</a>         LogSettingAction(&quot;Remove&quot;, m_streamDefinition);
+<a href="#l443" class="line" id="l443">    443</a>         m_container-&gt;Remove();
+<a href="#l444" class="line" id="l444">    444</a>     }
+<a href="#l445" class="line" id="l445">    445</a> 
+<a href="#l446" class="line" id="l446">    446</a>     std::string_view Stream::GetName() const
+<a href="#l447" class="line" id="l447">    447</a>     {
+<a href="#l448" class="line" id="l448">    448</a>         return m_streamDefinition.Name;
+<a href="#l449" class="line" id="l449">    449</a>     }
+<a href="#l450" class="line" id="l450">    450</a> 
+<a href="#l451" class="line" id="l451">    451</a>     std::filesystem::path Stream::GetPath() const
+<a href="#l452" class="line" id="l452">    452</a>     {
+<a href="#l453" class="line" id="l453">    453</a>         return m_container-&gt;PathTo();
+<a href="#l454" class="line" id="l454">    454</a>     }
+<a href="#l455" class="line" id="l455">    455</a> }
+</pre>
+</div>
+</body>
+</html>

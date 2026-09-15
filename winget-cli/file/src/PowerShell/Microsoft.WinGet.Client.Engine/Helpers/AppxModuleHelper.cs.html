@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>AppxModuleHelper.cs - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../../../../../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../../../../../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../../../../../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../../../../../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../../../../../"><img src="../../../../../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../../../../../log.html">Log</a> | <a href="../../../../../files.html">Files</a> | <a href="../../../../../refs.html">Refs</a> | <a href="../../../../../file/README.md.html">README</a> | <a href="../../../../../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<p> AppxModuleHelper.cs (35555B)</p><hr/><pre id="blob">
+<a href="#l1" class="line" id="l1">      1</a> // -----------------------------------------------------------------------------
+<a href="#l2" class="line" id="l2">      2</a> // &lt;copyright file=&quot;AppxModuleHelper.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+<a href="#l3" class="line" id="l3">      3</a> //     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+<a href="#l4" class="line" id="l4">      4</a> // &lt;/copyright&gt;
+<a href="#l5" class="line" id="l5">      5</a> // -----------------------------------------------------------------------------
+<a href="#l6" class="line" id="l6">      6</a> 
+<a href="#l7" class="line" id="l7">      7</a> namespace Microsoft.WinGet.Client.Engine.Helpers
+<a href="#l8" class="line" id="l8">      8</a> {
+<a href="#l9" class="line" id="l9">      9</a>     using System;
+<a href="#l10" class="line" id="l10">     10</a>     using System.Collections.Generic;
+<a href="#l11" class="line" id="l11">     11</a>     using System.Collections.ObjectModel;
+<a href="#l12" class="line" id="l12">     12</a>     using System.IO;
+<a href="#l13" class="line" id="l13">     13</a>     using System.IO.Compression;
+<a href="#l14" class="line" id="l14">     14</a>     using System.Linq;
+<a href="#l15" class="line" id="l15">     15</a>     using System.Management.Automation;
+<a href="#l16" class="line" id="l16">     16</a>     using System.Runtime.InteropServices;
+<a href="#l17" class="line" id="l17">     17</a>     using System.Threading.Tasks;
+<a href="#l18" class="line" id="l18">     18</a>     using Microsoft.WinGet.Client.Engine.Common;
+<a href="#l19" class="line" id="l19">     19</a>     using Microsoft.WinGet.Client.Engine.Exceptions;
+<a href="#l20" class="line" id="l20">     20</a>     using Microsoft.WinGet.Client.Engine.Extensions;
+<a href="#l21" class="line" id="l21">     21</a>     using Microsoft.WinGet.Common.Command;
+<a href="#l22" class="line" id="l22">     22</a>     using Newtonsoft.Json;
+<a href="#l23" class="line" id="l23">     23</a>     using Octokit;
+<a href="#l24" class="line" id="l24">     24</a>     using Semver;
+<a href="#l25" class="line" id="l25">     25</a>     using static Microsoft.WinGet.Client.Engine.Common.Constants;
+<a href="#l26" class="line" id="l26">     26</a> 
+<a href="#l27" class="line" id="l27">     27</a>     /// &lt;summary&gt;
+<a href="#l28" class="line" id="l28">     28</a>     /// Helper to make calls to the Appx module.
+<a href="#l29" class="line" id="l29">     29</a>     /// &lt;/summary&gt;
+<a href="#l30" class="line" id="l30">     30</a>     internal class AppxModuleHelper
+<a href="#l31" class="line" id="l31">     31</a>     {
+<a href="#l32" class="line" id="l32">     32</a>         // Cmdlets
+<a href="#l33" class="line" id="l33">     33</a>         private const string ImportModule = &quot;Import-Module&quot;;
+<a href="#l34" class="line" id="l34">     34</a>         private const string GetAppxPackage = &quot;Get-AppxPackage&quot;;
+<a href="#l35" class="line" id="l35">     35</a>         private const string AddAppxPackage = &quot;Add-AppxPackage&quot;;
+<a href="#l36" class="line" id="l36">     36</a>         private const string AddAppxProvisionedPackage = &quot;Add-AppxProvisionedPackage&quot;;
+<a href="#l37" class="line" id="l37">     37</a>         private const string GetCommand = &quot;Get-Command&quot;;
+<a href="#l38" class="line" id="l38">     38</a> 
+<a href="#l39" class="line" id="l39">     39</a>         // Parameters name
+<a href="#l40" class="line" id="l40">     40</a>         private const string Name = &quot;Name&quot;;
+<a href="#l41" class="line" id="l41">     41</a>         private const string Path = &quot;Path&quot;;
+<a href="#l42" class="line" id="l42">     42</a>         private const string ErrorAction = &quot;ErrorAction&quot;;
+<a href="#l43" class="line" id="l43">     43</a>         private const string WarningAction = &quot;WarningAction&quot;;
+<a href="#l44" class="line" id="l44">     44</a>         private const string PackagePath = &quot;PackagePath&quot;;
+<a href="#l45" class="line" id="l45">     45</a>         private const string LicensePath = &quot;LicensePath&quot;;
+<a href="#l46" class="line" id="l46">     46</a>         private const string Module = &quot;Module&quot;;
+<a href="#l47" class="line" id="l47">     47</a>         private const string StubPackageOption = &quot;StubPackageOption&quot;;
+<a href="#l48" class="line" id="l48">     48</a>         private const string PackageTypeFilter = &quot;PackageTypeFilter&quot;;
+<a href="#l49" class="line" id="l49">     49</a> 
+<a href="#l50" class="line" id="l50">     50</a>         // Parameter Values
+<a href="#l51" class="line" id="l51">     51</a>         private const string Appx = &quot;Appx&quot;;
+<a href="#l52" class="line" id="l52">     52</a>         private const string Stop = &quot;Stop&quot;;
+<a href="#l53" class="line" id="l53">     53</a>         private const string SilentlyContinue = &quot;SilentlyContinue&quot;;
+<a href="#l54" class="line" id="l54">     54</a>         private const string Online = &quot;Online&quot;;
+<a href="#l55" class="line" id="l55">     55</a>         private const string UsePreference = &quot;UsePreference&quot;;
+<a href="#l56" class="line" id="l56">     56</a>         private const string Framework = &quot;Framework&quot;;
+<a href="#l57" class="line" id="l57">     57</a> 
+<a href="#l58" class="line" id="l58">     58</a>         // Options
+<a href="#l59" class="line" id="l59">     59</a>         private const string UseWindowsPowerShell = &quot;UseWindowsPowerShell&quot;;
+<a href="#l60" class="line" id="l60">     60</a>         private const string ForceUpdateFromAnyVersion = &quot;ForceUpdateFromAnyVersion&quot;;
+<a href="#l61" class="line" id="l61">     61</a>         private const string Register = &quot;Register&quot;;
+<a href="#l62" class="line" id="l62">     62</a>         private const string DisableDevelopmentMode = &quot;DisableDevelopmentMode&quot;;
+<a href="#l63" class="line" id="l63">     63</a>         private const string ForceTargetApplicationShutdown = &quot;ForceTargetApplicationShutdown&quot;;
+<a href="#l64" class="line" id="l64">     64</a> 
+<a href="#l65" class="line" id="l65">     65</a>         private const string AppInstallerName = &quot;Microsoft.DesktopAppInstaller&quot;;
+<a href="#l66" class="line" id="l66">     66</a>         private const string AppxManifest = &quot;AppxManifest.xml&quot;;
+<a href="#l67" class="line" id="l67">     67</a>         private const string PackageFullName = &quot;PackageFullName&quot;;
+<a href="#l68" class="line" id="l68">     68</a>         private const string Version = &quot;Version&quot;;
+<a href="#l69" class="line" id="l69">     69</a> 
+<a href="#l70" class="line" id="l70">     70</a>         private const string DependencyArchitectureEnvironmentVariable = &quot;WINGET_PACKAGE_MANAGER_REPAIR_DEPENDENCY_ARCHITECTURES&quot;;
+<a href="#l71" class="line" id="l71">     71</a> 
+<a href="#l72" class="line" id="l72">     72</a>         // Assets
+<a href="#l73" class="line" id="l73">     73</a>         private const string MsixBundleName = &quot;Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle&quot;;
+<a href="#l74" class="line" id="l74">     74</a>         private const string DependenciesJsonName = &quot;DesktopAppInstaller_Dependencies.json&quot;;
+<a href="#l75" class="line" id="l75">     75</a>         private const string DependenciesZipName = &quot;DesktopAppInstaller_Dependencies.zip&quot;;
+<a href="#l76" class="line" id="l76">     76</a>         private const string License = &quot;License1.xml&quot;;
+<a href="#l77" class="line" id="l77">     77</a> 
+<a href="#l78" class="line" id="l78">     78</a>         // Format of a dependency package such as &#39;x64\Microsoft.VCLibs.140.00.UWPDesktop_14.0.33728.0_x64.appx&#39;
+<a href="#l79" class="line" id="l79">     79</a>         private const string ExtractedDependencyPath = &quot;{0}\\{1}_{2}_{0}.appx&quot;;
+<a href="#l80" class="line" id="l80">     80</a> 
+<a href="#l81" class="line" id="l81">     81</a>         // Dependencies
+<a href="#l82" class="line" id="l82">     82</a>         // VCLibs
+<a href="#l83" class="line" id="l83">     83</a>         private const string VCLibsUWPDesktop = &quot;Microsoft.VCLibs.140.00.UWPDesktop&quot;;
+<a href="#l84" class="line" id="l84">     84</a>         private const string VCLibsUWPDesktopVersion = &quot;14.0.30704.0&quot;;
+<a href="#l85" class="line" id="l85">     85</a>         private const string VCLibsUWPDesktopX64 = &quot;https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx&quot;;
+<a href="#l86" class="line" id="l86">     86</a>         private const string VCLibsUWPDesktopX86 = &quot;https://aka.ms/Microsoft.VCLibs.x86.14.00.Desktop.appx&quot;;
+<a href="#l87" class="line" id="l87">     87</a>         private const string VCLibsUWPDesktopArm64 = &quot;https://aka.ms/Microsoft.VCLibs.arm64.14.00.Desktop.appx&quot;;
+<a href="#l88" class="line" id="l88">     88</a> 
+<a href="#l89" class="line" id="l89">     89</a>         // Xaml
+<a href="#l90" class="line" id="l90">     90</a>         private const string XamlPackage28 = &quot;Microsoft.UI.Xaml.2.8&quot;;
+<a href="#l91" class="line" id="l91">     91</a>         private const string XamlReleaseTag286 = &quot;v2.8.6&quot;;
+<a href="#l92" class="line" id="l92">     92</a>         private const string MinimumWinGetReleaseTagForXaml28 = &quot;v1.7.10514&quot;;
+<a href="#l93" class="line" id="l93">     93</a> 
+<a href="#l94" class="line" id="l94">     94</a>         private const string XamlPackage27 = &quot;Microsoft.UI.Xaml.2.7&quot;;
+<a href="#l95" class="line" id="l95">     95</a>         private const string XamlReleaseTag273 = &quot;v2.7.3&quot;;
+<a href="#l96" class="line" id="l96">     96</a> 
+<a href="#l97" class="line" id="l97">     97</a>         private readonly PowerShellCmdlet pwshCmdlet;
+<a href="#l98" class="line" id="l98">     98</a>         private readonly HttpClientHelper httpClientHelper;
+<a href="#l99" class="line" id="l99">     99</a>         private Lazy&lt;HashSet&lt;Architecture&gt;&gt; frameworkArchitectures;
+<a href="#l100" class="line" id="l100">    100</a> 
+<a href="#l101" class="line" id="l101">    101</a>         /// &lt;summary&gt;
+<a href="#l102" class="line" id="l102">    102</a>         /// Initializes a new instance of the &lt;see cref=&quot;AppxModuleHelper&quot;/&gt; class.
+<a href="#l103" class="line" id="l103">    103</a>         /// &lt;/summary&gt;
+<a href="#l104" class="line" id="l104">    104</a>         /// &lt;param name=&quot;pwshCmdlet&quot;&gt;The calling cmdlet.&lt;/param&gt;
+<a href="#l105" class="line" id="l105">    105</a>         public AppxModuleHelper(PowerShellCmdlet pwshCmdlet)
+<a href="#l106" class="line" id="l106">    106</a>         {
+<a href="#l107" class="line" id="l107">    107</a>             this.pwshCmdlet = pwshCmdlet;
+<a href="#l108" class="line" id="l108">    108</a>             this.httpClientHelper = new HttpClientHelper();
+<a href="#l109" class="line" id="l109">    109</a>             this.frameworkArchitectures = new Lazy&lt;HashSet&lt;Architecture&gt;&gt;(() =&gt; this.InitFrameworkArchitectures());
+<a href="#l110" class="line" id="l110">    110</a>         }
+<a href="#l111" class="line" id="l111">    111</a> 
+<a href="#l112" class="line" id="l112">    112</a>         /// &lt;summary&gt;
+<a href="#l113" class="line" id="l113">    113</a>         /// Calls Get-AppxPackage Microsoft.DesktopAppInstaller.
+<a href="#l114" class="line" id="l114">    114</a>         /// &lt;/summary&gt;
+<a href="#l115" class="line" id="l115">    115</a>         /// &lt;returns&gt;Result of Get-AppxPackage.&lt;/returns&gt;
+<a href="#l116" class="line" id="l116">    116</a>         public PSObject? GetAppInstallerObject()
+<a href="#l117" class="line" id="l117">    117</a>         {
+<a href="#l118" class="line" id="l118">    118</a>             return this.GetAppxObject(AppInstallerName);
+<a href="#l119" class="line" id="l119">    119</a>         }
+<a href="#l120" class="line" id="l120">    120</a> 
+<a href="#l121" class="line" id="l121">    121</a>         /// &lt;summary&gt;
+<a href="#l122" class="line" id="l122">    122</a>         /// Gets the string value a property from the Get-AppxPackage object of AppInstaller.
+<a href="#l123" class="line" id="l123">    123</a>         /// &lt;/summary&gt;
+<a href="#l124" class="line" id="l124">    124</a>         /// &lt;param name=&quot;propertyName&quot;&gt;Property name.&lt;/param&gt;
+<a href="#l125" class="line" id="l125">    125</a>         /// &lt;returns&gt;Value, null if doesn&#39;t exist.&lt;/returns&gt;
+<a href="#l126" class="line" id="l126">    126</a>         public string? GetAppInstallerPropertyValue(string propertyName)
+<a href="#l127" class="line" id="l127">    127</a>         {
+<a href="#l128" class="line" id="l128">    128</a>             string? result = null;
+<a href="#l129" class="line" id="l129">    129</a>             var packageObj = this.GetAppInstallerObject();
+<a href="#l130" class="line" id="l130">    130</a>             if (packageObj is not null)
+<a href="#l131" class="line" id="l131">    131</a>             {
+<a href="#l132" class="line" id="l132">    132</a>                 var property = packageObj.Properties.Where(p =&gt; p.Name == propertyName).FirstOrDefault();
+<a href="#l133" class="line" id="l133">    133</a>                 if (property is not null)
+<a href="#l134" class="line" id="l134">    134</a>                 {
+<a href="#l135" class="line" id="l135">    135</a>                     result = property.Value as string;
+<a href="#l136" class="line" id="l136">    136</a>                 }
+<a href="#l137" class="line" id="l137">    137</a>             }
+<a href="#l138" class="line" id="l138">    138</a> 
+<a href="#l139" class="line" id="l139">    139</a>             return result;
+<a href="#l140" class="line" id="l140">    140</a>         }
+<a href="#l141" class="line" id="l141">    141</a> 
+<a href="#l142" class="line" id="l142">    142</a>         /// &lt;summary&gt;
+<a href="#l143" class="line" id="l143">    143</a>         /// Calls Add-AppxPackage to register with AppInstaller&#39;s AppxManifest.xml.
+<a href="#l144" class="line" id="l144">    144</a>         /// &lt;/summary&gt;
+<a href="#l145" class="line" id="l145">    145</a>         /// &lt;param name=&quot;releaseTag&quot;&gt;Release tag of GitHub release.&lt;/param&gt;
+<a href="#l146" class="line" id="l146">    146</a>         public void RegisterAppInstaller(string releaseTag)
+<a href="#l147" class="line" id="l147">    147</a>         {
+<a href="#l148" class="line" id="l148">    148</a>             if (string.IsNullOrEmpty(releaseTag))
+<a href="#l149" class="line" id="l149">    149</a>             {
+<a href="#l150" class="line" id="l150">    150</a>                 string? versionFromLocalPackage = this.GetAppInstallerPropertyValue(Version);
+<a href="#l151" class="line" id="l151">    151</a> 
+<a href="#l152" class="line" id="l152">    152</a>                 if (versionFromLocalPackage == null)
+<a href="#l153" class="line" id="l153">    153</a>                 {
+<a href="#l154" class="line" id="l154">    154</a>                     throw new ArgumentNullException(Version);
+<a href="#l155" class="line" id="l155">    155</a>                 }
+<a href="#l156" class="line" id="l156">    156</a> 
+<a href="#l157" class="line" id="l157">    157</a>                 var packageVersion = new Version(versionFromLocalPackage);
+<a href="#l158" class="line" id="l158">    158</a>                 if (packageVersion.Major == 1 &amp;&amp; packageVersion.Minor &gt; 15)
+<a href="#l159" class="line" id="l159">    159</a>                 {
+<a href="#l160" class="line" id="l160">    160</a>                     releaseTag = $&quot;1.{packageVersion.Minor - 15}.{packageVersion.Build}&quot;;
+<a href="#l161" class="line" id="l161">    161</a>                 }
+<a href="#l162" class="line" id="l162">    162</a>                 else
+<a href="#l163" class="line" id="l163">    163</a>                 {
+<a href="#l164" class="line" id="l164">    164</a>                     releaseTag = $&quot;{packageVersion.Major}.{packageVersion.Minor}.{packageVersion.Build}&quot;;
+<a href="#l165" class="line" id="l165">    165</a>                 }
+<a href="#l166" class="line" id="l166">    166</a>             }
+<a href="#l167" class="line" id="l167">    167</a> 
+<a href="#l168" class="line" id="l168">    168</a>             // Ensure that all dependencies are present when attempting to register.
+<a href="#l169" class="line" id="l169">    169</a>             // If dependencies are missing, a provisioned package can appear to only need registration,
+<a href="#l170" class="line" id="l170">    170</a>             // but will fail to register. `InstallDependenciesAsync` checks for the packages before
+<a href="#l171" class="line" id="l171">    171</a>             // acting, so it should be mostly a no-op if they are already available.
+<a href="#l172" class="line" id="l172">    172</a>             this.InstallDependenciesAsync(releaseTag).Wait();
+<a href="#l173" class="line" id="l173">    173</a> 
+<a href="#l174" class="line" id="l174">    174</a>             string? packageFullName = this.GetAppInstallerPropertyValue(PackageFullName);
+<a href="#l175" class="line" id="l175">    175</a> 
+<a href="#l176" class="line" id="l176">    176</a>             if (packageFullName == null)
+<a href="#l177" class="line" id="l177">    177</a>             {
+<a href="#l178" class="line" id="l178">    178</a>                 throw new ArgumentNullException(PackageFullName);
+<a href="#l179" class="line" id="l179">    179</a>             }
+<a href="#l180" class="line" id="l180">    180</a> 
+<a href="#l181" class="line" id="l181">    181</a>             string appxManifestPath = System.IO.Path.Combine(
+<a href="#l182" class="line" id="l182">    182</a>                 Utilities.ProgramFilesWindowsAppPath,
+<a href="#l183" class="line" id="l183">    183</a>                 packageFullName,
+<a href="#l184" class="line" id="l184">    184</a>                 AppxManifest);
+<a href="#l185" class="line" id="l185">    185</a> 
+<a href="#l186" class="line" id="l186">    186</a>             _ = this.ExecuteAppxCmdlet(
+<a href="#l187" class="line" id="l187">    187</a>                 AddAppxPackage,
+<a href="#l188" class="line" id="l188">    188</a>                 new Dictionary&lt;string, object&gt;
+<a href="#l189" class="line" id="l189">    189</a>                 {
+<a href="#l190" class="line" id="l190">    190</a>                     { Path, appxManifestPath },
+<a href="#l191" class="line" id="l191">    191</a>                 },
+<a href="#l192" class="line" id="l192">    192</a>                 new List&lt;string&gt;
+<a href="#l193" class="line" id="l193">    193</a>                 {
+<a href="#l194" class="line" id="l194">    194</a>                     Register,
+<a href="#l195" class="line" id="l195">    195</a>                     DisableDevelopmentMode,
+<a href="#l196" class="line" id="l196">    196</a>                 });
+<a href="#l197" class="line" id="l197">    197</a>         }
+<a href="#l198" class="line" id="l198">    198</a> 
+<a href="#l199" class="line" id="l199">    199</a>         /// &lt;summary&gt;
+<a href="#l200" class="line" id="l200">    200</a>         /// Install AppInstaller&#39;s bundle from a GitHub release.
+<a href="#l201" class="line" id="l201">    201</a>         /// &lt;/summary&gt;
+<a href="#l202" class="line" id="l202">    202</a>         /// &lt;param name=&quot;releaseTag&quot;&gt;Release tag of GitHub release.&lt;/param&gt;
+<a href="#l203" class="line" id="l203">    203</a>         /// &lt;param name=&quot;allUsers&quot;&gt;If install for all users is needed.&lt;/param&gt;
+<a href="#l204" class="line" id="l204">    204</a>         /// &lt;param name=&quot;isDowngrade&quot;&gt;Is downgrade.&lt;/param&gt;
+<a href="#l205" class="line" id="l205">    205</a>         /// &lt;param name=&quot;force&quot;&gt;Force application shutdown.&lt;/param&gt;
+<a href="#l206" class="line" id="l206">    206</a>         /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous operation.&lt;/returns&gt;
+<a href="#l207" class="line" id="l207">    207</a>         public async Task InstallFromGitHubReleaseAsync(string releaseTag, bool allUsers, bool isDowngrade, bool force)
+<a href="#l208" class="line" id="l208">    208</a>         {
+<a href="#l209" class="line" id="l209">    209</a>             await this.InstallDependenciesAsync(releaseTag);
+<a href="#l210" class="line" id="l210">    210</a> 
+<a href="#l211" class="line" id="l211">    211</a>             if (isDowngrade)
+<a href="#l212" class="line" id="l212">    212</a>             {
+<a href="#l213" class="line" id="l213">    213</a>                 // Add-AppxProvisionedPackage doesn&#39;t support downgrade.
+<a href="#l214" class="line" id="l214">    214</a>                 await this.AddAppInstallerBundleAsync(releaseTag, true, force);
+<a href="#l215" class="line" id="l215">    215</a> 
+<a href="#l216" class="line" id="l216">    216</a>                 if (allUsers)
+<a href="#l217" class="line" id="l217">    217</a>                 {
+<a href="#l218" class="line" id="l218">    218</a>                     await this.AddProvisionPackageAsync(releaseTag);
+<a href="#l219" class="line" id="l219">    219</a>                 }
+<a href="#l220" class="line" id="l220">    220</a>             }
+<a href="#l221" class="line" id="l221">    221</a>             else
+<a href="#l222" class="line" id="l222">    222</a>             {
+<a href="#l223" class="line" id="l223">    223</a>                 if (allUsers)
+<a href="#l224" class="line" id="l224">    224</a>                 {
+<a href="#l225" class="line" id="l225">    225</a>                     await this.AddProvisionPackageAsync(releaseTag);
+<a href="#l226" class="line" id="l226">    226</a>                 }
+<a href="#l227" class="line" id="l227">    227</a>                 else
+<a href="#l228" class="line" id="l228">    228</a>                 {
+<a href="#l229" class="line" id="l229">    229</a>                     await this.AddAppInstallerBundleAsync(releaseTag, false, force);
+<a href="#l230" class="line" id="l230">    230</a>                 }
+<a href="#l231" class="line" id="l231">    231</a>             }
+<a href="#l232" class="line" id="l232">    232</a>         }
+<a href="#l233" class="line" id="l233">    233</a> 
+<a href="#l234" class="line" id="l234">    234</a>         /// &lt;summary&gt;
+<a href="#l235" class="line" id="l235">    235</a>         /// Gets the Xaml dependency package name and release tag based on the provided WinGet release tag.
+<a href="#l236" class="line" id="l236">    236</a>         /// &lt;/summary&gt;
+<a href="#l237" class="line" id="l237">    237</a>         /// &lt;param name=&quot;releaseTag&quot;&gt;WinGet release tag.&lt;/param&gt;
+<a href="#l238" class="line" id="l238">    238</a>         /// &lt;returns&gt;A tuple in the format of (XamlPackageName, XamlReleaseTag).&lt;/returns&gt;
+<a href="#l239" class="line" id="l239">    239</a>         private static Tuple&lt;string, string&gt; GetXamlDependencyVersionInfo(string releaseTag)
+<a href="#l240" class="line" id="l240">    240</a>         {
+<a href="#l241" class="line" id="l241">    241</a>             var targetVersion = SemVersion.Parse(releaseTag, SemVersionStyles.AllowLowerV);
+<a href="#l242" class="line" id="l242">    242</a> 
+<a href="#l243" class="line" id="l243">    243</a>             if (targetVersion.CompareSortOrderTo(SemVersion.Parse(MinimumWinGetReleaseTagForXaml28, SemVersionStyles.AllowLowerV)) &gt;= 0)
+<a href="#l244" class="line" id="l244">    244</a>             {
+<a href="#l245" class="line" id="l245">    245</a>                 return Tuple.Create(XamlPackage28, XamlReleaseTag286);
+<a href="#l246" class="line" id="l246">    246</a>             }
+<a href="#l247" class="line" id="l247">    247</a>             else
+<a href="#l248" class="line" id="l248">    248</a>             {
+<a href="#l249" class="line" id="l249">    249</a>                 return Tuple.Create(XamlPackage27, XamlReleaseTag273);
+<a href="#l250" class="line" id="l250">    250</a>             }
+<a href="#l251" class="line" id="l251">    251</a>         }
+<a href="#l252" class="line" id="l252">    252</a> 
+<a href="#l253" class="line" id="l253">    253</a>         private async Task AddProvisionPackageAsync(string releaseTag)
+<a href="#l254" class="line" id="l254">    254</a>         {
+<a href="#l255" class="line" id="l255">    255</a>             var githubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+<a href="#l256" class="line" id="l256">    256</a>             var release = await githubClient.GetReleaseAsync(releaseTag);
+<a href="#l257" class="line" id="l257">    257</a> 
+<a href="#l258" class="line" id="l258">    258</a>             var bundleAsset = release.GetAsset(MsixBundleName);
+<a href="#l259" class="line" id="l259">    259</a>             using var bundleFile = new TempFile(fileName: MsixBundleName);
+<a href="#l260" class="line" id="l260">    260</a>             await this.httpClientHelper.DownloadUrlWithProgressAsync(
+<a href="#l261" class="line" id="l261">    261</a>                 bundleAsset.BrowserDownloadUrl, bundleFile.FullPath, this.pwshCmdlet);
+<a href="#l262" class="line" id="l262">    262</a> 
+<a href="#l263" class="line" id="l263">    263</a>             var licenseAsset = release.GetAssetEndsWith(License);
+<a href="#l264" class="line" id="l264">    264</a>             using var licenseFile = new TempFile(fileName: licenseAsset.Name);
+<a href="#l265" class="line" id="l265">    265</a>             await this.httpClientHelper.DownloadUrlWithProgressAsync(
+<a href="#l266" class="line" id="l266">    266</a>                 licenseAsset.BrowserDownloadUrl, licenseFile.FullPath, this.pwshCmdlet);
+<a href="#l267" class="line" id="l267">    267</a> 
+<a href="#l268" class="line" id="l268">    268</a>             try
+<a href="#l269" class="line" id="l269">    269</a>             {
+<a href="#l270" class="line" id="l270">    270</a>                 this.pwshCmdlet.ExecuteInPowerShellThread(
+<a href="#l271" class="line" id="l271">    271</a>                     () =&gt;
+<a href="#l272" class="line" id="l272">    272</a>                     {
+<a href="#l273" class="line" id="l273">    273</a>                         var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+<a href="#l274" class="line" id="l274">    274</a>                         ps.AddCommand(AddAppxProvisionedPackage)
+<a href="#l275" class="line" id="l275">    275</a>                           .AddParameter(Online)
+<a href="#l276" class="line" id="l276">    276</a>                           .AddParameter(PackagePath, bundleFile.FullPath)
+<a href="#l277" class="line" id="l277">    277</a>                           .AddParameter(LicensePath, licenseFile.FullPath)
+<a href="#l278" class="line" id="l278">    278</a>                           .AddParameter(ErrorAction, Stop)
+<a href="#l279" class="line" id="l279">    279</a>                           .Invoke();
+<a href="#l280" class="line" id="l280">    280</a>                     });
+<a href="#l281" class="line" id="l281">    281</a>             }
+<a href="#l282" class="line" id="l282">    282</a>             catch (RuntimeException e)
+<a href="#l283" class="line" id="l283">    283</a>             {
+<a href="#l284" class="line" id="l284">    284</a>                 this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Failed installing bundle via Add-AppxProvisionedPackage {e}&quot;);
+<a href="#l285" class="line" id="l285">    285</a>                 throw;
+<a href="#l286" class="line" id="l286">    286</a>             }
+<a href="#l287" class="line" id="l287">    287</a>         }
+<a href="#l288" class="line" id="l288">    288</a> 
+<a href="#l289" class="line" id="l289">    289</a>         private async Task AddAppInstallerBundleAsync(string releaseTag, bool downgrade, bool force)
+<a href="#l290" class="line" id="l290">    290</a>         {
+<a href="#l291" class="line" id="l291">    291</a>             var options = new List&lt;string&gt;();
+<a href="#l292" class="line" id="l292">    292</a>             if (downgrade)
+<a href="#l293" class="line" id="l293">    293</a>             {
+<a href="#l294" class="line" id="l294">    294</a>                 options.Add(ForceUpdateFromAnyVersion);
+<a href="#l295" class="line" id="l295">    295</a>             }
+<a href="#l296" class="line" id="l296">    296</a> 
+<a href="#l297" class="line" id="l297">    297</a>             if (force)
+<a href="#l298" class="line" id="l298">    298</a>             {
+<a href="#l299" class="line" id="l299">    299</a>                 options.Add(ForceTargetApplicationShutdown);
+<a href="#l300" class="line" id="l300">    300</a>             }
+<a href="#l301" class="line" id="l301">    301</a> 
+<a href="#l302" class="line" id="l302">    302</a>             var parameters = new Dictionary&lt;string, object&gt;();
+<a href="#l303" class="line" id="l303">    303</a>             if (this.IsStubPackageOptionPresent())
+<a href="#l304" class="line" id="l304">    304</a>             {
+<a href="#l305" class="line" id="l305">    305</a>                 parameters.Add(StubPackageOption, UsePreference);
+<a href="#l306" class="line" id="l306">    306</a>             }
+<a href="#l307" class="line" id="l307">    307</a> 
+<a href="#l308" class="line" id="l308">    308</a>             try
+<a href="#l309" class="line" id="l309">    309</a>             {
+<a href="#l310" class="line" id="l310">    310</a>                 var githubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+<a href="#l311" class="line" id="l311">    311</a>                 var release = await githubClient.GetReleaseAsync(releaseTag);
+<a href="#l312" class="line" id="l312">    312</a> 
+<a href="#l313" class="line" id="l313">    313</a>                 var bundleAsset = release.GetAsset(MsixBundleName);
+<a href="#l314" class="line" id="l314">    314</a>                 await this.AddAppxPackageAsUriAsync(bundleAsset.BrowserDownloadUrl, MsixBundleName, parameters, options);
+<a href="#l315" class="line" id="l315">    315</a>             }
+<a href="#l316" class="line" id="l316">    316</a>             catch (RuntimeException e)
+<a href="#l317" class="line" id="l317">    317</a>             {
+<a href="#l318" class="line" id="l318">    318</a>                 this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Failed installing bundle via Add-AppxPackage {e}&quot;);
+<a href="#l319" class="line" id="l319">    319</a>                 throw;
+<a href="#l320" class="line" id="l320">    320</a>             }
+<a href="#l321" class="line" id="l321">    321</a>         }
+<a href="#l322" class="line" id="l322">    322</a> 
+<a href="#l323" class="line" id="l323">    323</a>         private PSObject? GetAppxObject(string packageName)
+<a href="#l324" class="line" id="l324">    324</a>         {
+<a href="#l325" class="line" id="l325">    325</a>             return this.ExecuteAppxCmdlet(
+<a href="#l326" class="line" id="l326">    326</a>                 GetAppxPackage,
+<a href="#l327" class="line" id="l327">    327</a>                 new Dictionary&lt;string, object&gt;
+<a href="#l328" class="line" id="l328">    328</a>                 {
+<a href="#l329" class="line" id="l329">    329</a>                     { Name, packageName },
+<a href="#l330" class="line" id="l330">    330</a>                 })
+<a href="#l331" class="line" id="l331">    331</a>                 .FirstOrDefault();
+<a href="#l332" class="line" id="l332">    332</a>         }
+<a href="#l333" class="line" id="l333">    333</a> 
+<a href="#l334" class="line" id="l334">    334</a>         private async Task InstallDependenciesAsync(string releaseTag)
+<a href="#l335" class="line" id="l335">    335</a>         {
+<a href="#l336" class="line" id="l336">    336</a>             bool result = await this.InstallDependenciesFromGitHubArchive(releaseTag);
+<a href="#l337" class="line" id="l337">    337</a> 
+<a href="#l338" class="line" id="l338">    338</a>             if (!result)
+<a href="#l339" class="line" id="l339">    339</a>             {
+<a href="#l340" class="line" id="l340">    340</a>                 // A better implementation would use Add-AppxPackage with -DependencyPath, but
+<a href="#l341" class="line" id="l341">    341</a>                 // the Appx module needs to be remoted into Windows PowerShell. When the string[] parameter
+<a href="#l342" class="line" id="l342">    342</a>                 // gets deserialized from Core the result is a single string which breaks Add-AppxPackage.
+<a href="#l343" class="line" id="l343">    343</a>                 // Here we should: if we are in Windows Powershell then run Add-AppxPackage with -DependencyPath
+<a href="#l344" class="line" id="l344">    344</a>                 // if we are in Core, then start powershell.exe and run the same command. Right now, we just
+<a href="#l345" class="line" id="l345">    345</a>                 // do Add-AppxPackage for each one.
+<a href="#l346" class="line" id="l346">    346</a>                 // This method no longer works for versions &gt;1.9 as the vclibs url has been deprecated.
+<a href="#l347" class="line" id="l347">    347</a>                 await this.InstallVCLibsDependenciesFromUriAsync();
+<a href="#l348" class="line" id="l348">    348</a>                 await this.InstallUiXamlAsync(releaseTag);
+<a href="#l349" class="line" id="l349">    349</a>             }
+<a href="#l350" class="line" id="l350">    350</a>         }
+<a href="#l351" class="line" id="l351">    351</a> 
+<a href="#l352" class="line" id="l352">    352</a>         /// &lt;summary&gt;
+<a href="#l353" class="line" id="l353">    353</a>         /// Extracts all of the architectures used by framework packages.
+<a href="#l354" class="line" id="l354">    354</a>         /// &lt;/summary&gt;
+<a href="#l355" class="line" id="l355">    355</a>         /// &lt;returns&gt;The set of architectures used by installed framework packages.&lt;/returns&gt;
+<a href="#l356" class="line" id="l356">    356</a>         private HashSet&lt;Architecture&gt; InitFrameworkArchitectures()
+<a href="#l357" class="line" id="l357">    357</a>         {
+<a href="#l358" class="line" id="l358">    358</a>             HashSet&lt;Architecture&gt; architectures = new HashSet&lt;Architecture&gt;();
+<a href="#l359" class="line" id="l359">    359</a> 
+<a href="#l360" class="line" id="l360">    360</a>             // Read the override from the environment variable if it exists.
+<a href="#l361" class="line" id="l361">    361</a>             string? environmentVariable = Environment.GetEnvironmentVariable(DependencyArchitectureEnvironmentVariable);
+<a href="#l362" class="line" id="l362">    362</a>             if (environmentVariable != null)
+<a href="#l363" class="line" id="l363">    363</a>             {
+<a href="#l364" class="line" id="l364">    364</a>                 this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Using environment variable {DependencyArchitectureEnvironmentVariable} for frameworks: {environmentVariable}&quot;);
+<a href="#l365" class="line" id="l365">    365</a> 
+<a href="#l366" class="line" id="l366">    366</a>                 foreach (string architectureString in environmentVariable.Split(&#39;,&#39;, &#39;;&#39;))
+<a href="#l367" class="line" id="l367">    367</a>                 {
+<a href="#l368" class="line" id="l368">    368</a>                     Architecture architecture;
+<a href="#l369" class="line" id="l369">    369</a>                     if (Enum.TryParse(architectureString, true, out architecture))
+<a href="#l370" class="line" id="l370">    370</a>                     {
+<a href="#l371" class="line" id="l371">    371</a>                         if (architectures.Add(architecture))
+<a href="#l372" class="line" id="l372">    372</a>                         {
+<a href="#l373" class="line" id="l373">    373</a>                             this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Framework architecture from environment variable: {architectureString}&quot;);
+<a href="#l374" class="line" id="l374">    374</a>                         }
+<a href="#l375" class="line" id="l375">    375</a>                     }
+<a href="#l376" class="line" id="l376">    376</a>                 }
+<a href="#l377" class="line" id="l377">    377</a> 
+<a href="#l378" class="line" id="l378">    378</a>                 return architectures;
+<a href="#l379" class="line" id="l379">    379</a>             }
+<a href="#l380" class="line" id="l380">    380</a> 
+<a href="#l381" class="line" id="l381">    381</a>             // If there are any framework packages already installed, use the same architecture as them.
+<a href="#l382" class="line" id="l382">    382</a>             var result = this.ExecuteAppxCmdlet(
+<a href="#l383" class="line" id="l383">    383</a>                 GetAppxPackage,
+<a href="#l384" class="line" id="l384">    384</a>                 new Dictionary&lt;string, object&gt;
+<a href="#l385" class="line" id="l385">    385</a>                 {
+<a href="#l386" class="line" id="l386">    386</a>                     { PackageTypeFilter, Framework },
+<a href="#l387" class="line" id="l387">    387</a>                 });
+<a href="#l388" class="line" id="l388">    388</a> 
+<a href="#l389" class="line" id="l389">    389</a>             if (result != null &amp;&amp;
+<a href="#l390" class="line" id="l390">    390</a>                 result.Count &gt; 0)
+<a href="#l391" class="line" id="l391">    391</a>             {
+<a href="#l392" class="line" id="l392">    392</a>                 foreach (dynamic psobject in result)
+<a href="#l393" class="line" id="l393">    393</a>                 {
+<a href="#l394" class="line" id="l394">    394</a>                     string? architectureString = psobject?.Architecture?.ToString();
+<a href="#l395" class="line" id="l395">    395</a>                     if (architectureString == null)
+<a href="#l396" class="line" id="l396">    396</a>                     {
+<a href="#l397" class="line" id="l397">    397</a>                         continue;
+<a href="#l398" class="line" id="l398">    398</a>                     }
+<a href="#l399" class="line" id="l399">    399</a> 
+<a href="#l400" class="line" id="l400">    400</a>                     Architecture architecture;
+<a href="#l401" class="line" id="l401">    401</a>                     if (Enum.TryParse(architectureString, true, out architecture))
+<a href="#l402" class="line" id="l402">    402</a>                     {
+<a href="#l403" class="line" id="l403">    403</a>                         if (architectures.Add(architecture))
+<a href="#l404" class="line" id="l404">    404</a>                         {
+<a href="#l405" class="line" id="l405">    405</a>                             this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Found framework architecture: {architectureString}&quot;);
+<a href="#l406" class="line" id="l406">    406</a>                         }
+<a href="#l407" class="line" id="l407">    407</a>                     }
+<a href="#l408" class="line" id="l408">    408</a>                 }
+<a href="#l409" class="line" id="l409">    409</a>             }
+<a href="#l410" class="line" id="l410">    410</a> 
+<a href="#l411" class="line" id="l411">    411</a>             // Fall back to guessing from the current OS architecture.
+<a href="#l412" class="line" id="l412">    412</a>             // This may have issues on ARM64 because RuntimeInformation.OSArchitecture seems to just lie sometimes.
+<a href="#l413" class="line" id="l413">    413</a>             // See https://github.com/microsoft/winget-cli/issues/5020
+<a href="#l414" class="line" id="l414">    414</a>             if (architectures.Count == 0)
+<a href="#l415" class="line" id="l415">    415</a>             {
+<a href="#l416" class="line" id="l416">    416</a>                 var arch = RuntimeInformation.OSArchitecture;
+<a href="#l417" class="line" id="l417">    417</a>                 this.pwshCmdlet.Write(StreamType.Verbose, $&quot;OS architecture: {arch.ToString()}&quot;);
+<a href="#l418" class="line" id="l418">    418</a> 
+<a href="#l419" class="line" id="l419">    419</a>                 if (arch == Architecture.X64)
+<a href="#l420" class="line" id="l420">    420</a>                 {
+<a href="#l421" class="line" id="l421">    421</a>                     architectures.Add(Architecture.X64);
+<a href="#l422" class="line" id="l422">    422</a>                 }
+<a href="#l423" class="line" id="l423">    423</a>                 else if (arch == Architecture.X86)
+<a href="#l424" class="line" id="l424">    424</a>                 {
+<a href="#l425" class="line" id="l425">    425</a>                     architectures.Add(Architecture.X86);
+<a href="#l426" class="line" id="l426">    426</a>                 }
+<a href="#l427" class="line" id="l427">    427</a>                 else if (arch == Architecture.Arm64)
+<a href="#l428" class="line" id="l428">    428</a>                 {
+<a href="#l429" class="line" id="l429">    429</a>                     // Let deployment figure it out
+<a href="#l430" class="line" id="l430">    430</a>                     architectures.Add(Architecture.Arm64);
+<a href="#l431" class="line" id="l431">    431</a>                     architectures.Add(Architecture.X64);
+<a href="#l432" class="line" id="l432">    432</a>                     architectures.Add(Architecture.X86);
+<a href="#l433" class="line" id="l433">    433</a>                 }
+<a href="#l434" class="line" id="l434">    434</a>             }
+<a href="#l435" class="line" id="l435">    435</a> 
+<a href="#l436" class="line" id="l436">    436</a>             return architectures;
+<a href="#l437" class="line" id="l437">    437</a>         }
+<a href="#l438" class="line" id="l438">    438</a> 
+<a href="#l439" class="line" id="l439">    439</a>         private Dictionary&lt;string, string&gt; GetDependenciesByArch(PackageDependency dependencies)
+<a href="#l440" class="line" id="l440">    440</a>         {
+<a href="#l441" class="line" id="l441">    441</a>             Dictionary&lt;string, string&gt; appxPackages = new Dictionary&lt;string, string&gt;();
+<a href="#l442" class="line" id="l442">    442</a> 
+<a href="#l443" class="line" id="l443">    443</a>             foreach (var architecture in this.frameworkArchitectures.Value)
+<a href="#l444" class="line" id="l444">    444</a>             {
+<a href="#l445" class="line" id="l445">    445</a>                 switch (architecture)
+<a href="#l446" class="line" id="l446">    446</a>                 {
+<a href="#l447" class="line" id="l447">    447</a>                     case Architecture.X86:
+<a href="#l448" class="line" id="l448">    448</a>                         appxPackages.Add(&quot;x86&quot;, string.Format(ExtractedDependencyPath, &quot;x86&quot;, dependencies.Name, dependencies.Version));
+<a href="#l449" class="line" id="l449">    449</a>                         break;
+<a href="#l450" class="line" id="l450">    450</a>                     case Architecture.X64:
+<a href="#l451" class="line" id="l451">    451</a>                         appxPackages.Add(&quot;x64&quot;, string.Format(ExtractedDependencyPath, &quot;x64&quot;, dependencies.Name, dependencies.Version));
+<a href="#l452" class="line" id="l452">    452</a>                         break;
+<a href="#l453" class="line" id="l453">    453</a>                     case Architecture.Arm64:
+<a href="#l454" class="line" id="l454">    454</a>                         appxPackages.Add(&quot;arm64&quot;, string.Format(ExtractedDependencyPath, &quot;arm64&quot;, dependencies.Name, dependencies.Version));
+<a href="#l455" class="line" id="l455">    455</a>                         break;
+<a href="#l456" class="line" id="l456">    456</a>                     default:
+<a href="#l457" class="line" id="l457">    457</a>                         this.pwshCmdlet.Write(StreamType.Verbose, $&quot;GetDependenciesByArch: Ignoring {architecture}&quot;);
+<a href="#l458" class="line" id="l458">    458</a>                         break;
+<a href="#l459" class="line" id="l459">    459</a>                 }
+<a href="#l460" class="line" id="l460">    460</a>             }
+<a href="#l461" class="line" id="l461">    461</a> 
+<a href="#l462" class="line" id="l462">    462</a>             return appxPackages;
+<a href="#l463" class="line" id="l463">    463</a>         }
+<a href="#l464" class="line" id="l464">    464</a> 
+<a href="#l465" class="line" id="l465">    465</a>         private void FindMissingDependencies(Dictionary&lt;string, string&gt; dependencies, string packageName, string requiredVersion)
+<a href="#l466" class="line" id="l466">    466</a>         {
+<a href="#l467" class="line" id="l467">    467</a>             var result = this.ExecuteAppxCmdlet(
+<a href="#l468" class="line" id="l468">    468</a>                 GetAppxPackage,
+<a href="#l469" class="line" id="l469">    469</a>                 new Dictionary&lt;string, object&gt;
+<a href="#l470" class="line" id="l470">    470</a>                 {
+<a href="#l471" class="line" id="l471">    471</a>                     { Name, packageName },
+<a href="#l472" class="line" id="l472">    472</a>                 });
+<a href="#l473" class="line" id="l473">    473</a> 
+<a href="#l474" class="line" id="l474">    474</a>             Version minimumVersion = new Version(requiredVersion);
+<a href="#l475" class="line" id="l475">    475</a> 
+<a href="#l476" class="line" id="l476">    476</a>             if (result != null &amp;&amp;
+<a href="#l477" class="line" id="l477">    477</a>                 result.Count &gt; 0)
+<a href="#l478" class="line" id="l478">    478</a>             {
+<a href="#l479" class="line" id="l479">    479</a>                 foreach (dynamic psobject in result)
+<a href="#l480" class="line" id="l480">    480</a>                 {
+<a href="#l481" class="line" id="l481">    481</a>                     string? versionString = psobject?.Version?.ToString();
+<a href="#l482" class="line" id="l482">    482</a>                     if (versionString == null)
+<a href="#l483" class="line" id="l483">    483</a>                     {
+<a href="#l484" class="line" id="l484">    484</a>                         continue;
+<a href="#l485" class="line" id="l485">    485</a>                     }
+<a href="#l486" class="line" id="l486">    486</a> 
+<a href="#l487" class="line" id="l487">    487</a>                     Version packageVersion = new Version(versionString);
+<a href="#l488" class="line" id="l488">    488</a> 
+<a href="#l489" class="line" id="l489">    489</a>                     if (packageVersion &gt;= minimumVersion)
+<a href="#l490" class="line" id="l490">    490</a>                     {
+<a href="#l491" class="line" id="l491">    491</a>                         string? architectureString = psobject?.Architecture?.ToString();
+<a href="#l492" class="line" id="l492">    492</a>                         if (architectureString == null)
+<a href="#l493" class="line" id="l493">    493</a>                         {
+<a href="#l494" class="line" id="l494">    494</a>                             this.pwshCmdlet.Write(StreamType.Verbose, $&quot;{packageName} dependency has no architecture value: {psobject?.PackageFullName ?? &quot;&lt;null&gt;&quot;}&quot;);
+<a href="#l495" class="line" id="l495">    495</a>                             continue;
+<a href="#l496" class="line" id="l496">    496</a>                         }
+<a href="#l497" class="line" id="l497">    497</a> 
+<a href="#l498" class="line" id="l498">    498</a>                         architectureString = architectureString.ToLower();
+<a href="#l499" class="line" id="l499">    499</a> 
+<a href="#l500" class="line" id="l500">    500</a>                         if (dependencies.ContainsKey(architectureString))
+<a href="#l501" class="line" id="l501">    501</a>                         {
+<a href="#l502" class="line" id="l502">    502</a>                             this.pwshCmdlet.Write(StreamType.Verbose, $&quot;{packageName} {architectureString} dependency satisfied by: {psobject?.PackageFullName ?? &quot;&lt;null&gt;&quot;}&quot;);
+<a href="#l503" class="line" id="l503">    503</a>                             dependencies.Remove(architectureString);
+<a href="#l504" class="line" id="l504">    504</a>                         }
+<a href="#l505" class="line" id="l505">    505</a>                     }
+<a href="#l506" class="line" id="l506">    506</a>                     else
+<a href="#l507" class="line" id="l507">    507</a>                     {
+<a href="#l508" class="line" id="l508">    508</a>                         this.pwshCmdlet.Write(StreamType.Verbose, $&quot;{packageName} is lower than minimum required version [{minimumVersion}]: {psobject?.PackageFullName ?? &quot;&lt;null&gt;&quot;}&quot;);
+<a href="#l509" class="line" id="l509">    509</a>                     }
+<a href="#l510" class="line" id="l510">    510</a>                 }
+<a href="#l511" class="line" id="l511">    511</a>             }
+<a href="#l512" class="line" id="l512">    512</a>         }
+<a href="#l513" class="line" id="l513">    513</a> 
+<a href="#l514" class="line" id="l514">    514</a>         private async Task InstallVCLibsDependenciesFromUriAsync()
+<a href="#l515" class="line" id="l515">    515</a>         {
+<a href="#l516" class="line" id="l516">    516</a>             Dictionary&lt;string, string&gt; vcLibsDependencies = this.GetVCLibsDependencies();
+<a href="#l517" class="line" id="l517">    517</a>             this.FindMissingDependencies(vcLibsDependencies, VCLibsUWPDesktop, VCLibsUWPDesktopVersion);
+<a href="#l518" class="line" id="l518">    518</a> 
+<a href="#l519" class="line" id="l519">    519</a>             if (vcLibsDependencies.Count != 0)
+<a href="#l520" class="line" id="l520">    520</a>             {
+<a href="#l521" class="line" id="l521">    521</a>                 this.pwshCmdlet.Write(StreamType.Verbose, &quot;Couldn&#39;t find required VCLibs packages&quot;);
+<a href="#l522" class="line" id="l522">    522</a> 
+<a href="#l523" class="line" id="l523">    523</a>                 foreach (var vclibPair in vcLibsDependencies)
+<a href="#l524" class="line" id="l524">    524</a>                 {
+<a href="#l525" class="line" id="l525">    525</a>                     string vclib = vclibPair.Value;
+<a href="#l526" class="line" id="l526">    526</a>                     await this.AddAppxPackageAsUriAsync(vclib, vclib.Substring(vclib.LastIndexOf(&#39;/&#39;) + 1));
+<a href="#l527" class="line" id="l527">    527</a>                 }
+<a href="#l528" class="line" id="l528">    528</a>             }
+<a href="#l529" class="line" id="l529">    529</a>             else
+<a href="#l530" class="line" id="l530">    530</a>             {
+<a href="#l531" class="line" id="l531">    531</a>                 this.pwshCmdlet.Write(StreamType.Verbose, $&quot;VCLibs are updated.&quot;);
+<a href="#l532" class="line" id="l532">    532</a>             }
+<a href="#l533" class="line" id="l533">    533</a>         }
+<a href="#l534" class="line" id="l534">    534</a> 
+<a href="#l535" class="line" id="l535">    535</a>         // Returns a boolean value indicating whether dependencies were successfully installed from the GitHub release assets.
+<a href="#l536" class="line" id="l536">    536</a>         private async Task&lt;bool&gt; InstallDependenciesFromGitHubArchive(string releaseTag)
+<a href="#l537" class="line" id="l537">    537</a>         {
+<a href="#l538" class="line" id="l538">    538</a>             var githubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+<a href="#l539" class="line" id="l539">    539</a>             var release = await githubClient.GetReleaseAsync(releaseTag);
+<a href="#l540" class="line" id="l540">    540</a> 
+<a href="#l541" class="line" id="l541">    541</a>             ReleaseAsset? dependenciesJsonAsset = release.TryGetAsset(DependenciesJsonName);
+<a href="#l542" class="line" id="l542">    542</a>             if (dependenciesJsonAsset is null)
+<a href="#l543" class="line" id="l543">    543</a>             {
+<a href="#l544" class="line" id="l544">    544</a>                 return false;
+<a href="#l545" class="line" id="l545">    545</a>             }
+<a href="#l546" class="line" id="l546">    546</a> 
+<a href="#l547" class="line" id="l547">    547</a>             using var dependenciesJsonFile = new TempFile();
+<a href="#l548" class="line" id="l548">    548</a>             await this.httpClientHelper.DownloadUrlWithProgressAsync(dependenciesJsonAsset.BrowserDownloadUrl, dependenciesJsonFile.FullPath, this.pwshCmdlet);
+<a href="#l549" class="line" id="l549">    549</a> 
+<a href="#l550" class="line" id="l550">    550</a>             using StreamReader r = new StreamReader(dependenciesJsonFile.FullPath);
+<a href="#l551" class="line" id="l551">    551</a>             string json = r.ReadToEnd();
+<a href="#l552" class="line" id="l552">    552</a>             WingetDependencies? wingetDependencies = JsonConvert.DeserializeObject&lt;WingetDependencies&gt;(json);
+<a href="#l553" class="line" id="l553">    553</a> 
+<a href="#l554" class="line" id="l554">    554</a>             if (wingetDependencies is null)
+<a href="#l555" class="line" id="l555">    555</a>             {
+<a href="#l556" class="line" id="l556">    556</a>                 this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Failed to deserialize dependencies json file.&quot;);
+<a href="#l557" class="line" id="l557">    557</a>                 return false;
+<a href="#l558" class="line" id="l558">    558</a>             }
+<a href="#l559" class="line" id="l559">    559</a> 
+<a href="#l560" class="line" id="l560">    560</a>             List&lt;string&gt; missingDependencies = new List&lt;string&gt;();
+<a href="#l561" class="line" id="l561">    561</a>             foreach (var dependency in wingetDependencies.Dependencies)
+<a href="#l562" class="line" id="l562">    562</a>             {
+<a href="#l563" class="line" id="l563">    563</a>                 Dictionary&lt;string, string&gt; dependenciesByArch = this.GetDependenciesByArch(dependency);
+<a href="#l564" class="line" id="l564">    564</a>                 this.FindMissingDependencies(dependenciesByArch, dependency.Name, dependency.Version);
+<a href="#l565" class="line" id="l565">    565</a> 
+<a href="#l566" class="line" id="l566">    566</a>                 foreach (var pair in dependenciesByArch)
+<a href="#l567" class="line" id="l567">    567</a>                 {
+<a href="#l568" class="line" id="l568">    568</a>                     missingDependencies.Add(pair.Value);
+<a href="#l569" class="line" id="l569">    569</a>                 }
+<a href="#l570" class="line" id="l570">    570</a>             }
+<a href="#l571" class="line" id="l571">    571</a> 
+<a href="#l572" class="line" id="l572">    572</a>             if (missingDependencies.Count != 0)
+<a href="#l573" class="line" id="l573">    573</a>             {
+<a href="#l574" class="line" id="l574">    574</a>                 using var dependenciesZipFile = new TempFile();
+<a href="#l575" class="line" id="l575">    575</a>                 using var extractedDirectory = new TempDirectory();
+<a href="#l576" class="line" id="l576">    576</a> 
+<a href="#l577" class="line" id="l577">    577</a>                 ReleaseAsset? dependenciesZipAsset = release.TryGetAsset(DependenciesZipName);
+<a href="#l578" class="line" id="l578">    578</a>                 if (dependenciesZipAsset is null)
+<a href="#l579" class="line" id="l579">    579</a>                 {
+<a href="#l580" class="line" id="l580">    580</a>                     this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Dependencies zip asset not found on GitHub asset.&quot;);
+<a href="#l581" class="line" id="l581">    581</a>                     return false;
+<a href="#l582" class="line" id="l582">    582</a>                 }
+<a href="#l583" class="line" id="l583">    583</a> 
+<a href="#l584" class="line" id="l584">    584</a>                 await this.httpClientHelper.DownloadUrlWithProgressAsync(dependenciesZipAsset.BrowserDownloadUrl, dependenciesZipFile.FullPath, this.pwshCmdlet);
+<a href="#l585" class="line" id="l585">    585</a>                 ZipFile.ExtractToDirectory(dependenciesZipFile.FullPath, extractedDirectory.FullDirectoryPath);
+<a href="#l586" class="line" id="l586">    586</a> 
+<a href="#l587" class="line" id="l587">    587</a>                 foreach (var entry in missingDependencies)
+<a href="#l588" class="line" id="l588">    588</a>                 {
+<a href="#l589" class="line" id="l589">    589</a>                     string fullPath = System.IO.Path.Combine(extractedDirectory.FullDirectoryPath, entry);
+<a href="#l590" class="line" id="l590">    590</a>                     if (!File.Exists(fullPath))
+<a href="#l591" class="line" id="l591">    591</a>                     {
+<a href="#l592" class="line" id="l592">    592</a>                         this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Package dependency not found in archive: {fullPath}&quot;);
+<a href="#l593" class="line" id="l593">    593</a>                         return false;
+<a href="#l594" class="line" id="l594">    594</a>                     }
+<a href="#l595" class="line" id="l595">    595</a> 
+<a href="#l596" class="line" id="l596">    596</a>                     _ = this.ExecuteAppxCmdlet(
+<a href="#l597" class="line" id="l597">    597</a>                             AddAppxPackage,
+<a href="#l598" class="line" id="l598">    598</a>                             new Dictionary&lt;string, object&gt;
+<a href="#l599" class="line" id="l599">    599</a>                             {
+<a href="#l600" class="line" id="l600">    600</a>                             { Path, fullPath },
+<a href="#l601" class="line" id="l601">    601</a>                             { ErrorAction, Stop },
+<a href="#l602" class="line" id="l602">    602</a>                             });
+<a href="#l603" class="line" id="l603">    603</a>                 }
+<a href="#l604" class="line" id="l604">    604</a>             }
+<a href="#l605" class="line" id="l605">    605</a> 
+<a href="#l606" class="line" id="l606">    606</a>             return true;
+<a href="#l607" class="line" id="l607">    607</a>         }
+<a href="#l608" class="line" id="l608">    608</a> 
+<a href="#l609" class="line" id="l609">    609</a>         private Dictionary&lt;string, string&gt; GetVCLibsDependencies()
+<a href="#l610" class="line" id="l610">    610</a>         {
+<a href="#l611" class="line" id="l611">    611</a>             Dictionary&lt;string, string&gt; vcLibsDependencies = new Dictionary&lt;string, string&gt;();
+<a href="#l612" class="line" id="l612">    612</a> 
+<a href="#l613" class="line" id="l613">    613</a>             foreach (var architecture in this.frameworkArchitectures.Value)
+<a href="#l614" class="line" id="l614">    614</a>             {
+<a href="#l615" class="line" id="l615">    615</a>                 switch (architecture)
+<a href="#l616" class="line" id="l616">    616</a>                 {
+<a href="#l617" class="line" id="l617">    617</a>                     case Architecture.X86:
+<a href="#l618" class="line" id="l618">    618</a>                         vcLibsDependencies.Add(&quot;x86&quot;, VCLibsUWPDesktopX86);
+<a href="#l619" class="line" id="l619">    619</a>                         break;
+<a href="#l620" class="line" id="l620">    620</a>                     case Architecture.X64:
+<a href="#l621" class="line" id="l621">    621</a>                         vcLibsDependencies.Add(&quot;x64&quot;, VCLibsUWPDesktopX64);
+<a href="#l622" class="line" id="l622">    622</a>                         break;
+<a href="#l623" class="line" id="l623">    623</a>                     case Architecture.Arm64:
+<a href="#l624" class="line" id="l624">    624</a>                         vcLibsDependencies.Add(&quot;arm64&quot;, VCLibsUWPDesktopArm64);
+<a href="#l625" class="line" id="l625">    625</a>                         break;
+<a href="#l626" class="line" id="l626">    626</a>                     default:
+<a href="#l627" class="line" id="l627">    627</a>                         this.pwshCmdlet.Write(StreamType.Verbose, $&quot;GetVCLibsDependencies: Ignoring {architecture}&quot;);
+<a href="#l628" class="line" id="l628">    628</a>                         break;
+<a href="#l629" class="line" id="l629">    629</a>                 }
+<a href="#l630" class="line" id="l630">    630</a>             }
+<a href="#l631" class="line" id="l631">    631</a> 
+<a href="#l632" class="line" id="l632">    632</a>             return vcLibsDependencies;
+<a href="#l633" class="line" id="l633">    633</a>         }
+<a href="#l634" class="line" id="l634">    634</a> 
+<a href="#l635" class="line" id="l635">    635</a>         private async Task InstallUiXamlAsync(string releaseTag)
+<a href="#l636" class="line" id="l636">    636</a>         {
+<a href="#l637" class="line" id="l637">    637</a>             (string xamlPackageName, string xamlReleaseTag) = GetXamlDependencyVersionInfo(releaseTag);
+<a href="#l638" class="line" id="l638">    638</a>             string xamlAssetX64 = string.Format(&quot;{0}.x64.appx&quot;, xamlPackageName);
+<a href="#l639" class="line" id="l639">    639</a>             string xamlAssetX86 = string.Format(&quot;{0}.x86.appx&quot;, xamlPackageName);
+<a href="#l640" class="line" id="l640">    640</a>             string xamlAssetArm64 = string.Format(&quot;{0}.arm64.appx&quot;, xamlPackageName);
+<a href="#l641" class="line" id="l641">    641</a> 
+<a href="#l642" class="line" id="l642">    642</a>             var uiXamlObjs = this.GetAppxObject(xamlPackageName);
+<a href="#l643" class="line" id="l643">    643</a>             if (uiXamlObjs is null)
+<a href="#l644" class="line" id="l644">    644</a>             {
+<a href="#l645" class="line" id="l645">    645</a>                 var githubRelease = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.UiXaml);
+<a href="#l646" class="line" id="l646">    646</a> 
+<a href="#l647" class="line" id="l647">    647</a>                 var xamlRelease = await githubRelease.GetReleaseAsync(xamlReleaseTag);
+<a href="#l648" class="line" id="l648">    648</a> 
+<a href="#l649" class="line" id="l649">    649</a>                 var packagesToInstall = new List&lt;ReleaseAsset&gt;();
+<a href="#l650" class="line" id="l650">    650</a> 
+<a href="#l651" class="line" id="l651">    651</a>                 foreach (var architecture in this.frameworkArchitectures.Value)
+<a href="#l652" class="line" id="l652">    652</a>                 {
+<a href="#l653" class="line" id="l653">    653</a>                     switch (architecture)
+<a href="#l654" class="line" id="l654">    654</a>                     {
+<a href="#l655" class="line" id="l655">    655</a>                         case Architecture.X86:
+<a href="#l656" class="line" id="l656">    656</a>                             packagesToInstall.Add(xamlRelease.GetAsset(xamlAssetX86));
+<a href="#l657" class="line" id="l657">    657</a>                             break;
+<a href="#l658" class="line" id="l658">    658</a>                         case Architecture.X64:
+<a href="#l659" class="line" id="l659">    659</a>                             packagesToInstall.Add(xamlRelease.GetAsset(xamlAssetX64));
+<a href="#l660" class="line" id="l660">    660</a>                             break;
+<a href="#l661" class="line" id="l661">    661</a>                         case Architecture.Arm64:
+<a href="#l662" class="line" id="l662">    662</a>                             packagesToInstall.Add(xamlRelease.GetAsset(xamlAssetArm64));
+<a href="#l663" class="line" id="l663">    663</a>                             break;
+<a href="#l664" class="line" id="l664">    664</a>                         default:
+<a href="#l665" class="line" id="l665">    665</a>                             this.pwshCmdlet.Write(StreamType.Verbose, $&quot;InstallUiXamlAsync: Ignoring {architecture}&quot;);
+<a href="#l666" class="line" id="l666">    666</a>                             break;
+<a href="#l667" class="line" id="l667">    667</a>                     }
+<a href="#l668" class="line" id="l668">    668</a>                 }
+<a href="#l669" class="line" id="l669">    669</a> 
+<a href="#l670" class="line" id="l670">    670</a>                 foreach (var package in packagesToInstall)
+<a href="#l671" class="line" id="l671">    671</a>                 {
+<a href="#l672" class="line" id="l672">    672</a>                     await this.AddAppxPackageAsUriAsync(package.BrowserDownloadUrl, package.Name);
+<a href="#l673" class="line" id="l673">    673</a>                 }
+<a href="#l674" class="line" id="l674">    674</a>             }
+<a href="#l675" class="line" id="l675">    675</a>         }
+<a href="#l676" class="line" id="l676">    676</a> 
+<a href="#l677" class="line" id="l677">    677</a>         private async Task AddAppxPackageAsUriAsync(string packageUri, string fileName, Dictionary&lt;string, object&gt;? parameters = null, IList&lt;string&gt;? options = null)
+<a href="#l678" class="line" id="l678">    678</a>         {
+<a href="#l679" class="line" id="l679">    679</a>             try
+<a href="#l680" class="line" id="l680">    680</a>             {
+<a href="#l681" class="line" id="l681">    681</a>                 var thisParams = new Dictionary&lt;string, object&gt;
+<a href="#l682" class="line" id="l682">    682</a>                 {
+<a href="#l683" class="line" id="l683">    683</a>                     { Path, packageUri },
+<a href="#l684" class="line" id="l684">    684</a>                     { ErrorAction, Stop },
+<a href="#l685" class="line" id="l685">    685</a>                 };
+<a href="#l686" class="line" id="l686">    686</a> 
+<a href="#l687" class="line" id="l687">    687</a>                 if (parameters != null)
+<a href="#l688" class="line" id="l688">    688</a>                 {
+<a href="#l689" class="line" id="l689">    689</a>                     foreach (var param in parameters)
+<a href="#l690" class="line" id="l690">    690</a>                     {
+<a href="#l691" class="line" id="l691">    691</a>                         thisParams.Add(param.Key, param.Value);
+<a href="#l692" class="line" id="l692">    692</a>                     }
+<a href="#l693" class="line" id="l693">    693</a>                 }
+<a href="#l694" class="line" id="l694">    694</a> 
+<a href="#l695" class="line" id="l695">    695</a>                 _ = this.ExecuteAppxCmdlet(
+<a href="#l696" class="line" id="l696">    696</a>                         AddAppxPackage,
+<a href="#l697" class="line" id="l697">    697</a>                         thisParams,
+<a href="#l698" class="line" id="l698">    698</a>                         options);
+<a href="#l699" class="line" id="l699">    699</a>             }
+<a href="#l700" class="line" id="l700">    700</a>             catch (RuntimeException e)
+<a href="#l701" class="line" id="l701">    701</a>             {
+<a href="#l702" class="line" id="l702">    702</a>                 // If we couldn&#39;t install it via URI, try download and install.
+<a href="#l703" class="line" id="l703">    703</a>                 if (e.ErrorRecord.CategoryInfo.Category == ErrorCategory.OpenError)
+<a href="#l704" class="line" id="l704">    704</a>                 {
+<a href="#l705" class="line" id="l705">    705</a>                     this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Failed adding package [{packageUri}]. Retrying downloading it.&quot;);
+<a href="#l706" class="line" id="l706">    706</a>                     await this.DownloadPackageAndAddAsync(packageUri, fileName, options);
+<a href="#l707" class="line" id="l707">    707</a>                 }
+<a href="#l708" class="line" id="l708">    708</a>                 else
+<a href="#l709" class="line" id="l709">    709</a>                 {
+<a href="#l710" class="line" id="l710">    710</a>                     this.pwshCmdlet.Write(StreamType.Error, e.ErrorRecord);
+<a href="#l711" class="line" id="l711">    711</a>                     throw;
+<a href="#l712" class="line" id="l712">    712</a>                 }
+<a href="#l713" class="line" id="l713">    713</a>             }
+<a href="#l714" class="line" id="l714">    714</a>         }
+<a href="#l715" class="line" id="l715">    715</a> 
+<a href="#l716" class="line" id="l716">    716</a>         private async Task DownloadPackageAndAddAsync(string packageUrl, string fileName, IList&lt;string&gt;? options)
+<a href="#l717" class="line" id="l717">    717</a>         {
+<a href="#l718" class="line" id="l718">    718</a>             using var tempFile = new TempFile(fileName: fileName);
+<a href="#l719" class="line" id="l719">    719</a> 
+<a href="#l720" class="line" id="l720">    720</a>             await this.httpClientHelper.DownloadUrlWithProgressAsync(packageUrl, tempFile.FullPath, this.pwshCmdlet);
+<a href="#l721" class="line" id="l721">    721</a> 
+<a href="#l722" class="line" id="l722">    722</a>             _ = this.ExecuteAppxCmdlet(
+<a href="#l723" class="line" id="l723">    723</a>                     AddAppxPackage,
+<a href="#l724" class="line" id="l724">    724</a>                     new Dictionary&lt;string, object&gt;
+<a href="#l725" class="line" id="l725">    725</a>                     {
+<a href="#l726" class="line" id="l726">    726</a>                         { Path, tempFile.FullPath },
+<a href="#l727" class="line" id="l727">    727</a>                         { ErrorAction, Stop },
+<a href="#l728" class="line" id="l728">    728</a>                     },
+<a href="#l729" class="line" id="l729">    729</a>                     options);
+<a href="#l730" class="line" id="l730">    730</a>         }
+<a href="#l731" class="line" id="l731">    731</a> 
+<a href="#l732" class="line" id="l732">    732</a>         private Collection&lt;PSObject&gt; ExecuteAppxCmdlet(string cmdlet, Dictionary&lt;string, object&gt;? parameters = null, IList&lt;string&gt;? options = null)
+<a href="#l733" class="line" id="l733">    733</a>         {
+<a href="#l734" class="line" id="l734">    734</a>             Collection&lt;PSObject&gt; result = new Collection&lt;PSObject&gt;();
+<a href="#l735" class="line" id="l735">    735</a> 
+<a href="#l736" class="line" id="l736">    736</a>             this.pwshCmdlet.ExecuteInPowerShellThread(
+<a href="#l737" class="line" id="l737">    737</a>                 () =&gt;
+<a href="#l738" class="line" id="l738">    738</a>                 {
+<a href="#l739" class="line" id="l739">    739</a>                     var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+<a href="#l740" class="line" id="l740">    740</a> 
+<a href="#l741" class="line" id="l741">    741</a>                     // There&#39;s a bug in the Appx Module that it can&#39;t be loaded from Core in pre 10.0.22453.0 builds without
+<a href="#l742" class="line" id="l742">    742</a>                     // the -UseWindowsPowerShell option. In post 10.0.22453.0 builds there&#39;s really no difference between
+<a href="#l743" class="line" id="l743">    743</a>                     // using or not -UseWindowsPowerShell as it will automatically get loaded using WinPSCompatSession remoting session.
+<a href="#l744" class="line" id="l744">    744</a>                     // https://github.com/PowerShell/PowerShell/issues/13138.
+<a href="#l745" class="line" id="l745">    745</a>                     // Set warning action to silently continue to avoid the console with
+<a href="#l746" class="line" id="l746">    746</a>                     // &#39;Module Appx is loaded in Windows PowerShell using WinPSCompatSession remoting session&#39;
+<a href="#l747" class="line" id="l747">    747</a> #if !POWERSHELL_WINDOWS
+<a href="#l748" class="line" id="l748">    748</a>                     ps.AddCommand(ImportModule)
+<a href="#l749" class="line" id="l749">    749</a>                       .AddParameter(Name, Appx)
+<a href="#l750" class="line" id="l750">    750</a>                       .AddParameter(UseWindowsPowerShell)
+<a href="#l751" class="line" id="l751">    751</a>                       .AddParameter(WarningAction, SilentlyContinue)
+<a href="#l752" class="line" id="l752">    752</a>                       .AddStatement();
+<a href="#l753" class="line" id="l753">    753</a> #endif
+<a href="#l754" class="line" id="l754">    754</a> 
+<a href="#l755" class="line" id="l755">    755</a>                     string cmd = cmdlet;
+<a href="#l756" class="line" id="l756">    756</a>                     ps.AddCommand(cmdlet);
+<a href="#l757" class="line" id="l757">    757</a> 
+<a href="#l758" class="line" id="l758">    758</a>                     if (parameters != null)
+<a href="#l759" class="line" id="l759">    759</a>                     {
+<a href="#l760" class="line" id="l760">    760</a>                         foreach (var p in parameters)
+<a href="#l761" class="line" id="l761">    761</a>                         {
+<a href="#l762" class="line" id="l762">    762</a>                             cmd += $&quot; -{p.Key} {p.Value}&quot;;
+<a href="#l763" class="line" id="l763">    763</a>                         }
+<a href="#l764" class="line" id="l764">    764</a> 
+<a href="#l765" class="line" id="l765">    765</a>                         ps.AddParameters(parameters);
+<a href="#l766" class="line" id="l766">    766</a>                     }
+<a href="#l767" class="line" id="l767">    767</a> 
+<a href="#l768" class="line" id="l768">    768</a>                     if (options != null)
+<a href="#l769" class="line" id="l769">    769</a>                     {
+<a href="#l770" class="line" id="l770">    770</a>                         foreach (var option in options)
+<a href="#l771" class="line" id="l771">    771</a>                         {
+<a href="#l772" class="line" id="l772">    772</a>                             cmd += $&quot; -{option}&quot;;
+<a href="#l773" class="line" id="l773">    773</a>                             ps.AddParameter(option);
+<a href="#l774" class="line" id="l774">    774</a>                         }
+<a href="#l775" class="line" id="l775">    775</a>                     }
+<a href="#l776" class="line" id="l776">    776</a> 
+<a href="#l777" class="line" id="l777">    777</a>                     this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Executing Appx cmdlet {cmd}&quot;);
+<a href="#l778" class="line" id="l778">    778</a>                     result = ps.Invoke();
+<a href="#l779" class="line" id="l779">    779</a>                 });
+<a href="#l780" class="line" id="l780">    780</a> 
+<a href="#l781" class="line" id="l781">    781</a>             return result;
+<a href="#l782" class="line" id="l782">    782</a>         }
+<a href="#l783" class="line" id="l783">    783</a> 
+<a href="#l784" class="line" id="l784">    784</a>         private bool IsStubPackageOptionPresent()
+<a href="#l785" class="line" id="l785">    785</a>         {
+<a href="#l786" class="line" id="l786">    786</a>             bool result = false;
+<a href="#l787" class="line" id="l787">    787</a>             this.pwshCmdlet.ExecuteInPowerShellThread(
+<a href="#l788" class="line" id="l788">    788</a>                 () =&gt;
+<a href="#l789" class="line" id="l789">    789</a>                 {
+<a href="#l790" class="line" id="l790">    790</a>                     var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+<a href="#l791" class="line" id="l791">    791</a> 
+<a href="#l792" class="line" id="l792">    792</a> #if !POWERSHELL_WINDOWS
+<a href="#l793" class="line" id="l793">    793</a>                     ps.AddCommand(ImportModule)
+<a href="#l794" class="line" id="l794">    794</a>                       .AddParameter(Name, Appx)
+<a href="#l795" class="line" id="l795">    795</a>                       .AddParameter(UseWindowsPowerShell)
+<a href="#l796" class="line" id="l796">    796</a>                       .AddParameter(WarningAction, SilentlyContinue)
+<a href="#l797" class="line" id="l797">    797</a>                       .AddStatement();
+<a href="#l798" class="line" id="l798">    798</a> #endif
+<a href="#l799" class="line" id="l799">    799</a> 
+<a href="#l800" class="line" id="l800">    800</a>                     var cmdInfo = ps.AddCommand(GetCommand)
+<a href="#l801" class="line" id="l801">    801</a>                                     .AddParameter(Name, AddAppxPackage)
+<a href="#l802" class="line" id="l802">    802</a>                                     .AddParameter(Module, Appx)
+<a href="#l803" class="line" id="l803">    803</a>                                     .Invoke&lt;CommandInfo&gt;()
+<a href="#l804" class="line" id="l804">    804</a>                                     .FirstOrDefault();
+<a href="#l805" class="line" id="l805">    805</a> 
+<a href="#l806" class="line" id="l806">    806</a>                     result = cmdInfo != null &amp;&amp; cmdInfo.Parameters.ContainsKey(StubPackageOption);
+<a href="#l807" class="line" id="l807">    807</a>                 });
+<a href="#l808" class="line" id="l808">    808</a> 
+<a href="#l809" class="line" id="l809">    809</a>             return result;
+<a href="#l810" class="line" id="l810">    810</a>         }
+<a href="#l811" class="line" id="l811">    811</a>     }
+<a href="#l812" class="line" id="l812">    812</a> }
+</pre>
+</div>
+</body>
+</html>

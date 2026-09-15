@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Move to using {id,version,channel} as the key for update and remove, rather than path (#44) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/384789e3619b96b740eb0e55c101d9cda0e7b4bb.html">384789e3619b96b740eb0e55c101d9cda0e7b4bb</a>
+<b>parent</b> <a href="../commit/aec31b87bbacc37693a270f1e002f4ceac3ca73c.html">aec31b87bbacc37693a270f1e002f4ceac3ca73c</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Thu, 27 Feb 2020 18:57:07 -0800
+
+Move to using {id,version,channel} as the key for update and remove, rather than path (#44)
+
+
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLITests/SQLiteIndex.cpp</a></td><td> | </td><td class="num">81</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></td><td> | </td><td class="num">10</td><td><span class="i">++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp</a></td><td> | </td><td class="num">86</td><td><span class="i">++++++++++++++++++++++++++++++++++++++</span><span class="d">-----------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp</a></td><td> | </td><td class="num">32</td><td><span class="i">++++++++++++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h</a></td><td> | </td><td class="num">12</td><td><span class="i">++++++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp</a></td><td> | </td><td class="num">31</td><td><span class="i">+++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h</a></td><td> | </td><td class="num">10</td><td><span class="i">++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/PathPartTable.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/AppInstallerSQLiteIndexUtil/AppInstallerSQLiteIndexUtil.h</a></td><td> | </td><td class="num">7</td><td><span class="i">++++</span><span class="d">---</span></td></tr>
+</table></pre><pre>10 files changed, 208 insertions(+), 70 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a> b/<a href="../file/src/AppInstallerCLITests/SQLiteIndex.cpp.html">src/AppInstallerCLITests/SQLiteIndex.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -301,6 +301,87 @@ TEST_CASE(&quot;SQLiteIndex_UpdateManifest&quot;, &quot;[sqliteindex][V1_0]&quot;)
+</a>     REQUIRE(Schema::V1_0::CommandsTable::IsEmpty(connection));
+ }
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+TEST_CASE(&quot;SQLiteIndex_UpdateManifestChangePath&quot;, &quot;[sqliteindex][V1_0]&quot;)
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+{
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+    TempFile tempFile{ &quot;repolibtest_tempdb&quot;s, &quot;.db&quot;s };
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+    INFO(&quot;Using temporary file named: &quot; &lt;&lt; tempFile.GetPath());
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+    std::string manifestPath = &quot;test/id/test.id-1.0.0.yml&quot;;
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+    Manifest manifest;
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+    manifest.Id = &quot;test.id&quot;;
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+    manifest.Name = &quot;Test Name&quot;;
+</a><a href="#h0-0-12" id="h0-0-12" class="i">+    manifest.AppMoniker = &quot;testmoniker&quot;;
+</a><a href="#h0-0-13" id="h0-0-13" class="i">+    manifest.Version = &quot;1.0.0&quot;;
+</a><a href="#h0-0-14" id="h0-0-14" class="i">+    manifest.Channel = &quot;test&quot;;
+</a><a href="#h0-0-15" id="h0-0-15" class="i">+    manifest.Tags = { &quot;t1&quot;, &quot;t2&quot; };
+</a><a href="#h0-0-16" id="h0-0-16" class="i">+    manifest.Commands = { &quot;test1&quot;, &quot;test2&quot; };
+</a><a href="#h0-0-17" id="h0-0-17" class="i">+
+</a><a href="#h0-0-18" id="h0-0-18" class="i">+    {
+</a><a href="#h0-0-19" id="h0-0-19" class="i">+        SQLiteIndex index = SQLiteIndex::CreateNew(tempFile, { 1, 0 });
+</a><a href="#h0-0-20" id="h0-0-20" class="i">+
+</a><a href="#h0-0-21" id="h0-0-21" class="i">+        index.AddManifest(manifest, manifestPath);
+</a><a href="#h0-0-22" id="h0-0-22" class="i">+    }
+</a><a href="#h0-0-23" id="h0-0-23" class="i">+
+</a><a href="#h0-0-24" id="h0-0-24" class="i">+    {
+</a><a href="#h0-0-25" id="h0-0-25" class="i">+        // Open it directly to directly test table state
+</a><a href="#h0-0-26" id="h0-0-26" class="i">+        Connection connection = Connection::Create(tempFile, Connection::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-27" id="h0-0-27" class="i">+
+</a><a href="#h0-0-28" id="h0-0-28" class="i">+        REQUIRE(!Schema::V1_0::ManifestTable::IsEmpty(connection));
+</a><a href="#h0-0-29" id="h0-0-29" class="i">+        REQUIRE(!Schema::V1_0::IdTable::IsEmpty(connection));
+</a><a href="#h0-0-30" id="h0-0-30" class="i">+        REQUIRE(!Schema::V1_0::NameTable::IsEmpty(connection));
+</a><a href="#h0-0-31" id="h0-0-31" class="i">+        REQUIRE(!Schema::V1_0::MonikerTable::IsEmpty(connection));
+</a><a href="#h0-0-32" id="h0-0-32" class="i">+        REQUIRE(!Schema::V1_0::VersionTable::IsEmpty(connection));
+</a><a href="#h0-0-33" id="h0-0-33" class="i">+        REQUIRE(!Schema::V1_0::ChannelTable::IsEmpty(connection));
+</a><a href="#h0-0-34" id="h0-0-34" class="i">+        REQUIRE(!Schema::V1_0::PathPartTable::IsEmpty(connection));
+</a><a href="#h0-0-35" id="h0-0-35" class="i">+        REQUIRE(!Schema::V1_0::TagsTable::IsEmpty(connection));
+</a><a href="#h0-0-36" id="h0-0-36" class="i">+        REQUIRE(!Schema::V1_0::CommandsTable::IsEmpty(connection));
+</a><a href="#h0-0-37" id="h0-0-37" class="i">+    }
+</a><a href="#h0-0-38" id="h0-0-38" class="i">+
+</a><a href="#h0-0-39" id="h0-0-39" class="i">+    {
+</a><a href="#h0-0-40" id="h0-0-40" class="i">+        SQLiteIndex index = SQLiteIndex::Open(tempFile, SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-41" id="h0-0-41" class="i">+
+</a><a href="#h0-0-42" id="h0-0-42" class="i">+        manifestPath = &quot;test/newid/test.newid-1.0.0.yml&quot;;
+</a><a href="#h0-0-43" id="h0-0-43" class="i">+
+</a><a href="#h0-0-44" id="h0-0-44" class="i">+        // Update with path update should indicate change
+</a><a href="#h0-0-45" id="h0-0-45" class="i">+        REQUIRE(index.UpdateManifest(manifest, manifestPath));
+</a><a href="#h0-0-46" id="h0-0-46" class="i">+    }
+</a><a href="#h0-0-47" id="h0-0-47" class="i">+
+</a><a href="#h0-0-48" id="h0-0-48" class="i">+    {
+</a><a href="#h0-0-49" id="h0-0-49" class="i">+        // Open it directly to directly test table state
+</a><a href="#h0-0-50" id="h0-0-50" class="i">+        Connection connection = Connection::Create(tempFile, Connection::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-51" id="h0-0-51" class="i">+
+</a><a href="#h0-0-52" id="h0-0-52" class="i">+        REQUIRE(!Schema::V1_0::ManifestTable::IsEmpty(connection));
+</a><a href="#h0-0-53" id="h0-0-53" class="i">+        REQUIRE(!Schema::V1_0::IdTable::IsEmpty(connection));
+</a><a href="#h0-0-54" id="h0-0-54" class="i">+        REQUIRE(!Schema::V1_0::NameTable::IsEmpty(connection));
+</a><a href="#h0-0-55" id="h0-0-55" class="i">+        REQUIRE(!Schema::V1_0::MonikerTable::IsEmpty(connection));
+</a><a href="#h0-0-56" id="h0-0-56" class="i">+        REQUIRE(!Schema::V1_0::VersionTable::IsEmpty(connection));
+</a><a href="#h0-0-57" id="h0-0-57" class="i">+        REQUIRE(!Schema::V1_0::ChannelTable::IsEmpty(connection));
+</a><a href="#h0-0-58" id="h0-0-58" class="i">+        REQUIRE(!Schema::V1_0::PathPartTable::IsEmpty(connection));
+</a><a href="#h0-0-59" id="h0-0-59" class="i">+        REQUIRE(!Schema::V1_0::TagsTable::IsEmpty(connection));
+</a><a href="#h0-0-60" id="h0-0-60" class="i">+        REQUIRE(!Schema::V1_0::CommandsTable::IsEmpty(connection));
+</a><a href="#h0-0-61" id="h0-0-61" class="i">+    }
+</a><a href="#h0-0-62" id="h0-0-62" class="i">+
+</a><a href="#h0-0-63" id="h0-0-63" class="i">+    {
+</a><a href="#h0-0-64" id="h0-0-64" class="i">+        SQLiteIndex index = SQLiteIndex::Open(tempFile, SQLiteIndex::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-65" id="h0-0-65" class="i">+
+</a><a href="#h0-0-66" id="h0-0-66" class="i">+        // Now remove manifest, with unknown path
+</a><a href="#h0-0-67" id="h0-0-67" class="i">+        index.RemoveManifest(manifest, &quot;&quot;);
+</a><a href="#h0-0-68" id="h0-0-68" class="i">+    }
+</a><a href="#h0-0-69" id="h0-0-69" class="i">+
+</a><a href="#h0-0-70" id="h0-0-70" class="i">+    // Open it directly to directly test table state
+</a><a href="#h0-0-71" id="h0-0-71" class="i">+    Connection connection = Connection::Create(tempFile, Connection::OpenDisposition::ReadWrite);
+</a><a href="#h0-0-72" id="h0-0-72" class="i">+
+</a><a href="#h0-0-73" id="h0-0-73" class="i">+    REQUIRE(Schema::V1_0::ManifestTable::IsEmpty(connection));
+</a><a href="#h0-0-74" id="h0-0-74" class="i">+    REQUIRE(Schema::V1_0::IdTable::IsEmpty(connection));
+</a><a href="#h0-0-75" id="h0-0-75" class="i">+    REQUIRE(Schema::V1_0::NameTable::IsEmpty(connection));
+</a><a href="#h0-0-76" id="h0-0-76" class="i">+    REQUIRE(Schema::V1_0::MonikerTable::IsEmpty(connection));
+</a><a href="#h0-0-77" id="h0-0-77" class="i">+    REQUIRE(Schema::V1_0::VersionTable::IsEmpty(connection));
+</a><a href="#h0-0-78" id="h0-0-78" class="i">+    REQUIRE(Schema::V1_0::ChannelTable::IsEmpty(connection));
+</a><a href="#h0-0-79" id="h0-0-79" class="i">+    REQUIRE(Schema::V1_0::PathPartTable::IsEmpty(connection));
+</a><a href="#h0-0-80" id="h0-0-80" class="i">+    REQUIRE(Schema::V1_0::TagsTable::IsEmpty(connection));
+</a><a href="#h0-0-81" id="h0-0-81" class="i">+    REQUIRE(Schema::V1_0::CommandsTable::IsEmpty(connection));
+</a><a href="#h0-0-82" id="h0-0-82" class="i">+}
+</a><a href="#h0-0-83" id="h0-0-83" class="i">+
+</a> TEST_CASE(&quot;PathPartTable_EnsurePathExists_Negative_Paths&quot;, &quot;[sqliteindex][V1_0]&quot;)
+ {
+     // Open it directly to directly test pathpart table
+<b>diff --git a/<a id="h1" href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/SQLiteIndex.h</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -53,18 +53,20 @@ namespace AppInstaller::Repository::Microsoft
+</a>         // If the function succeeds, the manifest has been added.
+         void AddManifest(const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath);
+ 
+<a href="#h1-0-3" id="h1-0-3" class="d">-        // Updates the manifest at the repository relative path in the index.
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        // Updates the manifest with matching { Id, Version, Channel } in the index.
+</a>         // The return value indicates whether the index was modified by the function.
+         bool UpdateManifest(const std::filesystem::path&amp; manifestPath, const std::filesystem::path&amp; relativePath);
+ 
+<a href="#h1-0-8" id="h1-0-8" class="d">-        // Updates the manifest at the repository relative path in the index.
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+        // Updates the manifest with matching { Id, Version, Channel } in the index.
+</a>         // The return value indicates whether the index was modified by the function.
+         bool UpdateManifest(const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath);
+ 
+<a href="#h1-0-13" id="h1-0-13" class="d">-        // Removes the manifest at the repository relative path from the index.
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+        // Removes the manifest with matching { Id, Version, Channel } from the index.
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+        // Path is currently ignored.
+</a>         void RemoveManifest(const std::filesystem::path&amp; manifestPath, const std::filesystem::path&amp; relativePath);
+ 
+<a href="#h1-0-18" id="h1-0-18" class="d">-        // Removes the manifest at the repository relative path from the index.
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+        // Removes the manifest with matching { Id, Version, Channel } from the index.
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+        // Path is currently ignored.
+</a>         void RemoveManifest(const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath);
+ 
+         // Removes data that is no longer needed for an index that is to be published.
+<b>diff --git a/<a id="h2" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/Interface.cpp</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -20,57 +20,36 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a> {
+     namespace
+     {
+<a href="#h2-0-3" id="h2-0-3" class="d">-        // Holds the information on a potentially existing manifest.
+</a><a href="#h2-0-4" id="h2-0-4" class="d">-        struct ExistingManifestInfo
+</a><a href="#h2-0-5" id="h2-0-5" class="d">-        {
+</a><a href="#h2-0-6" id="h2-0-6" class="d">-            SQLite::rowid_t PathLeaf;
+</a><a href="#h2-0-7" id="h2-0-7" class="d">-            std::optional&lt;SQLite::rowid_t&gt; Manifest;
+</a><a href="#h2-0-8" id="h2-0-8" class="d">-        };
+</a><a href="#h2-0-9" id="h2-0-9" class="d">-
+</a>         // Gets an existing manifest by its rowid.
+         // The return value contains the path leaf and manifest rowid, if they exist.
+<a href="#h2-0-12" id="h2-0-12" class="d">-        ExistingManifestInfo GetExistingManifestId(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath)
+</a><a href="#h2-0-13" id="h2-0-13" class="i">+        std::optional&lt;SQLite::rowid_t&gt; GetExistingManifestId(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest)
+</a>         {
+<a href="#h2-0-15" id="h2-0-15" class="d">-            auto [pathFound, pathLeafId] = PathPartTable::EnsurePathExists(connection, relativePath, false);
+</a><a href="#h2-0-16" id="h2-0-16" class="d">-
+</a><a href="#h2-0-17" id="h2-0-17" class="d">-            // If we do not find the path, there can be no manifest
+</a><a href="#h2-0-18" id="h2-0-18" class="d">-            if (!pathFound)
+</a><a href="#h2-0-19" id="h2-0-19" class="i">+            std::optional&lt;SQLite::rowid_t&gt; idId = IdTable::SelectIdByValue(connection, manifest.Id);
+</a><a href="#h2-0-20" id="h2-0-20" class="i">+            if (!idId)
+</a>             {
+<a href="#h2-0-22" id="h2-0-22" class="d">-                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find a manifest to remove at path: &quot; &lt;&lt; relativePath.u8string());
+</a><a href="#h2-0-23" id="h2-0-23" class="i">+                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find an Id { &quot; &lt;&lt; manifest.Id &lt;&lt; &quot; }&quot;);
+</a>                 return {};
+             }
+ 
+<a href="#h2-0-27" id="h2-0-27" class="d">-            ExistingManifestInfo result{};
+</a><a href="#h2-0-28" id="h2-0-28" class="d">-            result.PathLeaf = pathLeafId;
+</a><a href="#h2-0-29" id="h2-0-29" class="d">-            result.Manifest = ManifestTable::SelectByValueId&lt;PathPartTable&gt;(connection, result.PathLeaf);
+</a><a href="#h2-0-30" id="h2-0-30" class="d">-
+</a><a href="#h2-0-31" id="h2-0-31" class="d">-            // If the manifest didn&#39;t actually exist, then remove the path
+</a><a href="#h2-0-32" id="h2-0-32" class="d">-            if (!result.Manifest)
+</a><a href="#h2-0-33" id="h2-0-33" class="i">+            std::optional&lt;SQLite::rowid_t&gt; versionId = VersionTable::SelectIdByValue(connection, manifest.Version);
+</a><a href="#h2-0-34" id="h2-0-34" class="i">+            if (!versionId)
+</a>             {
+<a href="#h2-0-36" id="h2-0-36" class="d">-                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find a manifest row for the path: &quot; &lt;&lt; relativePath.u8string());
+</a><a href="#h2-0-37" id="h2-0-37" class="d">-                PathPartTable::RemovePathById(connection, result.PathLeaf);
+</a><a href="#h2-0-38" id="h2-0-38" class="i">+                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find a Version { &quot; &lt;&lt; manifest.Version &lt;&lt; &quot; }&quot;);
+</a>                 return {};
+             }
+ 
+<a href="#h2-0-42" id="h2-0-42" class="d">-            // Ensure that the given manifest matches the data in the index
+</a><a href="#h2-0-43" id="h2-0-43" class="d">-            auto [idValue, versionValue, channelValue] = ManifestTable::GetValuesById&lt;IdTable, VersionTable, ChannelTable&gt;(connection, result.Manifest.value());
+</a><a href="#h2-0-44" id="h2-0-44" class="d">-
+</a><a href="#h2-0-45" id="h2-0-45" class="d">-            if (idValue != manifest.Id)
+</a><a href="#h2-0-46" id="h2-0-46" class="i">+            std::optional&lt;SQLite::rowid_t&gt; channelId = ChannelTable::SelectIdByValue(connection, manifest.Channel);
+</a><a href="#h2-0-47" id="h2-0-47" class="i">+            if (!channelId)
+</a>             {
+<a href="#h2-0-49" id="h2-0-49" class="d">-                AICLI_LOG(Repo, Error, &lt;&lt; &quot;Existing manifest in index does not match given value for Id: [&quot; &lt;&lt; idValue &lt;&lt; &quot;] != [&quot; &lt;&lt; manifest.Id &lt;&lt; &quot;]&quot;);
+</a><a href="#h2-0-50" id="h2-0-50" class="d">-                THROW_HR(E_NOT_VALID_STATE);
+</a><a href="#h2-0-51" id="h2-0-51" class="i">+                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find a Channel { &quot; &lt;&lt; manifest.Channel &lt;&lt; &quot; }&quot;);
+</a><a href="#h2-0-52" id="h2-0-52" class="i">+                return {};
+</a>             }
+ 
+<a href="#h2-0-55" id="h2-0-55" class="d">-            if (versionValue != manifest.Version)
+</a><a href="#h2-0-56" id="h2-0-56" class="d">-            {
+</a><a href="#h2-0-57" id="h2-0-57" class="d">-                AICLI_LOG(Repo, Error, &lt;&lt; &quot;Existing manifest in index does not match given value for Version: [&quot; &lt;&lt; versionValue &lt;&lt; &quot;] != [&quot; &lt;&lt; manifest.Version &lt;&lt; &quot;]&quot;);
+</a><a href="#h2-0-58" id="h2-0-58" class="d">-                THROW_HR(E_NOT_VALID_STATE);
+</a><a href="#h2-0-59" id="h2-0-59" class="d">-            }
+</a><a href="#h2-0-60" id="h2-0-60" class="i">+            auto result = ManifestTable::SelectByValueIds&lt;IdTable, VersionTable, ChannelTable&gt;(connection, { idId.value(), versionId.value(), channelId.value() });
+</a> 
+<a href="#h2-0-62" id="h2-0-62" class="d">-            if (channelValue != manifest.Channel)
+</a><a href="#h2-0-63" id="h2-0-63" class="i">+            if (!result)
+</a>             {
+<a href="#h2-0-65" id="h2-0-65" class="d">-                AICLI_LOG(Repo, Error, &lt;&lt; &quot;Existing manifest in index does not match given value for Channel: [&quot; &lt;&lt; channelValue &lt;&lt; &quot;] != [&quot; &lt;&lt; manifest.Channel &lt;&lt; &quot;]&quot;);
+</a><a href="#h2-0-66" id="h2-0-66" class="d">-                THROW_HR(E_NOT_VALID_STATE);
+</a><a href="#h2-0-67" id="h2-0-67" class="i">+                AICLI_LOG(Repo, Info, &lt;&lt; &quot;Did not find a manifest row for { &quot; &lt;&lt; manifest.Id &lt;&lt; &quot;, &quot; &lt;&lt; manifest.Version &lt;&lt; &quot;, &quot; &lt;&lt; manifest.Channel &lt;&lt; &quot; }&quot;);
+</a>             }
+ 
+             return result;
+<a href="#h2-1" id="h2-1" class="h">@@ -157,12 +136,12 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a> 
+     bool Interface::UpdateManifest(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath)
+     {
+<a href="#h2-1-3" id="h2-1-3" class="d">-        ExistingManifestInfo manifestInfo = GetExistingManifestId(connection, manifest, relativePath);
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        auto manifestResult = GetExistingManifestId(connection, manifest);
+</a> 
+         // If the manifest doesn&#39;t actually exist, fail the update.
+<a href="#h2-1-7" id="h2-1-7" class="d">-        THROW_HR_IF(E_NOT_SET, !manifestInfo.Manifest);
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+        THROW_HR_IF(E_NOT_SET, !manifestResult);
+</a> 
+<a href="#h2-1-10" id="h2-1-10" class="d">-        SQLite::rowid_t manifestId = manifestInfo.Manifest.value();
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+        SQLite::rowid_t manifestId = manifestResult.value();
+</a> 
+         auto [idInIndex, nameInIndex, monikerInIndex, versionInIndex, channelInIndex] =
+             ManifestTable::GetValuesById&lt;IdTable, NameTable, MonikerTable, VersionTable, ChannelTable&gt;(connection, manifestId);
+<a href="#h2-2" id="h2-2" class="h">@@ -189,6 +168,23 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             indexModified = true;
+         }
+ 
+<a href="#h2-2-3" id="h2-2-3" class="i">+        // Update path table if necessary
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+        auto [existingPathLeafId] = ManifestTable::GetIdsById&lt;PathPartTable&gt;(connection, manifestId);
+</a><a href="#h2-2-5" id="h2-2-5" class="i">+        auto [pathAdded, newPathLeafId] = PathPartTable::EnsurePathExists(connection, relativePath, true);
+</a><a href="#h2-2-6" id="h2-2-6" class="i">+
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+        if (pathAdded)
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+        {
+</a><a href="#h2-2-9" id="h2-2-9" class="i">+            // Path was added, so we need to update the manifest table and delete the old path
+</a><a href="#h2-2-10" id="h2-2-10" class="i">+            ManifestTable::UpdateValueIdById&lt;PathPartTable&gt;(connection, manifestId, newPathLeafId);
+</a><a href="#h2-2-11" id="h2-2-11" class="i">+            PathPartTable::RemovePathById(connection, existingPathLeafId);
+</a><a href="#h2-2-12" id="h2-2-12" class="i">+            indexModified = true;
+</a><a href="#h2-2-13" id="h2-2-13" class="i">+        }
+</a><a href="#h2-2-14" id="h2-2-14" class="i">+        else
+</a><a href="#h2-2-15" id="h2-2-15" class="i">+        {
+</a><a href="#h2-2-16" id="h2-2-16" class="i">+            // The path already existed, so it must either match the existing manifest path or it is an error
+</a><a href="#h2-2-17" id="h2-2-17" class="i">+            THROW_HR_IF(HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS), existingPathLeafId != newPathLeafId);
+</a><a href="#h2-2-18" id="h2-2-18" class="i">+        }
+</a><a href="#h2-2-19" id="h2-2-19" class="i">+
+</a>         // Update all 1:N tables as necessary
+         indexModified = TagsTable::UpdateIfNeededByManifestId(connection, manifest.Tags, manifestId) || indexModified;
+         indexModified = CommandsTable::UpdateIfNeededByManifestId(connection, manifest.Commands, manifestId) || indexModified;
+<a href="#h2-3" id="h2-3" class="h">@@ -198,18 +194,18 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         return indexModified;
+     }
+ 
+<a href="#h2-3-3" id="h2-3-3" class="d">-    void Interface::RemoveManifest(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath)
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+    void Interface::RemoveManifest(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp;)
+</a>     {
+<a href="#h2-3-6" id="h2-3-6" class="d">-        ExistingManifestInfo manifestInfo = GetExistingManifestId(connection, manifest, relativePath);
+</a><a href="#h2-3-7" id="h2-3-7" class="i">+        auto manifestResult = GetExistingManifestId(connection, manifest);
+</a> 
+         // If the manifest doesn&#39;t actually exist, fail the remove.
+<a href="#h2-3-10" id="h2-3-10" class="d">-        THROW_HR_IF(E_NOT_SET, !manifestInfo.Manifest);
+</a><a href="#h2-3-11" id="h2-3-11" class="i">+        THROW_HR_IF(E_NOT_SET, !manifestResult);
+</a> 
+<a href="#h2-3-13" id="h2-3-13" class="d">-        SQLite::rowid_t manifestId = manifestInfo.Manifest.value();
+</a><a href="#h2-3-14" id="h2-3-14" class="i">+        SQLite::rowid_t manifestId = manifestResult.value();
+</a> 
+         // Get the ids of the values from the manifest table
+<a href="#h2-3-17" id="h2-3-17" class="d">-        auto [idId, nameId, monikerId, versionId, channelId] = 
+</a><a href="#h2-3-18" id="h2-3-18" class="d">-            ManifestTable::GetIdsById&lt;IdTable, NameTable, MonikerTable, VersionTable, ChannelTable&gt;(connection, manifestId);
+</a><a href="#h2-3-19" id="h2-3-19" class="i">+        auto [idId, nameId, monikerId, versionId, channelId, pathLeafId] = 
+</a><a href="#h2-3-20" id="h2-3-20" class="i">+            ManifestTable::GetIdsById&lt;IdTable, NameTable, MonikerTable, VersionTable, ChannelTable, PathPartTable&gt;(connection, manifestId);
+</a> 
+         SQLite::Savepoint savepoint = SQLite::Savepoint::Create(connection, &quot;removemanifest_v1_0&quot;);
+ 
+<a href="#h2-4" id="h2-4" class="h">@@ -224,7 +220,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         ChannelTable::DeleteIfNotNeededById(connection, channelId);
+ 
+         // Remove the path
+<a href="#h2-4-3" id="h2-4-3" class="d">-        PathPartTable::RemovePathById(connection, manifestInfo.PathLeaf);
+</a><a href="#h2-4-4" id="h2-4-4" class="i">+        PathPartTable::RemovePathById(connection, pathLeafId);
+</a> 
+         // Remove all of the 1:N data that is no longer referenced.
+         TagsTable::DeleteIfNotNeededByManifestId(connection, manifestId);
+<b>diff --git a/<a id="h3" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -14,13 +14,41 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a> 
+     namespace details
+     {
+<a href="#h3-0-3" id="h3-0-3" class="d">-        std::optional&lt;SQLite::rowid_t&gt; ManifestTableSelectByValueId(SQLite::Connection&amp; connection, std::string_view valueName, SQLite::rowid_t id)
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+        std::optional&lt;SQLite::rowid_t&gt; ManifestTableSelectByValueIds(
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+            SQLite::Connection&amp; connection,
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+            std::initializer_list&lt;std::string_view&gt; values,
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+            std::initializer_list&lt;SQLite::rowid_t&gt; ids)
+</a>         {
+<a href="#h3-0-9" id="h3-0-9" class="i">+            THROW_HR_IF(E_INVALIDARG, values.size() != ids.size());
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+
+</a>             SQLite::Builder::StatementBuilder builder;
+<a href="#h3-0-12" id="h3-0-12" class="d">-            builder.Select(SQLite::RowIDName).From(s_ManifestTable_Table_Name).Where(valueName).Equals(id).Limit(1);
+</a><a href="#h3-0-13" id="h3-0-13" class="i">+            builder.Select(SQLite::RowIDName).From(s_ManifestTable_Table_Name);
+</a><a href="#h3-0-14" id="h3-0-14" class="i">+            
+</a><a href="#h3-0-15" id="h3-0-15" class="i">+            bool isFirst = true;
+</a><a href="#h3-0-16" id="h3-0-16" class="i">+
+</a><a href="#h3-0-17" id="h3-0-17" class="i">+            for (const auto&amp; value : values)
+</a><a href="#h3-0-18" id="h3-0-18" class="i">+            {
+</a><a href="#h3-0-19" id="h3-0-19" class="i">+                if (isFirst)
+</a><a href="#h3-0-20" id="h3-0-20" class="i">+                {
+</a><a href="#h3-0-21" id="h3-0-21" class="i">+                    builder.Where(value).Equals(SQLite::Builder::Unbound);
+</a><a href="#h3-0-22" id="h3-0-22" class="i">+                    isFirst = false;
+</a><a href="#h3-0-23" id="h3-0-23" class="i">+                }
+</a><a href="#h3-0-24" id="h3-0-24" class="i">+                else
+</a><a href="#h3-0-25" id="h3-0-25" class="i">+                {
+</a><a href="#h3-0-26" id="h3-0-26" class="i">+                    builder.And(value).Equals(SQLite::Builder::Unbound);
+</a><a href="#h3-0-27" id="h3-0-27" class="i">+                }
+</a><a href="#h3-0-28" id="h3-0-28" class="i">+            }
+</a><a href="#h3-0-29" id="h3-0-29" class="i">+
+</a><a href="#h3-0-30" id="h3-0-30" class="i">+            builder.Limit(1);
+</a> 
+             SQLite::Statement select = builder.Prepare(connection);
+ 
+<a href="#h3-0-34" id="h3-0-34" class="i">+            int bindIndex = 0;
+</a><a href="#h3-0-35" id="h3-0-35" class="i">+            for (const auto&amp; id : ids)
+</a><a href="#h3-0-36" id="h3-0-36" class="i">+            {
+</a><a href="#h3-0-37" id="h3-0-37" class="i">+                select.Bind(++bindIndex, id);
+</a><a href="#h3-0-38" id="h3-0-38" class="i">+            }
+</a><a href="#h3-0-39" id="h3-0-39" class="i">+
+</a>             if (select.Step())
+             {
+                 return select.GetColumn&lt;SQLite::rowid_t&gt;(0);
+<b>diff --git a/<a id="h4" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/ManifestTable.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -13,7 +13,10 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>     namespace details
+     {
+         // Selects a manifest by the given value id.
+<a href="#h4-0-3" id="h4-0-3" class="d">-        std::optional&lt;SQLite::rowid_t&gt; ManifestTableSelectByValueId(SQLite::Connection&amp; connection, std::string_view valueName, SQLite::rowid_t id);
+</a><a href="#h4-0-4" id="h4-0-4" class="i">+        std::optional&lt;SQLite::rowid_t&gt; ManifestTableSelectByValueIds(
+</a><a href="#h4-0-5" id="h4-0-5" class="i">+            SQLite::Connection&amp; connection,
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+            std::initializer_list&lt;std::string_view&gt; values,
+</a><a href="#h4-0-7" id="h4-0-7" class="i">+            std::initializer_list&lt;SQLite::rowid_t&gt; ids);
+</a> 
+         // Gets the requested ids for the manifest with the given rowid.
+         SQLite::Statement ManifestTableGetIdsById_Statement(
+<a href="#h4-1" id="h4-1" class="h">@@ -56,10 +59,11 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         static SQLite::rowid_t Insert(SQLite::Connection&amp; connection, std::initializer_list&lt;ManifestOneToOneValue&gt; values);
+ 
+         // Select the first rowid of the manifest with the given value.
+<a href="#h4-1-3" id="h4-1-3" class="d">-        template &lt;typename Table&gt;
+</a><a href="#h4-1-4" id="h4-1-4" class="d">-        static std::optional&lt;SQLite::rowid_t&gt; SelectByValueId(SQLite::Connection&amp; connection, SQLite::rowid_t id)
+</a><a href="#h4-1-5" id="h4-1-5" class="i">+        template &lt;typename... Tables&gt;
+</a><a href="#h4-1-6" id="h4-1-6" class="i">+        static std::optional&lt;SQLite::rowid_t&gt; SelectByValueIds(SQLite::Connection&amp; connection, std::initializer_list&lt;SQLite::rowid_t&gt; ids)
+</a>         {
+<a href="#h4-1-8" id="h4-1-8" class="d">-            return details::ManifestTableSelectByValueId(connection, Table::ValueName(), id);
+</a><a href="#h4-1-9" id="h4-1-9" class="i">+            static_assert(sizeof...(Tables) &gt;= 1);
+</a><a href="#h4-1-10" id="h4-1-10" class="i">+            return details::ManifestTableSelectByValueIds(connection, { Tables::ValueName()... }, ids);
+</a>         }
+ 
+         // Gets the ids requested for the manifest with the given rowid.
+<b>diff --git a/<a id="h5" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -22,18 +22,29 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             createTableBuilder.Execute(connection);
+         }
+ 
+<a href="#h5-0-3" id="h5-0-3" class="d">-        SQLite::rowid_t OneToOneTableEnsureExists(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value)
+</a><a href="#h5-0-4" id="h5-0-4" class="i">+        std::optional&lt;SQLite::rowid_t&gt; OneToOneTableSelectIdByValue(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value)
+</a>         {
+<a href="#h5-0-6" id="h5-0-6" class="d">-            {
+</a><a href="#h5-0-7" id="h5-0-7" class="d">-                SQLite::Builder::StatementBuilder selectBuilder;
+</a><a href="#h5-0-8" id="h5-0-8" class="d">-                selectBuilder.Select(SQLite::RowIDName).From(tableName).Where(valueName).Equals(value);
+</a><a href="#h5-0-9" id="h5-0-9" class="i">+            SQLite::Builder::StatementBuilder selectBuilder;
+</a><a href="#h5-0-10" id="h5-0-10" class="i">+            selectBuilder.Select(SQLite::RowIDName).From(tableName).Where(valueName).Equals(value);
+</a> 
+<a href="#h5-0-12" id="h5-0-12" class="d">-                SQLite::Statement select = selectBuilder.Prepare(connection);
+</a><a href="#h5-0-13" id="h5-0-13" class="i">+            SQLite::Statement select = selectBuilder.Prepare(connection);
+</a> 
+<a href="#h5-0-15" id="h5-0-15" class="d">-                if (select.Step())
+</a><a href="#h5-0-16" id="h5-0-16" class="d">-                {
+</a><a href="#h5-0-17" id="h5-0-17" class="d">-                    return select.GetColumn&lt;SQLite::rowid_t&gt;(0);
+</a><a href="#h5-0-18" id="h5-0-18" class="d">-                }
+</a><a href="#h5-0-19" id="h5-0-19" class="i">+            if (select.Step())
+</a><a href="#h5-0-20" id="h5-0-20" class="i">+            {
+</a><a href="#h5-0-21" id="h5-0-21" class="i">+                return select.GetColumn&lt;SQLite::rowid_t&gt;(0);
+</a><a href="#h5-0-22" id="h5-0-22" class="i">+            }
+</a><a href="#h5-0-23" id="h5-0-23" class="i">+            else
+</a><a href="#h5-0-24" id="h5-0-24" class="i">+            {
+</a><a href="#h5-0-25" id="h5-0-25" class="i">+                return {};
+</a><a href="#h5-0-26" id="h5-0-26" class="i">+            }
+</a><a href="#h5-0-27" id="h5-0-27" class="i">+        }
+</a><a href="#h5-0-28" id="h5-0-28" class="i">+
+</a><a href="#h5-0-29" id="h5-0-29" class="i">+        SQLite::rowid_t OneToOneTableEnsureExists(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value)
+</a><a href="#h5-0-30" id="h5-0-30" class="i">+        {
+</a><a href="#h5-0-31" id="h5-0-31" class="i">+            auto selectResult = OneToOneTableSelectIdByValue(connection, tableName, valueName, value);
+</a><a href="#h5-0-32" id="h5-0-32" class="i">+            if (selectResult)
+</a><a href="#h5-0-33" id="h5-0-33" class="i">+            {
+</a><a href="#h5-0-34" id="h5-0-34" class="i">+                return selectResult.value();
+</a>             }
+ 
+             SQLite::Builder::StatementBuilder insertBuilder;
+<a href="#h5-1" id="h5-1" class="h">@@ -47,7 +58,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         void OneToOneTableDeleteIfNotNeededById(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, SQLite::rowid_t id)
+         {
+             // If a manifest is found that references this id, then we are done.
+<a href="#h5-1-3" id="h5-1-3" class="d">-            if (ManifestTableSelectByValueId(connection, valueName, id))
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+            if (ManifestTableSelectByValueIds(connection, { valueName }, { id }))
+</a>             {
+                 return;
+             }
+<b>diff --git a/<a id="h6" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/OneToOneTable.h</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -2,6 +2,7 @@
+</a> // Licensed under the MIT License.
+ #pragma once
+ #include &quot;SQLiteWrapper.h&quot;
+<a href="#h6-0-3" id="h6-0-3" class="i">+#include &lt;optional&gt;
+</a> #include &lt;string&gt;
+ #include &lt;string_view&gt;
+ 
+<a href="#h6-1" id="h6-1" class="h">@@ -13,6 +14,9 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>         // Creates the table.
+         void CreateOneToOneTable(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName);
+ 
+<a href="#h6-1-3" id="h6-1-3" class="i">+        // Selects the value from the table, returning the rowid if it exists.
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+        std::optional&lt;SQLite::rowid_t&gt; OneToOneTableSelectIdByValue(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value);
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+
+</a>         // Ensures that the values exists in the table.
+         SQLite::rowid_t OneToOneTableEnsureExists(SQLite::Connection&amp; connection, std::string_view tableName, std::string_view valueName, std::string_view value);
+ 
+<a href="#h6-2" id="h6-2" class="h">@@ -51,6 +55,12 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>             return TableInfo::ValueName();
+         }
+ 
+<a href="#h6-2-3" id="h6-2-3" class="i">+        // Selects the value from the table, returning the rowid if it exists.
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+        static std::optional&lt;SQLite::rowid_t&gt; SelectIdByValue(SQLite::Connection&amp; connection, std::string_view value)
+</a><a href="#h6-2-5" id="h6-2-5" class="i">+        {
+</a><a href="#h6-2-6" id="h6-2-6" class="i">+            return details::OneToOneTableSelectIdByValue(connection, TableInfo::TableName(), TableInfo::ValueName(), value);
+</a><a href="#h6-2-7" id="h6-2-7" class="i">+        }
+</a><a href="#h6-2-8" id="h6-2-8" class="i">+
+</a>         // Ensures that the given value exists in the table, returning the rowid.
+         static SQLite::rowid_t EnsureExists(SQLite::Connection&amp; connection, std::string_view value)
+         {
+<b>diff --git a/<a id="h7" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/PathPartTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/PathPartTable.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/PathPartTable.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/1_0/PathPartTable.h</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -12,6 +12,9 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
+</a>     // A table that represents a single manifest
+     struct PathPartTable
+     {
+<a href="#h7-0-3" id="h7-0-3" class="i">+        // The id type
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+        using id_t = SQLite::rowid_t;
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+
+</a>         // Creates the table.
+         static void Create(SQLite::Connection&amp; connection);
+ 
+<b>diff --git a/<a id="h8" href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h</a> b/<a href="../file/src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h.html">src/AppInstallerRepositoryCore/Microsoft/Schema/ISQLiteIndex.h</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -29,10 +29,12 @@ namespace AppInstaller::Repository::Microsoft::Schema
+</a>         // Adds the manifest at the repository relative path to the index.
+         virtual void AddManifest(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath) = 0;
+ 
+<a href="#h8-0-3" id="h8-0-3" class="d">-        // Updates the manifest at the repository relative path in the index.
+</a><a href="#h8-0-4" id="h8-0-4" class="i">+        // Updates the manifest with matching { Id, Version, Channel } in the index.
+</a><a href="#h8-0-5" id="h8-0-5" class="i">+        // The return value indicates whether the index was modified by the function.
+</a>         virtual bool UpdateManifest(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath) = 0;
+ 
+<a href="#h8-0-8" id="h8-0-8" class="d">-        // Removes the manifest at the repository relative path from the index.
+</a><a href="#h8-0-9" id="h8-0-9" class="i">+        // Removes the manifest with matching { Id, Version, Channel } from the index.
+</a><a href="#h8-0-10" id="h8-0-10" class="i">+        // Path is currently ignored.
+</a>         virtual void RemoveManifest(SQLite::Connection&amp; connection, const Manifest::Manifest&amp; manifest, const std::filesystem::path&amp; relativePath) = 0;
+ 
+         // Removes data that is no longer needed for an index that is to be published.
+<b>diff --git a/<a id="h9" href="../file/src/AppInstallerSQLiteIndexUtil/AppInstallerSQLiteIndexUtil.h.html">src/AppInstallerSQLiteIndexUtil/AppInstallerSQLiteIndexUtil.h</a> b/<a href="../file/src/AppInstallerSQLiteIndexUtil/AppInstallerSQLiteIndexUtil.h.html">src/AppInstallerSQLiteIndexUtil/AppInstallerSQLiteIndexUtil.h</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -46,15 +46,16 @@ extern &quot;C&quot;
+</a>         APPINSTALLER_SQLITE_INDEX_STRING manifestPath, 
+         APPINSTALLER_SQLITE_INDEX_STRING relativePath);
+ 
+<a href="#h9-0-3" id="h9-0-3" class="d">-    // Updates the manifest at the repository relative path in the index.
+</a><a href="#h9-0-4" id="h9-0-4" class="d">-    // The out value indicates whether the index was modified by the function.
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+    // Updates the manifest with matching { Id, Version, Channel } in the index.
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+    // The return value indicates whether the index was modified by the function.
+</a>     APPINSTALLER_SQLITE_INDEX_API AppInstallerSQLiteIndexUpdateManifest(
+         APPINSTALLER_SQLITE_INDEX_HANDLE index, 
+         APPINSTALLER_SQLITE_INDEX_STRING manifestPath, 
+         APPINSTALLER_SQLITE_INDEX_STRING relativePath,
+         bool* indexModified);
+ 
+<a href="#h9-0-13" id="h9-0-13" class="d">-    // Removes the manifest at the repository relative path from the index.
+</a><a href="#h9-0-14" id="h9-0-14" class="i">+    // Removes the manifest with matching { Id, Version, Channel } from the index.
+</a><a href="#h9-0-15" id="h9-0-15" class="i">+    // Path is currently ignored.
+</a>     APPINSTALLER_SQLITE_INDEX_API AppInstallerSQLiteIndexRemoveManifest(
+         APPINSTALLER_SQLITE_INDEX_HANDLE index, 
+         APPINSTALLER_SQLITE_INDEX_STRING manifestPath, 
+</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Queue write operations for Start-* cmdlets and hook up diagnostics (#3222) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/fee1b43faa7beca8c4ac44a77c1e07c5379a21ab.html">fee1b43faa7beca8c4ac44a77c1e07c5379a21ab</a>
+<b>parent</b> <a href="../commit/7eca519d03d0dceb14cd30c3a430071153c07913.html">7eca519d03d0dceb14cd30c3a430071153c07913</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Mon,  8 May 2023 17:19:11 -0700
+
+Queue write operations for Start-* cmdlets and hook up diagnostics (#3222)
+
+When a Start-* cmdlet starts its operation it won&#39;t write to any PowerShell stream because control is returned back to the user almost immediately. This changes queue messages to be then displayed at Continue-* time. This way, we will have all the messages in the appropriate order. It applies for WriteDebug, WriteVerbose, WriteWarning, WriteError and WriteProgress.
+
+WriteProgress will only be called when the activity hasn&#39;t been completed. A caller must use AsyncCommand.GetNewProgressActivityId to generate a new activity id.
+
+Also enables telemetry and OnDiagnostic events
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">.github/actions/spelling/expect.txt</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/CompleteWinGetConfigurationCmdlet.cs</a></td><td> | </td><td class="num">4</td><td><span class="i">+</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationCmdlet.cs</a></td><td> | </td><td class="num">8</td><td><span class="i">++++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationDetailsCmdlet.cs</a></td><td> | </td><td class="num">4</td><td><span class="i">+</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/InvokeWinGetConfigurationCmdlet.cs</a></td><td> | </td><td class="num">4</td><td><span class="i">+</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/StartWinGetConfigurationCmdlet.cs</a></td><td> | </td><td class="num">5</td><td><span class="i">+</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Helpers/Utilities.cs</a></td><td> | </td><td class="num">45</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/AsyncCommand.cs</a></td><td> | </td><td class="num">243</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">-----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/ConfigurationCommand.cs</a></td><td> | </td><td class="num">43</td><td><span class="i">++++++++++++++++++++</span><span class="d">-----------------------</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h9">src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationProcessor.cs</a></td><td> | </td><td class="num">97</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationSet.cs</a></td><td> | </td><td class="num">10</td><td><span class="i">+++++</span><span class="d">-----</span></td></tr>
+</table></pre><pre>11 files changed, 404 insertions(+), 60 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a> b/<a href="../file/.github/actions/spelling/expect.txt.html">.github/actions/spelling/expect.txt</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -267,6 +267,7 @@ objbase
+</a> objidl
+ ofile
+ osfhandle
+<a href="#h0-0-3" id="h0-0-3" class="i">+OPTOUT
+</a> Outptr
+ packageinuse
+ packageinusebyapplication
+<b>diff --git a/<a id="h1" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/CompleteWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/CompleteWinGetConfigurationCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/CompleteWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/CompleteWinGetConfigurationCmdlet.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -33,9 +33,7 @@ namespace Microsoft.WinGet.Configuration.Cmdlets
+</a>         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h1-0-3" id="h1-0-3" class="d">-            CancellationTokenSource source = new ();
+</a><a href="#h1-0-4" id="h1-0-4" class="d">-
+</a><a href="#h1-0-5" id="h1-0-5" class="d">-            var configCommand = new ConfigurationCommand(this, source.Token);
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+            var configCommand = new ConfigurationCommand(this);
+</a>             configCommand.Continue(this.ConfigurationJob);
+         }
+     }
+<b>diff --git a/<a id="h2" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationCmdlet.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -20,6 +20,7 @@ namespace Microsoft.WinGet.Configuration.Cmdlets
+</a>     public sealed class GetWinGetConfigurationCmdlet : PSCmdlet
+     {
+         private ExecutionPolicy executionPolicy = ExecutionPolicy.Undefined;
+<a href="#h2-0-3" id="h2-0-3" class="i">+        private bool canUseTelemetry = true;
+</a> 
+         /// &lt;summary&gt;
+         /// Gets or sets the configuration file.
+<a href="#h2-1" id="h2-1" class="h">@@ -35,6 +36,7 @@ namespace Microsoft.WinGet.Configuration.Cmdlets
+</a>         protected override void BeginProcessing()
+         {
+             this.executionPolicy = Utilities.GetExecutionPolicy();
+<a href="#h2-1-3" id="h2-1-3" class="i">+            this.canUseTelemetry = Utilities.CanUseTelemetry();
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-2" id="h2-2" class="h">@@ -42,10 +44,8 @@ namespace Microsoft.WinGet.Configuration.Cmdlets
+</a>         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h2-2-3" id="h2-2-3" class="d">-            CancellationTokenSource source = new ();
+</a><a href="#h2-2-4" id="h2-2-4" class="d">-
+</a><a href="#h2-2-5" id="h2-2-5" class="d">-            var configCommand = new ConfigurationCommand(this, source.Token);
+</a><a href="#h2-2-6" id="h2-2-6" class="d">-            configCommand.Get(this.File, this.executionPolicy);
+</a><a href="#h2-2-7" id="h2-2-7" class="i">+            var configCommand = new ConfigurationCommand(this);
+</a><a href="#h2-2-8" id="h2-2-8" class="i">+            configCommand.Get(this.File, this.executionPolicy, this.canUseTelemetry);
+</a>         }
+     }
+ }
+<b>diff --git a/<a id="h3" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationDetailsCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationDetailsCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationDetailsCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/GetWinGetConfigurationDetailsCmdlet.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -32,9 +32,7 @@ namespace Microsoft.WinGet.Configuration.Cmdlets
+</a>         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h3-0-3" id="h3-0-3" class="d">-            CancellationTokenSource source = new ();
+</a><a href="#h3-0-4" id="h3-0-4" class="d">-
+</a><a href="#h3-0-5" id="h3-0-5" class="d">-            var configCommand = new ConfigurationCommand(this, source.Token);
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+            var configCommand = new ConfigurationCommand(this);
+</a>             configCommand.GetDetails(this.Set);
+         }
+     }
+<b>diff --git a/<a id="h4" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/InvokeWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/InvokeWinGetConfigurationCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/InvokeWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/InvokeWinGetConfigurationCmdlet.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -46,9 +46,7 @@ namespace Microsoft.WinGet.Configuration.Cmdlets
+</a>         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h4-0-3" id="h4-0-3" class="d">-            CancellationTokenSource source = new ();
+</a><a href="#h4-0-4" id="h4-0-4" class="d">-
+</a><a href="#h4-0-5" id="h4-0-5" class="d">-            var configCommand = new ConfigurationCommand(this, source.Token, false);
+</a><a href="#h4-0-6" id="h4-0-6" class="i">+            var configCommand = new ConfigurationCommand(this);
+</a>             configCommand.Apply(this.Set);
+         }
+     }
+<b>diff --git a/<a id="h5" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/StartWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/StartWinGetConfigurationCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/StartWinGetConfigurationCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Cmdlets/StartWinGetConfigurationCmdlet.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -7,7 +7,6 @@
+</a> namespace Microsoft.WinGet.Configuration.Cmdlets
+ {
+     using System.Management.Automation;
+<a href="#h5-0-3" id="h5-0-3" class="d">-    using System.Threading;
+</a>     using Microsoft.WinGet.Configuration.Engine.Commands;
+     using Microsoft.WinGet.Configuration.Engine.PSObjects;
+ 
+<a href="#h5-1" id="h5-1" class="h">@@ -46,9 +45,7 @@ namespace Microsoft.WinGet.Configuration.Cmdlets
+</a>         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h5-1-3" id="h5-1-3" class="d">-            CancellationTokenSource source = new ();
+</a><a href="#h5-1-4" id="h5-1-4" class="d">-
+</a><a href="#h5-1-5" id="h5-1-5" class="d">-            var configCommand = new ConfigurationCommand(this, source.Token, false);
+</a><a href="#h5-1-6" id="h5-1-6" class="i">+            var configCommand = new ConfigurationCommand(this, canWriteToStream: false);
+</a>             configCommand.StartApply(this.Set);
+         }
+     }
+<b>diff --git a/<a id="h6" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Helpers/Utilities.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Helpers/Utilities.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Helpers/Utilities.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Cmdlets/Helpers/Utilities.cs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -6,6 +6,7 @@
+</a> 
+ namespace Microsoft.WinGet.Configuration.Helpers
+ {
+<a href="#h6-0-3" id="h6-0-3" class="i">+    using System;
+</a>     using System.Linq;
+     using System.Management.Automation;
+     using Microsoft.PowerShell;
+<a href="#h6-1" id="h6-1" class="h">@@ -24,5 +25,49 @@ namespace Microsoft.WinGet.Configuration.Helpers
+</a>             var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+             return ps.AddCommand(&quot;Get-ExecutionPolicy&quot;).Invoke&lt;ExecutionPolicy&gt;().First();
+         }
+<a href="#h6-1-3" id="h6-1-3" class="i">+
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+        /// &lt;summary&gt;
+</a><a href="#h6-1-5" id="h6-1-5" class="i">+        /// Determine if telemetry can be used. It follows the same telemetry rules as PowerShell.
+</a><a href="#h6-1-6" id="h6-1-6" class="i">+        /// To opt-out of this telemetry, set the environment variable $env:POWERSHELL_TELEMETRY_OPTOUT to true, yes, or 1.
+</a><a href="#h6-1-7" id="h6-1-7" class="i">+        /// This method is the same as GetEnvironmentVariableAsBool from PowerShell but only for POWERSHELL_TELEMETRY_OPTOUT.
+</a><a href="#h6-1-8" id="h6-1-8" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-1-9" id="h6-1-9" class="i">+        /// &lt;returns&gt;If telemetry can be used.&lt;/returns&gt;
+</a><a href="#h6-1-10" id="h6-1-10" class="i">+        public static bool CanUseTelemetry()
+</a><a href="#h6-1-11" id="h6-1-11" class="i">+        {
+</a><a href="#h6-1-12" id="h6-1-12" class="i">+            var str = Environment.GetEnvironmentVariable(&quot;POWERSHELL_TELEMETRY_OPTOUT&quot;);
+</a><a href="#h6-1-13" id="h6-1-13" class="i">+            if (string.IsNullOrEmpty(str))
+</a><a href="#h6-1-14" id="h6-1-14" class="i">+            {
+</a><a href="#h6-1-15" id="h6-1-15" class="i">+                return true;
+</a><a href="#h6-1-16" id="h6-1-16" class="i">+            }
+</a><a href="#h6-1-17" id="h6-1-17" class="i">+
+</a><a href="#h6-1-18" id="h6-1-18" class="i">+            var boolStr = str.AsSpan();
+</a><a href="#h6-1-19" id="h6-1-19" class="i">+
+</a><a href="#h6-1-20" id="h6-1-20" class="i">+            if (boolStr.Length == 1)
+</a><a href="#h6-1-21" id="h6-1-21" class="i">+            {
+</a><a href="#h6-1-22" id="h6-1-22" class="i">+                if (boolStr[0] == &#39;1&#39;)
+</a><a href="#h6-1-23" id="h6-1-23" class="i">+                {
+</a><a href="#h6-1-24" id="h6-1-24" class="i">+                    return false;
+</a><a href="#h6-1-25" id="h6-1-25" class="i">+                }
+</a><a href="#h6-1-26" id="h6-1-26" class="i">+            }
+</a><a href="#h6-1-27" id="h6-1-27" class="i">+
+</a><a href="#h6-1-28" id="h6-1-28" class="i">+            if (boolStr.Length == 3 &amp;&amp;
+</a><a href="#h6-1-29" id="h6-1-29" class="i">+                (boolStr[0] == &#39;y&#39; || boolStr[0] == &#39;Y&#39;) &amp;&amp;
+</a><a href="#h6-1-30" id="h6-1-30" class="i">+                (boolStr[1] == &#39;e&#39; || boolStr[1] == &#39;E&#39;) &amp;&amp;
+</a><a href="#h6-1-31" id="h6-1-31" class="i">+                (boolStr[2] == &#39;s&#39; || boolStr[2] == &#39;S&#39;))
+</a><a href="#h6-1-32" id="h6-1-32" class="i">+            {
+</a><a href="#h6-1-33" id="h6-1-33" class="i">+                return false;
+</a><a href="#h6-1-34" id="h6-1-34" class="i">+            }
+</a><a href="#h6-1-35" id="h6-1-35" class="i">+
+</a><a href="#h6-1-36" id="h6-1-36" class="i">+            if (boolStr.Length == 4 &amp;&amp;
+</a><a href="#h6-1-37" id="h6-1-37" class="i">+                (boolStr[0] == &#39;t&#39; || boolStr[0] == &#39;T&#39;) &amp;&amp;
+</a><a href="#h6-1-38" id="h6-1-38" class="i">+                (boolStr[1] == &#39;r&#39; || boolStr[1] == &#39;R&#39;) &amp;&amp;
+</a><a href="#h6-1-39" id="h6-1-39" class="i">+                (boolStr[2] == &#39;u&#39; || boolStr[2] == &#39;U&#39;) &amp;&amp;
+</a><a href="#h6-1-40" id="h6-1-40" class="i">+                (boolStr[3] == &#39;e&#39; || boolStr[3] == &#39;E&#39;))
+</a><a href="#h6-1-41" id="h6-1-41" class="i">+            {
+</a><a href="#h6-1-42" id="h6-1-42" class="i">+                return false;
+</a><a href="#h6-1-43" id="h6-1-43" class="i">+            }
+</a><a href="#h6-1-44" id="h6-1-44" class="i">+
+</a><a href="#h6-1-45" id="h6-1-45" class="i">+            return true;
+</a><a href="#h6-1-46" id="h6-1-46" class="i">+        }
+</a>     }
+ }
+<b>diff --git a/<a id="h7" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/AsyncCommand.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/AsyncCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/AsyncCommand.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/AsyncCommand.cs</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -7,6 +7,7 @@
+</a> namespace Microsoft.WinGet.Configuration.Engine.Commands
+ {
+     using System;
+<a href="#h7-0-3" id="h7-0-3" class="i">+    using System.Collections.Concurrent;
+</a>     using System.Management.Automation;
+     using System.Threading;
+     using System.Threading.Tasks;
+<a href="#h7-1" id="h7-1" class="h">@@ -33,26 +34,40 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         private readonly SemaphoreSlim semaphore = new (1, 1);
+         private readonly ManualResetEventSlim mainThreadActionReady = new (false);
+         private readonly ManualResetEventSlim mainThreadActionCompleted = new (false);
+<a href="#h7-1-3" id="h7-1-3" class="d">-        private readonly CancellationToken cancellationToken;
+</a><a href="#h7-1-4" id="h7-1-4" class="i">+
+</a><a href="#h7-1-5" id="h7-1-5" class="i">+        private readonly CancellationTokenSource source = new ();
+</a> 
+         private readonly bool isDebugBounded;
+ 
+         private Action? mainThreadAction = null;
+         private bool canWriteToStream;
+<a href="#h7-1-11" id="h7-1-11" class="i">+        private CancellationToken cancellationToken;
+</a><a href="#h7-1-12" id="h7-1-12" class="i">+        private ConcurrentQueue&lt;QueuedOutputStream&gt; queuedOutputStreams = new ();
+</a><a href="#h7-1-13" id="h7-1-13" class="i">+
+</a><a href="#h7-1-14" id="h7-1-14" class="i">+        private int progressActivityId = 0;
+</a><a href="#h7-1-15" id="h7-1-15" class="i">+        private ConcurrentDictionary&lt;int, ProgressRecordType&gt; progressRecords = new ();
+</a> 
+         /// &lt;summary&gt;
+         /// Initializes a new instance of the &lt;see cref=&quot;AsyncCommand&quot;/&gt; class.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;psCmdlet&quot;&gt;PSCmdlet.&lt;/param&gt;
+<a href="#h7-1-21" id="h7-1-21" class="d">-        /// &lt;param name=&quot;cancellationToken&quot;&gt;Cancellation token.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;canWriteToStream&quot;&gt;If the command can write to stream.&lt;/param&gt;
+<a href="#h7-1-23" id="h7-1-23" class="d">-        public AsyncCommand(PSCmdlet psCmdlet, CancellationToken cancellationToken, bool canWriteToStream)
+</a><a href="#h7-1-24" id="h7-1-24" class="i">+        public AsyncCommand(PSCmdlet psCmdlet, bool canWriteToStream)
+</a>         {
+             this.PsCmdlet = psCmdlet;
+             this.originalThread = Thread.CurrentThread;
+<a href="#h7-1-28" id="h7-1-28" class="d">-            this.cancellationToken = cancellationToken;
+</a>             this.isDebugBounded = this.PsCmdlet.MyInvocation.BoundParameters.ContainsKey(&quot;Debug&quot;);
+             this.canWriteToStream = canWriteToStream;
+<a href="#h7-1-31" id="h7-1-31" class="i">+            this.cancellationToken = this.source.Token;
+</a><a href="#h7-1-32" id="h7-1-32" class="i">+        }
+</a><a href="#h7-1-33" id="h7-1-33" class="i">+
+</a><a href="#h7-1-34" id="h7-1-34" class="i">+        private enum OutputStreamType
+</a><a href="#h7-1-35" id="h7-1-35" class="i">+        {
+</a><a href="#h7-1-36" id="h7-1-36" class="i">+            Debug,
+</a><a href="#h7-1-37" id="h7-1-37" class="i">+            Verbose,
+</a><a href="#h7-1-38" id="h7-1-38" class="i">+            Warning,
+</a><a href="#h7-1-39" id="h7-1-39" class="i">+            Error,
+</a><a href="#h7-1-40" id="h7-1-40" class="i">+            Progress,
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h7-2" id="h7-2" class="h">@@ -87,11 +102,19 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h7-2-3" id="h7-2-3" class="i">+        /// Cancel this operation.
+</a><a href="#h7-2-4" id="h7-2-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h7-2-5" id="h7-2-5" class="i">+        public virtual void Cancel()
+</a><a href="#h7-2-6" id="h7-2-6" class="i">+        {
+</a><a href="#h7-2-7" id="h7-2-7" class="i">+            this.source.Cancel();
+</a><a href="#h7-2-8" id="h7-2-8" class="i">+        }
+</a><a href="#h7-2-9" id="h7-2-9" class="i">+
+</a><a href="#h7-2-10" id="h7-2-10" class="i">+        /// &lt;summary&gt;
+</a>         /// Execute the delegate in a MTA thread.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;func&quot;&gt;Function to execute.&lt;/param&gt;
+         /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous operation.&lt;/returns&gt;
+<a href="#h7-2-15" id="h7-2-15" class="d">-        public Task RunOnMTA(Func&lt;Task&gt; func)
+</a><a href="#h7-2-16" id="h7-2-16" class="i">+        internal Task RunOnMTA(Func&lt;Task&gt; func)
+</a>         {
+             // This must be called in the main thread.
+             if (this.originalThread != Thread.CurrentThread)
+<a href="#h7-3" id="h7-3" class="h">@@ -131,7 +154,7 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         /// &lt;param name=&quot;func&quot;&gt;Function to execute.&lt;/param&gt;
+         /// &lt;typeparam name=&quot;TResult&quot;&gt;Return type of function.&lt;/typeparam&gt;
+         /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous operation.&lt;/returns&gt;
+<a href="#h7-3-3" id="h7-3-3" class="d">-        public Task&lt;TResult&gt; RunOnMTA&lt;TResult&gt;(Func&lt;Task&lt;TResult&gt;&gt; func)
+</a><a href="#h7-3-4" id="h7-3-4" class="i">+        internal Task&lt;TResult&gt; RunOnMTA&lt;TResult&gt;(Func&lt;Task&lt;TResult&gt;&gt; func)
+</a>         {
+             // This must be called in the main thread.
+             if (this.originalThread != Thread.CurrentThread)
+<a href="#h7-4" id="h7-4" class="h">@@ -169,7 +192,7 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         /// Waits for the task to be completed. This MUST be called from the main thread.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;runningTask&quot;&gt;Task to wait for.&lt;/param&gt;
+<a href="#h7-4-3" id="h7-4-3" class="d">-        public void Wait(Task runningTask)
+</a><a href="#h7-4-4" id="h7-4-4" class="i">+        internal void Wait(Task runningTask)
+</a>         {
+             // This must be called in the main thread.
+             if (this.originalThread != Thread.CurrentThread)
+<a href="#h7-5" id="h7-5" class="h">@@ -177,7 +200,8 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>                 throw new InvalidOperationException();
+             }
+ 
+<a href="#h7-5-3" id="h7-5-3" class="d">-            this.canWriteToStream = true;
+</a><a href="#h7-5-4" id="h7-5-4" class="i">+            this.Flush();
+</a><a href="#h7-5-5" id="h7-5-5" class="i">+
+</a>             do
+             {
+                 // Wait for the running task to be completed or if there&#39;s
+<a href="#h7-6" id="h7-6" class="h">@@ -218,16 +242,18 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         /// sets it to the main thread action and wait for it to be executed.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;text&quot;&gt;Debug text.&lt;/param&gt;
+<a href="#h7-6-3" id="h7-6-3" class="d">-        public void WriteDebug(string text)
+</a><a href="#h7-6-4" id="h7-6-4" class="i">+        internal void WriteDebug(string text)
+</a>         {
+<a href="#h7-6-6" id="h7-6-6" class="d">-            if (!this.CanWriteToStream)
+</a><a href="#h7-6-7" id="h7-6-7" class="i">+            // Don&#39;t do context switch if no need.
+</a><a href="#h7-6-8" id="h7-6-8" class="i">+            if (!this.isDebugBounded)
+</a>             {
+                 return;
+             }
+ 
+<a href="#h7-6-13" id="h7-6-13" class="d">-            // Don&#39;t do context switch if no need.
+</a><a href="#h7-6-14" id="h7-6-14" class="d">-            if (!this.isDebugBounded)
+</a><a href="#h7-6-15" id="h7-6-15" class="i">+            if (!this.CanWriteToStream)
+</a>             {
+<a href="#h7-6-17" id="h7-6-17" class="i">+                this.queuedOutputStreams.Enqueue(
+</a><a href="#h7-6-18" id="h7-6-18" class="i">+                    new QueuedOutputStream(OutputStreamType.Debug, text));
+</a>                 return;
+             }
+ 
+<a href="#h7-7" id="h7-7" class="h">@@ -251,15 +277,51 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h7-7-3" id="h7-7-3" class="d">-        /// Calls cmdlet WriteDebug.
+</a><a href="#h7-7-4" id="h7-7-4" class="i">+        /// Calls cmdlet WriteVerbose.
+</a><a href="#h7-7-5" id="h7-7-5" class="i">+        /// If its executed on the main thread calls it directly. Otherwise
+</a><a href="#h7-7-6" id="h7-7-6" class="i">+        /// sets it to the main thread action and wait for it to be executed.
+</a><a href="#h7-7-7" id="h7-7-7" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h7-7-8" id="h7-7-8" class="i">+        /// &lt;param name=&quot;text&quot;&gt;Verbose text.&lt;/param&gt;
+</a><a href="#h7-7-9" id="h7-7-9" class="i">+        internal void WriteVerbose(string text)
+</a><a href="#h7-7-10" id="h7-7-10" class="i">+        {
+</a><a href="#h7-7-11" id="h7-7-11" class="i">+            if (!this.CanWriteToStream)
+</a><a href="#h7-7-12" id="h7-7-12" class="i">+            {
+</a><a href="#h7-7-13" id="h7-7-13" class="i">+                this.queuedOutputStreams.Enqueue(
+</a><a href="#h7-7-14" id="h7-7-14" class="i">+                    new QueuedOutputStream(OutputStreamType.Verbose, text));
+</a><a href="#h7-7-15" id="h7-7-15" class="i">+                return;
+</a><a href="#h7-7-16" id="h7-7-16" class="i">+            }
+</a><a href="#h7-7-17" id="h7-7-17" class="i">+
+</a><a href="#h7-7-18" id="h7-7-18" class="i">+            if (this.originalThread == Thread.CurrentThread)
+</a><a href="#h7-7-19" id="h7-7-19" class="i">+            {
+</a><a href="#h7-7-20" id="h7-7-20" class="i">+                this.PsCmdlet.WriteVerbose(text);
+</a><a href="#h7-7-21" id="h7-7-21" class="i">+                return;
+</a><a href="#h7-7-22" id="h7-7-22" class="i">+            }
+</a><a href="#h7-7-23" id="h7-7-23" class="i">+
+</a><a href="#h7-7-24" id="h7-7-24" class="i">+            try
+</a><a href="#h7-7-25" id="h7-7-25" class="i">+            {
+</a><a href="#h7-7-26" id="h7-7-26" class="i">+                this.WaitForOurTurn();
+</a><a href="#h7-7-27" id="h7-7-27" class="i">+                this.mainThreadAction = () =&gt; this.PsCmdlet.WriteVerbose(text);
+</a><a href="#h7-7-28" id="h7-7-28" class="i">+                this.mainThreadActionReady.Set();
+</a><a href="#h7-7-29" id="h7-7-29" class="i">+                this.WaitMainThreadActionCompletion();
+</a><a href="#h7-7-30" id="h7-7-30" class="i">+            }
+</a><a href="#h7-7-31" id="h7-7-31" class="i">+            catch (Exception)
+</a><a href="#h7-7-32" id="h7-7-32" class="i">+            {
+</a><a href="#h7-7-33" id="h7-7-33" class="i">+                throw;
+</a><a href="#h7-7-34" id="h7-7-34" class="i">+            }
+</a><a href="#h7-7-35" id="h7-7-35" class="i">+        }
+</a><a href="#h7-7-36" id="h7-7-36" class="i">+
+</a><a href="#h7-7-37" id="h7-7-37" class="i">+        /// &lt;summary&gt;
+</a><a href="#h7-7-38" id="h7-7-38" class="i">+        /// Calls cmdlet WriteWarning.
+</a>         /// If its executed on the main thread calls it directly. Otherwise
+         /// sets it to the main thread action and wait for it to be executed.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;text&quot;&gt;Warning text.&lt;/param&gt;
+<a href="#h7-7-43" id="h7-7-43" class="d">-        public void WriteWarning(string text)
+</a><a href="#h7-7-44" id="h7-7-44" class="i">+        internal void WriteWarning(string text)
+</a>         {
+             if (!this.CanWriteToStream)
+             {
+<a href="#h7-7-48" id="h7-7-48" class="i">+                this.queuedOutputStreams.Enqueue(
+</a><a href="#h7-7-49" id="h7-7-49" class="i">+                    new QueuedOutputStream(OutputStreamType.Warning, text));
+</a>                 return;
+             }
+ 
+<a href="#h7-8" id="h7-8" class="h">@@ -283,10 +345,82 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h7-8-3" id="h7-8-3" class="i">+        /// Calls cmdlet WriteError.
+</a><a href="#h7-8-4" id="h7-8-4" class="i">+        /// If its executed on the main thread calls it directly. Otherwise
+</a><a href="#h7-8-5" id="h7-8-5" class="i">+        /// sets it to the main thread action and wait for it to be executed.
+</a><a href="#h7-8-6" id="h7-8-6" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h7-8-7" id="h7-8-7" class="i">+        /// &lt;param name=&quot;errorRecord&quot;&gt;Error record.&lt;/param&gt;
+</a><a href="#h7-8-8" id="h7-8-8" class="i">+        internal void WriteError(ErrorRecord errorRecord)
+</a><a href="#h7-8-9" id="h7-8-9" class="i">+        {
+</a><a href="#h7-8-10" id="h7-8-10" class="i">+            if (!this.CanWriteToStream)
+</a><a href="#h7-8-11" id="h7-8-11" class="i">+            {
+</a><a href="#h7-8-12" id="h7-8-12" class="i">+                this.queuedOutputStreams.Enqueue(
+</a><a href="#h7-8-13" id="h7-8-13" class="i">+                    new QueuedOutputStream(OutputStreamType.Error, errorRecord));
+</a><a href="#h7-8-14" id="h7-8-14" class="i">+                return;
+</a><a href="#h7-8-15" id="h7-8-15" class="i">+            }
+</a><a href="#h7-8-16" id="h7-8-16" class="i">+
+</a><a href="#h7-8-17" id="h7-8-17" class="i">+            if (this.originalThread == Thread.CurrentThread)
+</a><a href="#h7-8-18" id="h7-8-18" class="i">+            {
+</a><a href="#h7-8-19" id="h7-8-19" class="i">+                this.PsCmdlet.WriteError(errorRecord);
+</a><a href="#h7-8-20" id="h7-8-20" class="i">+                return;
+</a><a href="#h7-8-21" id="h7-8-21" class="i">+            }
+</a><a href="#h7-8-22" id="h7-8-22" class="i">+
+</a><a href="#h7-8-23" id="h7-8-23" class="i">+            try
+</a><a href="#h7-8-24" id="h7-8-24" class="i">+            {
+</a><a href="#h7-8-25" id="h7-8-25" class="i">+                this.WaitForOurTurn();
+</a><a href="#h7-8-26" id="h7-8-26" class="i">+                this.mainThreadAction = () =&gt; this.PsCmdlet.WriteError(errorRecord);
+</a><a href="#h7-8-27" id="h7-8-27" class="i">+                this.mainThreadActionReady.Set();
+</a><a href="#h7-8-28" id="h7-8-28" class="i">+                this.WaitMainThreadActionCompletion();
+</a><a href="#h7-8-29" id="h7-8-29" class="i">+            }
+</a><a href="#h7-8-30" id="h7-8-30" class="i">+            catch (Exception)
+</a><a href="#h7-8-31" id="h7-8-31" class="i">+            {
+</a><a href="#h7-8-32" id="h7-8-32" class="i">+                throw;
+</a><a href="#h7-8-33" id="h7-8-33" class="i">+            }
+</a><a href="#h7-8-34" id="h7-8-34" class="i">+        }
+</a><a href="#h7-8-35" id="h7-8-35" class="i">+
+</a><a href="#h7-8-36" id="h7-8-36" class="i">+        /// &lt;summary&gt;
+</a><a href="#h7-8-37" id="h7-8-37" class="i">+        /// Calls cmdlet WriteProgress.
+</a><a href="#h7-8-38" id="h7-8-38" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h7-8-39" id="h7-8-39" class="i">+        /// &lt;param name=&quot;progressRecord&quot;&gt;Progress record.&lt;/param&gt;
+</a><a href="#h7-8-40" id="h7-8-40" class="i">+        internal void WriteProgress(ProgressRecord progressRecord)
+</a><a href="#h7-8-41" id="h7-8-41" class="i">+        {
+</a><a href="#h7-8-42" id="h7-8-42" class="i">+            // Keep track of all progress activity.
+</a><a href="#h7-8-43" id="h7-8-43" class="i">+            if (!this.progressRecords.TryAdd(progressRecord.ActivityId, progressRecord.RecordType))
+</a><a href="#h7-8-44" id="h7-8-44" class="i">+            {
+</a><a href="#h7-8-45" id="h7-8-45" class="i">+                _ = this.progressRecords.TryUpdate(progressRecord.ActivityId, progressRecord.RecordType, ProgressRecordType.Completed);
+</a><a href="#h7-8-46" id="h7-8-46" class="i">+            }
+</a><a href="#h7-8-47" id="h7-8-47" class="i">+
+</a><a href="#h7-8-48" id="h7-8-48" class="i">+            if (!this.CanWriteToStream)
+</a><a href="#h7-8-49" id="h7-8-49" class="i">+            {
+</a><a href="#h7-8-50" id="h7-8-50" class="i">+                this.queuedOutputStreams.Enqueue(
+</a><a href="#h7-8-51" id="h7-8-51" class="i">+                    new QueuedOutputStream(OutputStreamType.Progress, progressRecord));
+</a><a href="#h7-8-52" id="h7-8-52" class="i">+                return;
+</a><a href="#h7-8-53" id="h7-8-53" class="i">+            }
+</a><a href="#h7-8-54" id="h7-8-54" class="i">+
+</a><a href="#h7-8-55" id="h7-8-55" class="i">+            if (this.originalThread == Thread.CurrentThread)
+</a><a href="#h7-8-56" id="h7-8-56" class="i">+            {
+</a><a href="#h7-8-57" id="h7-8-57" class="i">+                this.PsCmdlet.WriteProgress(progressRecord);
+</a><a href="#h7-8-58" id="h7-8-58" class="i">+                return;
+</a><a href="#h7-8-59" id="h7-8-59" class="i">+            }
+</a><a href="#h7-8-60" id="h7-8-60" class="i">+
+</a><a href="#h7-8-61" id="h7-8-61" class="i">+            try
+</a><a href="#h7-8-62" id="h7-8-62" class="i">+            {
+</a><a href="#h7-8-63" id="h7-8-63" class="i">+                this.WaitForOurTurn();
+</a><a href="#h7-8-64" id="h7-8-64" class="i">+                this.mainThreadAction = () =&gt; this.PsCmdlet.WriteProgress(progressRecord);
+</a><a href="#h7-8-65" id="h7-8-65" class="i">+                this.mainThreadActionReady.Set();
+</a><a href="#h7-8-66" id="h7-8-66" class="i">+                this.WaitMainThreadActionCompletion();
+</a><a href="#h7-8-67" id="h7-8-67" class="i">+            }
+</a><a href="#h7-8-68" id="h7-8-68" class="i">+            catch (Exception)
+</a><a href="#h7-8-69" id="h7-8-69" class="i">+            {
+</a><a href="#h7-8-70" id="h7-8-70" class="i">+                throw;
+</a><a href="#h7-8-71" id="h7-8-71" class="i">+            }
+</a><a href="#h7-8-72" id="h7-8-72" class="i">+        }
+</a><a href="#h7-8-73" id="h7-8-73" class="i">+
+</a><a href="#h7-8-74" id="h7-8-74" class="i">+        /// &lt;summary&gt;
+</a>         /// Calls cmdlet WriteObject.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;obj&quot;&gt;Object to write.&lt;/param&gt;
+<a href="#h7-8-78" id="h7-8-78" class="d">-        public void WriteObject(object obj)
+</a><a href="#h7-8-79" id="h7-8-79" class="i">+        internal void WriteObject(object obj)
+</a>         {
+             if (this.originalThread == Thread.CurrentThread)
+             {
+<a href="#h7-9" id="h7-9" class="h">@@ -307,6 +441,72 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>             }
+         }
+ 
+<a href="#h7-9-3" id="h7-9-3" class="i">+        /// &lt;summary&gt;
+</a><a href="#h7-9-4" id="h7-9-4" class="i">+        /// Enable writing to pwsh streams and flush all the queued stream.
+</a><a href="#h7-9-5" id="h7-9-5" class="i">+        /// This method must be called in the original thread.
+</a><a href="#h7-9-6" id="h7-9-6" class="i">+        /// WARNING: You must only call this when the task is completed or in Wait.
+</a><a href="#h7-9-7" id="h7-9-7" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h7-9-8" id="h7-9-8" class="i">+        internal void Flush()
+</a><a href="#h7-9-9" id="h7-9-9" class="i">+        {
+</a><a href="#h7-9-10" id="h7-9-10" class="i">+            // This must be called in the main thread.
+</a><a href="#h7-9-11" id="h7-9-11" class="i">+            if (this.originalThread != Thread.CurrentThread)
+</a><a href="#h7-9-12" id="h7-9-12" class="i">+            {
+</a><a href="#h7-9-13" id="h7-9-13" class="i">+                throw new InvalidOperationException();
+</a><a href="#h7-9-14" id="h7-9-14" class="i">+            }
+</a><a href="#h7-9-15" id="h7-9-15" class="i">+
+</a><a href="#h7-9-16" id="h7-9-16" class="i">+            this.canWriteToStream = true;
+</a><a href="#h7-9-17" id="h7-9-17" class="i">+
+</a><a href="#h7-9-18" id="h7-9-18" class="i">+            // At this point, no new messages should be added to the queue and we are in the main thread.
+</a><a href="#h7-9-19" id="h7-9-19" class="i">+            // Any non completed async operation will now wait for the main thread, so be sure to cancel
+</a><a href="#h7-9-20" id="h7-9-20" class="i">+            // if anything goes wrong.
+</a><a href="#h7-9-21" id="h7-9-21" class="i">+            try
+</a><a href="#h7-9-22" id="h7-9-22" class="i">+            {
+</a><a href="#h7-9-23" id="h7-9-23" class="i">+                while (this.queuedOutputStreams.TryDequeue(out var queuedOutput))
+</a><a href="#h7-9-24" id="h7-9-24" class="i">+                {
+</a><a href="#h7-9-25" id="h7-9-25" class="i">+                    if (queuedOutput != null)
+</a><a href="#h7-9-26" id="h7-9-26" class="i">+                    {
+</a><a href="#h7-9-27" id="h7-9-27" class="i">+                        switch (queuedOutput.Type)
+</a><a href="#h7-9-28" id="h7-9-28" class="i">+                        {
+</a><a href="#h7-9-29" id="h7-9-29" class="i">+                            case OutputStreamType.Debug:
+</a><a href="#h7-9-30" id="h7-9-30" class="i">+                                this.WriteDebug((string)queuedOutput.Data);
+</a><a href="#h7-9-31" id="h7-9-31" class="i">+                                break;
+</a><a href="#h7-9-32" id="h7-9-32" class="i">+                            case OutputStreamType.Verbose:
+</a><a href="#h7-9-33" id="h7-9-33" class="i">+                                this.WriteVerbose((string)queuedOutput.Data);
+</a><a href="#h7-9-34" id="h7-9-34" class="i">+                                break;
+</a><a href="#h7-9-35" id="h7-9-35" class="i">+                            case OutputStreamType.Warning:
+</a><a href="#h7-9-36" id="h7-9-36" class="i">+                                this.WriteWarning((string)queuedOutput.Data);
+</a><a href="#h7-9-37" id="h7-9-37" class="i">+                                break;
+</a><a href="#h7-9-38" id="h7-9-38" class="i">+                            case OutputStreamType.Error:
+</a><a href="#h7-9-39" id="h7-9-39" class="i">+                                this.WriteError((ErrorRecord)queuedOutput.Data);
+</a><a href="#h7-9-40" id="h7-9-40" class="i">+                                break;
+</a><a href="#h7-9-41" id="h7-9-41" class="i">+                            case OutputStreamType.Progress:
+</a><a href="#h7-9-42" id="h7-9-42" class="i">+                                // If the activity is already completed don&#39;t write progress.
+</a><a href="#h7-9-43" id="h7-9-43" class="i">+                                var progressRecord = (ProgressRecord)queuedOutput.Data;
+</a><a href="#h7-9-44" id="h7-9-44" class="i">+                                if (this.progressRecords[progressRecord.ActivityId] == ProgressRecordType.Processing)
+</a><a href="#h7-9-45" id="h7-9-45" class="i">+                                {
+</a><a href="#h7-9-46" id="h7-9-46" class="i">+                                    this.WriteProgress(progressRecord);
+</a><a href="#h7-9-47" id="h7-9-47" class="i">+                                }
+</a><a href="#h7-9-48" id="h7-9-48" class="i">+
+</a><a href="#h7-9-49" id="h7-9-49" class="i">+                                break;
+</a><a href="#h7-9-50" id="h7-9-50" class="i">+                        }
+</a><a href="#h7-9-51" id="h7-9-51" class="i">+                    }
+</a><a href="#h7-9-52" id="h7-9-52" class="i">+                }
+</a><a href="#h7-9-53" id="h7-9-53" class="i">+            }
+</a><a href="#h7-9-54" id="h7-9-54" class="i">+            catch (Exception)
+</a><a href="#h7-9-55" id="h7-9-55" class="i">+            {
+</a><a href="#h7-9-56" id="h7-9-56" class="i">+                this.Cancel();
+</a><a href="#h7-9-57" id="h7-9-57" class="i">+            }
+</a><a href="#h7-9-58" id="h7-9-58" class="i">+        }
+</a><a href="#h7-9-59" id="h7-9-59" class="i">+
+</a><a href="#h7-9-60" id="h7-9-60" class="i">+        /// &lt;summary&gt;
+</a><a href="#h7-9-61" id="h7-9-61" class="i">+        /// Gets a new progress activity id.
+</a><a href="#h7-9-62" id="h7-9-62" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h7-9-63" id="h7-9-63" class="i">+        /// &lt;returns&gt;The new progress record id.&lt;/returns&gt;
+</a><a href="#h7-9-64" id="h7-9-64" class="i">+        internal int GetNewProgressActivityId()
+</a><a href="#h7-9-65" id="h7-9-65" class="i">+        {
+</a><a href="#h7-9-66" id="h7-9-66" class="i">+            return Interlocked.Increment(ref this.progressActivityId);
+</a><a href="#h7-9-67" id="h7-9-67" class="i">+        }
+</a><a href="#h7-9-68" id="h7-9-68" class="i">+
+</a>         private void WaitForOurTurn()
+         {
+             this.semaphore.Wait(this.cancellationToken);
+<a href="#h7-10" id="h7-10" class="h">@@ -323,5 +523,18 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a> 
+             this.semaphore.Release();
+         }
+<a href="#h7-10-3" id="h7-10-3" class="i">+
+</a><a href="#h7-10-4" id="h7-10-4" class="i">+        private class QueuedOutputStream
+</a><a href="#h7-10-5" id="h7-10-5" class="i">+        {
+</a><a href="#h7-10-6" id="h7-10-6" class="i">+            public QueuedOutputStream(OutputStreamType type, object data)
+</a><a href="#h7-10-7" id="h7-10-7" class="i">+            {
+</a><a href="#h7-10-8" id="h7-10-8" class="i">+                this.Type = type;
+</a><a href="#h7-10-9" id="h7-10-9" class="i">+                this.Data = data;
+</a><a href="#h7-10-10" id="h7-10-10" class="i">+            }
+</a><a href="#h7-10-11" id="h7-10-11" class="i">+
+</a><a href="#h7-10-12" id="h7-10-12" class="i">+            public OutputStreamType Type { get; }
+</a><a href="#h7-10-13" id="h7-10-13" class="i">+
+</a><a href="#h7-10-14" id="h7-10-14" class="i">+            public object Data { get; }
+</a><a href="#h7-10-15" id="h7-10-15" class="i">+        }
+</a>     }
+ }
+<b>diff --git a/<a id="h8" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/ConfigurationCommand.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/ConfigurationCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/ConfigurationCommand.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Commands/ConfigurationCommand.cs</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -9,7 +9,6 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>     using System;
+     using System.IO;
+     using System.Management.Automation;
+<a href="#h8-0-3" id="h8-0-3" class="d">-    using System.Threading;
+</a>     using System.Threading.Tasks;
+     using Microsoft.Management.Configuration;
+     using Microsoft.Management.Configuration.Processor;
+<a href="#h8-1" id="h8-1" class="h">@@ -27,10 +26,9 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         /// Initializes a new instance of the &lt;see cref=&quot;ConfigurationCommand&quot;/&gt; class.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;psCmdlet&quot;&gt;PSCmdlet.&lt;/param&gt;
+<a href="#h8-1-3" id="h8-1-3" class="d">-        /// &lt;param name=&quot;cancellationToken&quot;&gt;Cancellation token.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;canWriteToStream&quot;&gt;If the command can write to stream.&lt;/param&gt;
+<a href="#h8-1-5" id="h8-1-5" class="d">-        public ConfigurationCommand(PSCmdlet psCmdlet, CancellationToken cancellationToken, bool canWriteToStream = true)
+</a><a href="#h8-1-6" id="h8-1-6" class="d">-            : base(psCmdlet, cancellationToken, canWriteToStream)
+</a><a href="#h8-1-7" id="h8-1-7" class="i">+        public ConfigurationCommand(PSCmdlet psCmdlet, bool canWriteToStream = true)
+</a><a href="#h8-1-8" id="h8-1-8" class="i">+            : base(psCmdlet, canWriteToStream)
+</a>         {
+         }
+ 
+<a href="#h8-2" id="h8-2" class="h">@@ -39,7 +37,8 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;configFile&quot;&gt;Configuration file path.&lt;/param&gt;
+         /// &lt;param name=&quot;executionPolicy&quot;&gt;Execution policy.&lt;/param&gt;
+<a href="#h8-2-3" id="h8-2-3" class="d">-        public void Get(string configFile, ExecutionPolicy executionPolicy)
+</a><a href="#h8-2-4" id="h8-2-4" class="i">+        /// &lt;param name=&quot;canUseTelemetry&quot;&gt;If telemetry can be used.&lt;/param&gt;
+</a><a href="#h8-2-5" id="h8-2-5" class="i">+        public void Get(string configFile, ExecutionPolicy executionPolicy, bool canUseTelemetry)
+</a>         {
+             if (!Path.IsPathRooted(configFile))
+             {
+<a href="#h8-3" id="h8-3" class="h">@@ -56,7 +55,7 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a> 
+             // Start task.
+             var runningTask = this.RunOnMTA&lt;PSConfigurationSet&gt;(
+<a href="#h8-3-3" id="h8-3-3" class="d">-                async () =&gt; await this.OpenConfigurationSetAsync(configFile, executionPolicy));
+</a><a href="#h8-3-4" id="h8-3-4" class="i">+                async () =&gt; await this.OpenConfigurationSetAsync(configFile, executionPolicy, canUseTelemetry));
+</a> 
+             this.Wait(runningTask);
+             this.WriteObject(runningTask.Result);
+<a href="#h8-4" id="h8-4" class="h">@@ -68,6 +67,8 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         /// &lt;param name=&quot;psConfigurationSet&quot;&gt;PSConfigurationSet.&lt;/param&gt;
+         public void GetDetails(PSConfigurationSet psConfigurationSet)
+         {
+<a href="#h8-4-3" id="h8-4-3" class="i">+            psConfigurationSet.PsProcessor.UpdateDiagnosticCmdlet(this);
+</a><a href="#h8-4-4" id="h8-4-4" class="i">+
+</a>             if (!psConfigurationSet.HasDetails)
+             {
+                 if (!psConfigurationSet.CanProcess())
+<a href="#h8-5" id="h8-5" class="h">@@ -138,6 +139,9 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>         {
+             if (psConfigurationJob.ConfigurationTask.IsCompleted)
+             {
+<a href="#h8-5-3" id="h8-5-3" class="i">+                // It is safe to print all output.
+</a><a href="#h8-5-4" id="h8-5-4" class="i">+                psConfigurationJob.StartCommand.Flush();
+</a><a href="#h8-5-5" id="h8-5-5" class="i">+
+</a>                 this.WriteDebug(&quot;The task was completed before waiting&quot;);
+                 if (psConfigurationJob.ConfigurationTask.IsCompletedSuccessfully)
+                 {
+<a href="#h8-6" id="h8-6" class="h">@@ -165,7 +169,7 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>             this.WriteObject(psConfigurationJob.ConfigurationTask.Result);
+         }
+ 
+<a href="#h8-6-3" id="h8-6-3" class="d">-        private ConfigurationProcessor CreateConfigurationProcessor(ExecutionPolicy executionPolicy)
+</a><a href="#h8-6-4" id="h8-6-4" class="i">+        private PSConfigurationProcessor CreateConfigurationProcessor(ExecutionPolicy executionPolicy, bool canUseTelemetry)
+</a>         {
+             var properties = new ConfigurationProcessorFactoryProperties();
+             properties.Policy = this.GetConfigurationProcessorPolicy(executionPolicy);
+<a href="#h8-7" id="h8-7" class="h">@@ -173,24 +177,15 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>             var factory = new ConfigurationSetProcessorFactory(
+                 ConfigurationProcessorType.Default, properties);
+ 
+<a href="#h8-7-3" id="h8-7-3" class="d">-            var processor = new ConfigurationProcessor(factory);
+</a><a href="#h8-7-4" id="h8-7-4" class="d">-
+</a><a href="#h8-7-5" id="h8-7-5" class="d">-            // TODO: set up logging and telemetry.
+</a><a href="#h8-7-6" id="h8-7-6" class="d">-            ////processor.MinimumLevel = DiagnosticLevel.Error;
+</a><a href="#h8-7-7" id="h8-7-7" class="d">-            ////processor.Caller = &quot;ConfigurationModule&quot;;
+</a><a href="#h8-7-8" id="h8-7-8" class="d">-            ////processor.ActivityIdentifier = Guid.NewGuid();
+</a><a href="#h8-7-9" id="h8-7-9" class="d">-            ////processor.GenerateTelemetryEvents = false;
+</a><a href="#h8-7-10" id="h8-7-10" class="d">-            ////processor.Diagnostics;
+</a><a href="#h8-7-11" id="h8-7-11" class="d">-
+</a><a href="#h8-7-12" id="h8-7-12" class="d">-            return processor;
+</a><a href="#h8-7-13" id="h8-7-13" class="i">+            return new PSConfigurationProcessor(factory, this, canUseTelemetry);
+</a>         }
+ 
+<a href="#h8-7-16" id="h8-7-16" class="d">-        private async Task&lt;PSConfigurationSet&gt; OpenConfigurationSetAsync(string configFile, ExecutionPolicy executionPolicy)
+</a><a href="#h8-7-17" id="h8-7-17" class="i">+        private async Task&lt;PSConfigurationSet&gt; OpenConfigurationSetAsync(string configFile, ExecutionPolicy executionPolicy, bool canUseTelemetry)
+</a>         {
+<a href="#h8-7-19" id="h8-7-19" class="d">-            var processor = this.CreateConfigurationProcessor(executionPolicy);
+</a><a href="#h8-7-20" id="h8-7-20" class="i">+            var psProcessor = this.CreateConfigurationProcessor(executionPolicy, canUseTelemetry);
+</a> 
+             var stream = await FileRandomAccessStream.OpenAsync(configFile, FileAccessMode.Read);
+<a href="#h8-7-23" id="h8-7-23" class="d">-            OpenConfigurationSetResult openResult = await processor.OpenConfigurationSetAsync(stream);
+</a><a href="#h8-7-24" id="h8-7-24" class="i">+            OpenConfigurationSetResult openResult = await psProcessor.Processor.OpenConfigurationSetAsync(stream);
+</a>             if (openResult.Set is null)
+             {
+                 // TODO: throw better exception.
+<a href="#h8-8" id="h8-8" class="h">@@ -205,11 +200,13 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>             set.Origin = Path.GetDirectoryName(configFile);
+             set.Path = configFile;
+ 
+<a href="#h8-8-3" id="h8-8-3" class="d">-            return new PSConfigurationSet(processor, set);
+</a><a href="#h8-8-4" id="h8-8-4" class="i">+            return new PSConfigurationSet(psProcessor, set);
+</a>         }
+ 
+         private PSConfigurationJob StartApplyInternal(PSConfigurationSet psConfigurationSet)
+         {
+<a href="#h8-8-9" id="h8-8-9" class="i">+            psConfigurationSet.PsProcessor.UpdateDiagnosticCmdlet(this);
+</a><a href="#h8-8-10" id="h8-8-10" class="i">+
+</a>             var runningTask = this.RunOnMTA&lt;PSConfigurationSet&gt;(
+                 async () =&gt;
+                 {
+<a href="#h8-9" id="h8-9" class="h">@@ -236,7 +233,7 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a>                 await this.GetSetDetailsAsync(psConfigurationSet);
+             }
+ 
+<a href="#h8-9-3" id="h8-9-3" class="d">-            var processor = psConfigurationSet.Processor;
+</a><a href="#h8-9-4" id="h8-9-4" class="i">+            var processor = psConfigurationSet.PsProcessor.Processor;
+</a>             var set = psConfigurationSet.Set;
+ 
+             // TODO: implement progress
+<a href="#h8-10" id="h8-10" class="h">@@ -247,7 +244,7 @@ namespace Microsoft.WinGet.Configuration.Engine.Commands
+</a> 
+         private async Task&lt;PSConfigurationSet&gt; GetSetDetailsAsync(PSConfigurationSet psConfigurationSet)
+         {
+<a href="#h8-10-3" id="h8-10-3" class="d">-            var processor = psConfigurationSet.Processor;
+</a><a href="#h8-10-4" id="h8-10-4" class="i">+            var processor = psConfigurationSet.PsProcessor.Processor;
+</a>             var set = psConfigurationSet.Set;
+ 
+             if (set.ConfigurationUnits.Count == 0)
+<b>diff --git a/<a id="h9" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationProcessor.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationProcessor.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationProcessor.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationProcessor.cs</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -0,0 +1,97 @@
+</a><a href="#h9-0-0" id="h9-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h9-0-1" id="h9-0-1" class="i">+// &lt;copyright file=&quot;PSConfigurationProcessor.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h9-0-2" id="h9-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h9-0-3" id="h9-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h9-0-4" id="h9-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+
+</a><a href="#h9-0-6" id="h9-0-6" class="i">+namespace Microsoft.WinGet.Configuration.Engine.PSObjects
+</a><a href="#h9-0-7" id="h9-0-7" class="i">+{
+</a><a href="#h9-0-8" id="h9-0-8" class="i">+    using System;
+</a><a href="#h9-0-9" id="h9-0-9" class="i">+    using System.Management.Automation;
+</a><a href="#h9-0-10" id="h9-0-10" class="i">+    using Microsoft.Management.Configuration;
+</a><a href="#h9-0-11" id="h9-0-11" class="i">+    using Microsoft.PowerShell.Commands;
+</a><a href="#h9-0-12" id="h9-0-12" class="i">+    using Microsoft.WinGet.Configuration.Engine.Commands;
+</a><a href="#h9-0-13" id="h9-0-13" class="i">+
+</a><a href="#h9-0-14" id="h9-0-14" class="i">+    /// &lt;summary&gt;
+</a><a href="#h9-0-15" id="h9-0-15" class="i">+    /// Creates configuration processor and set up diagnostic logging.
+</a><a href="#h9-0-16" id="h9-0-16" class="i">+    /// If this object is the input of another cmdlet and the cmdlet is not a
+</a><a href="#h9-0-17" id="h9-0-17" class="i">+    /// long running task (aka not Continue-*) for now the caller is responsible
+</a><a href="#h9-0-18" id="h9-0-18" class="i">+    /// of updating the AsyncCommand of this object.
+</a><a href="#h9-0-19" id="h9-0-19" class="i">+    /// In the future we can implement a singleton that handles all the signaling
+</a><a href="#h9-0-20" id="h9-0-20" class="i">+    /// for main thread actions.
+</a><a href="#h9-0-21" id="h9-0-21" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h9-0-22" id="h9-0-22" class="i">+    public class PSConfigurationProcessor
+</a><a href="#h9-0-23" id="h9-0-23" class="i">+    {
+</a><a href="#h9-0-24" id="h9-0-24" class="i">+        private static readonly object CmdletLock = new ();
+</a><a href="#h9-0-25" id="h9-0-25" class="i">+
+</a><a href="#h9-0-26" id="h9-0-26" class="i">+        private AsyncCommand diagnosticCommand;
+</a><a href="#h9-0-27" id="h9-0-27" class="i">+
+</a><a href="#h9-0-28" id="h9-0-28" class="i">+        /// &lt;summary&gt;
+</a><a href="#h9-0-29" id="h9-0-29" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;PSConfigurationProcessor&quot;/&gt; class.
+</a><a href="#h9-0-30" id="h9-0-30" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h9-0-31" id="h9-0-31" class="i">+        /// &lt;param name=&quot;factory&quot;&gt;Factory.&lt;/param&gt;
+</a><a href="#h9-0-32" id="h9-0-32" class="i">+        /// &lt;param name=&quot;diagnosticCommand&quot;&gt;AsyncCommand to use for diagnostics.&lt;/param&gt;
+</a><a href="#h9-0-33" id="h9-0-33" class="i">+        /// &lt;param name=&quot;canUseTelemetry&quot;&gt;If telemetry can be used.&lt;/param&gt;
+</a><a href="#h9-0-34" id="h9-0-34" class="i">+        internal PSConfigurationProcessor(IConfigurationSetProcessorFactory factory, AsyncCommand diagnosticCommand, bool canUseTelemetry)
+</a><a href="#h9-0-35" id="h9-0-35" class="i">+        {
+</a><a href="#h9-0-36" id="h9-0-36" class="i">+            this.Processor = new ConfigurationProcessor(factory);
+</a><a href="#h9-0-37" id="h9-0-37" class="i">+            this.Processor.MinimumLevel = DiagnosticLevel.Verbose;
+</a><a href="#h9-0-38" id="h9-0-38" class="i">+            this.Processor.Caller = &quot;Microsoft.WinGet.Configuration&quot;;
+</a><a href="#h9-0-39" id="h9-0-39" class="i">+            this.Processor.Diagnostics += (sender, args) =&gt; this.LogConfigurationDiagnostics(args);
+</a><a href="#h9-0-40" id="h9-0-40" class="i">+            this.Processor.GenerateTelemetryEvents = canUseTelemetry;
+</a><a href="#h9-0-41" id="h9-0-41" class="i">+            this.diagnosticCommand = diagnosticCommand;
+</a><a href="#h9-0-42" id="h9-0-42" class="i">+        }
+</a><a href="#h9-0-43" id="h9-0-43" class="i">+
+</a><a href="#h9-0-44" id="h9-0-44" class="i">+        /// &lt;summary&gt;
+</a><a href="#h9-0-45" id="h9-0-45" class="i">+        /// Gets the ConfigurationProcessor.
+</a><a href="#h9-0-46" id="h9-0-46" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h9-0-47" id="h9-0-47" class="i">+        internal ConfigurationProcessor Processor { get; private set; }
+</a><a href="#h9-0-48" id="h9-0-48" class="i">+
+</a><a href="#h9-0-49" id="h9-0-49" class="i">+        /// &lt;summary&gt;
+</a><a href="#h9-0-50" id="h9-0-50" class="i">+        /// Updates the cmdlet that is used for diagnostics.
+</a><a href="#h9-0-51" id="h9-0-51" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h9-0-52" id="h9-0-52" class="i">+        /// &lt;param name=&quot;newDiagnosticCommand&quot;&gt;New diagnostic command.&lt;/param&gt;
+</a><a href="#h9-0-53" id="h9-0-53" class="i">+        internal void UpdateDiagnosticCmdlet(AsyncCommand newDiagnosticCommand)
+</a><a href="#h9-0-54" id="h9-0-54" class="i">+        {
+</a><a href="#h9-0-55" id="h9-0-55" class="i">+            lock (CmdletLock)
+</a><a href="#h9-0-56" id="h9-0-56" class="i">+            {
+</a><a href="#h9-0-57" id="h9-0-57" class="i">+                this.diagnosticCommand = newDiagnosticCommand;
+</a><a href="#h9-0-58" id="h9-0-58" class="i">+            }
+</a><a href="#h9-0-59" id="h9-0-59" class="i">+        }
+</a><a href="#h9-0-60" id="h9-0-60" class="i">+
+</a><a href="#h9-0-61" id="h9-0-61" class="i">+        private void LogConfigurationDiagnostics(DiagnosticInformation diagnosticInformation)
+</a><a href="#h9-0-62" id="h9-0-62" class="i">+        {
+</a><a href="#h9-0-63" id="h9-0-63" class="i">+            try
+</a><a href="#h9-0-64" id="h9-0-64" class="i">+            {
+</a><a href="#h9-0-65" id="h9-0-65" class="i">+                // This is expensive.
+</a><a href="#h9-0-66" id="h9-0-66" class="i">+                AsyncCommand asyncCommand = this.diagnosticCommand;
+</a><a href="#h9-0-67" id="h9-0-67" class="i">+                switch (diagnosticInformation.Level)
+</a><a href="#h9-0-68" id="h9-0-68" class="i">+                {
+</a><a href="#h9-0-69" id="h9-0-69" class="i">+                    // PowerShell doesn&#39;t have critical and critical isn&#39;t an error.
+</a><a href="#h9-0-70" id="h9-0-70" class="i">+                    case DiagnosticLevel.Critical:
+</a><a href="#h9-0-71" id="h9-0-71" class="i">+                    case DiagnosticLevel.Warning:
+</a><a href="#h9-0-72" id="h9-0-72" class="i">+                        asyncCommand.WriteWarning(diagnosticInformation.Message);
+</a><a href="#h9-0-73" id="h9-0-73" class="i">+                        return;
+</a><a href="#h9-0-74" id="h9-0-74" class="i">+                    case DiagnosticLevel.Error:
+</a><a href="#h9-0-75" id="h9-0-75" class="i">+                        // TODO: The error record requires a exception that can&#39;t be null, but there&#39;s no requirement
+</a><a href="#h9-0-76" id="h9-0-76" class="i">+                        // that it was thrown.
+</a><a href="#h9-0-77" id="h9-0-77" class="i">+                        asyncCommand.WriteError(new ErrorRecord(
+</a><a href="#h9-0-78" id="h9-0-78" class="i">+                            new WriteErrorException(),
+</a><a href="#h9-0-79" id="h9-0-79" class="i">+                            &quot;ConfigurationDiagnosticError&quot;,
+</a><a href="#h9-0-80" id="h9-0-80" class="i">+                            ErrorCategory.WriteError,
+</a><a href="#h9-0-81" id="h9-0-81" class="i">+                            diagnosticInformation.Message));
+</a><a href="#h9-0-82" id="h9-0-82" class="i">+                        return;
+</a><a href="#h9-0-83" id="h9-0-83" class="i">+                    case DiagnosticLevel.Verbose:
+</a><a href="#h9-0-84" id="h9-0-84" class="i">+                    case DiagnosticLevel.Informational:
+</a><a href="#h9-0-85" id="h9-0-85" class="i">+                    default:
+</a><a href="#h9-0-86" id="h9-0-86" class="i">+                        asyncCommand.WriteDebug(diagnosticInformation.Message);
+</a><a href="#h9-0-87" id="h9-0-87" class="i">+                        return;
+</a><a href="#h9-0-88" id="h9-0-88" class="i">+                }
+</a><a href="#h9-0-89" id="h9-0-89" class="i">+            }
+</a><a href="#h9-0-90" id="h9-0-90" class="i">+            catch (Exception)
+</a><a href="#h9-0-91" id="h9-0-91" class="i">+            {
+</a><a href="#h9-0-92" id="h9-0-92" class="i">+                // Please don&#39;t throw here.
+</a><a href="#h9-0-93" id="h9-0-93" class="i">+            }
+</a><a href="#h9-0-94" id="h9-0-94" class="i">+        }
+</a><a href="#h9-0-95" id="h9-0-95" class="i">+    }
+</a><a href="#h9-0-96" id="h9-0-96" class="i">+}
+</a><b>diff --git a/<a id="h10" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationSet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationSet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationSet.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/PSObjects/PSConfigurationSet.cs</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -20,11 +20,11 @@ namespace Microsoft.WinGet.Configuration.Engine.PSObjects
+</a>         /// &lt;summary&gt;
+         /// Initializes a new instance of the &lt;see cref=&quot;PSConfigurationSet&quot;/&gt; class.
+         /// &lt;/summary&gt;
+<a href="#h10-0-3" id="h10-0-3" class="d">-        /// &lt;param name=&quot;processor&quot;&gt;The configuration processor.&lt;/param&gt;
+</a><a href="#h10-0-4" id="h10-0-4" class="i">+        /// &lt;param name=&quot;psProcessor&quot;&gt;The configuration processor wrapper.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;set&quot;&gt;The configuration set.&lt;/param&gt;
+<a href="#h10-0-6" id="h10-0-6" class="d">-        internal PSConfigurationSet(ConfigurationProcessor processor, ConfigurationSet set)
+</a><a href="#h10-0-7" id="h10-0-7" class="i">+        internal PSConfigurationSet(PSConfigurationProcessor psProcessor, ConfigurationSet set)
+</a>         {
+<a href="#h10-0-9" id="h10-0-9" class="d">-            this.Processor = processor;
+</a><a href="#h10-0-10" id="h10-0-10" class="i">+            this.PsProcessor = psProcessor;
+</a>             this.Set = set;
+         }
+ 
+<a href="#h10-1" id="h10-1" class="h">@@ -84,9 +84,9 @@ namespace Microsoft.WinGet.Configuration.Engine.PSObjects
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h10-1-3" id="h10-1-3" class="d">-        /// Gets the ConfigurationProcessor.
+</a><a href="#h10-1-4" id="h10-1-4" class="i">+        /// Gets the PSConfigurationProcessor.
+</a>         /// &lt;/summary&gt;
+<a href="#h10-1-6" id="h10-1-6" class="d">-        internal ConfigurationProcessor Processor { get; private set; }
+</a><a href="#h10-1-7" id="h10-1-7" class="i">+        internal PSConfigurationProcessor PsProcessor { get; private set; }
+</a> 
+         /// &lt;summary&gt;
+         /// Gets the ConfigurationSet.
+</pre>
+</div>
+</body>
+</html>

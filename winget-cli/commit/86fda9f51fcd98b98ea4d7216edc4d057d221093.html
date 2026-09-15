@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Fix DynamicProcessor crash when working on individual units without a set (#5304) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/86fda9f51fcd98b98ea4d7216edc4d057d221093.html">86fda9f51fcd98b98ea4d7216edc4d057d221093</a>
+<b>parent</b> <a href="../commit/2f344f090bce1dd633d2a655f61d5b5c16a702f0.html">2f344f090bce1dd633d2a655f61d5b5c16a702f0</a>
+<b>Author:</b> yao-msft &lt;<a href="mailto:50888816+yao-msft@users.noreply.github.com">50888816+yao-msft@users.noreply.github.com</a>&gt;
+<b>Date:</b>   Tue, 18 Mar 2025 17:29:25 -0700
+
+Fix DynamicProcessor crash when working on individual units without a set (#5304)
+
+Added unit test. Manually validated as well.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></td><td> | </td><td class="num">63</td><td><span class="i">+++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationMixedElevationTests.cs</a></td><td> | </td><td class="num">30</td><td><span class="i">++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+</table></pre><pre>2 files changed, 67 insertions(+), 26 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -163,9 +163,12 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                 m_dynamicFactory(std::move(dynamicFactory)), m_configurationSet(configurationSet)
+             {
+ #ifndef AICLI_DISABLE_TEST_HOOKS
+<a href="#h0-0-3" id="h0-0-3" class="d">-                m_enableTestMode = GetConfigurationSetMetadataOverride(m_configurationSet, EnableTestModeTestGuid);
+</a><a href="#h0-0-4" id="h0-0-4" class="d">-                m_enableRestrictedIntegrityLevel = GetConfigurationSetMetadataOverride(m_configurationSet, EnableRestrictedIntegrityLevelTestGuid);
+</a><a href="#h0-0-5" id="h0-0-5" class="d">-                m_forceHighIntegrityLevelUnits = GetConfigurationSetMetadataOverride(m_configurationSet, ForceHighIntegrityLevelUnitsTestGuid);
+</a><a href="#h0-0-6" id="h0-0-6" class="i">+                if (m_configurationSet)
+</a><a href="#h0-0-7" id="h0-0-7" class="i">+                {
+</a><a href="#h0-0-8" id="h0-0-8" class="i">+                    m_enableTestMode = GetConfigurationSetMetadataOverride(m_configurationSet, EnableTestModeTestGuid);
+</a><a href="#h0-0-9" id="h0-0-9" class="i">+                    m_enableRestrictedIntegrityLevel = GetConfigurationSetMetadataOverride(m_configurationSet, EnableRestrictedIntegrityLevelTestGuid);
+</a><a href="#h0-0-10" id="h0-0-10" class="i">+                    m_forceHighIntegrityLevelUnits = GetConfigurationSetMetadataOverride(m_configurationSet, ForceHighIntegrityLevelUnitsTestGuid);
+</a><a href="#h0-0-11" id="h0-0-11" class="i">+                }
+</a> 
+                 m_currentIntegrityLevel = m_enableTestMode ? Security::IntegrityLevel::Medium : Security::GetEffectiveIntegrityLevel();
+ #else
+<a href="#h0-1" id="h0-1" class="h">@@ -173,32 +176,36 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a> #endif
+ 
+                 m_setIntegrityLevel = m_currentIntegrityLevel;
+<a href="#h0-1-3" id="h0-1-3" class="d">-                m_setIntegrityLevel = SecurityContextToIntegrityLevel(m_configurationSet.Environment().Context());
+</a> 
+<a href="#h0-1-5" id="h0-1-5" class="d">-                // Check for multiple integrity level requirements
+</a><a href="#h0-1-6" id="h0-1-6" class="d">-                bool multipleIntegrityLevels = false;
+</a><a href="#h0-1-7" id="h0-1-7" class="d">-                bool higherIntegrityLevelsThanCurrent = false;
+</a><a href="#h0-1-8" id="h0-1-8" class="d">-                for (const auto&amp; environment : m_configurationSet.GetUnitEnvironments())
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+                if (m_configurationSet)
+</a>                 {
+<a href="#h0-1-11" id="h0-1-11" class="d">-                    auto integrityLevel = SecurityContextToIntegrityLevel(environment.Context());
+</a><a href="#h0-1-12" id="h0-1-12" class="d">-                    if (integrityLevel != m_currentIntegrityLevel)
+</a><a href="#h0-1-13" id="h0-1-13" class="d">-                    {
+</a><a href="#h0-1-14" id="h0-1-14" class="d">-                        multipleIntegrityLevels = true;
+</a><a href="#h0-1-15" id="h0-1-15" class="i">+                    m_setIntegrityLevel = SecurityContextToIntegrityLevel(m_configurationSet.Environment().Context());
+</a> 
+<a href="#h0-1-17" id="h0-1-17" class="d">-                        if (ToIntegral(m_currentIntegrityLevel) &lt; ToIntegral(integrityLevel))
+</a><a href="#h0-1-18" id="h0-1-18" class="i">+                    // Check for multiple integrity level requirements
+</a><a href="#h0-1-19" id="h0-1-19" class="i">+                    bool multipleIntegrityLevels = false;
+</a><a href="#h0-1-20" id="h0-1-20" class="i">+                    bool higherIntegrityLevelsThanCurrent = false;
+</a><a href="#h0-1-21" id="h0-1-21" class="i">+                    for (const auto&amp; environment : m_configurationSet.GetUnitEnvironments())
+</a><a href="#h0-1-22" id="h0-1-22" class="i">+                    {
+</a><a href="#h0-1-23" id="h0-1-23" class="i">+                        auto integrityLevel = SecurityContextToIntegrityLevel(environment.Context());
+</a><a href="#h0-1-24" id="h0-1-24" class="i">+                        if (integrityLevel != m_currentIntegrityLevel)
+</a>                         {
+<a href="#h0-1-26" id="h0-1-26" class="d">-                            higherIntegrityLevelsThanCurrent = true;
+</a><a href="#h0-1-27" id="h0-1-27" class="d">-                            break;
+</a><a href="#h0-1-28" id="h0-1-28" class="i">+                            multipleIntegrityLevels = true;
+</a><a href="#h0-1-29" id="h0-1-29" class="i">+
+</a><a href="#h0-1-30" id="h0-1-30" class="i">+                            if (ToIntegral(m_currentIntegrityLevel) &lt; ToIntegral(integrityLevel))
+</a><a href="#h0-1-31" id="h0-1-31" class="i">+                            {
+</a><a href="#h0-1-32" id="h0-1-32" class="i">+                                higherIntegrityLevelsThanCurrent = true;
+</a><a href="#h0-1-33" id="h0-1-33" class="i">+                                break;
+</a><a href="#h0-1-34" id="h0-1-34" class="i">+                            }
+</a>                         }
+                     }
+<a href="#h0-1-37" id="h0-1-37" class="d">-                }
+</a> 
+<a href="#h0-1-39" id="h0-1-39" class="d">-                // Prevent supplied parameters from crossing integrity levels
+</a><a href="#h0-1-40" id="h0-1-40" class="d">-                for (const auto&amp; parameter : m_configurationSet.Parameters())
+</a><a href="#h0-1-41" id="h0-1-41" class="d">-                {
+</a><a href="#h0-1-42" id="h0-1-42" class="d">-                    if (parameter.ProvidedValue() != nullptr)
+</a><a href="#h0-1-43" id="h0-1-43" class="i">+                    // Prevent supplied parameters from crossing integrity levels
+</a><a href="#h0-1-44" id="h0-1-44" class="i">+                    for (const auto&amp; parameter : m_configurationSet.Parameters())
+</a>                     {
+<a href="#h0-1-46" id="h0-1-46" class="d">-                        THROW_HR_IF(WINGET_CONFIG_ERROR_PARAMETER_INTEGRITY_BOUNDARY, higherIntegrityLevelsThanCurrent || (multipleIntegrityLevels &amp;&amp; parameter.IsSecure()));
+</a><a href="#h0-1-47" id="h0-1-47" class="i">+                        if (parameter.ProvidedValue() != nullptr)
+</a><a href="#h0-1-48" id="h0-1-48" class="i">+                        {
+</a><a href="#h0-1-49" id="h0-1-49" class="i">+                            THROW_HR_IF(WINGET_CONFIG_ERROR_PARAMETER_INTEGRITY_BOUNDARY, higherIntegrityLevelsThanCurrent || (multipleIntegrityLevels &amp;&amp; parameter.IsSecure()));
+</a><a href="#h0-1-50" id="h0-1-50" class="i">+                        }
+</a>                     }
+                 }
+ 
+<a href="#h0-2" id="h0-2" class="h">@@ -219,13 +226,16 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                 std::call_once(m_createUnitSetProcessorsOnce,
+                     [&amp;]()
+                     {
+<a href="#h0-2-3" id="h0-2-3" class="d">-                        for (const auto&amp; environment : m_configurationSet.GetUnitEnvironments())
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+                        if (m_configurationSet)
+</a>                         {
+<a href="#h0-2-6" id="h0-2-6" class="d">-                            Security::IntegrityLevel requiredIntegrityLevel = SecurityContextToIntegrityLevel(environment.Context());
+</a><a href="#h0-2-7" id="h0-2-7" class="d">-
+</a><a href="#h0-2-8" id="h0-2-8" class="d">-                            if (m_setProcessors.find(requiredIntegrityLevel) == m_setProcessors.end())
+</a><a href="#h0-2-9" id="h0-2-9" class="i">+                            for (const auto&amp; environment : m_configurationSet.GetUnitEnvironments())
+</a>                             {
+<a href="#h0-2-11" id="h0-2-11" class="d">-                                CreateSetProcessorForIntegrityLevel(requiredIntegrityLevel);
+</a><a href="#h0-2-12" id="h0-2-12" class="i">+                                Security::IntegrityLevel requiredIntegrityLevel = SecurityContextToIntegrityLevel(environment.Context());
+</a><a href="#h0-2-13" id="h0-2-13" class="i">+
+</a><a href="#h0-2-14" id="h0-2-14" class="i">+                                if (m_setProcessors.find(requiredIntegrityLevel) == m_setProcessors.end())
+</a><a href="#h0-2-15" id="h0-2-15" class="i">+                                {
+</a><a href="#h0-2-16" id="h0-2-16" class="i">+                                    CreateSetProcessorForIntegrityLevel(requiredIntegrityLevel);
+</a><a href="#h0-2-17" id="h0-2-17" class="i">+                                }
+</a>                             }
+                         }
+                     });
+<a href="#h0-3" id="h0-3" class="h">@@ -240,6 +250,7 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                 auto itr = m_setProcessors.find(requiredIntegrityLevel);
+                 if (itr == m_setProcessors.end())
+                 {
+<a href="#h0-3-3" id="h0-3-3" class="i">+                    THROW_WIN32_IF_MSG(ERROR_NOT_SUPPORTED, !m_configurationSet, &quot;Using configuration unit integrity level other than current level without a configuration set is not supported.&quot;);
+</a>                     itr = CreateSetProcessorForIntegrityLevel(requiredIntegrityLevel);
+                 }
+ 
+<b>diff --git a/<a id="h1" href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationMixedElevationTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationMixedElevationTests.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationMixedElevationTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/ConfigurationMixedElevationTests.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -269,5 +269,35 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a>             // Once they are implemented, swap to the appropriate error mechanism for the parameter integrity boundary.
+             Assert.Throws&lt;NotImplementedException&gt;(() =&gt; processor.ApplySet(configurationSet, ApplyConfigurationSetFlags.None));
+         }
+<a href="#h1-0-3" id="h1-0-3" class="i">+
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+        /// &lt;summary&gt;
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+        /// Verifies that DynamicFactoryProcessors do not break on empty set when working with only units.
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous unit test.&lt;/returns&gt;
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+        [Fact]
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+        public async Task CreateDynamicFactoryProcessorsWithEmptyConfigurationSet()
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+        {
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+            string resourceName = &quot;E2ETestResourcePID&quot;;
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+            string moduleName = &quot;xE2ETestResource&quot;;
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+            Version version = new Version(&quot;0.0.0.1&quot;);
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+            string tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+            Directory.CreateDirectory(tempDirectory);
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+            ConfigurationUnit unit = this.ConfigurationUnit();
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+            unit.Metadata.Add(&quot;version&quot;, version.ToString());
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+            unit.Metadata.Add(&quot;module&quot;, moduleName);
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+            unit.Settings.Add(&quot;directoryPath&quot;, tempDirectory);
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+            unit.Type = resourceName;
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+            unit.Intent = ConfigurationUnitIntent.Inform;
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+            IConfigurationSetProcessorFactory dynamicFactory = await this.fixture.ConfigurationStatics.CreateConfigurationSetProcessorFactoryAsync(Helpers.Constants.DynamicRuntimeHandlerIdentifier);
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+            ConfigurationProcessor processor = this.CreateConfigurationProcessorWithDiagnostics(dynamicFactory);
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+            var result = await processor.GetUnitSettingsAsync(unit);
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+            Assert.NotNull(result);
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+        }
+</a>     }
+ }
+</pre>
+</div>
+</body>
+</html>

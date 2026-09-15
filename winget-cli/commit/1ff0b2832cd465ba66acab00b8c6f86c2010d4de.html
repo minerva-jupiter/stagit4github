@@ -1,0 +1,2303 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Improve repair (#3886) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/1ff0b2832cd465ba66acab00b8c6f86c2010d4de.html">1ff0b2832cd465ba66acab00b8c6f86c2010d4de</a>
+<b>parent</b> <a href="../commit/fb540a28c54a4ec9fbd688985570cd2fcc118c1d.html">fb540a28c54a4ec9fbd688985570cd2fcc118c1d</a>
+<b>Author:</b> Ruben Guerrero &lt;<a href="mailto:rubengu@microsoft.com">rubengu@microsoft.com</a>&gt;
+<b>Date:</b>   Tue,  5 Dec 2023 09:59:33 -0800
+
+Improve repair (#3886)
+
+This PR makes some improvements to the `Microsoft.WinGet.Client` module
+
+**Use stub preference for AppInstaller**
+The default behavior for `Add-AppxPackage` is to install the full
+package regardless of the preference. This PR adds `-StubPreference
+UsePreference` (if the cmdlet supports it) when installing the
+AppInstaller bundle. I originally want to allow the user to set the
+preference, but I realized I would have to blindly call `winget
+configure --enable|disable` since I don&#39;t know the state. I believe this
+should be done differently with perhaps different cmdlets and add
+something like `winget config --info` that prints a json with some
+information like if its enabled or not and the processor info.
+
+**Add -Force to Repair-WinGetPackage**
+On some occasions, `Add-AppxPackage` failed because AppInstaller files
+were in use. I added a `-Force` switch to the cmdlet that just sets
+`-ForceTargetApplicationShutdown` on the add appx package call.
+
+**Module async friendly**
+All async functions in the module required to be waited. Now that we can
+start an async context via `RunOnMTA`, I removed all the synchronous
+wrappers calls from GitHubClient and make it such as only the top-level
+cmdlet need to wait on the Task. This caused a lot of functions to be
+awaited, but at the end only the top-level cmdlet should care about
+manually waiting for the task which I believe is the right thing to do.
+
+**Bring back synchronization with main PowerShell thread**
+AppxModuleHelper requires its Appx Module calls to be executed in the
+main PowerShell thread otherwise a new runtime would need to be created
+for every cmdlet that uses this class. I brought back the old
+synchronization mechanism of `Microsoft.WinGet.Configure` to do this.
+Now any cmdlet that runs asynchronously and requires PowerShell Host can
+do it without creating its runspace.
+
+**Redo progress for Install/Update/Uninstall-WinGetPackage**
+I was not a huge fan of how progress was handled in these cmdlets. Given
+that I can now create an asynchronous context, I simplify how progress
+is done and follow a similar pattern as `Microsoft.WinGet.Configure`.
+The `IAsyncOperationWithProgress` is executed, set its Progress handler,
+converted to a Task and awaited all in one common method. I also fixed
+how the progress was calculated so it reflects almost the same as
+winget. .NET rounded the number so for some package I was 92.3 MB in
+winget and 92.4 the module (before it was like 97or something).
+
+**Add proper can cancellation support**
+Modify the Install/Update/Uninstall cmdlets to properly use PowerShell&#39;s
+`StopProcessing` for cancellation. The Task from
+`IAsyncOperationWithProgress` uses the PowerShellCmdlet
+CancellationToken, so everything is handled correctly. Also add
+cancellation to `Repair-WinGetPackage`. The repair state machine sees if
+the token is cancelled as the first thing on the loop.
+
+**Download URL with progress.**
+The module attempts to install a package using `Add-AppxPackage` with
+the url of the package. In the case it fails, like in Windows Sandbox,
+the package is downloaded to disk and then installed via the same
+cmdlet. Depending on the network, the download could take a while and
+there&#39;s no indication that work is being performed without `-Verbose`.
+This PR adds a PowerShell progress bar for the download when the
+response contains a Content-Length property. If cancellation is request
+during url download, the async calls will be cancelled the file will be
+deleted.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/PowerShell/CommonFiles/PowerShellCmdlet.cs</a></td><td> | </td><td class="num">155</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h1">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/InstallPackageCmdlet.cs</a></td><td> | </td><td class="num">18</td><td><span class="i">+++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/RepairWinGetPackageManagerCmdlet.cs</a></td><td> | </td><td class="num">25</td><td><span class="i">++++++++++++++++++++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UninstallPackageCmdlet.cs</a></td><td> | </td><td class="num">17</td><td><span class="i">+++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UpdatePackageCmdlet.cs</a></td><td> | </td><td class="num">1</td><td><span class="i"></span><span class="d">-</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/InstallCommand.cs</a></td><td> | </td><td class="num">47</td><td><span class="i"></span><span class="d">-----------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/ManagementDeploymentCommand.cs</a></td><td> | </td><td class="num">22</td><td><span class="i">++++++++++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/PackageCommand.cs</a></td><td> | </td><td class="num">7</td><td><span class="i">++++</span><span class="d">---</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/InstallerPackageCommand.cs</a></td><td> | </td><td class="num">39</td><td><span class="i">+++++++++++++++++++</span><span class="d">--------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/UninstallPackageCommand.cs</a></td><td> | </td><td class="num">44</td><td><span class="i">++++++++++</span><span class="d">----------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs</a></td><td> | </td><td class="num">91</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">--------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/Constants.cs</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h12">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs</a></td><td> | </td><td class="num">40</td><td><span class="i">++++++++++++++++++++++++</span><span class="d">----------------</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h13">src/PowerShell/Microsoft.WinGet.Client.Engine/Extensions/ReleaseExtensions.cs</a></td><td> | </td><td class="num">55</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h14">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs</a></td><td> | </td><td class="num">241</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">----------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h15">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubClient.cs</a></td><td> | </td><td class="num">57</td><td><span class="i">+++++</span><span class="d">----------------------------------------------------</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h16">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/HttpClientHelper.cs</a></td><td> | </td><td class="num">115</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h17">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/InstallOperationWithProgress.cs</a></td><td> | </td><td class="num">53</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="A">A</td><td><a href="#h18">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/OperationWithProgressBase.cs</a></td><td> | </td><td class="num">87</td><td><span class="i">+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h19">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs</a></td><td> | </td><td class="num">6</td><td><span class="i">++++</span><span class="d">--</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h20">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/UninstallOperationWithProgress.cs</a></td><td> | </td><td class="num">42</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="D">D</td><td><a href="#h21">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/WriteProgressAdapter.cs</a></td><td> | </td><td class="num">91</td><td><span class="i"></span><span class="d">-------------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h22">src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h23">src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.Designer.cs</a></td><td> | </td><td class="num">36</td><td><span class="i">++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h24">src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.resx</a></td><td> | </td><td class="num">13</td><td><span class="i">+++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="D">D</td><td><a href="#h25">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Extensions/IAsyncOperationExtensions.cs</a></td><td> | </td><td class="num">74</td><td><span class="i"></span><span class="d">--------------------------------------------------------------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h26">src/PowerShell/scripts/Initialize-LocalWinGetModules.ps1</a></td><td> | </td><td class="num">4</td><td><span class="i">++</span><span class="d">--</span></td></tr>
+</table></pre><pre>27 files changed, 901 insertions(+), 485 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/PowerShell/CommonFiles/PowerShellCmdlet.cs.html">src/PowerShell/CommonFiles/PowerShellCmdlet.cs</a> b/<a href="../file/src/PowerShell/CommonFiles/PowerShellCmdlet.cs.html">src/PowerShell/CommonFiles/PowerShellCmdlet.cs</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -10,6 +10,7 @@ namespace Microsoft.WinGet.Common.Command
+</a>     using System.Collections.Concurrent;
+     using System.Collections.Generic;
+     using System.Management.Automation;
+<a href="#h0-0-3" id="h0-0-3" class="i">+    using System.Runtime.ExceptionServices;
+</a>     using System.Threading;
+     using System.Threading.Tasks;
+     using Microsoft.WinGet.Resources;
+<a href="#h0-1" id="h0-1" class="h">@@ -30,13 +31,18 @@ namespace Microsoft.WinGet.Common.Command
+</a>         private static readonly string[] WriteInformationTags = new string[] { &quot;PSHOST&quot; };
+ 
+         private readonly PSCmdlet psCmdlet;
+<a href="#h0-1-3" id="h0-1-3" class="d">-        private readonly Thread originalThread;
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+        private readonly Thread pwshThread;
+</a> 
+         private readonly CancellationTokenSource source = new ();
+<a href="#h0-1-7" id="h0-1-7" class="d">-        private BlockingCollection&lt;QueuedStream&gt; queuedStreams = new ();
+</a><a href="#h0-1-8" id="h0-1-8" class="i">+        private readonly SemaphoreSlim semaphore = new (1, 1);
+</a><a href="#h0-1-9" id="h0-1-9" class="i">+        private readonly ManualResetEventSlim pwshThreadActionReady = new (false);
+</a><a href="#h0-1-10" id="h0-1-10" class="i">+        private readonly ManualResetEventSlim pwshThreadActionCompleted = new (false);
+</a> 
+<a href="#h0-1-12" id="h0-1-12" class="i">+        private BlockingCollection&lt;QueuedStream&gt; queuedStreams = new ();
+</a>         private int progressActivityId = 0;
+         private ConcurrentDictionary&lt;int, ProgressRecordType&gt; progressRecords = new ();
+<a href="#h0-1-15" id="h0-1-15" class="i">+        private Action? pwshThreadAction = null;
+</a><a href="#h0-1-16" id="h0-1-16" class="i">+        private ExceptionDispatchInfo? pwshThreadEdi = null;
+</a> 
+         /// &lt;summary&gt;
+         /// Initializes a new instance of the &lt;see cref=&quot;PowerShellCmdlet&quot;/&gt; class.
+<a href="#h0-2" id="h0-2" class="h">@@ -57,7 +63,7 @@ namespace Microsoft.WinGet.Common.Command
+</a>             this.ValidatePolicies(policies);
+ 
+             this.psCmdlet = psCmdlet;
+<a href="#h0-2-3" id="h0-2-3" class="d">-            this.originalThread = Thread.CurrentThread;
+</a><a href="#h0-2-4" id="h0-2-4" class="i">+            this.pwshThread = Thread.CurrentThread;
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h0-3" id="h0-3" class="h">@@ -81,7 +87,7 @@ namespace Microsoft.WinGet.Common.Command
+</a>             throw new NotImplementedException();
+ #else
+             // This must be called in the main thread.
+<a href="#h0-3-3" id="h0-3-3" class="d">-            if (this.originalThread != Thread.CurrentThread)
+</a><a href="#h0-3-4" id="h0-3-4" class="i">+            if (this.pwshThread != Thread.CurrentThread)
+</a>             {
+                 throw new InvalidOperationException();
+             }
+<a href="#h0-4" id="h0-4" class="h">@@ -134,7 +140,7 @@ namespace Microsoft.WinGet.Common.Command
+</a>         internal Task&lt;TResult&gt; RunOnMTA&lt;TResult&gt;(Func&lt;Task&lt;TResult&gt;&gt; func)
+         {
+             // This must be called in the main thread.
+<a href="#h0-4-3" id="h0-4-3" class="d">-            if (this.originalThread != Thread.CurrentThread)
+</a><a href="#h0-4-4" id="h0-4-4" class="i">+            if (this.pwshThread != Thread.CurrentThread)
+</a>             {
+                 throw new InvalidOperationException();
+             }
+<a href="#h0-5" id="h0-5" class="h">@@ -186,7 +192,7 @@ namespace Microsoft.WinGet.Common.Command
+</a>         internal TResult RunOnMTA&lt;TResult&gt;(Func&lt;TResult&gt; func)
+         {
+             // This must be called in the main thread.
+<a href="#h0-5-3" id="h0-5-3" class="d">-            if (this.originalThread != Thread.CurrentThread)
+</a><a href="#h0-5-4" id="h0-5-4" class="i">+            if (this.pwshThread != Thread.CurrentThread)
+</a>             {
+                 throw new InvalidOperationException();
+             }
+<a href="#h0-6" id="h0-6" class="h">@@ -230,6 +236,26 @@ namespace Microsoft.WinGet.Common.Command
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h0-6-3" id="h0-6-3" class="i">+        /// Executes an action in the main thread.
+</a><a href="#h0-6-4" id="h0-6-4" class="i">+        /// Blocks until call is executed.
+</a><a href="#h0-6-5" id="h0-6-5" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h0-6-6" id="h0-6-6" class="i">+        /// &lt;param name=&quot;action&quot;&gt;Action to perform.&lt;/param&gt;
+</a><a href="#h0-6-7" id="h0-6-7" class="i">+        internal void ExecuteInPowerShellThread(Action action)
+</a><a href="#h0-6-8" id="h0-6-8" class="i">+        {
+</a><a href="#h0-6-9" id="h0-6-9" class="i">+            if (this.pwshThread == Thread.CurrentThread)
+</a><a href="#h0-6-10" id="h0-6-10" class="i">+            {
+</a><a href="#h0-6-11" id="h0-6-11" class="i">+                action();
+</a><a href="#h0-6-12" id="h0-6-12" class="i">+                return;
+</a><a href="#h0-6-13" id="h0-6-13" class="i">+            }
+</a><a href="#h0-6-14" id="h0-6-14" class="i">+
+</a><a href="#h0-6-15" id="h0-6-15" class="i">+            this.WaitForOurTurn();
+</a><a href="#h0-6-16" id="h0-6-16" class="i">+
+</a><a href="#h0-6-17" id="h0-6-17" class="i">+            this.pwshThreadAction = action;
+</a><a href="#h0-6-18" id="h0-6-18" class="i">+            this.pwshThreadActionReady.Set();
+</a><a href="#h0-6-19" id="h0-6-19" class="i">+            this.WaitMainThreadActionCompletion();
+</a><a href="#h0-6-20" id="h0-6-20" class="i">+        }
+</a><a href="#h0-6-21" id="h0-6-21" class="i">+
+</a><a href="#h0-6-22" id="h0-6-22" class="i">+        /// &lt;summary&gt;
+</a>         /// Waits for the task to be completed. This MUST be called from the main thread.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;runningTask&quot;&gt;Task to wait for.&lt;/param&gt;
+<a href="#h0-7" id="h0-7" class="h">@@ -239,14 +265,54 @@ namespace Microsoft.WinGet.Common.Command
+</a>             writeCmdlet ??= this;
+ 
+             // This must be called in the main thread.
+<a href="#h0-7-3" id="h0-7-3" class="d">-            if (this.originalThread != Thread.CurrentThread)
+</a><a href="#h0-7-4" id="h0-7-4" class="i">+            if (this.pwshThread != Thread.CurrentThread)
+</a>             {
+                 throw new InvalidOperationException();
+             }
+ 
+             do
+             {
+<a href="#h0-7-11" id="h0-7-11" class="d">-                this.ConsumeAndWriteStreams(writeCmdlet);
+</a><a href="#h0-7-12" id="h0-7-12" class="i">+                if (this.pwshThreadActionReady.IsSet)
+</a><a href="#h0-7-13" id="h0-7-13" class="i">+                {
+</a><a href="#h0-7-14" id="h0-7-14" class="i">+                    // Someone needs the main thread.
+</a><a href="#h0-7-15" id="h0-7-15" class="i">+                    this.pwshThreadActionReady.Reset();
+</a><a href="#h0-7-16" id="h0-7-16" class="i">+
+</a><a href="#h0-7-17" id="h0-7-17" class="i">+                    if (this.pwshThreadAction != null)
+</a><a href="#h0-7-18" id="h0-7-18" class="i">+                    {
+</a><a href="#h0-7-19" id="h0-7-19" class="i">+                        try
+</a><a href="#h0-7-20" id="h0-7-20" class="i">+                        {
+</a><a href="#h0-7-21" id="h0-7-21" class="i">+                            this.pwshThreadAction();
+</a><a href="#h0-7-22" id="h0-7-22" class="i">+                        }
+</a><a href="#h0-7-23" id="h0-7-23" class="i">+                        catch (Exception e)
+</a><a href="#h0-7-24" id="h0-7-24" class="i">+                        {
+</a><a href="#h0-7-25" id="h0-7-25" class="i">+                            // Make sure we don&#39;t throw in the PowerShell thread, this way
+</a><a href="#h0-7-26" id="h0-7-26" class="i">+                            // we&#39;ll get a more meaningful stack by Get-Error.
+</a><a href="#h0-7-27" id="h0-7-27" class="i">+                            this.pwshThreadEdi = ExceptionDispatchInfo.Capture(e);
+</a><a href="#h0-7-28" id="h0-7-28" class="i">+                        }
+</a><a href="#h0-7-29" id="h0-7-29" class="i">+
+</a><a href="#h0-7-30" id="h0-7-30" class="i">+                        this.pwshThreadAction = null;
+</a><a href="#h0-7-31" id="h0-7-31" class="i">+                    }
+</a><a href="#h0-7-32" id="h0-7-32" class="i">+
+</a><a href="#h0-7-33" id="h0-7-33" class="i">+                    // Done.
+</a><a href="#h0-7-34" id="h0-7-34" class="i">+                    this.pwshThreadActionCompleted.Set();
+</a><a href="#h0-7-35" id="h0-7-35" class="i">+                }
+</a><a href="#h0-7-36" id="h0-7-36" class="i">+
+</a><a href="#h0-7-37" id="h0-7-37" class="i">+                // Take from the blocking collection.
+</a><a href="#h0-7-38" id="h0-7-38" class="i">+                if (!this.queuedStreams.IsCompleted &amp;&amp; this.queuedStreams.Count &gt; 0)
+</a><a href="#h0-7-39" id="h0-7-39" class="i">+                {
+</a><a href="#h0-7-40" id="h0-7-40" class="i">+                    try
+</a><a href="#h0-7-41" id="h0-7-41" class="i">+                    {
+</a><a href="#h0-7-42" id="h0-7-42" class="i">+                        var queuedOutput = this.queuedStreams.Take();
+</a><a href="#h0-7-43" id="h0-7-43" class="i">+                        if (queuedOutput != null)
+</a><a href="#h0-7-44" id="h0-7-44" class="i">+                        {
+</a><a href="#h0-7-45" id="h0-7-45" class="i">+                            this.CmdletWrite(queuedOutput.Type, queuedOutput.Data, writeCmdlet);
+</a><a href="#h0-7-46" id="h0-7-46" class="i">+                        }
+</a><a href="#h0-7-47" id="h0-7-47" class="i">+                    }
+</a><a href="#h0-7-48" id="h0-7-48" class="i">+                    catch (InvalidOperationException)
+</a><a href="#h0-7-49" id="h0-7-49" class="i">+                    {
+</a><a href="#h0-7-50" id="h0-7-50" class="i">+                        // An InvalidOperationException means that Take() was called on a completed collection.
+</a><a href="#h0-7-51" id="h0-7-51" class="i">+                    }
+</a><a href="#h0-7-52" id="h0-7-52" class="i">+                }
+</a>             }
+             while (!(runningTask.IsCompleted &amp;&amp; this.queuedStreams.IsCompleted));
+ 
+<a href="#h0-8" id="h0-8" class="h">@@ -254,6 +320,12 @@ namespace Microsoft.WinGet.Common.Command
+</a>             {
+                 // If IsFaulted is true, the task&#39;s Status is equal to Faulted,
+                 // and its Exception property will be non-null.
+<a href="#h0-8-3" id="h0-8-3" class="i">+                AggregateException? ae = runningTask.Exception! as AggregateException;
+</a><a href="#h0-8-4" id="h0-8-4" class="i">+                if (ae != null &amp;&amp; ae.InnerExceptions.Count == 1)
+</a><a href="#h0-8-5" id="h0-8-5" class="i">+                {
+</a><a href="#h0-8-6" id="h0-8-6" class="i">+                    ExceptionDispatchInfo.Capture(ae.InnerExceptions[0]).Throw();
+</a><a href="#h0-8-7" id="h0-8-7" class="i">+                }
+</a><a href="#h0-8-8" id="h0-8-8" class="i">+
+</a>                 throw runningTask.Exception!;
+             }
+         }
+<a href="#h0-9" id="h0-9" class="h">@@ -269,15 +341,17 @@ namespace Microsoft.WinGet.Common.Command
+</a>         {
+             if (type == StreamType.Progress)
+             {
+<a href="#h0-9-3" id="h0-9-3" class="d">-                // Keep track of all progress activity.
+</a>                 ProgressRecord progressRecord = (ProgressRecord)data;
+<a href="#h0-9-5" id="h0-9-5" class="d">-                if (!this.progressRecords.TryAdd(progressRecord.ActivityId, progressRecord.RecordType))
+</a><a href="#h0-9-6" id="h0-9-6" class="i">+                if (progressRecord.RecordType == ProgressRecordType.Completed)
+</a>                 {
+<a href="#h0-9-8" id="h0-9-8" class="d">-                    _ = this.progressRecords.TryUpdate(progressRecord.ActivityId, progressRecord.RecordType, ProgressRecordType.Completed);
+</a><a href="#h0-9-9" id="h0-9-9" class="i">+                    throw new NotSupportedException(&quot;Use CompleteProgress&quot;);
+</a>                 }
+<a href="#h0-9-11" id="h0-9-11" class="i">+
+</a><a href="#h0-9-12" id="h0-9-12" class="i">+                // Keep track of all progress activity.
+</a><a href="#h0-9-13" id="h0-9-13" class="i">+                _ = this.progressRecords.TryAdd(progressRecord.ActivityId, progressRecord.RecordType);
+</a>             }
+ 
+<a href="#h0-9-16" id="h0-9-16" class="d">-            if (this.originalThread == Thread.CurrentThread)
+</a><a href="#h0-9-17" id="h0-9-17" class="i">+            if (this.pwshThread == Thread.CurrentThread)
+</a>             {
+                 this.CmdletWrite(type, data, this);
+                 return;
+<a href="#h0-10" id="h0-10" class="h">@@ -311,26 +385,49 @@ namespace Microsoft.WinGet.Common.Command
+</a>         /// &lt;param name=&quot;activityId&quot;&gt;Activity id.&lt;/param&gt;
+         /// &lt;param name=&quot;activity&quot;&gt;The activity in progress.&lt;/param&gt;
+         /// &lt;param name=&quot;status&quot;&gt;The status of the activity.&lt;/param&gt;
+<a href="#h0-10-3" id="h0-10-3" class="d">-        internal void CompleteProgress(int activityId, string activity, string status)
+</a><a href="#h0-10-4" id="h0-10-4" class="i">+        /// &lt;param name=&quot;force&quot;&gt;Force write complete progress.&lt;/param&gt;
+</a><a href="#h0-10-5" id="h0-10-5" class="i">+        internal void CompleteProgress(int activityId, string activity, string status, bool force = false)
+</a>         {
+             var record = new ProgressRecord(activityId, activity, status)
+             {
+                 RecordType = ProgressRecordType.Completed,
+                 PercentComplete = 100,
+             };
+<a href="#h0-10-12" id="h0-10-12" class="d">-            this.Write(StreamType.Progress, record);
+</a><a href="#h0-10-13" id="h0-10-13" class="i">+
+</a><a href="#h0-10-14" id="h0-10-14" class="i">+            if (!this.progressRecords.TryAdd(activityId, record.RecordType))
+</a><a href="#h0-10-15" id="h0-10-15" class="i">+            {
+</a><a href="#h0-10-16" id="h0-10-16" class="i">+                _ = this.progressRecords.TryUpdate(activityId, record.RecordType, ProgressRecordType.Processing);
+</a><a href="#h0-10-17" id="h0-10-17" class="i">+            }
+</a><a href="#h0-10-18" id="h0-10-18" class="i">+
+</a><a href="#h0-10-19" id="h0-10-19" class="i">+            if (this.pwshThread == Thread.CurrentThread)
+</a><a href="#h0-10-20" id="h0-10-20" class="i">+            {
+</a><a href="#h0-10-21" id="h0-10-21" class="i">+                this.CmdletWrite(StreamType.Progress, record, this);
+</a><a href="#h0-10-22" id="h0-10-22" class="i">+            }
+</a><a href="#h0-10-23" id="h0-10-23" class="i">+            else
+</a><a href="#h0-10-24" id="h0-10-24" class="i">+            {
+</a><a href="#h0-10-25" id="h0-10-25" class="i">+                // You should only use force if you know the cmdlet that is completing this progress is a sync cmdlet that
+</a><a href="#h0-10-26" id="h0-10-26" class="i">+                // is running in an async context. A sync cmdlet is anything that doesn&#39;t start with Start-*
+</a><a href="#h0-10-27" id="h0-10-27" class="i">+                if (force)
+</a><a href="#h0-10-28" id="h0-10-28" class="i">+                {
+</a><a href="#h0-10-29" id="h0-10-29" class="i">+                    this.ExecuteInPowerShellThread(() =&gt; this.CmdletWrite(StreamType.Progress, record, this));
+</a><a href="#h0-10-30" id="h0-10-30" class="i">+                }
+</a><a href="#h0-10-31" id="h0-10-31" class="i">+                else
+</a><a href="#h0-10-32" id="h0-10-32" class="i">+                {
+</a><a href="#h0-10-33" id="h0-10-33" class="i">+                    this.queuedStreams.Add(new QueuedStream(StreamType.Progress, record));
+</a><a href="#h0-10-34" id="h0-10-34" class="i">+                }
+</a><a href="#h0-10-35" id="h0-10-35" class="i">+            }
+</a>         }
+ 
+         /// &lt;summary&gt;
+         /// Writes to PowerShell streams.
+         /// This method must be called in the original thread.
+<a href="#h0-10-41" id="h0-10-41" class="d">-        /// WARNING: You must only call this when the task is completed or in Wait.
+</a><a href="#h0-10-42" id="h0-10-42" class="i">+        /// WARNING: You must only call this when the task is completed.
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;writeCmdlet&quot;&gt;The cmdlet that can write to PowerShell.&lt;/param&gt;
+         internal void ConsumeAndWriteStreams(PowerShellCmdlet writeCmdlet)
+         {
+             // This must be called in the main thread.
+<a href="#h0-10-48" id="h0-10-48" class="d">-            if (this.originalThread != Thread.CurrentThread)
+</a><a href="#h0-10-49" id="h0-10-49" class="i">+            if (this.pwshThread != Thread.CurrentThread)
+</a>             {
+                 throw new InvalidOperationException();
+             }
+<a href="#h0-11" id="h0-11" class="h">@@ -399,7 +496,7 @@ namespace Microsoft.WinGet.Common.Command
+</a>         internal bool ShouldProcess(string target)
+         {
+             // If not on the main thread just continue.
+<a href="#h0-11-3" id="h0-11-3" class="d">-            if (this.originalThread != Thread.CurrentThread)
+</a><a href="#h0-11-4" id="h0-11-4" class="i">+            if (this.pwshThread != Thread.CurrentThread)
+</a>             {
+                 return true;
+             }
+<a href="#h0-12" id="h0-12" class="h">@@ -430,7 +527,7 @@ namespace Microsoft.WinGet.Common.Command
+</a>                 case StreamType.Progress:
+                     // If the activity is already completed don&#39;t write progress.
+                     var progressRecord = (ProgressRecord)data;
+<a href="#h0-12-3" id="h0-12-3" class="d">-                    if (this.progressRecords[progressRecord.ActivityId] == ProgressRecordType.Processing)
+</a><a href="#h0-12-4" id="h0-12-4" class="i">+                    if (this.progressRecords[progressRecord.ActivityId] == progressRecord.RecordType)
+</a>                     {
+                         writeCmdlet.psCmdlet.WriteProgress(progressRecord);
+                     }
+<a href="#h0-13" id="h0-13" class="h">@@ -485,6 +582,28 @@ namespace Microsoft.WinGet.Common.Command
+</a>             }
+         }
+ 
+<a href="#h0-13-3" id="h0-13-3" class="i">+        private void WaitForOurTurn()
+</a><a href="#h0-13-4" id="h0-13-4" class="i">+        {
+</a><a href="#h0-13-5" id="h0-13-5" class="i">+            this.semaphore.Wait(this.GetCancellationToken());
+</a><a href="#h0-13-6" id="h0-13-6" class="i">+            this.pwshThreadActionCompleted.Reset();
+</a><a href="#h0-13-7" id="h0-13-7" class="i">+        }
+</a><a href="#h0-13-8" id="h0-13-8" class="i">+
+</a><a href="#h0-13-9" id="h0-13-9" class="i">+        private void WaitMainThreadActionCompletion()
+</a><a href="#h0-13-10" id="h0-13-10" class="i">+        {
+</a><a href="#h0-13-11" id="h0-13-11" class="i">+            WaitHandle.WaitAny(new[]
+</a><a href="#h0-13-12" id="h0-13-12" class="i">+            {
+</a><a href="#h0-13-13" id="h0-13-13" class="i">+                this.GetCancellationToken().WaitHandle,
+</a><a href="#h0-13-14" id="h0-13-14" class="i">+                this.pwshThreadActionCompleted.WaitHandle,
+</a><a href="#h0-13-15" id="h0-13-15" class="i">+            });
+</a><a href="#h0-13-16" id="h0-13-16" class="i">+
+</a><a href="#h0-13-17" id="h0-13-17" class="i">+            if (this.pwshThreadEdi != null)
+</a><a href="#h0-13-18" id="h0-13-18" class="i">+            {
+</a><a href="#h0-13-19" id="h0-13-19" class="i">+                this.pwshThreadEdi.Throw();
+</a><a href="#h0-13-20" id="h0-13-20" class="i">+            }
+</a><a href="#h0-13-21" id="h0-13-21" class="i">+
+</a><a href="#h0-13-22" id="h0-13-22" class="i">+            this.semaphore.Release();
+</a><a href="#h0-13-23" id="h0-13-23" class="i">+        }
+</a><a href="#h0-13-24" id="h0-13-24" class="i">+
+</a>         private class QueuedStream
+         {
+             public QueuedStream(StreamType type, object data)
+<b>diff --git a/<a id="h1" href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/InstallPackageCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/InstallPackageCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/InstallPackageCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/InstallPackageCmdlet.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -24,6 +24,8 @@ namespace Microsoft.WinGet.Client.Commands
+</a>     [OutputType(typeof(PSInstallResult))]
+     public sealed class InstallPackageCmdlet : InstallCmdlet
+     {
+<a href="#h1-0-3" id="h1-0-3" class="i">+        private InstallerPackageCommand command = null;
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+
+</a>         /// &lt;summary&gt;
+         /// Gets or sets the scope to install the application under.
+         /// &lt;/summary&gt;
+<a href="#h1-1" id="h1-1" class="h">@@ -41,9 +43,8 @@ namespace Microsoft.WinGet.Client.Commands
+</a>         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h1-1-3" id="h1-1-3" class="d">-            var command = new InstallerPackageCommand(
+</a><a href="#h1-1-4" id="h1-1-4" class="i">+            this.command = new InstallerPackageCommand(
+</a>                         this,
+<a href="#h1-1-6" id="h1-1-6" class="d">-                        this.Mode.ToString(),
+</a>                         this.Override,
+                         this.Custom,
+                         this.Location,
+<a href="#h1-2" id="h1-2" class="h">@@ -58,7 +59,18 @@ namespace Microsoft.WinGet.Client.Commands
+</a>                         this.Moniker,
+                         this.Source,
+                         this.Query);
+<a href="#h1-2-3" id="h1-2-3" class="d">-            command.Install(this.Scope.ToString(), this.Architecture.ToString(), this.MatchOption.ToString(), this.Mode.ToString());
+</a><a href="#h1-2-4" id="h1-2-4" class="i">+            this.command.Install(this.Scope.ToString(), this.Architecture.ToString(), this.MatchOption.ToString(), this.Mode.ToString());
+</a><a href="#h1-2-5" id="h1-2-5" class="i">+        }
+</a><a href="#h1-2-6" id="h1-2-6" class="i">+
+</a><a href="#h1-2-7" id="h1-2-7" class="i">+        /// &lt;summary&gt;
+</a><a href="#h1-2-8" id="h1-2-8" class="i">+        /// Interrupts currently running code within the command.
+</a><a href="#h1-2-9" id="h1-2-9" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h1-2-10" id="h1-2-10" class="i">+        protected override void StopProcessing()
+</a><a href="#h1-2-11" id="h1-2-11" class="i">+        {
+</a><a href="#h1-2-12" id="h1-2-12" class="i">+            if (this.command != null)
+</a><a href="#h1-2-13" id="h1-2-13" class="i">+            {
+</a><a href="#h1-2-14" id="h1-2-14" class="i">+                this.command.Cancel();
+</a><a href="#h1-2-15" id="h1-2-15" class="i">+            }
+</a>         }
+     }
+ }
+<b>diff --git a/<a id="h2" href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/RepairWinGetPackageManagerCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/RepairWinGetPackageManagerCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/RepairWinGetPackageManagerCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/RepairWinGetPackageManagerCmdlet.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -21,6 +21,8 @@ namespace Microsoft.WinGet.Client.Commands
+</a>     [OutputType(typeof(int))]
+     public class RepairWinGetPackageManagerCmdlet : WinGetPackageManagerCmdlet
+     {
+<a href="#h2-0-3" id="h2-0-3" class="i">+        private WinGetPackageManagerCommand command = null;
+</a><a href="#h2-0-4" id="h2-0-4" class="i">+
+</a>         /// &lt;summary&gt;
+         /// Gets or sets a value indicating whether to repair for all users. Requires admin.
+         /// &lt;/summary&gt;
+<a href="#h2-1" id="h2-1" class="h">@@ -28,19 +30,36 @@ namespace Microsoft.WinGet.Client.Commands
+</a>         public SwitchParameter AllUsers { get; set; }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-1-3" id="h2-1-3" class="i">+        /// Gets or sets a value indicating whether to force application shutdown.
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+        [Parameter(ValueFromPipelineByPropertyName = true)]
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+        public SwitchParameter Force { get; set; }
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+        /// &lt;summary&gt;
+</a>         /// Attempts to repair winget.
+         /// TODO: consider WhatIf and Confirm options.
+         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h2-1-14" id="h2-1-14" class="d">-            var command = new WinGetPackageManagerCommand(this);
+</a><a href="#h2-1-15" id="h2-1-15" class="i">+            this.command = new WinGetPackageManagerCommand(this);
+</a>             if (this.ParameterSetName == Constants.IntegrityLatestSet)
+             {
+<a href="#h2-1-18" id="h2-1-18" class="d">-                command.RepairUsingLatest(this.IncludePreRelease.ToBool(), this.AllUsers.ToBool());
+</a><a href="#h2-1-19" id="h2-1-19" class="i">+                this.command.RepairUsingLatest(this.IncludePreRelease.ToBool(), this.AllUsers.ToBool(), this.Force.ToBool());
+</a>             }
+             else
+             {
+<a href="#h2-1-23" id="h2-1-23" class="d">-                command.Repair(this.Version, this.AllUsers.ToBool());
+</a><a href="#h2-1-24" id="h2-1-24" class="i">+                this.command.Repair(this.Version, this.AllUsers.ToBool(), this.Force.ToBool());
+</a><a href="#h2-1-25" id="h2-1-25" class="i">+            }
+</a><a href="#h2-1-26" id="h2-1-26" class="i">+        }
+</a><a href="#h2-1-27" id="h2-1-27" class="i">+
+</a><a href="#h2-1-28" id="h2-1-28" class="i">+        /// &lt;summary&gt;
+</a><a href="#h2-1-29" id="h2-1-29" class="i">+        /// Interrupts currently running code within the command.
+</a><a href="#h2-1-30" id="h2-1-30" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h2-1-31" id="h2-1-31" class="i">+        protected override void StopProcessing()
+</a><a href="#h2-1-32" id="h2-1-32" class="i">+        {
+</a><a href="#h2-1-33" id="h2-1-33" class="i">+            if (this.command != null)
+</a><a href="#h2-1-34" id="h2-1-34" class="i">+            {
+</a><a href="#h2-1-35" id="h2-1-35" class="i">+                this.command.Cancel();
+</a>             }
+         }
+     }
+<b>diff --git a/<a id="h3" href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UninstallPackageCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UninstallPackageCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UninstallPackageCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UninstallPackageCmdlet.cs</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -24,6 +24,8 @@ namespace Microsoft.WinGet.Client.Commands
+</a>     [OutputType(typeof(PSUninstallResult))]
+     public sealed class UninstallPackageCmdlet : PackageCmdlet
+     {
+<a href="#h3-0-3" id="h3-0-3" class="i">+        private UninstallPackageCommand command = null;
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+
+</a>         /// &lt;summary&gt;
+         /// Gets or sets the desired mode for the uninstallation process.
+         /// &lt;/summary&gt;
+<a href="#h3-1" id="h3-1" class="h">@@ -41,7 +43,7 @@ namespace Microsoft.WinGet.Client.Commands
+</a>         /// &lt;/summary&gt;
+         protected override void ProcessRecord()
+         {
+<a href="#h3-1-3" id="h3-1-3" class="d">-            var command = new UninstallPackageCommand(
+</a><a href="#h3-1-4" id="h3-1-4" class="i">+            this.command = new UninstallPackageCommand(
+</a>                         this,
+                         this.PSCatalogPackage,
+                         this.Version,
+<a href="#h3-2" id="h3-2" class="h">@@ -51,7 +53,18 @@ namespace Microsoft.WinGet.Client.Commands
+</a>                         this.Moniker,
+                         this.Source,
+                         this.Query);
+<a href="#h3-2-3" id="h3-2-3" class="d">-            command.Uninstall(this.Mode.ToString(), this.MatchOption.ToString(), this.Force.ToBool());
+</a><a href="#h3-2-4" id="h3-2-4" class="i">+            this.command.Uninstall(this.Mode.ToString(), this.MatchOption.ToString(), this.Force.ToBool());
+</a><a href="#h3-2-5" id="h3-2-5" class="i">+        }
+</a><a href="#h3-2-6" id="h3-2-6" class="i">+
+</a><a href="#h3-2-7" id="h3-2-7" class="i">+        /// &lt;summary&gt;
+</a><a href="#h3-2-8" id="h3-2-8" class="i">+        /// Interrupts currently running code within the command.
+</a><a href="#h3-2-9" id="h3-2-9" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h3-2-10" id="h3-2-10" class="i">+        protected override void StopProcessing()
+</a><a href="#h3-2-11" id="h3-2-11" class="i">+        {
+</a><a href="#h3-2-12" id="h3-2-12" class="i">+            if (this.command != null)
+</a><a href="#h3-2-13" id="h3-2-13" class="i">+            {
+</a><a href="#h3-2-14" id="h3-2-14" class="i">+                this.command.Cancel();
+</a><a href="#h3-2-15" id="h3-2-15" class="i">+            }
+</a>         }
+     }
+ }
+<b>diff --git a/<a id="h4" href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UpdatePackageCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UpdatePackageCmdlet.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UpdatePackageCmdlet.cs.html">src/PowerShell/Microsoft.WinGet.Client.Cmdlets/Cmdlets/UpdatePackageCmdlet.cs</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -36,7 +36,6 @@ namespace Microsoft.WinGet.Client.Commands
+</a>         {
+             var command = new InstallerPackageCommand(
+                         this,
+<a href="#h4-0-3" id="h4-0-3" class="d">-                        this.Mode.ToString(),
+</a>                         this.Override,
+                         this.Custom,
+                         this.Location,
+<b>diff --git a/<a id="h5" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/InstallCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/InstallCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/InstallCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/InstallCommand.cs</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -104,52 +104,5 @@ namespace Microsoft.WinGet.Client.Engine.Commands.Common
+</a> 
+             return options;
+         }
+<a href="#h5-0-3" id="h5-0-3" class="d">-
+</a><a href="#h5-0-4" id="h5-0-4" class="d">-        /// &lt;summary&gt;
+</a><a href="#h5-0-5" id="h5-0-5" class="d">-        /// Registers callbacks on an asynchronous operation and waits for the results.
+</a><a href="#h5-0-6" id="h5-0-6" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h5-0-7" id="h5-0-7" class="d">-        /// &lt;param name=&quot;operation&quot;&gt;The asynchronous operation.&lt;/param&gt;
+</a><a href="#h5-0-8" id="h5-0-8" class="d">-        /// &lt;param name=&quot;activity&quot;&gt;A &lt;see cref=&quot;string&quot; /&gt; instance.&lt;/param&gt;
+</a><a href="#h5-0-9" id="h5-0-9" class="d">-        /// &lt;returns&gt;A &lt;see cref=&quot;InstallResult&quot; /&gt; instance.&lt;/returns&gt;
+</a><a href="#h5-0-10" id="h5-0-10" class="d">-        protected InstallResult RegisterCallbacksAndWait(
+</a><a href="#h5-0-11" id="h5-0-11" class="d">-            IAsyncOperationWithProgress&lt;InstallResult, InstallProgress&gt; operation,
+</a><a href="#h5-0-12" id="h5-0-12" class="d">-            string activity)
+</a><a href="#h5-0-13" id="h5-0-13" class="d">-        {
+</a><a href="#h5-0-14" id="h5-0-14" class="d">-            var activityId = this.GetNewProgressActivityId();
+</a><a href="#h5-0-15" id="h5-0-15" class="d">-            WriteProgressAdapter adapter = new (this);
+</a><a href="#h5-0-16" id="h5-0-16" class="d">-            operation.Progress = (context, progress) =&gt;
+</a><a href="#h5-0-17" id="h5-0-17" class="d">-            {
+</a><a href="#h5-0-18" id="h5-0-18" class="d">-                ProgressRecord record = new (activityId, activity, progress.State.ToString())
+</a><a href="#h5-0-19" id="h5-0-19" class="d">-                {
+</a><a href="#h5-0-20" id="h5-0-20" class="d">-                    RecordType = ProgressRecordType.Processing,
+</a><a href="#h5-0-21" id="h5-0-21" class="d">-                };
+</a><a href="#h5-0-22" id="h5-0-22" class="d">-
+</a><a href="#h5-0-23" id="h5-0-23" class="d">-                if (progress.State == PackageInstallProgressState.Downloading &amp;&amp; progress.BytesRequired != 0)
+</a><a href="#h5-0-24" id="h5-0-24" class="d">-                {
+</a><a href="#h5-0-25" id="h5-0-25" class="d">-                    record.StatusDescription = $&quot;{progress.BytesDownloaded / 1000000.0f:0.0} MB / {progress.BytesRequired / 1000000.0f:0.0} MB&quot;;
+</a><a href="#h5-0-26" id="h5-0-26" class="d">-                    record.PercentComplete = (int)(progress.DownloadProgress * 100);
+</a><a href="#h5-0-27" id="h5-0-27" class="d">-                }
+</a><a href="#h5-0-28" id="h5-0-28" class="d">-                else if (progress.State == PackageInstallProgressState.Installing)
+</a><a href="#h5-0-29" id="h5-0-29" class="d">-                {
+</a><a href="#h5-0-30" id="h5-0-30" class="d">-                    record.PercentComplete = (int)(progress.InstallationProgress * 100);
+</a><a href="#h5-0-31" id="h5-0-31" class="d">-                }
+</a><a href="#h5-0-32" id="h5-0-32" class="d">-
+</a><a href="#h5-0-33" id="h5-0-33" class="d">-                adapter.WriteProgress(record);
+</a><a href="#h5-0-34" id="h5-0-34" class="d">-            };
+</a><a href="#h5-0-35" id="h5-0-35" class="d">-            operation.Completed = (context, status) =&gt;
+</a><a href="#h5-0-36" id="h5-0-36" class="d">-            {
+</a><a href="#h5-0-37" id="h5-0-37" class="d">-                adapter.WriteProgress(new ProgressRecord(activityId, activity, status.ToString())
+</a><a href="#h5-0-38" id="h5-0-38" class="d">-                {
+</a><a href="#h5-0-39" id="h5-0-39" class="d">-                    RecordType = ProgressRecordType.Completed,
+</a><a href="#h5-0-40" id="h5-0-40" class="d">-                });
+</a><a href="#h5-0-41" id="h5-0-41" class="d">-                adapter.Completed = true;
+</a><a href="#h5-0-42" id="h5-0-42" class="d">-            };
+</a><a href="#h5-0-43" id="h5-0-43" class="d">-            System.Console.CancelKeyPress += (sender, e) =&gt;
+</a><a href="#h5-0-44" id="h5-0-44" class="d">-            {
+</a><a href="#h5-0-45" id="h5-0-45" class="d">-                operation.Cancel();
+</a><a href="#h5-0-46" id="h5-0-46" class="d">-            };
+</a><a href="#h5-0-47" id="h5-0-47" class="d">-            adapter.Wait();
+</a><a href="#h5-0-48" id="h5-0-48" class="d">-            return operation.GetResults();
+</a><a href="#h5-0-49" id="h5-0-49" class="d">-        }
+</a>     }
+ }
+<b>diff --git a/<a id="h6" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/ManagementDeploymentCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/ManagementDeploymentCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/ManagementDeploymentCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/ManagementDeploymentCommand.cs</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -10,11 +10,11 @@ namespace Microsoft.WinGet.Client.Engine.Commands.Common
+</a>     using System.Collections.Generic;
+     using System.Management.Automation;
+     using System.Runtime.InteropServices;
+<a href="#h6-0-3" id="h6-0-3" class="i">+    using System.Threading.Tasks;
+</a>     using Microsoft.Management.Deployment;
+     using Microsoft.WinGet.Client.Engine.Common;
+     using Microsoft.WinGet.Client.Engine.Exceptions;
+     using Microsoft.WinGet.Client.Engine.Helpers;
+<a href="#h6-0-8" id="h6-0-8" class="d">-    using Microsoft.WinGet.Resources;
+</a> 
+     /// &lt;summary&gt;
+     /// This is the base class for all of the commands in this module that use the COM APIs.
+<a href="#h6-1" id="h6-1" class="h">@@ -41,7 +41,7 @@ namespace Microsoft.WinGet.Client.Engine.Commands.Common
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h6-1-3" id="h6-1-3" class="d">-        /// Executes the cmdlet. All cmdlets that uses the COM APIs MUST use this method.
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+        /// Executes the cmdlet. All cmdlets that uses the COM APIs and don&#39;t call async functions MUST use this method.
+</a>         /// The inproc COM API may deadlock on an STA thread.
+         /// &lt;/summary&gt;
+         /// &lt;typeparam name=&quot;TResult&quot;&gt;The type of result of the cmdlet.&lt;/typeparam&gt;
+<a href="#h6-2" id="h6-2" class="h">@@ -58,6 +58,24 @@ namespace Microsoft.WinGet.Client.Engine.Commands.Common
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h6-2-3" id="h6-2-3" class="i">+        /// Executes the cmdlet in a different thread and waits for results.
+</a><a href="#h6-2-4" id="h6-2-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h6-2-5" id="h6-2-5" class="i">+        /// &lt;typeparam name=&quot;TResult&quot;&gt;The type of result of the cmdlet.&lt;/typeparam&gt;
+</a><a href="#h6-2-6" id="h6-2-6" class="i">+        /// &lt;param name=&quot;func&quot;&gt;Cmdlet function.&lt;/param&gt;
+</a><a href="#h6-2-7" id="h6-2-7" class="i">+        /// &lt;returns&gt;The result of the cmdlet.&lt;/returns&gt;
+</a><a href="#h6-2-8" id="h6-2-8" class="i">+        protected TResult Execute&lt;TResult&gt;(Func&lt;Task&lt;TResult&gt;&gt; func)
+</a><a href="#h6-2-9" id="h6-2-9" class="i">+        {
+</a><a href="#h6-2-10" id="h6-2-10" class="i">+            var runningTask = this.RunOnMTA(
+</a><a href="#h6-2-11" id="h6-2-11" class="i">+                async () =&gt;
+</a><a href="#h6-2-12" id="h6-2-12" class="i">+                {
+</a><a href="#h6-2-13" id="h6-2-13" class="i">+                    return await func();
+</a><a href="#h6-2-14" id="h6-2-14" class="i">+                });
+</a><a href="#h6-2-15" id="h6-2-15" class="i">+
+</a><a href="#h6-2-16" id="h6-2-16" class="i">+            this.Wait(runningTask);
+</a><a href="#h6-2-17" id="h6-2-17" class="i">+            return runningTask.Result;
+</a><a href="#h6-2-18" id="h6-2-18" class="i">+        }
+</a><a href="#h6-2-19" id="h6-2-19" class="i">+
+</a><a href="#h6-2-20" id="h6-2-20" class="i">+        /// &lt;summary&gt;
+</a>         /// Retrieves the specified source or all sources if &lt;paramref name=&quot;source&quot; /&gt; is null.
+         /// &lt;/summary&gt;
+         /// &lt;returns&gt;A list of &lt;see cref=&quot;PackageCatalogReference&quot; /&gt; instances.&lt;/returns&gt;
+<b>diff --git a/<a id="h7" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/PackageCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/PackageCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/PackageCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/Common/PackageCommand.cs</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -9,6 +9,7 @@ namespace Microsoft.WinGet.Client.Engine.Commands.Common
+</a>     using System;
+     using System.Collections.Generic;
+     using System.Management.Automation;
+<a href="#h7-0-3" id="h7-0-3" class="i">+    using System.Threading.Tasks;
+</a>     using Microsoft.Management.Deployment;
+     using Microsoft.WinGet.Client.Engine.Exceptions;
+     using Microsoft.WinGet.Client.Engine.Extensions;
+<a href="#h7-1" id="h7-1" class="h">@@ -56,17 +57,17 @@ namespace Microsoft.WinGet.Client.Engine.Commands.Common
+</a>         /// &lt;param name=&quot;match&quot;&gt;The match option.&lt;/param&gt;
+         /// &lt;param name=&quot;callback&quot;&gt;The method to call after retrieving the package and version to operate upon.&lt;/param&gt;
+         /// &lt;returns&gt;Result of the callback.&lt;/returns&gt;
+<a href="#h7-1-3" id="h7-1-3" class="d">-        protected TResult? GetPackageAndExecute&lt;TResult&gt;(
+</a><a href="#h7-1-4" id="h7-1-4" class="i">+        protected async Task&lt;TResult?&gt; GetPackageAndExecuteAsync&lt;TResult&gt;(
+</a>             CompositeSearchBehavior behavior,
+             PackageFieldMatchOption match,
+<a href="#h7-1-7" id="h7-1-7" class="d">-            Func&lt;CatalogPackage, PackageVersionId?, TResult&gt; callback)
+</a><a href="#h7-1-8" id="h7-1-8" class="i">+            Func&lt;CatalogPackage, PackageVersionId?, Task&lt;TResult&gt;&gt; callback)
+</a>             where TResult : class
+         {
+             CatalogPackage package = this.GetCatalogPackage(behavior, match);
+             PackageVersionId? version = this.GetPackageVersionId(package);
+             if (this.ShouldProcess(package.ToString(version)))
+             {
+<a href="#h7-1-15" id="h7-1-15" class="d">-                return callback(package, version);
+</a><a href="#h7-1-16" id="h7-1-16" class="i">+                return await callback(package, version);
+</a>             }
+ 
+             return null;
+<b>diff --git a/<a id="h8" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/InstallerPackageCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/InstallerPackageCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/InstallerPackageCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/InstallerPackageCommand.cs</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -7,6 +7,7 @@
+</a> namespace Microsoft.WinGet.Client.Engine.Commands
+ {
+     using System.Management.Automation;
+<a href="#h8-0-3" id="h8-0-3" class="i">+    using System.Threading.Tasks;
+</a>     using Microsoft.Management.Deployment;
+     using Microsoft.WinGet.Client.Engine.Commands.Common;
+     using Microsoft.WinGet.Client.Engine.Helpers;
+<a href="#h8-1" id="h8-1" class="h">@@ -23,7 +24,6 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>         /// Initializes a new instance of the &lt;see cref=&quot;InstallerPackageCommand&quot;/&gt; class.
+         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;psCmdlet&quot;&gt;Caller cmdlet.&lt;/param&gt;
+<a href="#h8-1-3" id="h8-1-3" class="d">-        /// &lt;param name=&quot;psInstallMode&quot;&gt;Install mode to use.&lt;/param&gt;
+</a>         /// &lt;param name=&quot;override&quot;&gt;Override arguments to be passed on to the installer.&lt;/param&gt;
+         /// &lt;param name=&quot;custom&quot;&gt;Additional arguments.&lt;/param&gt;
+         /// &lt;param name=&quot;location&quot;&gt;Installation location.&lt;/param&gt;
+<a href="#h8-2" id="h8-2" class="h">@@ -40,7 +40,6 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>         /// &lt;param name=&quot;query&quot;&gt;Match against any field of a package.&lt;/param&gt;
+         public InstallerPackageCommand(
+             PSCmdlet psCmdlet,
+<a href="#h8-2-3" id="h8-2-3" class="d">-            string psInstallMode,
+</a>             string @override,
+             string custom,
+             string location,
+<a href="#h8-3" id="h8-3" class="h">@@ -96,10 +95,10 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>             string psPackageInstallMode)
+         {
+             var result = this.Execute(
+<a href="#h8-3-3" id="h8-3-3" class="d">-                () =&gt; this.GetPackageAndExecute(
+</a><a href="#h8-3-4" id="h8-3-4" class="i">+                async () =&gt; await this.GetPackageAndExecuteAsync(
+</a>                     CompositeSearchBehavior.RemotePackagesFromRemoteCatalogs,
+                     PSEnumHelpers.ToPackageFieldMatchOption(psPackageFieldMatchOption),
+<a href="#h8-3-7" id="h8-3-7" class="d">-                    (package, version) =&gt;
+</a><a href="#h8-3-8" id="h8-3-8" class="i">+                    async (package, version) =&gt;
+</a>                     {
+                         InstallOptions options = this.GetInstallOptions(version, psPackageInstallMode);
+                         if (psProcessorArchitecture != &quot;Default&quot;)
+<a href="#h8-4" id="h8-4" class="h">@@ -110,7 +109,7 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a> 
+                         options.PackageInstallScope = PSEnumHelpers.ToPackageInstallScope(psPackageInstallScope);
+ 
+<a href="#h8-4-3" id="h8-4-3" class="d">-                        return this.InstallPackage(package, options);
+</a><a href="#h8-4-4" id="h8-4-4" class="i">+                        return await this.InstallPackageAsync(package, options);
+</a>                     }));
+ 
+             if (result != null)
+<a href="#h8-5" id="h8-5" class="h">@@ -131,14 +130,14 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>             string psPackageInstallMode)
+         {
+             var result = this.Execute(
+<a href="#h8-5-3" id="h8-5-3" class="d">-                () =&gt; this.GetPackageAndExecute(
+</a><a href="#h8-5-4" id="h8-5-4" class="i">+                async () =&gt; await this.GetPackageAndExecuteAsync(
+</a>                     CompositeSearchBehavior.LocalCatalogs,
+                     PSEnumHelpers.ToPackageFieldMatchOption(psPackageFieldMatchOption),
+<a href="#h8-5-7" id="h8-5-7" class="d">-                    (package, version) =&gt;
+</a><a href="#h8-5-8" id="h8-5-8" class="i">+                    async (package, version) =&gt;
+</a>                     {
+                         InstallOptions options = this.GetInstallOptions(version, psPackageInstallMode);
+                         options.AllowUpgradeToUnknownVersion = includeUnknown;
+<a href="#h8-5-12" id="h8-5-12" class="d">-                        return this.UpgradePackage(package, options);
+</a><a href="#h8-5-13" id="h8-5-13" class="i">+                        return await this.UpgradePackageAsync(package, options);
+</a>                     }));
+ 
+             if (result != null)
+<a href="#h8-6" id="h8-6" class="h">@@ -147,26 +146,26 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>             }
+         }
+ 
+<a href="#h8-6-3" id="h8-6-3" class="d">-        private InstallResult InstallPackage(
+</a><a href="#h8-6-4" id="h8-6-4" class="i">+        private async Task&lt;InstallResult&gt; InstallPackageAsync(
+</a>             CatalogPackage package,
+             InstallOptions options)
+         {
+<a href="#h8-6-8" id="h8-6-8" class="d">-            var operation = PackageManagerWrapper.Instance.InstallPackageAsync(package, options);
+</a><a href="#h8-6-9" id="h8-6-9" class="d">-            return this.RegisterCallbacksAndWait(operation, string.Format(
+</a><a href="#h8-6-10" id="h8-6-10" class="d">-                Resources.ProgressRecordActivityInstalling,
+</a><a href="#h8-6-11" id="h8-6-11" class="d">-                package.Name));
+</a><a href="#h8-6-12" id="h8-6-12" class="i">+            var installOperation = new InstallOperationWithProgress(
+</a><a href="#h8-6-13" id="h8-6-13" class="i">+                this,
+</a><a href="#h8-6-14" id="h8-6-14" class="i">+                string.Format(Resources.ProgressRecordActivityInstalling, package.Name));
+</a><a href="#h8-6-15" id="h8-6-15" class="i">+            return await installOperation.ExecuteAsync(
+</a><a href="#h8-6-16" id="h8-6-16" class="i">+                    () =&gt; PackageManagerWrapper.Instance.InstallPackageAsync(package, options));
+</a>         }
+ 
+<a href="#h8-6-19" id="h8-6-19" class="d">-        private InstallResult UpgradePackage(
+</a><a href="#h8-6-20" id="h8-6-20" class="i">+        private async Task&lt;InstallResult&gt; UpgradePackageAsync(
+</a>             CatalogPackage package,
+             InstallOptions options)
+         {
+<a href="#h8-6-24" id="h8-6-24" class="d">-            var operation = PackageManagerWrapper.Instance.UpgradePackageAsync(package, options);
+</a><a href="#h8-6-25" id="h8-6-25" class="d">-            return this.RegisterCallbacksAndWait(
+</a><a href="#h8-6-26" id="h8-6-26" class="d">-                operation,
+</a><a href="#h8-6-27" id="h8-6-27" class="d">-                string.Format(
+</a><a href="#h8-6-28" id="h8-6-28" class="d">-                    Resources.ProgressRecordActivityUpdating,
+</a><a href="#h8-6-29" id="h8-6-29" class="d">-                    package.Name));
+</a><a href="#h8-6-30" id="h8-6-30" class="i">+            var installOperation = new InstallOperationWithProgress(
+</a><a href="#h8-6-31" id="h8-6-31" class="i">+                this,
+</a><a href="#h8-6-32" id="h8-6-32" class="i">+                string.Format(Resources.ProgressRecordActivityUpdating, package.Name));
+</a><a href="#h8-6-33" id="h8-6-33" class="i">+            return await installOperation.ExecuteAsync(
+</a><a href="#h8-6-34" id="h8-6-34" class="i">+                    () =&gt; PackageManagerWrapper.Instance.UpgradePackageAsync(package, options));
+</a>         }
+     }
+ }
+<b>diff --git a/<a id="h9" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/UninstallPackageCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/UninstallPackageCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/UninstallPackageCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/UninstallPackageCommand.cs</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -6,8 +6,8 @@
+</a> 
+ namespace Microsoft.WinGet.Client.Engine.Commands
+ {
+<a href="#h9-0-3" id="h9-0-3" class="d">-    using System;
+</a>     using System.Management.Automation;
+<a href="#h9-0-5" id="h9-0-5" class="i">+    using System.Threading.Tasks;
+</a>     using Microsoft.Management.Deployment;
+     using Microsoft.WinGet.Client.Engine.Commands.Common;
+     using Microsoft.WinGet.Client.Engine.Helpers;
+<a href="#h9-1" id="h9-1" class="h">@@ -73,13 +73,13 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>             bool force)
+         {
+             var result = this.Execute(
+<a href="#h9-1-3" id="h9-1-3" class="d">-                () =&gt; this.GetPackageAndExecute(
+</a><a href="#h9-1-4" id="h9-1-4" class="i">+                async () =&gt; await this.GetPackageAndExecuteAsync(
+</a>                     CompositeSearchBehavior.LocalCatalogs,
+                     PSEnumHelpers.ToPackageFieldMatchOption(psPackageFieldMatchOption),
+<a href="#h9-1-7" id="h9-1-7" class="d">-                    (package, version) =&gt;
+</a><a href="#h9-1-8" id="h9-1-8" class="i">+                    async (package, version) =&gt;
+</a>                     {
+                         UninstallOptions options = this.GetUninstallOptions(version, PSEnumHelpers.ToPackageUninstallMode(psPackageUninstallMode), force);
+<a href="#h9-1-11" id="h9-1-11" class="d">-                        return this.UninstallPackage(package, options);
+</a><a href="#h9-1-12" id="h9-1-12" class="i">+                        return await this.UninstallPackageAsync(package, options);
+</a>                     }));
+ 
+             if (result != null)
+<a href="#h9-2" id="h9-2" class="h">@@ -110,39 +110,15 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>             return options;
+         }
+ 
+<a href="#h9-2-3" id="h9-2-3" class="d">-        private UninstallResult UninstallPackage(
+</a><a href="#h9-2-4" id="h9-2-4" class="i">+        private async Task&lt;UninstallResult&gt; UninstallPackageAsync(
+</a>             CatalogPackage package,
+             UninstallOptions options)
+         {
+<a href="#h9-2-8" id="h9-2-8" class="d">-            string activity = string.Format(
+</a><a href="#h9-2-9" id="h9-2-9" class="d">-                Resources.ProgressRecordActivityUninstalling,
+</a><a href="#h9-2-10" id="h9-2-10" class="d">-                package.Name);
+</a><a href="#h9-2-11" id="h9-2-11" class="d">-
+</a><a href="#h9-2-12" id="h9-2-12" class="d">-            var operation = PackageManagerWrapper.Instance.UninstallPackageAsync(package, options);
+</a><a href="#h9-2-13" id="h9-2-13" class="d">-
+</a><a href="#h9-2-14" id="h9-2-14" class="d">-            var activityId = this.GetNewProgressActivityId();
+</a><a href="#h9-2-15" id="h9-2-15" class="d">-            WriteProgressAdapter adapter = new (this);
+</a><a href="#h9-2-16" id="h9-2-16" class="d">-            operation.Progress = (context, progress) =&gt;
+</a><a href="#h9-2-17" id="h9-2-17" class="d">-            {
+</a><a href="#h9-2-18" id="h9-2-18" class="d">-                adapter.WriteProgress(new ProgressRecord(activityId, activity, progress.State.ToString())
+</a><a href="#h9-2-19" id="h9-2-19" class="d">-                {
+</a><a href="#h9-2-20" id="h9-2-20" class="d">-                    RecordType = ProgressRecordType.Processing,
+</a><a href="#h9-2-21" id="h9-2-21" class="d">-                });
+</a><a href="#h9-2-22" id="h9-2-22" class="d">-            };
+</a><a href="#h9-2-23" id="h9-2-23" class="d">-            operation.Completed = (context, status) =&gt;
+</a><a href="#h9-2-24" id="h9-2-24" class="d">-            {
+</a><a href="#h9-2-25" id="h9-2-25" class="d">-                adapter.WriteProgress(new ProgressRecord(activityId, activity, status.ToString())
+</a><a href="#h9-2-26" id="h9-2-26" class="d">-                {
+</a><a href="#h9-2-27" id="h9-2-27" class="d">-                    RecordType = ProgressRecordType.Completed,
+</a><a href="#h9-2-28" id="h9-2-28" class="d">-                });
+</a><a href="#h9-2-29" id="h9-2-29" class="d">-                adapter.Completed = true;
+</a><a href="#h9-2-30" id="h9-2-30" class="d">-            };
+</a><a href="#h9-2-31" id="h9-2-31" class="d">-            Console.CancelKeyPress += (sender, e) =&gt;
+</a><a href="#h9-2-32" id="h9-2-32" class="d">-            {
+</a><a href="#h9-2-33" id="h9-2-33" class="d">-                operation.Cancel();
+</a><a href="#h9-2-34" id="h9-2-34" class="d">-            };
+</a><a href="#h9-2-35" id="h9-2-35" class="d">-            adapter.Wait();
+</a><a href="#h9-2-36" id="h9-2-36" class="d">-            return operation.GetResults();
+</a><a href="#h9-2-37" id="h9-2-37" class="i">+            var progressOperation = new UninstallOperationWithProgress(
+</a><a href="#h9-2-38" id="h9-2-38" class="i">+                this,
+</a><a href="#h9-2-39" id="h9-2-39" class="i">+                string.Format(Resources.ProgressRecordActivityUninstalling, package.Name));
+</a><a href="#h9-2-40" id="h9-2-40" class="i">+            return await progressOperation.ExecuteAsync(
+</a><a href="#h9-2-41" id="h9-2-41" class="i">+                    () =&gt; PackageManagerWrapper.Instance.UninstallPackageAsync(package, options));
+</a>         }
+     }
+ }
+<b>diff --git a/<a id="h10" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Commands/WinGetPackageManagerCommand.cs</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -9,6 +9,7 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>     using System;
+     using System.Collections.Generic;
+     using System.Management.Automation;
+<a href="#h10-0-3" id="h10-0-3" class="i">+    using System.Threading.Tasks;
+</a>     using Microsoft.WinGet.Client.Engine.Commands.Common;
+     using Microsoft.WinGet.Client.Engine.Common;
+     using Microsoft.WinGet.Client.Engine.Exceptions;
+<a href="#h10-1" id="h10-1" class="h">@@ -39,9 +40,16 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>         /// &lt;param name=&quot;preRelease&quot;&gt;Use prerelease version on GitHub.&lt;/param&gt;
+         public void AssertUsingLatest(bool preRelease)
+         {
+<a href="#h10-1-3" id="h10-1-3" class="d">-            var gitHubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+</a><a href="#h10-1-4" id="h10-1-4" class="d">-            string expectedVersion = gitHubClient.GetLatestVersionTagName(preRelease);
+</a><a href="#h10-1-5" id="h10-1-5" class="d">-            this.Assert(expectedVersion);
+</a><a href="#h10-1-6" id="h10-1-6" class="i">+            var runningTask = this.RunOnMTA(
+</a><a href="#h10-1-7" id="h10-1-7" class="i">+                async () =&gt;
+</a><a href="#h10-1-8" id="h10-1-8" class="i">+                {
+</a><a href="#h10-1-9" id="h10-1-9" class="i">+                    var gitHubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+</a><a href="#h10-1-10" id="h10-1-10" class="i">+                    string expectedVersion = await gitHubClient.GetLatestReleaseTagNameAsync(preRelease);
+</a><a href="#h10-1-11" id="h10-1-11" class="i">+                    this.Assert(expectedVersion);
+</a><a href="#h10-1-12" id="h10-1-12" class="i">+                    return true;
+</a><a href="#h10-1-13" id="h10-1-13" class="i">+                });
+</a><a href="#h10-1-14" id="h10-1-14" class="i">+
+</a><a href="#h10-1-15" id="h10-1-15" class="i">+            this.Wait(runningTask);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h10-2" id="h10-2" class="h">@@ -58,11 +66,20 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;preRelease&quot;&gt;Use prerelease version on GitHub.&lt;/param&gt;
+         /// &lt;param name=&quot;allUsers&quot;&gt;Install for all users. Requires admin.&lt;/param&gt;
+<a href="#h10-2-3" id="h10-2-3" class="d">-        public void RepairUsingLatest(bool preRelease, bool allUsers)
+</a><a href="#h10-2-4" id="h10-2-4" class="i">+        /// &lt;param name=&quot;force&quot;&gt;Force application shutdown.&lt;/param&gt;
+</a><a href="#h10-2-5" id="h10-2-5" class="i">+        public void RepairUsingLatest(bool preRelease, bool allUsers, bool force)
+</a>         {
+<a href="#h10-2-7" id="h10-2-7" class="d">-            var gitHubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+</a><a href="#h10-2-8" id="h10-2-8" class="d">-            string expectedVersion = gitHubClient.GetLatestVersionTagName(preRelease);
+</a><a href="#h10-2-9" id="h10-2-9" class="d">-            this.Repair(expectedVersion, allUsers);
+</a><a href="#h10-2-10" id="h10-2-10" class="i">+            this.ValidateWhenAllUsers(allUsers);
+</a><a href="#h10-2-11" id="h10-2-11" class="i">+            var runningTask = this.RunOnMTA(
+</a><a href="#h10-2-12" id="h10-2-12" class="i">+                async () =&gt;
+</a><a href="#h10-2-13" id="h10-2-13" class="i">+                {
+</a><a href="#h10-2-14" id="h10-2-14" class="i">+                    var gitHubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+</a><a href="#h10-2-15" id="h10-2-15" class="i">+                    string expectedVersion = await gitHubClient.GetLatestReleaseTagNameAsync(preRelease);
+</a><a href="#h10-2-16" id="h10-2-16" class="i">+                    await this.RepairStateMachineAsync(expectedVersion, allUsers, force);
+</a><a href="#h10-2-17" id="h10-2-17" class="i">+                    return true;
+</a><a href="#h10-2-18" id="h10-2-18" class="i">+                });
+</a><a href="#h10-2-19" id="h10-2-19" class="i">+
+</a><a href="#h10-2-20" id="h10-2-20" class="i">+            this.Wait(runningTask);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h10-3" id="h10-3" class="h">@@ -70,31 +87,29 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;expectedVersion&quot;&gt;The expected version, if any.&lt;/param&gt;
+         /// &lt;param name=&quot;allUsers&quot;&gt;Install for all users. Requires admin.&lt;/param&gt;
+<a href="#h10-3-3" id="h10-3-3" class="d">-        public void Repair(string expectedVersion, bool allUsers)
+</a><a href="#h10-3-4" id="h10-3-4" class="i">+        /// &lt;param name=&quot;force&quot;&gt;Force application shutdown.&lt;/param&gt;
+</a><a href="#h10-3-5" id="h10-3-5" class="i">+        public void Repair(string expectedVersion, bool allUsers, bool force)
+</a>         {
+<a href="#h10-3-7" id="h10-3-7" class="d">-            if (allUsers)
+</a><a href="#h10-3-8" id="h10-3-8" class="d">-            {
+</a><a href="#h10-3-9" id="h10-3-9" class="d">-                if (Utilities.ExecutingAsSystem)
+</a><a href="#h10-3-10" id="h10-3-10" class="d">-                {
+</a><a href="#h10-3-11" id="h10-3-11" class="d">-                    throw new NotSupportedException();
+</a><a href="#h10-3-12" id="h10-3-12" class="d">-                }
+</a><a href="#h10-3-13" id="h10-3-13" class="d">-
+</a><a href="#h10-3-14" id="h10-3-14" class="d">-                if (!Utilities.ExecutingAsAdministrator)
+</a><a href="#h10-3-15" id="h10-3-15" class="i">+            this.ValidateWhenAllUsers(allUsers);
+</a><a href="#h10-3-16" id="h10-3-16" class="i">+            var runningTask = this.RunOnMTA(
+</a><a href="#h10-3-17" id="h10-3-17" class="i">+                async () =&gt;
+</a>                 {
+<a href="#h10-3-19" id="h10-3-19" class="d">-                    throw new WinGetRepairException(Resources.RepairAllUsersMessage);
+</a><a href="#h10-3-20" id="h10-3-20" class="d">-                }
+</a><a href="#h10-3-21" id="h10-3-21" class="d">-            }
+</a><a href="#h10-3-22" id="h10-3-22" class="d">-
+</a><a href="#h10-3-23" id="h10-3-23" class="d">-            this.RepairStateMachine(expectedVersion, allUsers);
+</a><a href="#h10-3-24" id="h10-3-24" class="i">+                    await this.RepairStateMachineAsync(expectedVersion, allUsers, force);
+</a><a href="#h10-3-25" id="h10-3-25" class="i">+                    return true;
+</a><a href="#h10-3-26" id="h10-3-26" class="i">+                });
+</a><a href="#h10-3-27" id="h10-3-27" class="i">+            this.Wait(runningTask);
+</a>         }
+ 
+<a href="#h10-3-30" id="h10-3-30" class="d">-        private void RepairStateMachine(string expectedVersion, bool allUsers)
+</a><a href="#h10-3-31" id="h10-3-31" class="i">+        private async Task RepairStateMachineAsync(string expectedVersion, bool allUsers, bool force)
+</a>         {
+             var seenCategories = new HashSet&lt;IntegrityCategory&gt;();
+<a href="#h10-3-34" id="h10-3-34" class="i">+            var cancellationToken = this.GetCancellationToken();
+</a> 
+             var currentCategory = IntegrityCategory.Unknown;
+             while (currentCategory != IntegrityCategory.Installed)
+             {
+<a href="#h10-3-39" id="h10-3-39" class="i">+                cancellationToken.ThrowIfCancellationRequested();
+</a><a href="#h10-3-40" id="h10-3-40" class="i">+
+</a>                 try
+                 {
+                     WinGetIntegrity.AssertWinGet(this, expectedVersion);
+<a href="#h10-4" id="h10-4" class="h">@@ -117,7 +132,7 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>                     switch (currentCategory)
+                     {
+                         case IntegrityCategory.UnexpectedVersion:
+<a href="#h10-4-3" id="h10-4-3" class="d">-                            this.InstallDifferentVersion(new WinGetVersion(expectedVersion), allUsers);
+</a><a href="#h10-4-4" id="h10-4-4" class="i">+                            await this.InstallDifferentVersionAsync(new WinGetVersion(expectedVersion), allUsers, force);
+</a>                             break;
+                         case IntegrityCategory.NotInPath:
+                             this.RepairEnvPath();
+<a href="#h10-5" id="h10-5" class="h">@@ -128,13 +143,13 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>                         case IntegrityCategory.AppInstallerNotInstalled:
+                         case IntegrityCategory.AppInstallerNotSupported:
+                         case IntegrityCategory.Failure:
+<a href="#h10-5-3" id="h10-5-3" class="d">-                            this.Install(expectedVersion, allUsers);
+</a><a href="#h10-5-4" id="h10-5-4" class="i">+                            await this.InstallAsync(expectedVersion, allUsers, force);
+</a>                             break;
+                         case IntegrityCategory.AppInstallerNoLicense:
+                             // This requires -AllUsers in admin mode.
+                             if (allUsers &amp;&amp; Utilities.ExecutingAsAdministrator)
+                             {
+<a href="#h10-5-10" id="h10-5-10" class="d">-                                this.Install(expectedVersion, allUsers);
+</a><a href="#h10-5-11" id="h10-5-11" class="i">+                                await this.InstallAsync(expectedVersion, allUsers, force);
+</a>                             }
+                             else
+                             {
+<a href="#h10-6" id="h10-6" class="h">@@ -152,7 +167,7 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>             }
+         }
+ 
+<a href="#h10-6-3" id="h10-6-3" class="d">-        private void InstallDifferentVersion(WinGetVersion toInstallVersion, bool allUsers)
+</a><a href="#h10-6-4" id="h10-6-4" class="i">+        private async Task InstallDifferentVersionAsync(WinGetVersion toInstallVersion, bool allUsers, bool force)
+</a>         {
+             var installedVersion = WinGetVersion.InstalledWinGetVersion;
+             bool isDowngrade = installedVersion.CompareAsDeployment(toInstallVersion) &gt; 0;
+<a href="#h10-7" id="h10-7" class="h">@@ -164,10 +179,10 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>                 StreamType.Verbose,
+                 message);
+             var appxModule = new AppxModuleHelper(this);
+<a href="#h10-7-3" id="h10-7-3" class="d">-            appxModule.InstallFromGitHubRelease(toInstallVersion.TagVersion, allUsers, isDowngrade);
+</a><a href="#h10-7-4" id="h10-7-4" class="i">+            await appxModule.InstallFromGitHubReleaseAsync(toInstallVersion.TagVersion, allUsers, isDowngrade, force);
+</a>         }
+ 
+<a href="#h10-7-7" id="h10-7-7" class="d">-        private void Install(string toInstallVersion, bool allUsers)
+</a><a href="#h10-7-8" id="h10-7-8" class="i">+        private async Task InstallAsync(string toInstallVersion, bool allUsers, bool force)
+</a>         {
+             // If we are here and toInstallVersion is empty, it means that they just ran Repair-WinGetPackageManager.
+             // When there is not version specified, we don&#39;t want to assume an empty version means latest, but in
+<a href="#h10-8" id="h10-8" class="h">@@ -175,11 +190,11 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a>             if (string.IsNullOrEmpty(toInstallVersion))
+             {
+                 var gitHubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+<a href="#h10-8-3" id="h10-8-3" class="d">-                toInstallVersion = gitHubClient.GetLatestVersionTagName(false);
+</a><a href="#h10-8-4" id="h10-8-4" class="i">+                toInstallVersion = await gitHubClient.GetLatestReleaseTagNameAsync(false);
+</a>             }
+ 
+             var appxModule = new AppxModuleHelper(this);
+<a href="#h10-8-8" id="h10-8-8" class="d">-            appxModule.InstallFromGitHubRelease(toInstallVersion, allUsers, false);
+</a><a href="#h10-8-9" id="h10-8-9" class="i">+            await appxModule.InstallFromGitHubReleaseAsync(toInstallVersion, allUsers, false, force);
+</a>         }
+ 
+         private void Register()
+<a href="#h10-9" id="h10-9" class="h">@@ -201,5 +216,21 @@ namespace Microsoft.WinGet.Client.Engine.Commands
+</a> 
+             this.Write(StreamType.Verbose, $&quot;PATH environment variable updated&quot;);
+         }
+<a href="#h10-9-3" id="h10-9-3" class="i">+
+</a><a href="#h10-9-4" id="h10-9-4" class="i">+        private void ValidateWhenAllUsers(bool allUsers)
+</a><a href="#h10-9-5" id="h10-9-5" class="i">+        {
+</a><a href="#h10-9-6" id="h10-9-6" class="i">+            if (allUsers)
+</a><a href="#h10-9-7" id="h10-9-7" class="i">+            {
+</a><a href="#h10-9-8" id="h10-9-8" class="i">+                if (Utilities.ExecutingAsSystem)
+</a><a href="#h10-9-9" id="h10-9-9" class="i">+                {
+</a><a href="#h10-9-10" id="h10-9-10" class="i">+                    throw new NotSupportedException();
+</a><a href="#h10-9-11" id="h10-9-11" class="i">+                }
+</a><a href="#h10-9-12" id="h10-9-12" class="i">+
+</a><a href="#h10-9-13" id="h10-9-13" class="i">+                if (!Utilities.ExecutingAsAdministrator)
+</a><a href="#h10-9-14" id="h10-9-14" class="i">+                {
+</a><a href="#h10-9-15" id="h10-9-15" class="i">+                    throw new WinGetRepairException(Resources.RepairAllUsersMessage);
+</a><a href="#h10-9-16" id="h10-9-16" class="i">+                }
+</a><a href="#h10-9-17" id="h10-9-17" class="i">+            }
+</a><a href="#h10-9-18" id="h10-9-18" class="i">+        }
+</a>     }
+ }
+<b>diff --git a/<a id="h11" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Common/Constants.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/Constants.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Common/Constants.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/Constants.cs</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -35,6 +35,11 @@ namespace Microsoft.WinGet.Client.Engine.Common
+</a>         public const string PathEnvVar = &quot;PATH&quot;;
+ 
+         /// &lt;summary&gt;
+<a href="#h11-0-3" id="h11-0-3" class="i">+        /// One MB.
+</a><a href="#h11-0-4" id="h11-0-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h11-0-5" id="h11-0-5" class="i">+        public const int OneMB = 1024 * 1024;
+</a><a href="#h11-0-6" id="h11-0-6" class="i">+
+</a><a href="#h11-0-7" id="h11-0-7" class="i">+        /// &lt;summary&gt;
+</a>         /// Repository owners.
+         /// &lt;/summary&gt;
+         public class RepositoryOwner
+<b>diff --git a/<a id="h12" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Common/WinGetIntegrity.cs</a></b>
+<a href="#h12-0" id="h12-0" class="h">@@ -84,24 +84,32 @@ namespace Microsoft.WinGet.Client.Engine.Common
+</a>         private static IntegrityCategory GetReason(PowerShellCmdlet pwshCmdlet)
+         {
+             // Ok, so you are here because calling winget --version failed. Lets try to figure out why.
+<a href="#h12-0-3" id="h12-0-3" class="d">-
+</a><a href="#h12-0-4" id="h12-0-4" class="d">-            // When running winget.exe on PowerShell the message of the Win32Exception will distinguish between
+</a><a href="#h12-0-5" id="h12-0-5" class="d">-            // &#39;The system cannot find the file specified&#39; and &#39;No applicable app licenses found&#39; but of course
+</a><a href="#h12-0-6" id="h12-0-6" class="d">-            // the HRESULT is the same (E_FAIL).
+</a><a href="#h12-0-7" id="h12-0-7" class="d">-            // To not compare strings let Powershell handle it. If calling winget throws an
+</a><a href="#h12-0-8" id="h12-0-8" class="d">-            // ApplicationFailedException then is most likely that the license is not there.
+</a><a href="#h12-0-9" id="h12-0-9" class="d">-            try
+</a><a href="#h12-0-10" id="h12-0-10" class="d">-            {
+</a><a href="#h12-0-11" id="h12-0-11" class="d">-                var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h12-0-12" id="h12-0-12" class="d">-                ps.AddCommand(&quot;winget&quot;).Invoke();
+</a><a href="#h12-0-13" id="h12-0-13" class="d">-            }
+</a><a href="#h12-0-14" id="h12-0-14" class="d">-            catch (ApplicationFailedException e)
+</a><a href="#h12-0-15" id="h12-0-15" class="i">+            var category = IntegrityCategory.Unknown;
+</a><a href="#h12-0-16" id="h12-0-16" class="i">+            pwshCmdlet.ExecuteInPowerShellThread(() =&gt;
+</a>             {
+<a href="#h12-0-18" id="h12-0-18" class="d">-                pwshCmdlet.Write(StreamType.Verbose, e.Message);
+</a><a href="#h12-0-19" id="h12-0-19" class="d">-                return IntegrityCategory.AppInstallerNoLicense;
+</a><a href="#h12-0-20" id="h12-0-20" class="d">-            }
+</a><a href="#h12-0-21" id="h12-0-21" class="d">-            catch (Exception)
+</a><a href="#h12-0-22" id="h12-0-22" class="i">+                // When running winget.exe on PowerShell the message of the Win32Exception will distinguish between
+</a><a href="#h12-0-23" id="h12-0-23" class="i">+                // &#39;The system cannot find the file specified&#39; and &#39;No applicable app licenses found&#39; but of course
+</a><a href="#h12-0-24" id="h12-0-24" class="i">+                // the HRESULT is the same (E_FAIL).
+</a><a href="#h12-0-25" id="h12-0-25" class="i">+                // To not compare strings let Powershell handle it. If calling winget throws an
+</a><a href="#h12-0-26" id="h12-0-26" class="i">+                // ApplicationFailedException then is most likely that the license is not there.
+</a><a href="#h12-0-27" id="h12-0-27" class="i">+                try
+</a><a href="#h12-0-28" id="h12-0-28" class="i">+                {
+</a><a href="#h12-0-29" id="h12-0-29" class="i">+                    var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h12-0-30" id="h12-0-30" class="i">+                    ps.AddCommand(&quot;winget&quot;).Invoke();
+</a><a href="#h12-0-31" id="h12-0-31" class="i">+                }
+</a><a href="#h12-0-32" id="h12-0-32" class="i">+                catch (ApplicationFailedException e)
+</a><a href="#h12-0-33" id="h12-0-33" class="i">+                {
+</a><a href="#h12-0-34" id="h12-0-34" class="i">+                    pwshCmdlet.Write(StreamType.Verbose, e.Message);
+</a><a href="#h12-0-35" id="h12-0-35" class="i">+                    category = IntegrityCategory.AppInstallerNoLicense;
+</a><a href="#h12-0-36" id="h12-0-36" class="i">+                }
+</a><a href="#h12-0-37" id="h12-0-37" class="i">+                catch (Exception)
+</a><a href="#h12-0-38" id="h12-0-38" class="i">+                {
+</a><a href="#h12-0-39" id="h12-0-39" class="i">+                }
+</a><a href="#h12-0-40" id="h12-0-40" class="i">+            });
+</a><a href="#h12-0-41" id="h12-0-41" class="i">+
+</a><a href="#h12-0-42" id="h12-0-42" class="i">+            if (category != IntegrityCategory.Unknown)
+</a>             {
+<a href="#h12-0-44" id="h12-0-44" class="i">+                return category;
+</a>             }
+ 
+             // First lets check if the file is there, which means it is installed or someone is taking our place.
+<b>diff --git a/<a id="h13" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Extensions/ReleaseExtensions.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Extensions/ReleaseExtensions.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Extensions/ReleaseExtensions.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Extensions/ReleaseExtensions.cs</a></b>
+<a href="#h13-0" id="h13-0" class="h">@@ -0,0 +1,55 @@
+</a><a href="#h13-0-0" id="h13-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h13-0-1" id="h13-0-1" class="i">+// &lt;copyright file=&quot;ReleaseExtensions.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h13-0-2" id="h13-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h13-0-3" id="h13-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h13-0-4" id="h13-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h13-0-5" id="h13-0-5" class="i">+
+</a><a href="#h13-0-6" id="h13-0-6" class="i">+namespace Microsoft.WinGet.Client.Engine.Extensions
+</a><a href="#h13-0-7" id="h13-0-7" class="i">+{
+</a><a href="#h13-0-8" id="h13-0-8" class="i">+    using System.Linq;
+</a><a href="#h13-0-9" id="h13-0-9" class="i">+    using Microsoft.WinGet.Client.Engine.Exceptions;
+</a><a href="#h13-0-10" id="h13-0-10" class="i">+    using Microsoft.WinGet.Resources;
+</a><a href="#h13-0-11" id="h13-0-11" class="i">+    using Octokit;
+</a><a href="#h13-0-12" id="h13-0-12" class="i">+
+</a><a href="#h13-0-13" id="h13-0-13" class="i">+    /// &lt;summary&gt;
+</a><a href="#h13-0-14" id="h13-0-14" class="i">+    /// Extension methods for Octokit.Release.
+</a><a href="#h13-0-15" id="h13-0-15" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h13-0-16" id="h13-0-16" class="i">+    internal static class ReleaseExtensions
+</a><a href="#h13-0-17" id="h13-0-17" class="i">+    {
+</a><a href="#h13-0-18" id="h13-0-18" class="i">+        /// &lt;summary&gt;
+</a><a href="#h13-0-19" id="h13-0-19" class="i">+        /// Gets the Asset.
+</a><a href="#h13-0-20" id="h13-0-20" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h13-0-21" id="h13-0-21" class="i">+        /// &lt;param name=&quot;release&quot;&gt;GitHub release.&lt;/param&gt;
+</a><a href="#h13-0-22" id="h13-0-22" class="i">+        /// &lt;param name=&quot;name&quot;&gt;Name of asset.&lt;/param&gt;
+</a><a href="#h13-0-23" id="h13-0-23" class="i">+        /// &lt;returns&gt;The asset.&lt;/returns&gt;
+</a><a href="#h13-0-24" id="h13-0-24" class="i">+        public static ReleaseAsset GetAsset(this Release release, string name)
+</a><a href="#h13-0-25" id="h13-0-25" class="i">+        {
+</a><a href="#h13-0-26" id="h13-0-26" class="i">+            var assets = release.Assets.Where(a =&gt; a.Name == name);
+</a><a href="#h13-0-27" id="h13-0-27" class="i">+
+</a><a href="#h13-0-28" id="h13-0-28" class="i">+            if (assets.Any())
+</a><a href="#h13-0-29" id="h13-0-29" class="i">+            {
+</a><a href="#h13-0-30" id="h13-0-30" class="i">+                return assets.First();
+</a><a href="#h13-0-31" id="h13-0-31" class="i">+            }
+</a><a href="#h13-0-32" id="h13-0-32" class="i">+
+</a><a href="#h13-0-33" id="h13-0-33" class="i">+            throw new WinGetRepairException(string.Format(Resources.ReleaseAssetNotFound, name));
+</a><a href="#h13-0-34" id="h13-0-34" class="i">+        }
+</a><a href="#h13-0-35" id="h13-0-35" class="i">+
+</a><a href="#h13-0-36" id="h13-0-36" class="i">+        /// &lt;summary&gt;
+</a><a href="#h13-0-37" id="h13-0-37" class="i">+        /// Gets the asset that ends with the string.
+</a><a href="#h13-0-38" id="h13-0-38" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h13-0-39" id="h13-0-39" class="i">+        /// &lt;param name=&quot;release&quot;&gt;GitHub release.&lt;/param&gt;
+</a><a href="#h13-0-40" id="h13-0-40" class="i">+        /// &lt;param name=&quot;name&quot;&gt;Asset last part name.&lt;/param&gt;
+</a><a href="#h13-0-41" id="h13-0-41" class="i">+        /// &lt;returns&gt;The asset.&lt;/returns&gt;
+</a><a href="#h13-0-42" id="h13-0-42" class="i">+        public static ReleaseAsset GetAssetEndsWith(this Release release, string name)
+</a><a href="#h13-0-43" id="h13-0-43" class="i">+        {
+</a><a href="#h13-0-44" id="h13-0-44" class="i">+            var assets = release.Assets.Where(a =&gt; a.Name.EndsWith(name));
+</a><a href="#h13-0-45" id="h13-0-45" class="i">+
+</a><a href="#h13-0-46" id="h13-0-46" class="i">+            if (assets.Any())
+</a><a href="#h13-0-47" id="h13-0-47" class="i">+            {
+</a><a href="#h13-0-48" id="h13-0-48" class="i">+                return assets.First();
+</a><a href="#h13-0-49" id="h13-0-49" class="i">+            }
+</a><a href="#h13-0-50" id="h13-0-50" class="i">+
+</a><a href="#h13-0-51" id="h13-0-51" class="i">+            throw new WinGetRepairException(string.Format(Resources.ReleaseAssetNotFound, name));
+</a><a href="#h13-0-52" id="h13-0-52" class="i">+        }
+</a><a href="#h13-0-53" id="h13-0-53" class="i">+    }
+</a><a href="#h13-0-54" id="h13-0-54" class="i">+}
+</a><b>diff --git a/<a id="h14" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/AppxModuleHelper.cs</a></b>
+<a href="#h14-0" id="h14-0" class="h">@@ -12,8 +12,11 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>     using System.Linq;
+     using System.Management.Automation;
+     using System.Runtime.InteropServices;
+<a href="#h14-0-3" id="h14-0-3" class="i">+    using System.Threading.Tasks;
+</a>     using Microsoft.WinGet.Client.Engine.Common;
+<a href="#h14-0-5" id="h14-0-5" class="i">+    using Microsoft.WinGet.Client.Engine.Extensions;
+</a>     using Microsoft.WinGet.Common.Command;
+<a href="#h14-0-7" id="h14-0-7" class="i">+    using Octokit;
+</a>     using static Microsoft.WinGet.Client.Engine.Common.Constants;
+ 
+     /// &lt;summary&gt;
+<a href="#h14-1" id="h14-1" class="h">@@ -26,6 +29,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         private const string GetAppxPackage = &quot;Get-AppxPackage&quot;;
+         private const string AddAppxPackage = &quot;Add-AppxPackage&quot;;
+         private const string AddAppxProvisionedPackage = &quot;Add-AppxProvisionedPackage&quot;;
+<a href="#h14-1-3" id="h14-1-3" class="i">+        private const string GetCommand = &quot;Get-Command&quot;;
+</a> 
+         // Parameters name
+         private const string Name = &quot;Name&quot;;
+<a href="#h14-2" id="h14-2" class="h">@@ -34,18 +38,22 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         private const string WarningAction = &quot;WarningAction&quot;;
+         private const string PackagePath = &quot;PackagePath&quot;;
+         private const string LicensePath = &quot;LicensePath&quot;;
+<a href="#h14-2-3" id="h14-2-3" class="i">+        private const string Module = &quot;Module&quot;;
+</a><a href="#h14-2-4" id="h14-2-4" class="i">+        private const string StubPackageOption = &quot;StubPackageOption&quot;;
+</a> 
+         // Parameter Values
+         private const string Appx = &quot;Appx&quot;;
+         private const string Stop = &quot;Stop&quot;;
+         private const string SilentlyContinue = &quot;SilentlyContinue&quot;;
+         private const string Online = &quot;Online&quot;;
+<a href="#h14-2-11" id="h14-2-11" class="i">+        private const string UsePreference = &quot;UsePreference&quot;;
+</a> 
+         // Options
+         private const string UseWindowsPowerShell = &quot;UseWindowsPowerShell&quot;;
+         private const string ForceUpdateFromAnyVersion = &quot;ForceUpdateFromAnyVersion&quot;;
+         private const string Register = &quot;Register&quot;;
+         private const string DisableDevelopmentMode = &quot;DisableDevelopmentMode&quot;;
+<a href="#h14-2-18" id="h14-2-18" class="i">+        private const string ForceTargetApplicationShutdown = &quot;ForceTargetApplicationShutdown&quot;;
+</a> 
+         private const string AppInstallerName = &quot;Microsoft.DesktopAppInstaller&quot;;
+         private const string AppxManifest = &quot;AppxManifest.xml&quot;;
+<a href="#h14-3" id="h14-3" class="h">@@ -73,6 +81,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         private const string XamlAssetArm64 = &quot;Microsoft.UI.Xaml.2.7.arm64.appx&quot;;
+ 
+         private readonly PowerShellCmdlet pwshCmdlet;
+<a href="#h14-3-3" id="h14-3-3" class="i">+        private readonly HttpClientHelper httpClientHelper;
+</a> 
+         /// &lt;summary&gt;
+         /// Initializes a new instance of the &lt;see cref=&quot;AppxModuleHelper&quot;/&gt; class.
+<a href="#h14-4" id="h14-4" class="h">@@ -81,6 +90,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         public AppxModuleHelper(PowerShellCmdlet pwshCmdlet)
+         {
+             this.pwshCmdlet = pwshCmdlet;
+<a href="#h14-4-3" id="h14-4-3" class="i">+            this.httpClientHelper = new HttpClientHelper();
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h14-5" id="h14-5" class="h">@@ -149,55 +159,63 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         /// &lt;param name=&quot;releaseTag&quot;&gt;Release tag of GitHub release.&lt;/param&gt;
+         /// &lt;param name=&quot;allUsers&quot;&gt;If install for all users is needed.&lt;/param&gt;
+         /// &lt;param name=&quot;isDowngrade&quot;&gt;Is downgrade.&lt;/param&gt;
+<a href="#h14-5-3" id="h14-5-3" class="d">-        public void InstallFromGitHubRelease(string releaseTag, bool allUsers, bool isDowngrade)
+</a><a href="#h14-5-4" id="h14-5-4" class="i">+        /// &lt;param name=&quot;force&quot;&gt;Force application shutdown.&lt;/param&gt;
+</a><a href="#h14-5-5" id="h14-5-5" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous operation.&lt;/returns&gt;
+</a><a href="#h14-5-6" id="h14-5-6" class="i">+        public async Task InstallFromGitHubReleaseAsync(string releaseTag, bool allUsers, bool isDowngrade, bool force)
+</a>         {
+<a href="#h14-5-8" id="h14-5-8" class="d">-            this.InstallDependencies();
+</a><a href="#h14-5-9" id="h14-5-9" class="i">+            await this.InstallDependenciesAsync();
+</a> 
+             if (isDowngrade)
+             {
+                 // Add-AppxProvisionedPackage doesn&#39;t support downgrade.
+<a href="#h14-5-14" id="h14-5-14" class="d">-                this.AddAppInstallerBundle(releaseTag, true);
+</a><a href="#h14-5-15" id="h14-5-15" class="i">+                await this.AddAppInstallerBundleAsync(releaseTag, true, force);
+</a> 
+                 if (allUsers)
+                 {
+<a href="#h14-5-19" id="h14-5-19" class="d">-                    this.AddProvisionPackage(releaseTag);
+</a><a href="#h14-5-20" id="h14-5-20" class="i">+                    await this.AddProvisionPackageAsync(releaseTag);
+</a>                 }
+             }
+             else
+             {
+                 if (allUsers)
+                 {
+<a href="#h14-5-27" id="h14-5-27" class="d">-                    this.AddProvisionPackage(releaseTag);
+</a><a href="#h14-5-28" id="h14-5-28" class="i">+                    await this.AddProvisionPackageAsync(releaseTag);
+</a>                 }
+                 else
+                 {
+<a href="#h14-5-32" id="h14-5-32" class="d">-                    this.AddAppInstallerBundle(releaseTag, false);
+</a><a href="#h14-5-33" id="h14-5-33" class="i">+                    await this.AddAppInstallerBundleAsync(releaseTag, false, force);
+</a>                 }
+             }
+         }
+ 
+<a href="#h14-5-38" id="h14-5-38" class="d">-        private void AddProvisionPackage(string releaseTag)
+</a><a href="#h14-5-39" id="h14-5-39" class="i">+        private async Task AddProvisionPackageAsync(string releaseTag)
+</a>         {
+             var githubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+<a href="#h14-5-42" id="h14-5-42" class="d">-            var release = githubClient.GetRelease(releaseTag);
+</a><a href="#h14-5-43" id="h14-5-43" class="i">+            var release = await githubClient.GetReleaseAsync(releaseTag);
+</a> 
+<a href="#h14-5-45" id="h14-5-45" class="d">-            using var bundleFile = new TempFile();
+</a><a href="#h14-5-46" id="h14-5-46" class="d">-            var bundleAsset = release.Assets.Where(a =&gt; a.Name == MsixBundleName).First();
+</a><a href="#h14-5-47" id="h14-5-47" class="d">-            githubClient.DownloadUrl(bundleAsset.BrowserDownloadUrl, bundleFile.FullPath);
+</a><a href="#h14-5-48" id="h14-5-48" class="i">+            var bundleAsset = release.GetAsset(MsixBundleName);
+</a><a href="#h14-5-49" id="h14-5-49" class="i">+            using var bundleFile = new TempFile(fileName: MsixBundleName);
+</a><a href="#h14-5-50" id="h14-5-50" class="i">+            await this.httpClientHelper.DownloadUrlWithProgressAsync(
+</a><a href="#h14-5-51" id="h14-5-51" class="i">+                bundleAsset.BrowserDownloadUrl, bundleFile.FullPath, this.pwshCmdlet);
+</a> 
+<a href="#h14-5-53" id="h14-5-53" class="d">-            using var licenseFile = new TempFile();
+</a><a href="#h14-5-54" id="h14-5-54" class="d">-            var licenseAsset = release.Assets.Where(a =&gt; a.Name.EndsWith(License)).First();
+</a><a href="#h14-5-55" id="h14-5-55" class="d">-            githubClient.DownloadUrl(licenseAsset.BrowserDownloadUrl, licenseFile.FullPath);
+</a><a href="#h14-5-56" id="h14-5-56" class="i">+            var licenseAsset = release.GetAssetEndsWith(License);
+</a><a href="#h14-5-57" id="h14-5-57" class="i">+            using var licenseFile = new TempFile(fileName: licenseAsset.Name);
+</a><a href="#h14-5-58" id="h14-5-58" class="i">+            await this.httpClientHelper.DownloadUrlWithProgressAsync(
+</a><a href="#h14-5-59" id="h14-5-59" class="i">+                licenseAsset.BrowserDownloadUrl, licenseFile.FullPath, this.pwshCmdlet);
+</a> 
+             try
+             {
+<a href="#h14-5-63" id="h14-5-63" class="d">-                var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h14-5-64" id="h14-5-64" class="d">-                ps.AddCommand(AddAppxProvisionedPackage)
+</a><a href="#h14-5-65" id="h14-5-65" class="d">-                  .AddParameter(Online)
+</a><a href="#h14-5-66" id="h14-5-66" class="d">-                  .AddParameter(PackagePath, bundleFile.FullPath)
+</a><a href="#h14-5-67" id="h14-5-67" class="d">-                  .AddParameter(LicensePath, licenseFile.FullPath)
+</a><a href="#h14-5-68" id="h14-5-68" class="d">-                  .AddParameter(ErrorAction, Stop)
+</a><a href="#h14-5-69" id="h14-5-69" class="d">-                  .Invoke();
+</a><a href="#h14-5-70" id="h14-5-70" class="i">+                this.pwshCmdlet.ExecuteInPowerShellThread(
+</a><a href="#h14-5-71" id="h14-5-71" class="i">+                    () =&gt;
+</a><a href="#h14-5-72" id="h14-5-72" class="i">+                    {
+</a><a href="#h14-5-73" id="h14-5-73" class="i">+                        var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h14-5-74" id="h14-5-74" class="i">+                        ps.AddCommand(AddAppxProvisionedPackage)
+</a><a href="#h14-5-75" id="h14-5-75" class="i">+                          .AddParameter(Online)
+</a><a href="#h14-5-76" id="h14-5-76" class="i">+                          .AddParameter(PackagePath, bundleFile.FullPath)
+</a><a href="#h14-5-77" id="h14-5-77" class="i">+                          .AddParameter(LicensePath, licenseFile.FullPath)
+</a><a href="#h14-5-78" id="h14-5-78" class="i">+                          .AddParameter(ErrorAction, Stop)
+</a><a href="#h14-5-79" id="h14-5-79" class="i">+                          .Invoke();
+</a><a href="#h14-5-80" id="h14-5-80" class="i">+                    });
+</a>             }
+             catch (RuntimeException e)
+             {
+<a href="#h14-6" id="h14-6" class="h">@@ -206,7 +224,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>             }
+         }
+ 
+<a href="#h14-6-3" id="h14-6-3" class="d">-        private void AddAppInstallerBundle(string releaseTag, bool downgrade)
+</a><a href="#h14-6-4" id="h14-6-4" class="i">+        private async Task AddAppInstallerBundleAsync(string releaseTag, bool downgrade, bool force)
+</a>         {
+             var options = new List&lt;string&gt;();
+             if (downgrade)
+<a href="#h14-7" id="h14-7" class="h">@@ -214,14 +232,24 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>                 options.Add(ForceUpdateFromAnyVersion);
+             }
+ 
+<a href="#h14-7-3" id="h14-7-3" class="i">+            if (force)
+</a><a href="#h14-7-4" id="h14-7-4" class="i">+            {
+</a><a href="#h14-7-5" id="h14-7-5" class="i">+                options.Add(ForceTargetApplicationShutdown);
+</a><a href="#h14-7-6" id="h14-7-6" class="i">+            }
+</a><a href="#h14-7-7" id="h14-7-7" class="i">+
+</a><a href="#h14-7-8" id="h14-7-8" class="i">+            var parameters = new Dictionary&lt;string, object&gt;();
+</a><a href="#h14-7-9" id="h14-7-9" class="i">+            if (this.IsStubPackageOptionPresent())
+</a><a href="#h14-7-10" id="h14-7-10" class="i">+            {
+</a><a href="#h14-7-11" id="h14-7-11" class="i">+                parameters.Add(StubPackageOption, UsePreference);
+</a><a href="#h14-7-12" id="h14-7-12" class="i">+            }
+</a><a href="#h14-7-13" id="h14-7-13" class="i">+
+</a>             try
+             {
+                 var githubClient = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+<a href="#h14-7-17" id="h14-7-17" class="d">-                var release = githubClient.GetRelease(releaseTag);
+</a><a href="#h14-7-18" id="h14-7-18" class="i">+                var release = await githubClient.GetReleaseAsync(releaseTag);
+</a> 
+<a href="#h14-7-20" id="h14-7-20" class="d">-                using var bundleFile = new TempFile();
+</a><a href="#h14-7-21" id="h14-7-21" class="d">-                var bundleAsset = release.Assets.Where(a =&gt; a.Name == MsixBundleName).First();
+</a><a href="#h14-7-22" id="h14-7-22" class="d">-                this.AddAppxPackageAsUri(bundleAsset.BrowserDownloadUrl, options);
+</a><a href="#h14-7-23" id="h14-7-23" class="i">+                var bundleAsset = release.GetAsset(MsixBundleName);
+</a><a href="#h14-7-24" id="h14-7-24" class="i">+                await this.AddAppxPackageAsUriAsync(bundleAsset.BrowserDownloadUrl, MsixBundleName, parameters, options);
+</a>             }
+             catch (RuntimeException e)
+             {
+<a href="#h14-8" id="h14-8" class="h">@@ -241,7 +269,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>                 .FirstOrDefault();
+         }
+ 
+<a href="#h14-8-3" id="h14-8-3" class="d">-        private void InstallDependencies()
+</a><a href="#h14-8-4" id="h14-8-4" class="i">+        private async Task InstallDependenciesAsync()
+</a>         {
+             // A better implementation would use Add-AppxPackage with -DependencyPath, but
+             // the Appx module needs to be remoted into Windows PowerShell. When the string[] parameter
+<a href="#h14-9" id="h14-9" class="h">@@ -249,11 +277,11 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>             // Here we should: if we are in Windows Powershell then run Add-AppxPackage with -DependencyPath
+             // if we are in Core, then start powershell.exe and run the same command. Right now, we just
+             // do Add-AppxPackage for each one.
+<a href="#h14-9-3" id="h14-9-3" class="d">-            this.InstallVCLibsDependencies();
+</a><a href="#h14-9-4" id="h14-9-4" class="d">-            this.InstallUiXaml();
+</a><a href="#h14-9-5" id="h14-9-5" class="i">+            await this.InstallVCLibsDependenciesAsync();
+</a><a href="#h14-9-6" id="h14-9-6" class="i">+            await this.InstallUiXamlAsync();
+</a>         }
+ 
+<a href="#h14-9-9" id="h14-9-9" class="d">-        private void InstallVCLibsDependencies()
+</a><a href="#h14-9-10" id="h14-9-10" class="i">+        private async Task InstallVCLibsDependenciesAsync()
+</a>         {
+             var result = this.ExecuteAppxCmdlet(
+                 GetAppxPackage,
+<a href="#h14-10" id="h14-10" class="h">@@ -319,7 +347,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a> 
+                 foreach (var vclib in vcLibsDependencies)
+                 {
+<a href="#h14-10-3" id="h14-10-3" class="d">-                    this.AddAppxPackageAsUri(vclib);
+</a><a href="#h14-10-4" id="h14-10-4" class="i">+                    await this.AddAppxPackageAsUriAsync(vclib, vclib.Substring(vclib.LastIndexOf(&#39;/&#39;) + 1));
+</a>                 }
+             }
+             else
+<a href="#h14-11" id="h14-11" class="h">@@ -328,32 +356,32 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>             }
+         }
+ 
+<a href="#h14-11-3" id="h14-11-3" class="d">-        private void InstallUiXaml()
+</a><a href="#h14-11-4" id="h14-11-4" class="i">+        private async Task InstallUiXamlAsync()
+</a>         {
+             var uiXamlObjs = this.GetAppxObject(XamlPackage27);
+             if (uiXamlObjs is null)
+             {
+                 var githubRelease = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.UiXaml);
+ 
+<a href="#h14-11-11" id="h14-11-11" class="d">-                var xamlRelease = githubRelease.GetRelease(XamlReleaseTag273);
+</a><a href="#h14-11-12" id="h14-11-12" class="i">+                var xamlRelease = await githubRelease.GetReleaseAsync(XamlReleaseTag273);
+</a> 
+<a href="#h14-11-14" id="h14-11-14" class="d">-                var packagesToInstall = new List&lt;string&gt;();
+</a><a href="#h14-11-15" id="h14-11-15" class="i">+                var packagesToInstall = new List&lt;ReleaseAsset&gt;();
+</a>                 var arch = RuntimeInformation.OSArchitecture;
+                 if (arch == Architecture.X64)
+                 {
+<a href="#h14-11-19" id="h14-11-19" class="d">-                    packagesToInstall.Add(xamlRelease.Assets.Where(a =&gt; a.Name == XamlAssetX64).First().BrowserDownloadUrl);
+</a><a href="#h14-11-20" id="h14-11-20" class="i">+                    packagesToInstall.Add(xamlRelease.GetAsset(XamlAssetX64));
+</a>                 }
+                 else if (arch == Architecture.X86)
+                 {
+<a href="#h14-11-24" id="h14-11-24" class="d">-                    packagesToInstall.Add(xamlRelease.Assets.Where(a =&gt; a.Name == XamlAssetX86).First().BrowserDownloadUrl);
+</a><a href="#h14-11-25" id="h14-11-25" class="i">+                    packagesToInstall.Add(xamlRelease.GetAsset(XamlAssetX86));
+</a>                 }
+                 else if (arch == Architecture.Arm64)
+                 {
+                     // Deployment please figure out for me.
+<a href="#h14-11-30" id="h14-11-30" class="d">-                    packagesToInstall.Add(xamlRelease.Assets.Where(a =&gt; a.Name == XamlAssetX64).First().BrowserDownloadUrl);
+</a><a href="#h14-11-31" id="h14-11-31" class="d">-                    packagesToInstall.Add(xamlRelease.Assets.Where(a =&gt; a.Name == XamlAssetX86).First().BrowserDownloadUrl);
+</a><a href="#h14-11-32" id="h14-11-32" class="d">-                    packagesToInstall.Add(xamlRelease.Assets.Where(a =&gt; a.Name == XamlAssetArm).First().BrowserDownloadUrl);
+</a><a href="#h14-11-33" id="h14-11-33" class="d">-                    packagesToInstall.Add(xamlRelease.Assets.Where(a =&gt; a.Name == XamlAssetArm64).First().BrowserDownloadUrl);
+</a><a href="#h14-11-34" id="h14-11-34" class="i">+                    packagesToInstall.Add(xamlRelease.GetAsset(XamlAssetX64));
+</a><a href="#h14-11-35" id="h14-11-35" class="i">+                    packagesToInstall.Add(xamlRelease.GetAsset(XamlAssetX86));
+</a><a href="#h14-11-36" id="h14-11-36" class="i">+                    packagesToInstall.Add(xamlRelease.GetAsset(XamlAssetArm));
+</a><a href="#h14-11-37" id="h14-11-37" class="i">+                    packagesToInstall.Add(xamlRelease.GetAsset(XamlAssetArm64));
+</a>                 }
+                 else
+                 {
+<a href="#h14-12" id="h14-12" class="h">@@ -362,22 +390,32 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a> 
+                 foreach (var package in packagesToInstall)
+                 {
+<a href="#h14-12-3" id="h14-12-3" class="d">-                    this.AddAppxPackageAsUri(package);
+</a><a href="#h14-12-4" id="h14-12-4" class="i">+                    await this.AddAppxPackageAsUriAsync(package.BrowserDownloadUrl, package.Name);
+</a>                 }
+             }
+         }
+ 
+<a href="#h14-12-9" id="h14-12-9" class="d">-        private void AddAppxPackageAsUri(string packageUri, IList&lt;string&gt;? options = null)
+</a><a href="#h14-12-10" id="h14-12-10" class="i">+        private async Task AddAppxPackageAsUriAsync(string packageUri, string fileName, Dictionary&lt;string, object&gt;? parameters = null, IList&lt;string&gt;? options = null)
+</a>         {
+             try
+             {
+<a href="#h14-12-14" id="h14-12-14" class="i">+                var thisParams = new Dictionary&lt;string, object&gt;
+</a><a href="#h14-12-15" id="h14-12-15" class="i">+                {
+</a><a href="#h14-12-16" id="h14-12-16" class="i">+                    { Path, packageUri },
+</a><a href="#h14-12-17" id="h14-12-17" class="i">+                    { ErrorAction, Stop },
+</a><a href="#h14-12-18" id="h14-12-18" class="i">+                };
+</a><a href="#h14-12-19" id="h14-12-19" class="i">+
+</a><a href="#h14-12-20" id="h14-12-20" class="i">+                if (parameters != null)
+</a><a href="#h14-12-21" id="h14-12-21" class="i">+                {
+</a><a href="#h14-12-22" id="h14-12-22" class="i">+                    foreach (var param in parameters)
+</a><a href="#h14-12-23" id="h14-12-23" class="i">+                    {
+</a><a href="#h14-12-24" id="h14-12-24" class="i">+                        thisParams.Add(param.Key, param.Value);
+</a><a href="#h14-12-25" id="h14-12-25" class="i">+                    }
+</a><a href="#h14-12-26" id="h14-12-26" class="i">+                }
+</a><a href="#h14-12-27" id="h14-12-27" class="i">+
+</a>                 _ = this.ExecuteAppxCmdlet(
+                         AddAppxPackage,
+<a href="#h14-12-30" id="h14-12-30" class="d">-                        new Dictionary&lt;string, object&gt;
+</a><a href="#h14-12-31" id="h14-12-31" class="d">-                        {
+</a><a href="#h14-12-32" id="h14-12-32" class="d">-                            { Path, packageUri },
+</a><a href="#h14-12-33" id="h14-12-33" class="d">-                            { ErrorAction, Stop },
+</a><a href="#h14-12-34" id="h14-12-34" class="d">-                        },
+</a><a href="#h14-12-35" id="h14-12-35" class="i">+                        thisParams,
+</a>                         options);
+             }
+             catch (RuntimeException e)
+<a href="#h14-13" id="h14-13" class="h">@@ -386,7 +424,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>                 if (e.ErrorRecord.CategoryInfo.Category == ErrorCategory.OpenError)
+                 {
+                     this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Failed adding package [{packageUri}]. Retrying downloading it.&quot;);
+<a href="#h14-13-3" id="h14-13-3" class="d">-                    this.DownloadPackageAndAdd(packageUri, options);
+</a><a href="#h14-13-4" id="h14-13-4" class="i">+                    await this.DownloadPackageAndAddAsync(packageUri, fileName, options);
+</a>                 }
+                 else
+                 {
+<a href="#h14-14" id="h14-14" class="h">@@ -396,13 +434,11 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>             }
+         }
+ 
+<a href="#h14-14-3" id="h14-14-3" class="d">-        private void DownloadPackageAndAdd(string packageUrl, IList&lt;string&gt;? options)
+</a><a href="#h14-14-4" id="h14-14-4" class="i">+        private async Task DownloadPackageAndAddAsync(string packageUrl, string fileName, IList&lt;string&gt;? options)
+</a>         {
+<a href="#h14-14-6" id="h14-14-6" class="d">-            using var tempFile = new TempFile();
+</a><a href="#h14-14-7" id="h14-14-7" class="i">+            using var tempFile = new TempFile(fileName: fileName);
+</a> 
+<a href="#h14-14-9" id="h14-14-9" class="d">-            // This is weird but easy.
+</a><a href="#h14-14-10" id="h14-14-10" class="d">-            var githubRelease = new GitHubClient(RepositoryOwner.Microsoft, RepositoryName.WinGetCli);
+</a><a href="#h14-14-11" id="h14-14-11" class="d">-            githubRelease.DownloadUrl(packageUrl, tempFile.FullPath);
+</a><a href="#h14-14-12" id="h14-14-12" class="i">+            await this.httpClientHelper.DownloadUrlWithProgressAsync(packageUrl, tempFile.FullPath, this.pwshCmdlet);
+</a> 
+             _ = this.ExecuteAppxCmdlet(
+                     AddAppxPackage,
+<a href="#h14-15" id="h14-15" class="h">@@ -416,46 +452,81 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a> 
+         private Collection&lt;PSObject&gt; ExecuteAppxCmdlet(string cmdlet, Dictionary&lt;string, object&gt;? parameters = null, IList&lt;string&gt;? options = null)
+         {
+<a href="#h14-15-3" id="h14-15-3" class="d">-            var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h14-15-4" id="h14-15-4" class="d">-
+</a><a href="#h14-15-5" id="h14-15-5" class="d">-            // There&#39;s a bug in the Appx Module that it can&#39;t be loaded from Core in pre 10.0.22453.0 builds without
+</a><a href="#h14-15-6" id="h14-15-6" class="d">-            // the -UseWindowsPowerShell option. In post 10.0.22453.0 builds there&#39;s really no difference between
+</a><a href="#h14-15-7" id="h14-15-7" class="d">-            // using or not -UseWindowsPowerShell as it will automatically get loaded using WinPSCompatSession remoting session.
+</a><a href="#h14-15-8" id="h14-15-8" class="d">-            // https://github.com/PowerShell/PowerShell/issues/13138.
+</a><a href="#h14-15-9" id="h14-15-9" class="d">-            // Set warning action to silently continue to avoid the console with
+</a><a href="#h14-15-10" id="h14-15-10" class="d">-            // &#39;Module Appx is loaded in Windows PowerShell using WinPSCompatSession remoting session&#39;
+</a><a href="#h14-15-11" id="h14-15-11" class="i">+            Collection&lt;PSObject&gt; result = new Collection&lt;PSObject&gt;();
+</a><a href="#h14-15-12" id="h14-15-12" class="i">+
+</a><a href="#h14-15-13" id="h14-15-13" class="i">+            this.pwshCmdlet.ExecuteInPowerShellThread(
+</a><a href="#h14-15-14" id="h14-15-14" class="i">+                () =&gt;
+</a><a href="#h14-15-15" id="h14-15-15" class="i">+                {
+</a><a href="#h14-15-16" id="h14-15-16" class="i">+                    var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h14-15-17" id="h14-15-17" class="i">+
+</a><a href="#h14-15-18" id="h14-15-18" class="i">+                    // There&#39;s a bug in the Appx Module that it can&#39;t be loaded from Core in pre 10.0.22453.0 builds without
+</a><a href="#h14-15-19" id="h14-15-19" class="i">+                    // the -UseWindowsPowerShell option. In post 10.0.22453.0 builds there&#39;s really no difference between
+</a><a href="#h14-15-20" id="h14-15-20" class="i">+                    // using or not -UseWindowsPowerShell as it will automatically get loaded using WinPSCompatSession remoting session.
+</a><a href="#h14-15-21" id="h14-15-21" class="i">+                    // https://github.com/PowerShell/PowerShell/issues/13138.
+</a><a href="#h14-15-22" id="h14-15-22" class="i">+                    // Set warning action to silently continue to avoid the console with
+</a><a href="#h14-15-23" id="h14-15-23" class="i">+                    // &#39;Module Appx is loaded in Windows PowerShell using WinPSCompatSession remoting session&#39;
+</a> #if !POWERSHELL_WINDOWS
+<a href="#h14-15-25" id="h14-15-25" class="d">-            ps.AddCommand(ImportModule)
+</a><a href="#h14-15-26" id="h14-15-26" class="d">-              .AddParameter(Name, Appx)
+</a><a href="#h14-15-27" id="h14-15-27" class="d">-              .AddParameter(UseWindowsPowerShell)
+</a><a href="#h14-15-28" id="h14-15-28" class="d">-              .AddParameter(WarningAction, SilentlyContinue)
+</a><a href="#h14-15-29" id="h14-15-29" class="d">-              .AddStatement();
+</a><a href="#h14-15-30" id="h14-15-30" class="i">+                    ps.AddCommand(ImportModule)
+</a><a href="#h14-15-31" id="h14-15-31" class="i">+                      .AddParameter(Name, Appx)
+</a><a href="#h14-15-32" id="h14-15-32" class="i">+                      .AddParameter(UseWindowsPowerShell)
+</a><a href="#h14-15-33" id="h14-15-33" class="i">+                      .AddParameter(WarningAction, SilentlyContinue)
+</a><a href="#h14-15-34" id="h14-15-34" class="i">+                      .AddStatement();
+</a> #endif
+ 
+<a href="#h14-15-37" id="h14-15-37" class="d">-            string cmd = cmdlet;
+</a><a href="#h14-15-38" id="h14-15-38" class="d">-            ps.AddCommand(cmdlet);
+</a><a href="#h14-15-39" id="h14-15-39" class="i">+                    string cmd = cmdlet;
+</a><a href="#h14-15-40" id="h14-15-40" class="i">+                    ps.AddCommand(cmdlet);
+</a> 
+<a href="#h14-15-42" id="h14-15-42" class="d">-            if (parameters != null)
+</a><a href="#h14-15-43" id="h14-15-43" class="d">-            {
+</a><a href="#h14-15-44" id="h14-15-44" class="d">-                foreach (var p in parameters)
+</a><a href="#h14-15-45" id="h14-15-45" class="d">-                {
+</a><a href="#h14-15-46" id="h14-15-46" class="d">-                    cmd += $&quot; -{p.Key} {p.Value}&quot;;
+</a><a href="#h14-15-47" id="h14-15-47" class="d">-                }
+</a><a href="#h14-15-48" id="h14-15-48" class="i">+                    if (parameters != null)
+</a><a href="#h14-15-49" id="h14-15-49" class="i">+                    {
+</a><a href="#h14-15-50" id="h14-15-50" class="i">+                        foreach (var p in parameters)
+</a><a href="#h14-15-51" id="h14-15-51" class="i">+                        {
+</a><a href="#h14-15-52" id="h14-15-52" class="i">+                            cmd += $&quot; -{p.Key} {p.Value}&quot;;
+</a><a href="#h14-15-53" id="h14-15-53" class="i">+                        }
+</a> 
+<a href="#h14-15-55" id="h14-15-55" class="d">-                ps.AddParameters(parameters);
+</a><a href="#h14-15-56" id="h14-15-56" class="d">-            }
+</a><a href="#h14-15-57" id="h14-15-57" class="i">+                        ps.AddParameters(parameters);
+</a><a href="#h14-15-58" id="h14-15-58" class="i">+                    }
+</a> 
+<a href="#h14-15-60" id="h14-15-60" class="d">-            if (options != null)
+</a><a href="#h14-15-61" id="h14-15-61" class="d">-            {
+</a><a href="#h14-15-62" id="h14-15-62" class="d">-                foreach (var option in options)
+</a><a href="#h14-15-63" id="h14-15-63" class="i">+                    if (options != null)
+</a><a href="#h14-15-64" id="h14-15-64" class="i">+                    {
+</a><a href="#h14-15-65" id="h14-15-65" class="i">+                        foreach (var option in options)
+</a><a href="#h14-15-66" id="h14-15-66" class="i">+                        {
+</a><a href="#h14-15-67" id="h14-15-67" class="i">+                            cmd += $&quot; -{option}&quot;;
+</a><a href="#h14-15-68" id="h14-15-68" class="i">+                            ps.AddParameter(option);
+</a><a href="#h14-15-69" id="h14-15-69" class="i">+                        }
+</a><a href="#h14-15-70" id="h14-15-70" class="i">+                    }
+</a><a href="#h14-15-71" id="h14-15-71" class="i">+
+</a><a href="#h14-15-72" id="h14-15-72" class="i">+                    this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Executing Appx cmdlet {cmd}&quot;);
+</a><a href="#h14-15-73" id="h14-15-73" class="i">+                    result = ps.Invoke();
+</a><a href="#h14-15-74" id="h14-15-74" class="i">+                });
+</a><a href="#h14-15-75" id="h14-15-75" class="i">+
+</a><a href="#h14-15-76" id="h14-15-76" class="i">+            return result;
+</a><a href="#h14-15-77" id="h14-15-77" class="i">+        }
+</a><a href="#h14-15-78" id="h14-15-78" class="i">+
+</a><a href="#h14-15-79" id="h14-15-79" class="i">+        private bool IsStubPackageOptionPresent()
+</a><a href="#h14-15-80" id="h14-15-80" class="i">+        {
+</a><a href="#h14-15-81" id="h14-15-81" class="i">+            bool result = false;
+</a><a href="#h14-15-82" id="h14-15-82" class="i">+            this.pwshCmdlet.ExecuteInPowerShellThread(
+</a><a href="#h14-15-83" id="h14-15-83" class="i">+                () =&gt;
+</a>                 {
+<a href="#h14-15-85" id="h14-15-85" class="d">-                    cmd += $&quot; -{option}&quot;;
+</a><a href="#h14-15-86" id="h14-15-86" class="d">-                    ps.AddParameter(option);
+</a><a href="#h14-15-87" id="h14-15-87" class="d">-                }
+</a><a href="#h14-15-88" id="h14-15-88" class="d">-            }
+</a><a href="#h14-15-89" id="h14-15-89" class="i">+                    var ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+</a><a href="#h14-15-90" id="h14-15-90" class="i">+
+</a><a href="#h14-15-91" id="h14-15-91" class="i">+#if !POWERSHELL_WINDOWS
+</a><a href="#h14-15-92" id="h14-15-92" class="i">+                    ps.AddCommand(ImportModule)
+</a><a href="#h14-15-93" id="h14-15-93" class="i">+                      .AddParameter(Name, Appx)
+</a><a href="#h14-15-94" id="h14-15-94" class="i">+                      .AddParameter(UseWindowsPowerShell)
+</a><a href="#h14-15-95" id="h14-15-95" class="i">+                      .AddParameter(WarningAction, SilentlyContinue)
+</a><a href="#h14-15-96" id="h14-15-96" class="i">+                      .AddStatement();
+</a><a href="#h14-15-97" id="h14-15-97" class="i">+#endif
+</a><a href="#h14-15-98" id="h14-15-98" class="i">+
+</a><a href="#h14-15-99" id="h14-15-99" class="i">+                    var cmdInfo = ps.AddCommand(GetCommand)
+</a><a href="#h14-15-100" id="h14-15-100" class="i">+                                    .AddParameter(Name, AddAppxPackage)
+</a><a href="#h14-15-101" id="h14-15-101" class="i">+                                    .AddParameter(Module, Appx)
+</a><a href="#h14-15-102" id="h14-15-102" class="i">+                                    .Invoke&lt;CommandInfo&gt;()
+</a><a href="#h14-15-103" id="h14-15-103" class="i">+                                    .FirstOrDefault();
+</a><a href="#h14-15-104" id="h14-15-104" class="i">+
+</a><a href="#h14-15-105" id="h14-15-105" class="i">+                    result = cmdInfo != null &amp;&amp; cmdInfo.Parameters.ContainsKey(StubPackageOption);
+</a><a href="#h14-15-106" id="h14-15-106" class="i">+                });
+</a> 
+<a href="#h14-15-108" id="h14-15-108" class="d">-            this.pwshCmdlet.Write(StreamType.Verbose, $&quot;Executing Appx cmdlet {cmd}&quot;);
+</a><a href="#h14-15-109" id="h14-15-109" class="d">-            var result = ps.Invoke();
+</a>             return result;
+         }
+     }
+<b>diff --git a/<a id="h15" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubClient.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubClient.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubClient.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/GitHubClient.cs</a></b>
+<a href="#h15-0" id="h15-0" class="h">@@ -6,24 +6,16 @@
+</a> 
+ namespace Microsoft.WinGet.Client.Engine.Helpers
+ {
+<a href="#h15-0-3" id="h15-0-3" class="d">-    using System;
+</a><a href="#h15-0-4" id="h15-0-4" class="d">-    using System.Collections.Generic;
+</a><a href="#h15-0-5" id="h15-0-5" class="d">-    using System.IO;
+</a>     using System.Threading.Tasks;
+     using Octokit;
+<a href="#h15-0-8" id="h15-0-8" class="d">-    using FileMode = System.IO.FileMode;
+</a> 
+     /// &lt;summary&gt;
+     /// Handles GitHub interactions.
+     /// &lt;/summary&gt;
+     internal class GitHubClient
+     {
+<a href="#h15-0-15" id="h15-0-15" class="d">-        private const string UserAgent = &quot;winget-powershell&quot;;
+</a><a href="#h15-0-16" id="h15-0-16" class="d">-        private const string ContentType = &quot;application/octet-stream&quot;;
+</a><a href="#h15-0-17" id="h15-0-17" class="d">-
+</a>         private readonly string owner;
+         private readonly string repo;
+<a href="#h15-0-20" id="h15-0-20" class="d">-
+</a>         private readonly IGitHubClient gitHubClient;
+ 
+         /// &lt;summary&gt;
+<a href="#h15-1" id="h15-1" class="h">@@ -33,7 +25,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         /// &lt;param name=&quot;repo&quot;&gt;Repository.&lt;/param&gt;
+         public GitHubClient(string owner, string repo)
+         {
+<a href="#h15-1-3" id="h15-1-3" class="d">-            this.gitHubClient = new Octokit.GitHubClient(new ProductHeaderValue(UserAgent));
+</a><a href="#h15-1-4" id="h15-1-4" class="i">+            this.gitHubClient = new Octokit.GitHubClient(new ProductHeaderValue(HttpClientHelper.UserAgent));
+</a>             this.owner = owner;
+             this.repo = repo;
+         }
+<a href="#h15-2" id="h15-2" class="h">@@ -43,58 +35,19 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;releaseTag&quot;&gt;Release tag.&lt;/param&gt;
+         /// &lt;returns&gt;The Release.&lt;/returns&gt;
+<a href="#h15-2-3" id="h15-2-3" class="d">-        public Release GetRelease(string releaseTag)
+</a><a href="#h15-2-4" id="h15-2-4" class="d">-        {
+</a><a href="#h15-2-5" id="h15-2-5" class="d">-            return this.GetReleaseAsync(releaseTag).GetAwaiter().GetResult();
+</a><a href="#h15-2-6" id="h15-2-6" class="d">-        }
+</a><a href="#h15-2-7" id="h15-2-7" class="d">-
+</a><a href="#h15-2-8" id="h15-2-8" class="d">-        /// &lt;summary&gt;
+</a><a href="#h15-2-9" id="h15-2-9" class="d">-        /// Gets a release.
+</a><a href="#h15-2-10" id="h15-2-10" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h15-2-11" id="h15-2-11" class="d">-        /// &lt;param name=&quot;releaseTag&quot;&gt;Release tag.&lt;/param&gt;
+</a><a href="#h15-2-12" id="h15-2-12" class="d">-        /// &lt;returns&gt;The Release.&lt;/returns&gt;
+</a>         public async Task&lt;Release&gt; GetReleaseAsync(string releaseTag)
+         {
+             return await this.gitHubClient.Repository.Release.Get(this.owner, this.repo, releaseTag);
+         }
+ 
+         /// &lt;summary&gt;
+<a href="#h15-2-19" id="h15-2-19" class="d">-        /// Gets the latest released version and waits.
+</a><a href="#h15-2-20" id="h15-2-20" class="i">+        /// Gets the latest released and waits.
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;includePreRelease&quot;&gt;Include prerelease.&lt;/param&gt;
+         /// &lt;returns&gt;Latest version.&lt;/returns&gt;
+<a href="#h15-2-24" id="h15-2-24" class="d">-        public string GetLatestVersionTagName(bool includePreRelease)
+</a><a href="#h15-2-25" id="h15-2-25" class="i">+        public async Task&lt;string&gt; GetLatestReleaseTagNameAsync(bool includePreRelease)
+</a>         {
+<a href="#h15-2-27" id="h15-2-27" class="d">-            return this.GetLatestVersionAsync(includePreRelease).GetAwaiter().GetResult().TagName;
+</a><a href="#h15-2-28" id="h15-2-28" class="d">-        }
+</a><a href="#h15-2-29" id="h15-2-29" class="d">-
+</a><a href="#h15-2-30" id="h15-2-30" class="d">-        /// &lt;summary&gt;
+</a><a href="#h15-2-31" id="h15-2-31" class="d">-        /// Downloads a file from a url and waits.
+</a><a href="#h15-2-32" id="h15-2-32" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h15-2-33" id="h15-2-33" class="d">-        /// &lt;param name=&quot;url&quot;&gt;Url.&lt;/param&gt;
+</a><a href="#h15-2-34" id="h15-2-34" class="d">-        /// &lt;param name=&quot;fileName&quot;&gt;File name.&lt;/param&gt;
+</a><a href="#h15-2-35" id="h15-2-35" class="d">-        public void DownloadUrl(string url, string fileName)
+</a><a href="#h15-2-36" id="h15-2-36" class="d">-        {
+</a><a href="#h15-2-37" id="h15-2-37" class="d">-            this.DownloadUrlAsync(url, fileName).GetAwaiter().GetResult();
+</a><a href="#h15-2-38" id="h15-2-38" class="d">-        }
+</a><a href="#h15-2-39" id="h15-2-39" class="d">-
+</a><a href="#h15-2-40" id="h15-2-40" class="d">-        /// &lt;summary&gt;
+</a><a href="#h15-2-41" id="h15-2-41" class="d">-        /// Downloads a file from a url.
+</a><a href="#h15-2-42" id="h15-2-42" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h15-2-43" id="h15-2-43" class="d">-        /// &lt;param name=&quot;url&quot;&gt;Url.&lt;/param&gt;
+</a><a href="#h15-2-44" id="h15-2-44" class="d">-        /// &lt;param name=&quot;fileName&quot;&gt;File name.&lt;/param&gt;
+</a><a href="#h15-2-45" id="h15-2-45" class="d">-        /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous operation.&lt;/returns&gt;
+</a><a href="#h15-2-46" id="h15-2-46" class="d">-        public async Task DownloadUrlAsync(string url, string fileName)
+</a><a href="#h15-2-47" id="h15-2-47" class="d">-        {
+</a><a href="#h15-2-48" id="h15-2-48" class="d">-            var response = await this.gitHubClient.Connection.Get&lt;object&gt;(
+</a><a href="#h15-2-49" id="h15-2-49" class="d">-                new Uri(url),
+</a><a href="#h15-2-50" id="h15-2-50" class="d">-                new Dictionary&lt;string, string&gt;(),
+</a><a href="#h15-2-51" id="h15-2-51" class="d">-                ContentType);
+</a><a href="#h15-2-52" id="h15-2-52" class="d">-
+</a><a href="#h15-2-53" id="h15-2-53" class="d">-            using var memoryStream = new MemoryStream((byte[])response.Body);
+</a><a href="#h15-2-54" id="h15-2-54" class="d">-            using var fileStream = File.Open(fileName, FileMode.OpenOrCreate);
+</a><a href="#h15-2-55" id="h15-2-55" class="d">-            memoryStream.Position = 0;
+</a><a href="#h15-2-56" id="h15-2-56" class="d">-            await memoryStream.CopyToAsync(fileStream);
+</a><a href="#h15-2-57" id="h15-2-57" class="i">+            return (await this.GetLatestReleaseAsync(includePreRelease)).TagName;
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h15-3" id="h15-3" class="h">@@ -102,7 +55,7 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>         /// &lt;/summary&gt;
+         /// &lt;param name=&quot;includePreRelease&quot;&gt;Include prerelease.&lt;/param&gt;
+         /// &lt;returns&gt;Latest version.&lt;/returns&gt;
+<a href="#h15-3-3" id="h15-3-3" class="d">-        internal async Task&lt;Release&gt; GetLatestVersionAsync(bool includePreRelease)
+</a><a href="#h15-3-4" id="h15-3-4" class="i">+        public async Task&lt;Release&gt; GetLatestReleaseAsync(bool includePreRelease)
+</a>         {
+             Release release;
+ 
+<b>diff --git a/<a id="h16" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/HttpClientHelper.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/HttpClientHelper.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/HttpClientHelper.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/HttpClientHelper.cs</a></b>
+<a href="#h16-0" id="h16-0" class="h">@@ -0,0 +1,115 @@
+</a><a href="#h16-0-0" id="h16-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h16-0-1" id="h16-0-1" class="i">+// &lt;copyright file=&quot;HttpClientHelper.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h16-0-2" id="h16-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h16-0-3" id="h16-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h16-0-4" id="h16-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h16-0-5" id="h16-0-5" class="i">+
+</a><a href="#h16-0-6" id="h16-0-6" class="i">+namespace Microsoft.WinGet.Client.Engine.Helpers
+</a><a href="#h16-0-7" id="h16-0-7" class="i">+{
+</a><a href="#h16-0-8" id="h16-0-8" class="i">+    using System;
+</a><a href="#h16-0-9" id="h16-0-9" class="i">+    using System.Diagnostics;
+</a><a href="#h16-0-10" id="h16-0-10" class="i">+    using System.IO;
+</a><a href="#h16-0-11" id="h16-0-11" class="i">+    using System.Management.Automation;
+</a><a href="#h16-0-12" id="h16-0-12" class="i">+    using System.Net.Http;
+</a><a href="#h16-0-13" id="h16-0-13" class="i">+    using System.Threading.Tasks;
+</a><a href="#h16-0-14" id="h16-0-14" class="i">+    using Microsoft.WinGet.Client.Engine.Common;
+</a><a href="#h16-0-15" id="h16-0-15" class="i">+    using Microsoft.WinGet.Common.Command;
+</a><a href="#h16-0-16" id="h16-0-16" class="i">+    using Microsoft.WinGet.Resources;
+</a><a href="#h16-0-17" id="h16-0-17" class="i">+
+</a><a href="#h16-0-18" id="h16-0-18" class="i">+    /// &lt;summary&gt;
+</a><a href="#h16-0-19" id="h16-0-19" class="i">+    /// Helper class for HttpClient calls.
+</a><a href="#h16-0-20" id="h16-0-20" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h16-0-21" id="h16-0-21" class="i">+    internal class HttpClientHelper
+</a><a href="#h16-0-22" id="h16-0-22" class="i">+    {
+</a><a href="#h16-0-23" id="h16-0-23" class="i">+        /// &lt;summary&gt;
+</a><a href="#h16-0-24" id="h16-0-24" class="i">+        /// The user agent of this module.
+</a><a href="#h16-0-25" id="h16-0-25" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h16-0-26" id="h16-0-26" class="i">+        public const string UserAgent = &quot;winget-powershell&quot;;
+</a><a href="#h16-0-27" id="h16-0-27" class="i">+
+</a><a href="#h16-0-28" id="h16-0-28" class="i">+        private static readonly HttpClient Client;
+</a><a href="#h16-0-29" id="h16-0-29" class="i">+
+</a><a href="#h16-0-30" id="h16-0-30" class="i">+        static HttpClientHelper()
+</a><a href="#h16-0-31" id="h16-0-31" class="i">+        {
+</a><a href="#h16-0-32" id="h16-0-32" class="i">+            Client = new HttpClient();
+</a><a href="#h16-0-33" id="h16-0-33" class="i">+        }
+</a><a href="#h16-0-34" id="h16-0-34" class="i">+
+</a><a href="#h16-0-35" id="h16-0-35" class="i">+        /// &lt;summary&gt;
+</a><a href="#h16-0-36" id="h16-0-36" class="i">+        /// Downloads a file from a url.
+</a><a href="#h16-0-37" id="h16-0-37" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h16-0-38" id="h16-0-38" class="i">+        /// &lt;param name=&quot;url&quot;&gt;Url.&lt;/param&gt;
+</a><a href="#h16-0-39" id="h16-0-39" class="i">+        /// &lt;param name=&quot;fileName&quot;&gt;File name.&lt;/param&gt;
+</a><a href="#h16-0-40" id="h16-0-40" class="i">+        /// /// &lt;param name=&quot;pwshCmdlet&quot;&gt;PowershellCmdlet.&lt;/param&gt;
+</a><a href="#h16-0-41" id="h16-0-41" class="i">+        /// &lt;returns&gt;A &lt;see cref=&quot;Task&quot;/&gt; representing the asynchronous operation.&lt;/returns&gt;
+</a><a href="#h16-0-42" id="h16-0-42" class="i">+        public async Task DownloadUrlWithProgressAsync(string url, string fileName, PowerShellCmdlet pwshCmdlet)
+</a><a href="#h16-0-43" id="h16-0-43" class="i">+        {
+</a><a href="#h16-0-44" id="h16-0-44" class="i">+            pwshCmdlet.Write(StreamType.Verbose, $&quot;Downloading {url}&quot;);
+</a><a href="#h16-0-45" id="h16-0-45" class="i">+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+</a><a href="#h16-0-46" id="h16-0-46" class="i">+            request.Headers.Add(&quot;User-Agent&quot;, UserAgent);
+</a><a href="#h16-0-47" id="h16-0-47" class="i">+
+</a><a href="#h16-0-48" id="h16-0-48" class="i">+            var cancellationToken = pwshCmdlet.GetCancellationToken();
+</a><a href="#h16-0-49" id="h16-0-49" class="i">+            using var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+</a><a href="#h16-0-50" id="h16-0-50" class="i">+            response.EnsureSuccessStatusCode();
+</a><a href="#h16-0-51" id="h16-0-51" class="i">+
+</a><a href="#h16-0-52" id="h16-0-52" class="i">+            try
+</a><a href="#h16-0-53" id="h16-0-53" class="i">+            {
+</a><a href="#h16-0-54" id="h16-0-54" class="i">+                long? contentLength = response.Content.Headers.ContentLength;
+</a><a href="#h16-0-55" id="h16-0-55" class="i">+                var responseStream = await response.Content.ReadAsStreamAsync();
+</a><a href="#h16-0-56" id="h16-0-56" class="i">+
+</a><a href="#h16-0-57" id="h16-0-57" class="i">+                using var fileStream = File.Open(fileName, FileMode.OpenOrCreate);
+</a><a href="#h16-0-58" id="h16-0-58" class="i">+
+</a><a href="#h16-0-59" id="h16-0-59" class="i">+                if (contentLength.HasValue)
+</a><a href="#h16-0-60" id="h16-0-60" class="i">+                {
+</a><a href="#h16-0-61" id="h16-0-61" class="i">+                    pwshCmdlet.Write(StreamType.Verbose, $&quot;Size {contentLength} bytes&quot;);
+</a><a href="#h16-0-62" id="h16-0-62" class="i">+
+</a><a href="#h16-0-63" id="h16-0-63" class="i">+                    byte[] buffer = new byte[Constants.OneMB];
+</a><a href="#h16-0-64" id="h16-0-64" class="i">+                    int bytesRead, totalBytes = 0;
+</a><a href="#h16-0-65" id="h16-0-65" class="i">+
+</a><a href="#h16-0-66" id="h16-0-66" class="i">+                    var activityId = pwshCmdlet.GetNewProgressActivityId();
+</a><a href="#h16-0-67" id="h16-0-67" class="i">+                    double lengthInMB = (double)contentLength.Value / Constants.OneMB;
+</a><a href="#h16-0-68" id="h16-0-68" class="i">+                    try
+</a><a href="#h16-0-69" id="h16-0-69" class="i">+                    {
+</a><a href="#h16-0-70" id="h16-0-70" class="i">+                        int maxPercentComplete = 0;
+</a><a href="#h16-0-71" id="h16-0-71" class="i">+                        while ((bytesRead = await responseStream.ReadAsync(buffer, 0, buffer.Length, cancellationToken)) &gt; 0)
+</a><a href="#h16-0-72" id="h16-0-72" class="i">+                        {
+</a><a href="#h16-0-73" id="h16-0-73" class="i">+                            await fileStream.WriteAsync(buffer, 0, bytesRead, cancellationToken);
+</a><a href="#h16-0-74" id="h16-0-74" class="i">+                            totalBytes += bytesRead;
+</a><a href="#h16-0-75" id="h16-0-75" class="i">+
+</a><a href="#h16-0-76" id="h16-0-76" class="i">+                            int percentComplete = (int)((double)totalBytes / contentLength * 100);
+</a><a href="#h16-0-77" id="h16-0-77" class="i">+                            if (percentComplete &gt; maxPercentComplete)
+</a><a href="#h16-0-78" id="h16-0-78" class="i">+                            {
+</a><a href="#h16-0-79" id="h16-0-79" class="i">+                                maxPercentComplete = percentComplete;
+</a><a href="#h16-0-80" id="h16-0-80" class="i">+                                ProgressRecord record = new (activityId, url, Resources.DownloadingMessage)
+</a><a href="#h16-0-81" id="h16-0-81" class="i">+                                {
+</a><a href="#h16-0-82" id="h16-0-82" class="i">+                                    RecordType = ProgressRecordType.Processing,
+</a><a href="#h16-0-83" id="h16-0-83" class="i">+                                };
+</a><a href="#h16-0-84" id="h16-0-84" class="i">+
+</a><a href="#h16-0-85" id="h16-0-85" class="i">+                                double progress = (double)totalBytes / Constants.OneMB;
+</a><a href="#h16-0-86" id="h16-0-86" class="i">+                                record.StatusDescription = $&quot;{progress:0.0} MB / {lengthInMB:0.0} MB&quot;;
+</a><a href="#h16-0-87" id="h16-0-87" class="i">+                                record.PercentComplete = percentComplete;
+</a><a href="#h16-0-88" id="h16-0-88" class="i">+                                pwshCmdlet.Write(StreamType.Progress, record);
+</a><a href="#h16-0-89" id="h16-0-89" class="i">+                            }
+</a><a href="#h16-0-90" id="h16-0-90" class="i">+                        }
+</a><a href="#h16-0-91" id="h16-0-91" class="i">+                    }
+</a><a href="#h16-0-92" id="h16-0-92" class="i">+                    finally
+</a><a href="#h16-0-93" id="h16-0-93" class="i">+                    {
+</a><a href="#h16-0-94" id="h16-0-94" class="i">+                        pwshCmdlet.CompleteProgress(activityId, url, Resources.DownloadingMessage, true);
+</a><a href="#h16-0-95" id="h16-0-95" class="i">+                    }
+</a><a href="#h16-0-96" id="h16-0-96" class="i">+                }
+</a><a href="#h16-0-97" id="h16-0-97" class="i">+                else
+</a><a href="#h16-0-98" id="h16-0-98" class="i">+                {
+</a><a href="#h16-0-99" id="h16-0-99" class="i">+                    pwshCmdlet.Write(StreamType.Verbose, $&quot;Content-Length not found in response&quot;);
+</a><a href="#h16-0-100" id="h16-0-100" class="i">+                    await responseStream.CopyToAsync(fileStream);
+</a><a href="#h16-0-101" id="h16-0-101" class="i">+                }
+</a><a href="#h16-0-102" id="h16-0-102" class="i">+            }
+</a><a href="#h16-0-103" id="h16-0-103" class="i">+            catch (Exception)
+</a><a href="#h16-0-104" id="h16-0-104" class="i">+            {
+</a><a href="#h16-0-105" id="h16-0-105" class="i">+                if (File.Exists(fileName))
+</a><a href="#h16-0-106" id="h16-0-106" class="i">+                {
+</a><a href="#h16-0-107" id="h16-0-107" class="i">+                    File.Delete(fileName);
+</a><a href="#h16-0-108" id="h16-0-108" class="i">+                }
+</a><a href="#h16-0-109" id="h16-0-109" class="i">+
+</a><a href="#h16-0-110" id="h16-0-110" class="i">+                throw;
+</a><a href="#h16-0-111" id="h16-0-111" class="i">+            }
+</a><a href="#h16-0-112" id="h16-0-112" class="i">+        }
+</a><a href="#h16-0-113" id="h16-0-113" class="i">+    }
+</a><a href="#h16-0-114" id="h16-0-114" class="i">+}
+</a><b>diff --git a/<a id="h17" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/InstallOperationWithProgress.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/InstallOperationWithProgress.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/InstallOperationWithProgress.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/InstallOperationWithProgress.cs</a></b>
+<a href="#h17-0" id="h17-0" class="h">@@ -0,0 +1,53 @@
+</a><a href="#h17-0-0" id="h17-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h17-0-1" id="h17-0-1" class="i">+// &lt;copyright file=&quot;InstallOperationWithProgress.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h17-0-2" id="h17-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h17-0-3" id="h17-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h17-0-4" id="h17-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h17-0-5" id="h17-0-5" class="i">+
+</a><a href="#h17-0-6" id="h17-0-6" class="i">+namespace Microsoft.WinGet.Client.Engine.Helpers
+</a><a href="#h17-0-7" id="h17-0-7" class="i">+{
+</a><a href="#h17-0-8" id="h17-0-8" class="i">+    using System.Management.Automation;
+</a><a href="#h17-0-9" id="h17-0-9" class="i">+    using Microsoft.Management.Deployment;
+</a><a href="#h17-0-10" id="h17-0-10" class="i">+    using Microsoft.WinGet.Client.Engine.Common;
+</a><a href="#h17-0-11" id="h17-0-11" class="i">+    using Microsoft.WinGet.Common.Command;
+</a><a href="#h17-0-12" id="h17-0-12" class="i">+    using Windows.Foundation;
+</a><a href="#h17-0-13" id="h17-0-13" class="i">+
+</a><a href="#h17-0-14" id="h17-0-14" class="i">+    /// &lt;summary&gt;
+</a><a href="#h17-0-15" id="h17-0-15" class="i">+    /// Handlers install or update operations with progress.
+</a><a href="#h17-0-16" id="h17-0-16" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h17-0-17" id="h17-0-17" class="i">+    internal class InstallOperationWithProgress : OperationWithProgressBase&lt;InstallResult, InstallProgress&gt;
+</a><a href="#h17-0-18" id="h17-0-18" class="i">+    {
+</a><a href="#h17-0-19" id="h17-0-19" class="i">+        /// &lt;summary&gt;
+</a><a href="#h17-0-20" id="h17-0-20" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;InstallOperationWithProgress&quot;/&gt; class.
+</a><a href="#h17-0-21" id="h17-0-21" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h17-0-22" id="h17-0-22" class="i">+        /// &lt;param name=&quot;pwshCmdlet&quot;&gt;A &lt;see cref=&quot;PowerShellCmdlet&quot; /&gt; instance.&lt;/param&gt;
+</a><a href="#h17-0-23" id="h17-0-23" class="i">+        /// &lt;param name=&quot;activity&quot;&gt;Activity.&lt;/param&gt;
+</a><a href="#h17-0-24" id="h17-0-24" class="i">+        public InstallOperationWithProgress(PowerShellCmdlet pwshCmdlet, string activity)
+</a><a href="#h17-0-25" id="h17-0-25" class="i">+            : base(pwshCmdlet, activity)
+</a><a href="#h17-0-26" id="h17-0-26" class="i">+        {
+</a><a href="#h17-0-27" id="h17-0-27" class="i">+        }
+</a><a href="#h17-0-28" id="h17-0-28" class="i">+
+</a><a href="#h17-0-29" id="h17-0-29" class="i">+        /// &lt;inheritdoc/&gt;
+</a><a href="#h17-0-30" id="h17-0-30" class="i">+        public override void Progress(IAsyncOperationWithProgress&lt;InstallResult, InstallProgress&gt; operation, InstallProgress progress)
+</a><a href="#h17-0-31" id="h17-0-31" class="i">+        {
+</a><a href="#h17-0-32" id="h17-0-32" class="i">+            ProgressRecord record = new (this.ActivityId, this.Activity, progress.State.ToString())
+</a><a href="#h17-0-33" id="h17-0-33" class="i">+            {
+</a><a href="#h17-0-34" id="h17-0-34" class="i">+                RecordType = ProgressRecordType.Processing,
+</a><a href="#h17-0-35" id="h17-0-35" class="i">+            };
+</a><a href="#h17-0-36" id="h17-0-36" class="i">+
+</a><a href="#h17-0-37" id="h17-0-37" class="i">+            if (progress.State == PackageInstallProgressState.Downloading &amp;&amp; progress.BytesRequired != 0)
+</a><a href="#h17-0-38" id="h17-0-38" class="i">+            {
+</a><a href="#h17-0-39" id="h17-0-39" class="i">+                double downloaded = (double)progress.BytesDownloaded / Constants.OneMB;
+</a><a href="#h17-0-40" id="h17-0-40" class="i">+                double total = (double)progress.BytesRequired / Constants.OneMB;
+</a><a href="#h17-0-41" id="h17-0-41" class="i">+                record.StatusDescription = $&quot;{downloaded:0.0} MB / {total:0.0} MB&quot;;
+</a><a href="#h17-0-42" id="h17-0-42" class="i">+                record.PercentComplete = (int)(progress.DownloadProgress * 100);
+</a><a href="#h17-0-43" id="h17-0-43" class="i">+            }
+</a><a href="#h17-0-44" id="h17-0-44" class="i">+            else if (progress.State == PackageInstallProgressState.Installing)
+</a><a href="#h17-0-45" id="h17-0-45" class="i">+            {
+</a><a href="#h17-0-46" id="h17-0-46" class="i">+                record.PercentComplete = (int)(progress.InstallationProgress * 100);
+</a><a href="#h17-0-47" id="h17-0-47" class="i">+            }
+</a><a href="#h17-0-48" id="h17-0-48" class="i">+
+</a><a href="#h17-0-49" id="h17-0-49" class="i">+            this.PwshCmdlet.Write(StreamType.Progress, record);
+</a><a href="#h17-0-50" id="h17-0-50" class="i">+        }
+</a><a href="#h17-0-51" id="h17-0-51" class="i">+    }
+</a><a href="#h17-0-52" id="h17-0-52" class="i">+}
+</a><b>diff --git a/<a id="h18" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/OperationWithProgressBase.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/OperationWithProgressBase.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/OperationWithProgressBase.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/OperationWithProgressBase.cs</a></b>
+<a href="#h18-0" id="h18-0" class="h">@@ -0,0 +1,87 @@
+</a><a href="#h18-0-0" id="h18-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h18-0-1" id="h18-0-1" class="i">+// &lt;copyright file=&quot;OperationWithProgressBase.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h18-0-2" id="h18-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h18-0-3" id="h18-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h18-0-4" id="h18-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h18-0-5" id="h18-0-5" class="i">+
+</a><a href="#h18-0-6" id="h18-0-6" class="i">+namespace Microsoft.WinGet.Client.Engine.Helpers
+</a><a href="#h18-0-7" id="h18-0-7" class="i">+{
+</a><a href="#h18-0-8" id="h18-0-8" class="i">+    using System;
+</a><a href="#h18-0-9" id="h18-0-9" class="i">+    using System.Threading.Tasks;
+</a><a href="#h18-0-10" id="h18-0-10" class="i">+    using Microsoft.WinGet.Common.Command;
+</a><a href="#h18-0-11" id="h18-0-11" class="i">+    using Microsoft.WinGet.Resources;
+</a><a href="#h18-0-12" id="h18-0-12" class="i">+    using Windows.Foundation;
+</a><a href="#h18-0-13" id="h18-0-13" class="i">+
+</a><a href="#h18-0-14" id="h18-0-14" class="i">+    /// &lt;summary&gt;
+</a><a href="#h18-0-15" id="h18-0-15" class="i">+    /// Base class for async operations with progress.
+</a><a href="#h18-0-16" id="h18-0-16" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h18-0-17" id="h18-0-17" class="i">+    /// &lt;typeparam name=&quot;TOperationResult&quot;&gt;The operation result.&lt;/typeparam&gt;
+</a><a href="#h18-0-18" id="h18-0-18" class="i">+    /// &lt;typeparam name=&quot;TProgressData&quot;&gt;Progress data.&lt;/typeparam&gt;
+</a><a href="#h18-0-19" id="h18-0-19" class="i">+    internal abstract class OperationWithProgressBase&lt;TOperationResult, TProgressData&gt;
+</a><a href="#h18-0-20" id="h18-0-20" class="i">+    {
+</a><a href="#h18-0-21" id="h18-0-21" class="i">+        /// &lt;summary&gt;
+</a><a href="#h18-0-22" id="h18-0-22" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;OperationWithProgressBase{TOperationResult, TProgressData}&quot;/&gt; class.
+</a><a href="#h18-0-23" id="h18-0-23" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h18-0-24" id="h18-0-24" class="i">+        /// &lt;param name=&quot;pwshCmdlet&quot;&gt;A &lt;see cref=&quot;PowerShellCmdlet&quot; /&gt; instance.&lt;/param&gt;
+</a><a href="#h18-0-25" id="h18-0-25" class="i">+        /// &lt;param name=&quot;activity&quot;&gt;Activity.&lt;/param&gt;
+</a><a href="#h18-0-26" id="h18-0-26" class="i">+        public OperationWithProgressBase(
+</a><a href="#h18-0-27" id="h18-0-27" class="i">+            PowerShellCmdlet pwshCmdlet,
+</a><a href="#h18-0-28" id="h18-0-28" class="i">+            string activity)
+</a><a href="#h18-0-29" id="h18-0-29" class="i">+        {
+</a><a href="#h18-0-30" id="h18-0-30" class="i">+            this.PwshCmdlet = pwshCmdlet;
+</a><a href="#h18-0-31" id="h18-0-31" class="i">+            this.ActivityId = pwshCmdlet.GetNewProgressActivityId();
+</a><a href="#h18-0-32" id="h18-0-32" class="i">+            this.Activity = activity;
+</a><a href="#h18-0-33" id="h18-0-33" class="i">+        }
+</a><a href="#h18-0-34" id="h18-0-34" class="i">+
+</a><a href="#h18-0-35" id="h18-0-35" class="i">+        /// &lt;summary&gt;
+</a><a href="#h18-0-36" id="h18-0-36" class="i">+        /// Gets the PowerShellCmdlet.
+</a><a href="#h18-0-37" id="h18-0-37" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h18-0-38" id="h18-0-38" class="i">+        protected PowerShellCmdlet PwshCmdlet { get; }
+</a><a href="#h18-0-39" id="h18-0-39" class="i">+
+</a><a href="#h18-0-40" id="h18-0-40" class="i">+        /// &lt;summary&gt;
+</a><a href="#h18-0-41" id="h18-0-41" class="i">+        /// Gets the progress activity id.
+</a><a href="#h18-0-42" id="h18-0-42" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h18-0-43" id="h18-0-43" class="i">+        protected int ActivityId { get; }
+</a><a href="#h18-0-44" id="h18-0-44" class="i">+
+</a><a href="#h18-0-45" id="h18-0-45" class="i">+        /// &lt;summary&gt;
+</a><a href="#h18-0-46" id="h18-0-46" class="i">+        /// Gets the activity.
+</a><a href="#h18-0-47" id="h18-0-47" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h18-0-48" id="h18-0-48" class="i">+        protected string Activity { get; }
+</a><a href="#h18-0-49" id="h18-0-49" class="i">+
+</a><a href="#h18-0-50" id="h18-0-50" class="i">+        /// &lt;summary&gt;
+</a><a href="#h18-0-51" id="h18-0-51" class="i">+        /// Progress callback.
+</a><a href="#h18-0-52" id="h18-0-52" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h18-0-53" id="h18-0-53" class="i">+        /// &lt;param name=&quot;operation&quot;&gt;Async operation in progress.&lt;/param&gt;
+</a><a href="#h18-0-54" id="h18-0-54" class="i">+        /// &lt;param name=&quot;progress&quot;&gt;Progress data.&lt;/param&gt;
+</a><a href="#h18-0-55" id="h18-0-55" class="i">+        public abstract void Progress(IAsyncOperationWithProgress&lt;TOperationResult, TProgressData&gt; operation, TProgressData progress);
+</a><a href="#h18-0-56" id="h18-0-56" class="i">+
+</a><a href="#h18-0-57" id="h18-0-57" class="i">+        /// &lt;summary&gt;
+</a><a href="#h18-0-58" id="h18-0-58" class="i">+        /// Starts the operation and executes it as task.
+</a><a href="#h18-0-59" id="h18-0-59" class="i">+        /// Supports cancellation.
+</a><a href="#h18-0-60" id="h18-0-60" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h18-0-61" id="h18-0-61" class="i">+        /// &lt;param name=&quot;func&quot;&gt;Lambda with operation.&lt;/param&gt;
+</a><a href="#h18-0-62" id="h18-0-62" class="i">+        /// &lt;returns&gt;TOperationReturn.&lt;/returns&gt;
+</a><a href="#h18-0-63" id="h18-0-63" class="i">+        public async Task&lt;TOperationResult&gt; ExecuteAsync(Func&lt;IAsyncOperationWithProgress&lt;TOperationResult, TProgressData&gt;&gt; func)
+</a><a href="#h18-0-64" id="h18-0-64" class="i">+        {
+</a><a href="#h18-0-65" id="h18-0-65" class="i">+            var operation = func();
+</a><a href="#h18-0-66" id="h18-0-66" class="i">+            operation.Progress = this.Progress;
+</a><a href="#h18-0-67" id="h18-0-67" class="i">+
+</a><a href="#h18-0-68" id="h18-0-68" class="i">+            try
+</a><a href="#h18-0-69" id="h18-0-69" class="i">+            {
+</a><a href="#h18-0-70" id="h18-0-70" class="i">+                return await operation.AsTask(this.PwshCmdlet.GetCancellationToken());
+</a><a href="#h18-0-71" id="h18-0-71" class="i">+            }
+</a><a href="#h18-0-72" id="h18-0-72" class="i">+            finally
+</a><a href="#h18-0-73" id="h18-0-73" class="i">+            {
+</a><a href="#h18-0-74" id="h18-0-74" class="i">+                this.Complete();
+</a><a href="#h18-0-75" id="h18-0-75" class="i">+            }
+</a><a href="#h18-0-76" id="h18-0-76" class="i">+        }
+</a><a href="#h18-0-77" id="h18-0-77" class="i">+
+</a><a href="#h18-0-78" id="h18-0-78" class="i">+        /// &lt;summary&gt;
+</a><a href="#h18-0-79" id="h18-0-79" class="i">+        /// Completes progress for this activity.
+</a><a href="#h18-0-80" id="h18-0-80" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h18-0-81" id="h18-0-81" class="i">+        protected virtual void Complete()
+</a><a href="#h18-0-82" id="h18-0-82" class="i">+        {
+</a><a href="#h18-0-83" id="h18-0-83" class="i">+            this.PwshCmdlet.CompleteProgress(this.ActivityId, this.Activity, Resources.Completed, true);
+</a><a href="#h18-0-84" id="h18-0-84" class="i">+        }
+</a><a href="#h18-0-85" id="h18-0-85" class="i">+    }
+</a><a href="#h18-0-86" id="h18-0-86" class="i">+}
+</a><b>diff --git a/<a id="h19" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/TempFile.cs</a></b>
+<a href="#h19-0" id="h19-0" class="h">@@ -34,14 +34,16 @@ namespace Microsoft.WinGet.Client.Engine.Helpers
+</a>             if (fileName is null)
+             {
+                 this.FileName = Path.GetRandomFileName();
+<a href="#h19-0-3" id="h19-0-3" class="i">+                this.FullPath = Path.Combine(Path.GetTempPath(), this.FileName);
+</a>             }
+             else
+             {
+                 this.FileName = fileName;
+<a href="#h19-0-8" id="h19-0-8" class="i">+                var randomDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+</a><a href="#h19-0-9" id="h19-0-9" class="i">+                Directory.CreateDirectory(randomDir);
+</a><a href="#h19-0-10" id="h19-0-10" class="i">+                this.FullPath = Path.Combine(randomDir, this.FileName);
+</a>             }
+ 
+<a href="#h19-0-13" id="h19-0-13" class="d">-            this.FullPath = Path.Combine(Path.GetTempPath(), this.FileName);
+</a><a href="#h19-0-14" id="h19-0-14" class="d">-
+</a>             if (deleteIfExists &amp;&amp; File.Exists(this.FullPath))
+             {
+                 File.Delete(this.FullPath);
+<b>diff --git a/<a id="h20" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/UninstallOperationWithProgress.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/UninstallOperationWithProgress.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/UninstallOperationWithProgress.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/UninstallOperationWithProgress.cs</a></b>
+<a href="#h20-0" id="h20-0" class="h">@@ -0,0 +1,42 @@
+</a><a href="#h20-0-0" id="h20-0-0" class="i">+﻿// -----------------------------------------------------------------------------
+</a><a href="#h20-0-1" id="h20-0-1" class="i">+// &lt;copyright file=&quot;UninstallOperationWithProgress.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h20-0-2" id="h20-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h20-0-3" id="h20-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h20-0-4" id="h20-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h20-0-5" id="h20-0-5" class="i">+
+</a><a href="#h20-0-6" id="h20-0-6" class="i">+namespace Microsoft.WinGet.Client.Engine.Helpers
+</a><a href="#h20-0-7" id="h20-0-7" class="i">+{
+</a><a href="#h20-0-8" id="h20-0-8" class="i">+    using System.Management.Automation;
+</a><a href="#h20-0-9" id="h20-0-9" class="i">+    using Microsoft.Management.Deployment;
+</a><a href="#h20-0-10" id="h20-0-10" class="i">+    using Microsoft.WinGet.Common.Command;
+</a><a href="#h20-0-11" id="h20-0-11" class="i">+    using Microsoft.WinGet.Resources;
+</a><a href="#h20-0-12" id="h20-0-12" class="i">+    using Windows.Foundation;
+</a><a href="#h20-0-13" id="h20-0-13" class="i">+
+</a><a href="#h20-0-14" id="h20-0-14" class="i">+    /// &lt;summary&gt;
+</a><a href="#h20-0-15" id="h20-0-15" class="i">+    /// Handler progress for uninstall.
+</a><a href="#h20-0-16" id="h20-0-16" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h20-0-17" id="h20-0-17" class="i">+    internal class UninstallOperationWithProgress : OperationWithProgressBase&lt;UninstallResult, UninstallProgress&gt;
+</a><a href="#h20-0-18" id="h20-0-18" class="i">+    {
+</a><a href="#h20-0-19" id="h20-0-19" class="i">+        /// &lt;summary&gt;
+</a><a href="#h20-0-20" id="h20-0-20" class="i">+        /// Initializes a new instance of the &lt;see cref=&quot;UninstallOperationWithProgress&quot;/&gt; class.
+</a><a href="#h20-0-21" id="h20-0-21" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h20-0-22" id="h20-0-22" class="i">+        /// &lt;param name=&quot;pwshCmdlet&quot;&gt;A &lt;see cref=&quot;PowerShellCmdlet&quot; /&gt; instance.&lt;/param&gt;
+</a><a href="#h20-0-23" id="h20-0-23" class="i">+        /// &lt;param name=&quot;activity&quot;&gt;Activity.&lt;/param&gt;
+</a><a href="#h20-0-24" id="h20-0-24" class="i">+        public UninstallOperationWithProgress(PowerShellCmdlet pwshCmdlet, string activity)
+</a><a href="#h20-0-25" id="h20-0-25" class="i">+            : base(pwshCmdlet, activity)
+</a><a href="#h20-0-26" id="h20-0-26" class="i">+        {
+</a><a href="#h20-0-27" id="h20-0-27" class="i">+        }
+</a><a href="#h20-0-28" id="h20-0-28" class="i">+
+</a><a href="#h20-0-29" id="h20-0-29" class="i">+        /// &lt;inheritdoc/&gt;
+</a><a href="#h20-0-30" id="h20-0-30" class="i">+        public override void Progress(IAsyncOperationWithProgress&lt;UninstallResult, UninstallProgress&gt; operation, UninstallProgress progress)
+</a><a href="#h20-0-31" id="h20-0-31" class="i">+        {
+</a><a href="#h20-0-32" id="h20-0-32" class="i">+            ProgressRecord record = new (this.ActivityId, this.Activity, progress.State.ToString())
+</a><a href="#h20-0-33" id="h20-0-33" class="i">+            {
+</a><a href="#h20-0-34" id="h20-0-34" class="i">+                RecordType = ProgressRecordType.Processing,
+</a><a href="#h20-0-35" id="h20-0-35" class="i">+            };
+</a><a href="#h20-0-36" id="h20-0-36" class="i">+            record.StatusDescription = Resources.Uninstalling;
+</a><a href="#h20-0-37" id="h20-0-37" class="i">+            record.PercentComplete = (int)(progress.UninstallationProgress * 100);
+</a><a href="#h20-0-38" id="h20-0-38" class="i">+            this.PwshCmdlet.Write(StreamType.Progress, record);
+</a><a href="#h20-0-39" id="h20-0-39" class="i">+        }
+</a><a href="#h20-0-40" id="h20-0-40" class="i">+    }
+</a><a href="#h20-0-41" id="h20-0-41" class="i">+}
+</a><b>diff --git a/<a id="h21" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/WriteProgressAdapter.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/WriteProgressAdapter.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/WriteProgressAdapter.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Helpers/WriteProgressAdapter.cs</a></b>
+<a href="#h21-0" id="h21-0" class="h">@@ -1,91 +0,0 @@
+</a><a href="#h21-0-0" id="h21-0-0" class="d">-﻿// -----------------------------------------------------------------------------
+</a><a href="#h21-0-1" id="h21-0-1" class="d">-// &lt;copyright file=&quot;WriteProgressAdapter.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h21-0-2" id="h21-0-2" class="d">-//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h21-0-3" id="h21-0-3" class="d">-// &lt;/copyright&gt;
+</a><a href="#h21-0-4" id="h21-0-4" class="d">-// -----------------------------------------------------------------------------
+</a><a href="#h21-0-5" id="h21-0-5" class="d">-
+</a><a href="#h21-0-6" id="h21-0-6" class="d">-namespace Microsoft.WinGet.Client.Engine.Helpers
+</a><a href="#h21-0-7" id="h21-0-7" class="d">-{
+</a><a href="#h21-0-8" id="h21-0-8" class="d">-    using System.Collections.Generic;
+</a><a href="#h21-0-9" id="h21-0-9" class="d">-    using System.Management.Automation;
+</a><a href="#h21-0-10" id="h21-0-10" class="d">-    using System.Threading;
+</a><a href="#h21-0-11" id="h21-0-11" class="d">-    using Microsoft.WinGet.Common.Command;
+</a><a href="#h21-0-12" id="h21-0-12" class="d">-
+</a><a href="#h21-0-13" id="h21-0-13" class="d">-    /// &lt;summary&gt;
+</a><a href="#h21-0-14" id="h21-0-14" class="d">-    /// Marshals calls to &lt;see cref=&quot;Cmdlet.WriteProgress(ProgressRecord)&quot; /&gt; back to the main thread.
+</a><a href="#h21-0-15" id="h21-0-15" class="d">-    /// &lt;/summary&gt;
+</a><a href="#h21-0-16" id="h21-0-16" class="d">-    internal class WriteProgressAdapter
+</a><a href="#h21-0-17" id="h21-0-17" class="d">-    {
+</a><a href="#h21-0-18" id="h21-0-18" class="d">-        private readonly AutoResetEvent resetEvent = new (false);
+</a><a href="#h21-0-19" id="h21-0-19" class="d">-        private readonly Queue&lt;ProgressRecord&gt; records = new ();
+</a><a href="#h21-0-20" id="h21-0-20" class="d">-        private readonly PowerShellCmdlet pwshCmdlet;
+</a><a href="#h21-0-21" id="h21-0-21" class="d">-        private volatile bool completed = false;
+</a><a href="#h21-0-22" id="h21-0-22" class="d">-
+</a><a href="#h21-0-23" id="h21-0-23" class="d">-        /// &lt;summary&gt;
+</a><a href="#h21-0-24" id="h21-0-24" class="d">-        /// Initializes a new instance of the &lt;see cref=&quot;WriteProgressAdapter&quot; /&gt; class.
+</a><a href="#h21-0-25" id="h21-0-25" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h21-0-26" id="h21-0-26" class="d">-        /// &lt;param name=&quot;pwshCmdlet&quot;&gt;A &lt;see cref=&quot;PowerShellCmdlet&quot; /&gt; instance.&lt;/param&gt;
+</a><a href="#h21-0-27" id="h21-0-27" class="d">-        public WriteProgressAdapter(PowerShellCmdlet pwshCmdlet)
+</a><a href="#h21-0-28" id="h21-0-28" class="d">-        {
+</a><a href="#h21-0-29" id="h21-0-29" class="d">-            this.pwshCmdlet = pwshCmdlet;
+</a><a href="#h21-0-30" id="h21-0-30" class="d">-        }
+</a><a href="#h21-0-31" id="h21-0-31" class="d">-
+</a><a href="#h21-0-32" id="h21-0-32" class="d">-        /// &lt;summary&gt;
+</a><a href="#h21-0-33" id="h21-0-33" class="d">-        /// Sets a value indicating whether the asynchronous operation is finished and the main thread can continue.
+</a><a href="#h21-0-34" id="h21-0-34" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h21-0-35" id="h21-0-35" class="d">-        public bool Completed
+</a><a href="#h21-0-36" id="h21-0-36" class="d">-        {
+</a><a href="#h21-0-37" id="h21-0-37" class="d">-            set
+</a><a href="#h21-0-38" id="h21-0-38" class="d">-            {
+</a><a href="#h21-0-39" id="h21-0-39" class="d">-                this.completed = value;
+</a><a href="#h21-0-40" id="h21-0-40" class="d">-                if (value)
+</a><a href="#h21-0-41" id="h21-0-41" class="d">-                {
+</a><a href="#h21-0-42" id="h21-0-42" class="d">-                    this.resetEvent.Set();
+</a><a href="#h21-0-43" id="h21-0-43" class="d">-                }
+</a><a href="#h21-0-44" id="h21-0-44" class="d">-            }
+</a><a href="#h21-0-45" id="h21-0-45" class="d">-        }
+</a><a href="#h21-0-46" id="h21-0-46" class="d">-
+</a><a href="#h21-0-47" id="h21-0-47" class="d">-        /// &lt;summary&gt;
+</a><a href="#h21-0-48" id="h21-0-48" class="d">-        /// This should be called on the main thread to wait for the asynchronous operation to complete.
+</a><a href="#h21-0-49" id="h21-0-49" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h21-0-50" id="h21-0-50" class="d">-        public void Wait()
+</a><a href="#h21-0-51" id="h21-0-51" class="d">-        {
+</a><a href="#h21-0-52" id="h21-0-52" class="d">-            while (!this.completed)
+</a><a href="#h21-0-53" id="h21-0-53" class="d">-            {
+</a><a href="#h21-0-54" id="h21-0-54" class="d">-                lock (this.records)
+</a><a href="#h21-0-55" id="h21-0-55" class="d">-                {
+</a><a href="#h21-0-56" id="h21-0-56" class="d">-                    this.Flush();
+</a><a href="#h21-0-57" id="h21-0-57" class="d">-                }
+</a><a href="#h21-0-58" id="h21-0-58" class="d">-
+</a><a href="#h21-0-59" id="h21-0-59" class="d">-                this.resetEvent.WaitOne();
+</a><a href="#h21-0-60" id="h21-0-60" class="d">-            }
+</a><a href="#h21-0-61" id="h21-0-61" class="d">-
+</a><a href="#h21-0-62" id="h21-0-62" class="d">-            this.Flush();
+</a><a href="#h21-0-63" id="h21-0-63" class="d">-        }
+</a><a href="#h21-0-64" id="h21-0-64" class="d">-
+</a><a href="#h21-0-65" id="h21-0-65" class="d">-        /// &lt;summary&gt;
+</a><a href="#h21-0-66" id="h21-0-66" class="d">-        /// This is an analogue of the &lt;see cref=&quot;Cmdlet.WriteProgress(ProgressRecord)&quot; /&gt; function.
+</a><a href="#h21-0-67" id="h21-0-67" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h21-0-68" id="h21-0-68" class="d">-        /// &lt;param name=&quot;record&quot;&gt;A &lt;see cref=&quot;ProgressRecord&quot; /&gt; instance.&lt;/param&gt;
+</a><a href="#h21-0-69" id="h21-0-69" class="d">-        public void WriteProgress(ProgressRecord record)
+</a><a href="#h21-0-70" id="h21-0-70" class="d">-        {
+</a><a href="#h21-0-71" id="h21-0-71" class="d">-            if (record != null)
+</a><a href="#h21-0-72" id="h21-0-72" class="d">-            {
+</a><a href="#h21-0-73" id="h21-0-73" class="d">-                lock (this.records)
+</a><a href="#h21-0-74" id="h21-0-74" class="d">-                {
+</a><a href="#h21-0-75" id="h21-0-75" class="d">-                    this.records.Enqueue(record);
+</a><a href="#h21-0-76" id="h21-0-76" class="d">-                }
+</a><a href="#h21-0-77" id="h21-0-77" class="d">-
+</a><a href="#h21-0-78" id="h21-0-78" class="d">-                this.resetEvent.Set();
+</a><a href="#h21-0-79" id="h21-0-79" class="d">-            }
+</a><a href="#h21-0-80" id="h21-0-80" class="d">-        }
+</a><a href="#h21-0-81" id="h21-0-81" class="d">-
+</a><a href="#h21-0-82" id="h21-0-82" class="d">-        private void Flush()
+</a><a href="#h21-0-83" id="h21-0-83" class="d">-        {
+</a><a href="#h21-0-84" id="h21-0-84" class="d">-            while (this.records.Count &gt; 0)
+</a><a href="#h21-0-85" id="h21-0-85" class="d">-            {
+</a><a href="#h21-0-86" id="h21-0-86" class="d">-                this.pwshCmdlet.Write(StreamType.Progress, this.records.Dequeue());
+</a><a href="#h21-0-87" id="h21-0-87" class="d">-            }
+</a><a href="#h21-0-88" id="h21-0-88" class="d">-        }
+</a><a href="#h21-0-89" id="h21-0-89" class="d">-    }
+</a><a href="#h21-0-90" id="h21-0-90" class="d">-}
+</a><b>diff --git a/<a id="h22" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Microsoft.WinGet.Client.Engine.csproj</a></b>
+<a href="#h22-0" id="h22-0" class="h">@@ -50,6 +50,7 @@
+</a>     &lt;PackageReference Include=&quot;Microsoft.CSharp&quot; Version=&quot;4.7.0&quot; Condition=&quot;&#39;$(TargetFramework)&#39; == &#39;$(DesktopFramework)&#39;&quot; /&gt;
+     &lt;PackageReference Include=&quot;Microsoft.Windows.CsWinRT&quot; Version=&quot;2.0.4&quot; Condition=&quot;&#39;$(TargetFramework)&#39; == &#39;$(CoreFramework)&#39;&quot; /&gt;
+     &lt;PackageReference Include=&quot;Microsoft.Windows.SDK.Contracts&quot; Version=&quot;10.0.22000.196&quot; PrivateAssets=&quot;all&quot; Condition=&quot;&#39;$(TargetFramework)&#39; == &#39;$(DesktopFramework)&#39;&quot; /&gt;
+<a href="#h22-0-3" id="h22-0-3" class="i">+    &lt;PackageReference Include=&quot;System.Net.Http&quot; Version=&quot;4.3.4&quot; Condition=&quot;&#39;$(TargetFramework)&#39; == &#39;$(DesktopFramework)&#39;&quot;/&gt;
+</a>   &lt;/ItemGroup&gt;
+ 
+   &lt;ItemGroup&gt;
+<b>diff --git a/<a id="h23" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.Designer.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.Designer.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.Designer.cs.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.Designer.cs</a></b>
+<a href="#h23-0" id="h23-0" class="h">@@ -70,6 +70,15 @@ namespace Microsoft.WinGet.Resources {
+</a>         }
+         
+         /// &lt;summary&gt;
+<a href="#h23-0-3" id="h23-0-3" class="i">+        ///   Looks up a localized string similar to Completed.
+</a><a href="#h23-0-4" id="h23-0-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h23-0-5" id="h23-0-5" class="i">+        internal static string Completed {
+</a><a href="#h23-0-6" id="h23-0-6" class="i">+            get {
+</a><a href="#h23-0-7" id="h23-0-7" class="i">+                return ResourceManager.GetString(&quot;Completed&quot;, resourceCulture);
+</a><a href="#h23-0-8" id="h23-0-8" class="i">+            }
+</a><a href="#h23-0-9" id="h23-0-9" class="i">+        }
+</a><a href="#h23-0-10" id="h23-0-10" class="i">+        
+</a><a href="#h23-0-11" id="h23-0-11" class="i">+        /// &lt;summary&gt;
+</a>         ///   Looks up a localized string similar to Debug parameter not supported.
+         /// &lt;/summary&gt;
+         internal static string DebugNotSupported {
+<a href="#h23-1" id="h23-1" class="h">@@ -79,6 +88,15 @@ namespace Microsoft.WinGet.Resources {
+</a>         }
+         
+         /// &lt;summary&gt;
+<a href="#h23-1-3" id="h23-1-3" class="i">+        ///   Looks up a localized string similar to Downloading.
+</a><a href="#h23-1-4" id="h23-1-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h23-1-5" id="h23-1-5" class="i">+        internal static string DownloadingMessage {
+</a><a href="#h23-1-6" id="h23-1-6" class="i">+            get {
+</a><a href="#h23-1-7" id="h23-1-7" class="i">+                return ResourceManager.GetString(&quot;DownloadingMessage&quot;, resourceCulture);
+</a><a href="#h23-1-8" id="h23-1-8" class="i">+            }
+</a><a href="#h23-1-9" id="h23-1-9" class="i">+        }
+</a><a href="#h23-1-10" id="h23-1-10" class="i">+        
+</a><a href="#h23-1-11" id="h23-1-11" class="i">+        /// &lt;summary&gt;
+</a>         ///   Looks up a localized string similar to An error occurred while searching for packages: {0}.
+         /// &lt;/summary&gt;
+         internal static string FindPackagesExceptionMessage {
+<a href="#h23-2" id="h23-2" class="h">@@ -241,6 +259,15 @@ namespace Microsoft.WinGet.Resources {
+</a>         }
+         
+         /// &lt;summary&gt;
+<a href="#h23-2-3" id="h23-2-3" class="i">+        ///   Looks up a localized string similar to Cannot find asset {0}.
+</a><a href="#h23-2-4" id="h23-2-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h23-2-5" id="h23-2-5" class="i">+        internal static string ReleaseAssetNotFound {
+</a><a href="#h23-2-6" id="h23-2-6" class="i">+            get {
+</a><a href="#h23-2-7" id="h23-2-7" class="i">+                return ResourceManager.GetString(&quot;ReleaseAssetNotFound&quot;, resourceCulture);
+</a><a href="#h23-2-8" id="h23-2-8" class="i">+            }
+</a><a href="#h23-2-9" id="h23-2-9" class="i">+        }
+</a><a href="#h23-2-10" id="h23-2-10" class="i">+        
+</a><a href="#h23-2-11" id="h23-2-11" class="i">+        /// &lt;summary&gt;
+</a>         ///   Looks up a localized string similar to Try running with -AllUsers in administrator mode..
+         /// &lt;/summary&gt;
+         internal static string RepairAllUsersHelpMessage {
+<a href="#h23-3" id="h23-3" class="h">@@ -295,6 +322,15 @@ namespace Microsoft.WinGet.Resources {
+</a>         }
+         
+         /// &lt;summary&gt;
+<a href="#h23-3-3" id="h23-3-3" class="i">+        ///   Looks up a localized string similar to Uninstalling.
+</a><a href="#h23-3-4" id="h23-3-4" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h23-3-5" id="h23-3-5" class="i">+        internal static string Uninstalling {
+</a><a href="#h23-3-6" id="h23-3-6" class="i">+            get {
+</a><a href="#h23-3-7" id="h23-3-7" class="i">+                return ResourceManager.GetString(&quot;Uninstalling&quot;, resourceCulture);
+</a><a href="#h23-3-8" id="h23-3-8" class="i">+            }
+</a><a href="#h23-3-9" id="h23-3-9" class="i">+        }
+</a><a href="#h23-3-10" id="h23-3-10" class="i">+        
+</a><a href="#h23-3-11" id="h23-3-11" class="i">+        /// &lt;summary&gt;
+</a>         ///   Looks up a localized string similar to User settings file is invalid..
+         /// &lt;/summary&gt;
+         internal static string UserSettingsReadException {
+<b>diff --git a/<a id="h24" href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.resx.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.resx</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.resx.html">src/PowerShell/Microsoft.WinGet.Client.Engine/Properties/Resources.resx</a></b>
+<a href="#h24-0" id="h24-0" class="h">@@ -227,4 +227,17 @@
+</a>   &lt;data name=&quot;DebugNotSupported&quot; xml:space=&quot;preserve&quot;&gt;
+     &lt;value&gt;Debug parameter not supported&lt;/value&gt;
+   &lt;/data&gt;
+<a href="#h24-0-3" id="h24-0-3" class="i">+  &lt;data name=&quot;DownloadingMessage&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h24-0-4" id="h24-0-4" class="i">+    &lt;value&gt;Downloading&lt;/value&gt;
+</a><a href="#h24-0-5" id="h24-0-5" class="i">+  &lt;/data&gt;
+</a><a href="#h24-0-6" id="h24-0-6" class="i">+  &lt;data name=&quot;Completed&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h24-0-7" id="h24-0-7" class="i">+    &lt;value&gt;Completed&lt;/value&gt;
+</a><a href="#h24-0-8" id="h24-0-8" class="i">+  &lt;/data&gt;
+</a><a href="#h24-0-9" id="h24-0-9" class="i">+  &lt;data name=&quot;Uninstalling&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h24-0-10" id="h24-0-10" class="i">+    &lt;value&gt;Uninstalling&lt;/value&gt;
+</a><a href="#h24-0-11" id="h24-0-11" class="i">+  &lt;/data&gt;
+</a><a href="#h24-0-12" id="h24-0-12" class="i">+  &lt;data name=&quot;ReleaseAssetNotFound&quot; xml:space=&quot;preserve&quot;&gt;
+</a><a href="#h24-0-13" id="h24-0-13" class="i">+    &lt;value&gt;Cannot find asset {0}&lt;/value&gt;
+</a><a href="#h24-0-14" id="h24-0-14" class="i">+    &lt;comment&gt;{Locked=&quot;{0}&quot;} {0} - The asset name&lt;/comment&gt;
+</a><a href="#h24-0-15" id="h24-0-15" class="i">+  &lt;/data&gt;
+</a> &lt;/root&gt; 
+\ No newline at end of file
+<b>diff --git a/<a id="h25" href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/Extensions/IAsyncOperationExtensions.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Extensions/IAsyncOperationExtensions.cs</a> b/<a href="../file/src/PowerShell/Microsoft.WinGet.Configuration.Engine/Extensions/IAsyncOperationExtensions.cs.html">src/PowerShell/Microsoft.WinGet.Configuration.Engine/Extensions/IAsyncOperationExtensions.cs</a></b>
+<a href="#h25-0" id="h25-0" class="h">@@ -1,74 +0,0 @@
+</a><a href="#h25-0-0" id="h25-0-0" class="d">-﻿// -----------------------------------------------------------------------------
+</a><a href="#h25-0-1" id="h25-0-1" class="d">-// &lt;copyright file=&quot;IAsyncOperationExtensions.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h25-0-2" id="h25-0-2" class="d">-//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h25-0-3" id="h25-0-3" class="d">-// &lt;/copyright&gt;
+</a><a href="#h25-0-4" id="h25-0-4" class="d">-// -----------------------------------------------------------------------------
+</a><a href="#h25-0-5" id="h25-0-5" class="d">-
+</a><a href="#h25-0-6" id="h25-0-6" class="d">-namespace Microsoft.WinGet.Configuration.Engine.Extensions
+</a><a href="#h25-0-7" id="h25-0-7" class="d">-{
+</a><a href="#h25-0-8" id="h25-0-8" class="d">-    using System.Threading;
+</a><a href="#h25-0-9" id="h25-0-9" class="d">-    using System.Threading.Tasks;
+</a><a href="#h25-0-10" id="h25-0-10" class="d">-    using Windows.Foundation;
+</a><a href="#h25-0-11" id="h25-0-11" class="d">-
+</a><a href="#h25-0-12" id="h25-0-12" class="d">-    /// &lt;summary&gt;
+</a><a href="#h25-0-13" id="h25-0-13" class="d">-    /// Extension methods for IAsyncOperation objects.
+</a><a href="#h25-0-14" id="h25-0-14" class="d">-    /// &lt;/summary&gt;
+</a><a href="#h25-0-15" id="h25-0-15" class="d">-    internal static class IAsyncOperationExtensions
+</a><a href="#h25-0-16" id="h25-0-16" class="d">-    {
+</a><a href="#h25-0-17" id="h25-0-17" class="d">-        /// &lt;summary&gt;
+</a><a href="#h25-0-18" id="h25-0-18" class="d">-        /// Wrap IAsyncOperationWithProgress into a task with cancellation support.
+</a><a href="#h25-0-19" id="h25-0-19" class="d">-        /// &lt;/summary&gt;
+</a><a href="#h25-0-20" id="h25-0-20" class="d">-        /// &lt;typeparam name=&quot;TOperationResult&quot;&gt;The result of the operation.&lt;/typeparam&gt;
+</a><a href="#h25-0-21" id="h25-0-21" class="d">-        /// &lt;typeparam name=&quot;TProgressData&quot;&gt;The progress data of the operation.&lt;/typeparam&gt;
+</a><a href="#h25-0-22" id="h25-0-22" class="d">-        /// &lt;param name=&quot;asyncOperation&quot;&gt;The async operation.&lt;/param&gt;
+</a><a href="#h25-0-23" id="h25-0-23" class="d">-        /// &lt;param name=&quot;cancellationToken&quot;&gt;Optional cancellation token.&lt;/param&gt;
+</a><a href="#h25-0-24" id="h25-0-24" class="d">-        /// &lt;returns&gt;A task.&lt;/returns&gt;
+</a><a href="#h25-0-25" id="h25-0-25" class="d">-        public static Task&lt;TOperationResult&gt; AsTask&lt;TOperationResult, TProgressData&gt;(this IAsyncOperationWithProgress&lt;TOperationResult, TProgressData&gt; asyncOperation, CancellationToken cancellationToken = default)
+</a><a href="#h25-0-26" id="h25-0-26" class="d">-        {
+</a><a href="#h25-0-27" id="h25-0-27" class="d">-            var tcs = new TaskCompletionSource&lt;TOperationResult&gt;();
+</a><a href="#h25-0-28" id="h25-0-28" class="d">-            if (cancellationToken != default)
+</a><a href="#h25-0-29" id="h25-0-29" class="d">-            {
+</a><a href="#h25-0-30" id="h25-0-30" class="d">-                cancellationToken.Register(asyncOperation.Cancel);
+</a><a href="#h25-0-31" id="h25-0-31" class="d">-            }
+</a><a href="#h25-0-32" id="h25-0-32" class="d">-
+</a><a href="#h25-0-33" id="h25-0-33" class="d">-            asyncOperation.Completed = (asyncInfo, asyncStatus) =&gt;
+</a><a href="#h25-0-34" id="h25-0-34" class="d">-            {
+</a><a href="#h25-0-35" id="h25-0-35" class="d">-                switch (asyncStatus)
+</a><a href="#h25-0-36" id="h25-0-36" class="d">-                {
+</a><a href="#h25-0-37" id="h25-0-37" class="d">-                    case AsyncStatus.Canceled:
+</a><a href="#h25-0-38" id="h25-0-38" class="d">-                        tcs.SetCanceled();
+</a><a href="#h25-0-39" id="h25-0-39" class="d">-                        break;
+</a><a href="#h25-0-40" id="h25-0-40" class="d">-                    case AsyncStatus.Completed:
+</a><a href="#h25-0-41" id="h25-0-41" class="d">-                        tcs.SetResult(asyncInfo.GetResults());
+</a><a href="#h25-0-42" id="h25-0-42" class="d">-                        break;
+</a><a href="#h25-0-43" id="h25-0-43" class="d">-                    case AsyncStatus.Error:
+</a><a href="#h25-0-44" id="h25-0-44" class="d">-                        tcs.SetException(asyncInfo.ErrorCode);
+</a><a href="#h25-0-45" id="h25-0-45" class="d">-                        break;
+</a><a href="#h25-0-46" id="h25-0-46" class="d">-                    case AsyncStatus.Started:
+</a><a href="#h25-0-47" id="h25-0-47" class="d">-                        break;
+</a><a href="#h25-0-48" id="h25-0-48" class="d">-                    default:
+</a><a href="#h25-0-49" id="h25-0-49" class="d">-                        break;
+</a><a href="#h25-0-50" id="h25-0-50" class="d">-                }
+</a><a href="#h25-0-51" id="h25-0-51" class="d">-            };
+</a><a href="#h25-0-52" id="h25-0-52" class="d">-
+</a><a href="#h25-0-53" id="h25-0-53" class="d">-            // Make sure to throw operation cancelled exception if needed.
+</a><a href="#h25-0-54" id="h25-0-54" class="d">-            return tcs.Task.ContinueWith(
+</a><a href="#h25-0-55" id="h25-0-55" class="d">-                t =&gt;
+</a><a href="#h25-0-56" id="h25-0-56" class="d">-                {
+</a><a href="#h25-0-57" id="h25-0-57" class="d">-                    if (t.IsCanceled)
+</a><a href="#h25-0-58" id="h25-0-58" class="d">-                    {
+</a><a href="#h25-0-59" id="h25-0-59" class="d">-                        cancellationToken.ThrowIfCancellationRequested();
+</a><a href="#h25-0-60" id="h25-0-60" class="d">-                    }
+</a><a href="#h25-0-61" id="h25-0-61" class="d">-
+</a><a href="#h25-0-62" id="h25-0-62" class="d">-                    if (!t.IsFaulted)
+</a><a href="#h25-0-63" id="h25-0-63" class="d">-                    {
+</a><a href="#h25-0-64" id="h25-0-64" class="d">-                        return t.Result;
+</a><a href="#h25-0-65" id="h25-0-65" class="d">-                    }
+</a><a href="#h25-0-66" id="h25-0-66" class="d">-
+</a><a href="#h25-0-67" id="h25-0-67" class="d">-                    // If IsFaulted is true, the task&#39;s Status is equal to Faulted,
+</a><a href="#h25-0-68" id="h25-0-68" class="d">-                    // and its Exception property will be non-null.
+</a><a href="#h25-0-69" id="h25-0-69" class="d">-                    throw t.Exception!;
+</a><a href="#h25-0-70" id="h25-0-70" class="d">-                });
+</a><a href="#h25-0-71" id="h25-0-71" class="d">-        }
+</a><a href="#h25-0-72" id="h25-0-72" class="d">-    }
+</a><a href="#h25-0-73" id="h25-0-73" class="d">-}
+</a><b>diff --git a/<a id="h26" href="../file/src/PowerShell/scripts/Initialize-LocalWinGetModules.ps1.html">src/PowerShell/scripts/Initialize-LocalWinGetModules.ps1</a> b/<a href="../file/src/PowerShell/scripts/Initialize-LocalWinGetModules.ps1.html">src/PowerShell/scripts/Initialize-LocalWinGetModules.ps1</a></b>
+<a href="#h26-0" id="h26-0" class="h">@@ -196,11 +196,11 @@ if ($moduleToConfigure.HasFlag([ModuleType]::Configuration))
+</a>     $additionalFiles = @(
+         &quot;Microsoft.Management.Configuration\Microsoft.Management.Configuration.dll&quot;
+     )
+<a href="#h26-0-3" id="h26-0-3" class="d">-    $module.AddArchSpecificFiles($additionalFiles, &quot;net6.0-windows10.0.22000.0\SharedDependencies&quot;, $BuildRoot, $Configuration)
+</a><a href="#h26-0-4" id="h26-0-4" class="i">+    $module.AddArchSpecificFiles($additionalFiles, &quot;SharedDependencies&quot;, $BuildRoot, $Configuration)
+</a>     $additionalFiles = @(
+         &quot;Microsoft.Management.Configuration.Projection\net6.0-windows10.0.19041.0\Microsoft.Management.Configuration.Projection.dll&quot;
+     )
+<a href="#h26-0-8" id="h26-0-8" class="d">-    $module.AddAnyCpuSpecificFilesToArch($additionalFiles, &quot;net6.0-windows10.0.22000.0\SharedDependencies&quot;, $BuildRoot, $Configuration)
+</a><a href="#h26-0-9" id="h26-0-9" class="i">+    $module.AddAnyCpuSpecificFilesToArch($additionalFiles, &quot;SharedDependencies&quot;, $BuildRoot, $Configuration)
+</a>     $modules += $module
+ }
+ 
+</pre>
+</div>
+</body>
+</html>

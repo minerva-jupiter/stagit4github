@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Update configuration environment behavior (#5182) - winget-cli - Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</title>
+<link rel="icon" type="image/png" href="../favicon.png" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed" href="../atom.xml" />
+<link rel="alternate" type="application/atom+xml" title="winget-cli.git Atom Feed (tags)" href="../tags.xml" />
+<link rel="stylesheet" type="text/css" href="../style.css" />
+</head>
+<body>
+<table><tr><td><a href="../../"><img src="../logo.png" alt="" width="32" height="32" /></a></td><td><h1>winget-cli</h1><span class="desc">Unnamed repository; edit this file &#39;description&#39; to name the repository.
+</span></td></tr><tr><td></td><td>
+<a href="../log.html">Log</a> | <a href="../files.html">Files</a> | <a href="../refs.html">Refs</a> | <a href="../file/README.md.html">README</a> | <a href="../file/LICENSE.html">LICENSE</a></td></tr></table>
+<hr/>
+<div id="content">
+<pre><b>commit</b> <a href="../commit/71e3a17dccd51bc36067eed1fa71c772e1e72de5.html">71e3a17dccd51bc36067eed1fa71c772e1e72de5</a>
+<b>parent</b> <a href="../commit/586bcbcfd0501ecdf840c530eeb37d60fa5b9e5f.html">586bcbcfd0501ecdf840c530eeb37d60fa5b9e5f</a>
+<b>Author:</b> JohnMcPMS &lt;<a href="mailto:johnmcp@microsoft.com">johnmcp@microsoft.com</a>&gt;
+<b>Date:</b>   Wed,  5 Feb 2025 17:45:17 -0800
+
+Update configuration environment behavior (#5182)
+
+## Change
+In response to some other discussions, update the configuration
+environment behavior:
+1. Add an environment at the set level
+2. Don&#39;t inherit environment data into child units, and don&#39;t promote
+environment data when serializing
+
+Updated the one consumer of environment (dynamic factory) to be
+responsible for the flow of the security context from the set to the
+immediate child units.
+
+Also improved serialization of groups to output the non-resource
+properties.
+<b>Diffstat:</b>
+<table><tr><td class="M">M</td><td><a href="#h0">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></td><td> | </td><td class="num">8</td><td><span class="i">++++++</span><span class="d">--</span></td></tr>
+<tr><td class="A">A</td><td><a href="#h1">src/Microsoft.Management.Configuration.UnitTests/Helpers/ValueSetExtensions.cs</a></td><td> | </td><td class="num">74</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h2">src/Microsoft.Management.Configuration.UnitTests/Tests/OpenConfigurationSetTests.cs</a></td><td> | </td><td class="num">141</td><td><span class="i">++++++++++++++++++++++++++++++++++++++++++++++++++++++++++</span><span class="d">---------------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h3">src/Microsoft.Management.Configuration/ConfigurationSet.cpp</a></td><td> | </td><td class="num">10</td><td><span class="i">++++++++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h4">src/Microsoft.Management.Configuration/ConfigurationSet.h</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h5">src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.cpp</a></td><td> | </td><td class="num">22</td><td><span class="i">+++++++++</span><span class="d">-------------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h6">src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.h</a></td><td> | </td><td class="num">7</td><td><span class="i">+++</span><span class="d">----</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h7">src/Microsoft.Management.Configuration/ConfigurationSetSerializer.cpp</a></td><td> | </td><td class="num">15</td><td><span class="i">+++++++++++++</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h8">src/Microsoft.Management.Configuration/ConfigurationSetSerializer.h</a></td><td> | </td><td class="num">1</td><td><span class="i">+</span><span class="d"></span></td></tr>
+<tr><td class="M">M</td><td><a href="#h9">src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.cpp</a></td><td> | </td><td class="num">23</td><td><span class="i">++++++++++++</span><span class="d">-----------</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h10">src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.h</a></td><td> | </td><td class="num">3</td><td><span class="i">+</span><span class="d">--</span></td></tr>
+<tr><td class="M">M</td><td><a href="#h11">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a></td><td> | </td><td class="num">5</td><td><span class="i">+++++</span><span class="d"></span></td></tr>
+</table></pre><pre>12 files changed, 243 insertions(+), 71 deletions(-)
+<hr/><b>diff --git a/<a id="h0" href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a> b/<a href="../file/src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp.html">src/AppInstallerCLICore/ConfigurationDynamicRuntimeFactory.cpp</a></b>
+<a href="#h0-0" id="h0-0" class="h">@@ -139,6 +139,9 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>                 m_currentIntegrityLevel = Security::GetEffectiveIntegrityLevel();
+ #endif
+ 
+<a href="#h0-0-3" id="h0-0-3" class="i">+                m_setIntegrityLevel = m_currentIntegrityLevel;
+</a><a href="#h0-0-4" id="h0-0-4" class="i">+                m_setIntegrityLevel = SecurityContextToIntegrityLevel(m_configurationSet.Environment().Context());
+</a><a href="#h0-0-5" id="h0-0-5" class="i">+
+</a>                 // Check for multiple integrity level requirements
+                 bool multipleIntegrityLevels = false;
+                 bool higherIntegrityLevelsThanCurrent = false;
+<a href="#h0-1" id="h0-1" class="h">@@ -211,13 +214,13 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a>             }
+ 
+         private:
+<a href="#h0-1-3" id="h0-1-3" class="d">-            // Converts the string representation of SecurityContext to the integrity level
+</a><a href="#h0-1-4" id="h0-1-4" class="i">+            // Converts the string representation of SecurityContext to the target integrity level for this instance
+</a>             Security::IntegrityLevel SecurityContextToIntegrityLevel(SecurityContext securityContext)
+             {
+                 switch (securityContext)
+                 {
+                 case SecurityContext::Current:
+<a href="#h0-1-10" id="h0-1-10" class="d">-                    return m_currentIntegrityLevel;
+</a><a href="#h0-1-11" id="h0-1-11" class="i">+                    return m_setIntegrityLevel;
+</a>                 case SecurityContext::Restricted:
+ #ifndef AICLI_DISABLE_TEST_HOOKS
+                     if (m_enableRestrictedIntegrityLevel)
+<a href="#h0-2" id="h0-2" class="h">@@ -358,6 +361,7 @@ namespace AppInstaller::CLI::ConfigurationRemoting
+</a> 
+             winrt::com_ptr&lt;DynamicFactory&gt; m_dynamicFactory;
+             Security::IntegrityLevel m_currentIntegrityLevel;
+<a href="#h0-2-3" id="h0-2-3" class="i">+            Security::IntegrityLevel m_setIntegrityLevel;
+</a>             ProcessorMap m_setProcessors;
+             ConfigurationSet m_configurationSet;
+             std::once_flag m_createUnitSetProcessorsOnce;
+<b>diff --git a/<a id="h1" href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/ValueSetExtensions.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/ValueSetExtensions.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Helpers/ValueSetExtensions.cs.html">src/Microsoft.Management.Configuration.UnitTests/Helpers/ValueSetExtensions.cs</a></b>
+<a href="#h1-0" id="h1-0" class="h">@@ -0,0 +1,74 @@
+</a><a href="#h1-0-0" id="h1-0-0" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h1-0-1" id="h1-0-1" class="i">+// &lt;copyright file=&quot;ValueSetExtensions.cs&quot; company=&quot;Microsoft Corporation&quot;&gt;
+</a><a href="#h1-0-2" id="h1-0-2" class="i">+//     Copyright (c) Microsoft Corporation. Licensed under the MIT License.
+</a><a href="#h1-0-3" id="h1-0-3" class="i">+// &lt;/copyright&gt;
+</a><a href="#h1-0-4" id="h1-0-4" class="i">+// -----------------------------------------------------------------------------
+</a><a href="#h1-0-5" id="h1-0-5" class="i">+
+</a><a href="#h1-0-6" id="h1-0-6" class="i">+namespace Microsoft.Management.Configuration.UnitTests.Helpers
+</a><a href="#h1-0-7" id="h1-0-7" class="i">+{
+</a><a href="#h1-0-8" id="h1-0-8" class="i">+    using System;
+</a><a href="#h1-0-9" id="h1-0-9" class="i">+    using System.Text;
+</a><a href="#h1-0-10" id="h1-0-10" class="i">+    using Windows.Foundation.Collections;
+</a><a href="#h1-0-11" id="h1-0-11" class="i">+
+</a><a href="#h1-0-12" id="h1-0-12" class="i">+    /// &lt;summary&gt;
+</a><a href="#h1-0-13" id="h1-0-13" class="i">+    /// Extensions for ValueSet.
+</a><a href="#h1-0-14" id="h1-0-14" class="i">+    /// &lt;/summary&gt;
+</a><a href="#h1-0-15" id="h1-0-15" class="i">+    internal static class ValueSetExtensions
+</a><a href="#h1-0-16" id="h1-0-16" class="i">+    {
+</a><a href="#h1-0-17" id="h1-0-17" class="i">+        /// &lt;summary&gt;
+</a><a href="#h1-0-18" id="h1-0-18" class="i">+        /// Converts the value set to YAML like output.
+</a><a href="#h1-0-19" id="h1-0-19" class="i">+        /// &lt;/summary&gt;
+</a><a href="#h1-0-20" id="h1-0-20" class="i">+        /// &lt;param name=&quot;set&quot;&gt;The set to output.&lt;/param&gt;
+</a><a href="#h1-0-21" id="h1-0-21" class="i">+        /// &lt;returns&gt;The string.&lt;/returns&gt;
+</a><a href="#h1-0-22" id="h1-0-22" class="i">+        public static string ToYaml(this ValueSet set)
+</a><a href="#h1-0-23" id="h1-0-23" class="i">+        {
+</a><a href="#h1-0-24" id="h1-0-24" class="i">+            StringBuilder sb = new StringBuilder();
+</a><a href="#h1-0-25" id="h1-0-25" class="i">+            ToYaml(set, sb);
+</a><a href="#h1-0-26" id="h1-0-26" class="i">+            return sb.ToString();
+</a><a href="#h1-0-27" id="h1-0-27" class="i">+        }
+</a><a href="#h1-0-28" id="h1-0-28" class="i">+
+</a><a href="#h1-0-29" id="h1-0-29" class="i">+        private static void ToYaml(ValueSet set, StringBuilder sb, int indentation = 0)
+</a><a href="#h1-0-30" id="h1-0-30" class="i">+        {
+</a><a href="#h1-0-31" id="h1-0-31" class="i">+            foreach (var keyValuePair in set)
+</a><a href="#h1-0-32" id="h1-0-32" class="i">+            {
+</a><a href="#h1-0-33" id="h1-0-33" class="i">+                bool addLine = true;
+</a><a href="#h1-0-34" id="h1-0-34" class="i">+
+</a><a href="#h1-0-35" id="h1-0-35" class="i">+                sb.Append(&#39; &#39;, indentation);
+</a><a href="#h1-0-36" id="h1-0-36" class="i">+                sb.Append(keyValuePair.Key);
+</a><a href="#h1-0-37" id="h1-0-37" class="i">+                sb.Append(&quot;: &quot;);
+</a><a href="#h1-0-38" id="h1-0-38" class="i">+
+</a><a href="#h1-0-39" id="h1-0-39" class="i">+                if (keyValuePair.Value == null)
+</a><a href="#h1-0-40" id="h1-0-40" class="i">+                {
+</a><a href="#h1-0-41" id="h1-0-41" class="i">+                    sb.Append(&quot;null&quot;);
+</a><a href="#h1-0-42" id="h1-0-42" class="i">+                }
+</a><a href="#h1-0-43" id="h1-0-43" class="i">+                else
+</a><a href="#h1-0-44" id="h1-0-44" class="i">+                {
+</a><a href="#h1-0-45" id="h1-0-45" class="i">+                    switch (keyValuePair.Value)
+</a><a href="#h1-0-46" id="h1-0-46" class="i">+                    {
+</a><a href="#h1-0-47" id="h1-0-47" class="i">+                        case int i:
+</a><a href="#h1-0-48" id="h1-0-48" class="i">+                            sb.Append(i);
+</a><a href="#h1-0-49" id="h1-0-49" class="i">+                            break;
+</a><a href="#h1-0-50" id="h1-0-50" class="i">+                        case string s:
+</a><a href="#h1-0-51" id="h1-0-51" class="i">+                            sb.Append(s);
+</a><a href="#h1-0-52" id="h1-0-52" class="i">+                            break;
+</a><a href="#h1-0-53" id="h1-0-53" class="i">+                        case bool b:
+</a><a href="#h1-0-54" id="h1-0-54" class="i">+                            sb.Append(b);
+</a><a href="#h1-0-55" id="h1-0-55" class="i">+                            break;
+</a><a href="#h1-0-56" id="h1-0-56" class="i">+                        case ValueSet v:
+</a><a href="#h1-0-57" id="h1-0-57" class="i">+                            sb.AppendLine();
+</a><a href="#h1-0-58" id="h1-0-58" class="i">+                            ToYaml(v, sb, indentation + 2);
+</a><a href="#h1-0-59" id="h1-0-59" class="i">+                            addLine = false;
+</a><a href="#h1-0-60" id="h1-0-60" class="i">+                            break;
+</a><a href="#h1-0-61" id="h1-0-61" class="i">+                        default:
+</a><a href="#h1-0-62" id="h1-0-62" class="i">+                            throw new NotImplementedException($&quot;Add ToYaml type `{keyValuePair.Value.GetType().Name}`&quot;);
+</a><a href="#h1-0-63" id="h1-0-63" class="i">+                    }
+</a><a href="#h1-0-64" id="h1-0-64" class="i">+                }
+</a><a href="#h1-0-65" id="h1-0-65" class="i">+
+</a><a href="#h1-0-66" id="h1-0-66" class="i">+                if (addLine)
+</a><a href="#h1-0-67" id="h1-0-67" class="i">+                {
+</a><a href="#h1-0-68" id="h1-0-68" class="i">+                    sb.AppendLine();
+</a><a href="#h1-0-69" id="h1-0-69" class="i">+                }
+</a><a href="#h1-0-70" id="h1-0-70" class="i">+            }
+</a><a href="#h1-0-71" id="h1-0-71" class="i">+        }
+</a><a href="#h1-0-72" id="h1-0-72" class="i">+    }
+</a><a href="#h1-0-73" id="h1-0-73" class="i">+}
+</a><b>diff --git a/<a id="h2" href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/OpenConfigurationSetTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/OpenConfigurationSetTests.cs</a> b/<a href="../file/src/Microsoft.Management.Configuration.UnitTests/Tests/OpenConfigurationSetTests.cs.html">src/Microsoft.Management.Configuration.UnitTests/Tests/OpenConfigurationSetTests.cs</a></b>
+<a href="#h2-0" id="h2-0" class="h">@@ -8,6 +8,7 @@ namespace Microsoft.Management.Configuration.UnitTests.Tests
+</a> {
+     using System;
+     using System.Collections.Generic;
+<a href="#h2-0-3" id="h2-0-3" class="i">+    using System.DirectoryServices;
+</a>     using Microsoft.Management.Configuration.Processor.Extensions;
+     using Microsoft.Management.Configuration.UnitTests.Fixtures;
+     using Microsoft.Management.Configuration.UnitTests.Helpers;
+<a href="#h2-1" id="h2-1" class="h">@@ -588,6 +589,17 @@ resources:
+</a>       TestInt: 4321
+       Mapping:
+         Key: TestValue
+<a href="#h2-1-3" id="h2-1-3" class="i">+  - type: FakeModule/FakeResource3
+</a><a href="#h2-1-4" id="h2-1-4" class="i">+    name: TestId3
+</a><a href="#h2-1-5" id="h2-1-5" class="i">+    metadata:
+</a><a href="#h2-1-6" id="h2-1-6" class="i">+      isGroup: true
+</a><a href="#h2-1-7" id="h2-1-7" class="i">+    properties:
+</a><a href="#h2-1-8" id="h2-1-8" class="i">+      other: value
+</a><a href="#h2-1-9" id="h2-1-9" class="i">+      resources:
+</a><a href="#h2-1-10" id="h2-1-10" class="i">+        - type: Grouped/Resource
+</a><a href="#h2-1-11" id="h2-1-11" class="i">+          name: Child
+</a><a href="#h2-1-12" id="h2-1-12" class="i">+          properties:
+</a><a href="#h2-1-13" id="h2-1-13" class="i">+            b: c
+</a> &quot;));
+ 
+             // Serialize set.
+<a href="#h2-2" id="h2-2" class="h">@@ -604,7 +616,7 @@ resources:
+</a>             Assert.NotNull(set);
+ 
+             Assert.Equal(&quot;0.3&quot;, set.SchemaVersion);
+<a href="#h2-2-3" id="h2-2-3" class="d">-            Assert.Equal(2, set.Units.Count);
+</a><a href="#h2-2-4" id="h2-2-4" class="i">+            Assert.Equal(3, set.Units.Count);
+</a> 
+             this.VerifyValueSet(set.Metadata, new KeyValuePair&lt;string, object&gt;(&quot;description&quot;, &quot;FakeSetDescription&quot;));
+             this.VerifyValueSet(set.Variables, new (&quot;var1&quot;, &quot;Test1&quot;), new (&quot;var2&quot;, 42));
+<a href="#h2-3" id="h2-3" class="h">@@ -626,6 +638,30 @@ resources:
+</a>             ValueSet mapping = new ValueSet();
+             mapping.Add(&quot;Key&quot;, &quot;TestValue&quot;);
+             this.VerifyValueSet(set.Units[1].Settings, new (&quot;TestString&quot;, &quot;Bye&quot;), new (&quot;TestBool&quot;, true), new (&quot;TestInt&quot;, 4321), new (&quot;Mapping&quot;, mapping));
+<a href="#h2-3-3" id="h2-3-3" class="i">+
+</a><a href="#h2-3-4" id="h2-3-4" class="i">+            Assert.Equal(&quot;FakeModule/FakeResource3&quot;, set.Units[2].Type);
+</a><a href="#h2-3-5" id="h2-3-5" class="i">+            Assert.Equal(&quot;TestId3&quot;, set.Units[2].Identifier);
+</a><a href="#h2-3-6" id="h2-3-6" class="i">+            Assert.True(set.Units[2].IsGroup);
+</a><a href="#h2-3-7" id="h2-3-7" class="i">+
+</a><a href="#h2-3-8" id="h2-3-8" class="i">+            ValueSet childResource = new ValueSet();
+</a><a href="#h2-3-9" id="h2-3-9" class="i">+            childResource.Add(&quot;type&quot;, &quot;Grouped/Resource&quot;);
+</a><a href="#h2-3-10" id="h2-3-10" class="i">+            childResource.Add(&quot;name&quot;, &quot;Child&quot;);
+</a><a href="#h2-3-11" id="h2-3-11" class="i">+            ValueSet childResourceProperties = new ValueSet();
+</a><a href="#h2-3-12" id="h2-3-12" class="i">+            childResourceProperties.Add(&quot;b&quot;, &quot;c&quot;);
+</a><a href="#h2-3-13" id="h2-3-13" class="i">+            childResource.Add(&quot;properties&quot;, childResourceProperties);
+</a><a href="#h2-3-14" id="h2-3-14" class="i">+
+</a><a href="#h2-3-15" id="h2-3-15" class="i">+            ValueSet resourcesArray = new ValueSet();
+</a><a href="#h2-3-16" id="h2-3-16" class="i">+            resourcesArray.Add(&quot;treatAsArray&quot;, true);
+</a><a href="#h2-3-17" id="h2-3-17" class="i">+            resourcesArray.Add(&quot;0&quot;, childResource);
+</a><a href="#h2-3-18" id="h2-3-18" class="i">+
+</a><a href="#h2-3-19" id="h2-3-19" class="i">+            this.VerifyValueSet(set.Units[2].Settings, new (&quot;other&quot;, &quot;value&quot;), new (&quot;resources&quot;, resourcesArray));
+</a><a href="#h2-3-20" id="h2-3-20" class="i">+
+</a><a href="#h2-3-21" id="h2-3-21" class="i">+            var groupChildren = set.Units[2].Units;
+</a><a href="#h2-3-22" id="h2-3-22" class="i">+            Assert.Single(groupChildren);
+</a><a href="#h2-3-23" id="h2-3-23" class="i">+
+</a><a href="#h2-3-24" id="h2-3-24" class="i">+            Assert.Equal(&quot;Grouped/Resource&quot;, groupChildren[0].Type);
+</a><a href="#h2-3-25" id="h2-3-25" class="i">+            Assert.Equal(&quot;Child&quot;, groupChildren[0].Identifier);
+</a><a href="#h2-3-26" id="h2-3-26" class="i">+            this.VerifyValueSet(groupChildren[0].Settings, new KeyValuePair&lt;string, object&gt;(&quot;b&quot;, &quot;c&quot;));
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-4" id="h2-4" class="h">@@ -871,12 +907,13 @@ resources:
+</a> 
+             Dictionary&lt;string, string&gt; environmentProperties = new Dictionary&lt;string, string&gt;();
+             environmentProperties.Add(&quot;a&quot;, &quot;b&quot;);
+<a href="#h2-4-3" id="h2-4-3" class="i">+            ConfigurationEnvironmentData setEnvironment = new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties };
+</a> 
+             Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments = new Dictionary&lt;string, ConfigurationEnvironmentData&gt;();
+<a href="#h2-4-6" id="h2-4-6" class="d">-            expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-4-7" id="h2-4-7" class="d">-            expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-4-8" id="h2-4-8" class="i">+            expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData());
+</a><a href="#h2-4-9" id="h2-4-9" class="i">+            expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData());
+</a> 
+<a href="#h2-4-11" id="h2-4-11" class="d">-            this.ValidateEnvironments(openResult, expectedEnvironments);
+</a><a href="#h2-4-12" id="h2-4-12" class="i">+            this.ValidateEnvironments(openResult, setEnvironment, expectedEnvironments);
+</a> 
+             // Serialize set.
+             InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
+<a href="#h2-5" id="h2-5" class="h">@@ -887,7 +924,7 @@ resources:
+</a>             // Reopen configuration set from serialized string and verify values.
+             OpenConfigurationSetResult serializedSetResult = processor.OpenConfigurationSet(this.CreateStream(yamlOutput));
+ 
+<a href="#h2-5-3" id="h2-5-3" class="d">-            this.ValidateEnvironments(serializedSetResult, expectedEnvironments);
+</a><a href="#h2-5-4" id="h2-5-4" class="i">+            this.ValidateEnvironments(serializedSetResult, setEnvironment, expectedEnvironments);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-6" id="h2-6" class="h">@@ -923,12 +960,13 @@ resources:
+</a> 
+             Dictionary&lt;string, string&gt; environmentProperties = new Dictionary&lt;string, string&gt;();
+             environmentProperties.Add(&quot;a&quot;, &quot;b&quot;);
+<a href="#h2-6-3" id="h2-6-3" class="i">+            ConfigurationEnvironmentData setEnvironment = new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties };
+</a> 
+             Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments = new Dictionary&lt;string, ConfigurationEnvironmentData&gt;();
+<a href="#h2-6-6" id="h2-6-6" class="d">-            expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-6-7" id="h2-6-7" class="d">-            expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;not-pwsh&quot; });
+</a><a href="#h2-6-8" id="h2-6-8" class="i">+            expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData());
+</a><a href="#h2-6-9" id="h2-6-9" class="i">+            expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData() { ProcessorIdentifier = &quot;not-pwsh&quot; });
+</a> 
+<a href="#h2-6-11" id="h2-6-11" class="d">-            this.ValidateEnvironments(openResult, expectedEnvironments);
+</a><a href="#h2-6-12" id="h2-6-12" class="i">+            this.ValidateEnvironments(openResult, setEnvironment, expectedEnvironments);
+</a> 
+             // Serialize set.
+             InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
+<a href="#h2-7" id="h2-7" class="h">@@ -939,7 +977,7 @@ resources:
+</a>             // Reopen configuration set from serialized string and verify values.
+             OpenConfigurationSetResult serializedSetResult = processor.OpenConfigurationSet(this.CreateStream(yamlOutput));
+ 
+<a href="#h2-7-3" id="h2-7-3" class="d">-            this.ValidateEnvironments(serializedSetResult, expectedEnvironments);
+</a><a href="#h2-7-4" id="h2-7-4" class="i">+            this.ValidateEnvironments(serializedSetResult, setEnvironment, expectedEnvironments);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-8" id="h2-8" class="h">@@ -975,12 +1013,13 @@ resources:
+</a> 
+             Dictionary&lt;string, string&gt; environmentProperties = new Dictionary&lt;string, string&gt;();
+             environmentProperties.Add(&quot;a&quot;, &quot;b&quot;);
+<a href="#h2-8-3" id="h2-8-3" class="i">+            ConfigurationEnvironmentData setEnvironment = new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties };
+</a> 
+             Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments = new Dictionary&lt;string, ConfigurationEnvironmentData&gt;();
+<a href="#h2-8-6" id="h2-8-6" class="d">-            expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-8-7" id="h2-8-7" class="d">-            expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Restricted, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-8-8" id="h2-8-8" class="i">+            expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData());
+</a><a href="#h2-8-9" id="h2-8-9" class="i">+            expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Restricted });
+</a> 
+<a href="#h2-8-11" id="h2-8-11" class="d">-            this.ValidateEnvironments(openResult, expectedEnvironments);
+</a><a href="#h2-8-12" id="h2-8-12" class="i">+            this.ValidateEnvironments(openResult, setEnvironment, expectedEnvironments);
+</a> 
+             // Serialize set.
+             InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
+<a href="#h2-9" id="h2-9" class="h">@@ -991,7 +1030,7 @@ resources:
+</a>             // Reopen configuration set from serialized string and verify values.
+             OpenConfigurationSetResult serializedSetResult = processor.OpenConfigurationSet(this.CreateStream(yamlOutput));
+ 
+<a href="#h2-9-3" id="h2-9-3" class="d">-            this.ValidateEnvironments(serializedSetResult, expectedEnvironments);
+</a><a href="#h2-9-4" id="h2-9-4" class="i">+            this.ValidateEnvironments(serializedSetResult, setEnvironment, expectedEnvironments);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-10" id="h2-10" class="h">@@ -1024,11 +1063,13 @@ resources:
+</a>           identifier: pwsh
+ &quot;));
+ 
+<a href="#h2-10-3" id="h2-10-3" class="i">+            ConfigurationEnvironmentData setEnvironment = new ConfigurationEnvironmentData();
+</a><a href="#h2-10-4" id="h2-10-4" class="i">+
+</a>             Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments = new Dictionary&lt;string, ConfigurationEnvironmentData&gt;();
+             expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot; });
+             expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot; });
+ 
+<a href="#h2-10-9" id="h2-10-9" class="d">-            this.ValidateEnvironments(openResult, expectedEnvironments);
+</a><a href="#h2-10-10" id="h2-10-10" class="i">+            this.ValidateEnvironments(openResult, setEnvironment, expectedEnvironments);
+</a> 
+             // Serialize set.
+             InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
+<a href="#h2-11" id="h2-11" class="h">@@ -1039,7 +1080,7 @@ resources:
+</a>             // Reopen configuration set from serialized string and verify values.
+             OpenConfigurationSetResult serializedSetResult = processor.OpenConfigurationSet(this.CreateStream(yamlOutput));
+ 
+<a href="#h2-11-3" id="h2-11-3" class="d">-            this.ValidateEnvironments(serializedSetResult, expectedEnvironments);
+</a><a href="#h2-11-4" id="h2-11-4" class="i">+            this.ValidateEnvironments(serializedSetResult, setEnvironment, expectedEnvironments);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-12" id="h2-12" class="h">@@ -1072,11 +1113,13 @@ resources:
+</a>           identifier: pwsh
+ &quot;));
+ 
+<a href="#h2-12-3" id="h2-12-3" class="i">+            ConfigurationEnvironmentData setEnvironment = new ConfigurationEnvironmentData();
+</a><a href="#h2-12-4" id="h2-12-4" class="i">+
+</a>             Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments = new Dictionary&lt;string, ConfigurationEnvironmentData&gt;();
+             expectedEnvironments.Add(&quot;first&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot; });
+             expectedEnvironments.Add(&quot;second&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Restricted, ProcessorIdentifier = &quot;pwsh&quot; });
+ 
+<a href="#h2-12-9" id="h2-12-9" class="d">-            this.ValidateEnvironments(openResult, expectedEnvironments);
+</a><a href="#h2-12-10" id="h2-12-10" class="i">+            this.ValidateEnvironments(openResult, setEnvironment, expectedEnvironments);
+</a> 
+             // Serialize set.
+             InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
+<a href="#h2-13" id="h2-13" class="h">@@ -1087,7 +1130,7 @@ resources:
+</a>             // Reopen configuration set from serialized string and verify values.
+             OpenConfigurationSetResult serializedSetResult = processor.OpenConfigurationSet(this.CreateStream(yamlOutput));
+ 
+<a href="#h2-13-3" id="h2-13-3" class="d">-            this.ValidateEnvironments(serializedSetResult, expectedEnvironments);
+</a><a href="#h2-13-4" id="h2-13-4" class="i">+            this.ValidateEnvironments(serializedSetResult, setEnvironment, expectedEnvironments);
+</a>         }
+ 
+         /// &lt;summary&gt;
+<a href="#h2-14" id="h2-14" class="h">@@ -1135,16 +1178,17 @@ resources:
+</a> 
+             Dictionary&lt;string, string&gt; environmentProperties = new Dictionary&lt;string, string&gt;();
+             environmentProperties.Add(&quot;a&quot;, &quot;b&quot;);
+<a href="#h2-14-3" id="h2-14-3" class="i">+            ConfigurationEnvironmentData setEnvironment = new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties };
+</a> 
+             Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments = new Dictionary&lt;string, ConfigurationEnvironmentData&gt;();
+<a href="#h2-14-6" id="h2-14-6" class="d">-            expectedEnvironments.Add(&quot;non-group&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Elevated, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-14-7" id="h2-14-7" class="d">-            expectedEnvironments.Add(&quot;group&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Restricted, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-14-8" id="h2-14-8" class="i">+            expectedEnvironments.Add(&quot;non-group&quot;, new ConfigurationEnvironmentData());
+</a><a href="#h2-14-9" id="h2-14-9" class="i">+            expectedEnvironments.Add(&quot;group&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Restricted });
+</a> 
+             Dictionary&lt;string, ConfigurationEnvironmentData&gt; groupExpectedEnvironments = new Dictionary&lt;string, ConfigurationEnvironmentData&gt;();
+<a href="#h2-14-12" id="h2-14-12" class="d">-            groupExpectedEnvironments.Add(&quot;inherit&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Restricted, ProcessorIdentifier = &quot;pwsh&quot;, ProcessorProperties = environmentProperties });
+</a><a href="#h2-14-13" id="h2-14-13" class="d">-            groupExpectedEnvironments.Add(&quot;override&quot;, new ConfigurationEnvironmentData() { Context = SecurityContext.Restricted, ProcessorIdentifier = &quot;not-pwsh&quot; });
+</a><a href="#h2-14-14" id="h2-14-14" class="i">+            groupExpectedEnvironments.Add(&quot;inherit&quot;, new ConfigurationEnvironmentData());
+</a><a href="#h2-14-15" id="h2-14-15" class="i">+            groupExpectedEnvironments.Add(&quot;override&quot;, new ConfigurationEnvironmentData() { ProcessorIdentifier = &quot;not-pwsh&quot; });
+</a> 
+<a href="#h2-14-17" id="h2-14-17" class="d">-            this.ValidateEnvironments(openResult, expectedEnvironments, &quot;group&quot;, groupExpectedEnvironments);
+</a><a href="#h2-14-18" id="h2-14-18" class="i">+            this.ValidateEnvironments(openResult, setEnvironment, expectedEnvironments, &quot;group&quot;, groupExpectedEnvironments);
+</a> 
+             // Serialize set.
+             InMemoryRandomAccessStream stream = new InMemoryRandomAccessStream();
+<a href="#h2-15" id="h2-15" class="h">@@ -1155,15 +1199,17 @@ resources:
+</a>             // Reopen configuration set from serialized string and verify values.
+             OpenConfigurationSetResult serializedSetResult = processor.OpenConfigurationSet(this.CreateStream(yamlOutput));
+ 
+<a href="#h2-15-3" id="h2-15-3" class="d">-            this.ValidateEnvironments(openResult, expectedEnvironments, &quot;group&quot;, groupExpectedEnvironments);
+</a><a href="#h2-15-4" id="h2-15-4" class="i">+            this.ValidateEnvironments(openResult, setEnvironment, expectedEnvironments, &quot;group&quot;, groupExpectedEnvironments);
+</a>         }
+ 
+<a href="#h2-15-7" id="h2-15-7" class="d">-        private void ValidateEnvironments(OpenConfigurationSetResult openResult, Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments, string? groupToCheck = null, Dictionary&lt;string, ConfigurationEnvironmentData&gt;? groupExpectedEnvironments = null)
+</a><a href="#h2-15-8" id="h2-15-8" class="i">+        private void ValidateEnvironments(OpenConfigurationSetResult openResult, ConfigurationEnvironmentData setEnvironment, Dictionary&lt;string, ConfigurationEnvironmentData&gt; expectedEnvironments, string? groupToCheck = null, Dictionary&lt;string, ConfigurationEnvironmentData&gt;? groupExpectedEnvironments = null)
+</a>         {
+             Assert.Null(openResult.ResultCode);
+             Assert.NotNull(openResult.Set);
+             ConfigurationSet configurationSet = openResult.Set;
+ 
+<a href="#h2-15-14" id="h2-15-14" class="i">+            this.ValidateEnvironment(setEnvironment, configurationSet.Environment);
+</a><a href="#h2-15-15" id="h2-15-15" class="i">+
+</a>             var units = configurationSet.Units;
+             this.ValidateEnvironments(units, expectedEnvironments, groupToCheck, groupExpectedEnvironments);
+         }
+<a href="#h2-16" id="h2-16" class="h">@@ -1175,10 +1221,7 @@ resources:
+</a>             {
+                 ConfigurationEnvironmentData? expectedEnvironment = null;
+                 Assert.True(expectedEnvironments.TryGetValue(unit.Identifier, out expectedEnvironment));
+<a href="#h2-16-3" id="h2-16-3" class="d">-                Assert.NotNull(expectedEnvironment);
+</a><a href="#h2-16-4" id="h2-16-4" class="d">-                Assert.Equal(expectedEnvironment.Context, unit.Environment.Context);
+</a><a href="#h2-16-5" id="h2-16-5" class="d">-                Assert.Equal(expectedEnvironment.ProcessorIdentifier, unit.Environment.ProcessorIdentifier);
+</a><a href="#h2-16-6" id="h2-16-6" class="d">-                Assert.True(expectedEnvironment.PropertiesEqual(unit.Environment.ProcessorProperties));
+</a><a href="#h2-16-7" id="h2-16-7" class="i">+                this.ValidateEnvironment(expectedEnvironment, unit.Environment);
+</a> 
+                 if (unit.Identifier == groupToCheck)
+                 {
+<a href="#h2-17" id="h2-17" class="h">@@ -1190,6 +1233,15 @@ resources:
+</a>             }
+         }
+ 
+<a href="#h2-17-3" id="h2-17-3" class="i">+        private void ValidateEnvironment(ConfigurationEnvironmentData? expectedEnvironment, ConfigurationEnvironment? actualEnvironment)
+</a><a href="#h2-17-4" id="h2-17-4" class="i">+        {
+</a><a href="#h2-17-5" id="h2-17-5" class="i">+            Assert.NotNull(expectedEnvironment);
+</a><a href="#h2-17-6" id="h2-17-6" class="i">+            Assert.NotNull(actualEnvironment);
+</a><a href="#h2-17-7" id="h2-17-7" class="i">+            Assert.Equal(expectedEnvironment.Context, actualEnvironment.Context);
+</a><a href="#h2-17-8" id="h2-17-8" class="i">+            Assert.Equal(expectedEnvironment.ProcessorIdentifier, actualEnvironment.ProcessorIdentifier);
+</a><a href="#h2-17-9" id="h2-17-9" class="i">+            Assert.True(expectedEnvironment.PropertiesEqual(actualEnvironment.ProcessorProperties));
+</a><a href="#h2-17-10" id="h2-17-10" class="i">+        }
+</a><a href="#h2-17-11" id="h2-17-11" class="i">+
+</a>         private void ValidateSecurityContexts(OpenConfigurationSetResult openResult, Dictionary&lt;string, SecurityContext&gt; expectedContexts)
+         {
+             Assert.Null(openResult.ResultCode);
+<a href="#h2-18" id="h2-18" class="h">@@ -1239,7 +1291,7 @@ parameters:
+</a>                 Assert.Equal(secure, parameters[0].IsSecure);
+ 
+                 Assert.NotNull(expectedValue);
+<a href="#h2-18-3" id="h2-18-3" class="d">-                this.VerifyObject(expectedValue, parameters[0].DefaultValue);
+</a><a href="#h2-18-4" id="h2-18-4" class="i">+                this.VerifyObject(type, expectedValue, parameters[0].DefaultValue);
+</a>             }
+             else
+             {
+<a href="#h2-19" id="h2-19" class="h">@@ -1270,7 +1322,7 @@ parameters:
+</a>                 Assert.True(values.ContainsKey(expectation.Key), $&quot;Not Found {expectation.Key}&quot;);
+                 object value = values[expectation.Key];
+ 
+<a href="#h2-19-3" id="h2-19-3" class="d">-                this.VerifyObject(expectation.Value, value);
+</a><a href="#h2-19-4" id="h2-19-4" class="i">+                this.VerifyObject(expectation.Key, expectation.Value, value);
+</a>             }
+         }
+ 
+<a href="#h2-20" id="h2-20" class="h">@@ -1278,6 +1330,20 @@ parameters:
+</a>         {
+             Assert.NotNull(strings);
+             Assert.Equal(expected.Length, strings.Count);
+<a href="#h2-20-3" id="h2-20-3" class="i">+
+</a><a href="#h2-20-4" id="h2-20-4" class="i">+            foreach (var expectation in expected)
+</a><a href="#h2-20-5" id="h2-20-5" class="i">+            {
+</a><a href="#h2-20-6" id="h2-20-6" class="i">+                bool found = false;
+</a><a href="#h2-20-7" id="h2-20-7" class="i">+                foreach (var value in strings)
+</a><a href="#h2-20-8" id="h2-20-8" class="i">+                {
+</a><a href="#h2-20-9" id="h2-20-9" class="i">+                    if (!found)
+</a><a href="#h2-20-10" id="h2-20-10" class="i">+                    {
+</a><a href="#h2-20-11" id="h2-20-11" class="i">+                        found = expectation == value;
+</a><a href="#h2-20-12" id="h2-20-12" class="i">+                    }
+</a><a href="#h2-20-13" id="h2-20-13" class="i">+                }
+</a><a href="#h2-20-14" id="h2-20-14" class="i">+
+</a><a href="#h2-20-15" id="h2-20-15" class="i">+                Assert.True(found, $&quot;Did not find {expectation} in string array&quot;);
+</a><a href="#h2-20-16" id="h2-20-16" class="i">+            }
+</a>         }
+ 
+         private void VerifyParameter(ConfigurationParameter parameter, string name, Windows.Foundation.PropertyType type, bool secure, object? defaultValue = null)
+<a href="#h2-21" id="h2-21" class="h">@@ -1285,10 +1351,10 @@ parameters:
+</a>             Assert.Equal(name, parameter.Name);
+             Assert.Equal(type, parameter.Type);
+             Assert.Equal(secure, parameter.IsSecure);
+<a href="#h2-21-3" id="h2-21-3" class="d">-            this.VerifyObject(defaultValue, parameter.DefaultValue);
+</a><a href="#h2-21-4" id="h2-21-4" class="i">+            this.VerifyObject(name, defaultValue, parameter.DefaultValue);
+</a>         }
+ 
+<a href="#h2-21-7" id="h2-21-7" class="d">-        private void VerifyObject(object? expectedValue, object? actualValue)
+</a><a href="#h2-21-8" id="h2-21-8" class="i">+        private void VerifyObject(string name, object? expectedValue, object? actualValue)
+</a>         {
+             if (expectedValue != null)
+             {
+<a href="#h2-22" id="h2-22" class="h">@@ -1297,19 +1363,20 @@ parameters:
+</a>                 switch (expectedValue)
+                 {
+                     case int i:
+<a href="#h2-22-3" id="h2-22-3" class="d">-                        Assert.Equal(i, (int)(long)actualValue);
+</a><a href="#h2-22-4" id="h2-22-4" class="i">+                        Assert.True(i == (int)(long)actualValue, $&quot;{name}: expected[{i}], actual[{(int)(long)actualValue}]&quot;);
+</a>                         break;
+                     case string s:
+<a href="#h2-22-7" id="h2-22-7" class="d">-                        Assert.Equal(s, (string)actualValue);
+</a><a href="#h2-22-8" id="h2-22-8" class="i">+                        Assert.True(s == (string)actualValue, $&quot;{name}: expected[{s}], actual[{(string)actualValue}]&quot;);
+</a>                         break;
+                     case bool b:
+<a href="#h2-22-11" id="h2-22-11" class="d">-                        Assert.Equal(b, (bool)actualValue);
+</a><a href="#h2-22-12" id="h2-22-12" class="i">+                        Assert.True(b == (bool)actualValue, $&quot;{name}: expected[{b}], actual[{(bool)actualValue}]&quot;);
+</a>                         break;
+                     case ValueSet v:
+<a href="#h2-22-15" id="h2-22-15" class="d">-                        Assert.True(v.ContentEquals(actualValue.As&lt;ValueSet&gt;()));
+</a><a href="#h2-22-16" id="h2-22-16" class="i">+                        var actualValueSet = actualValue.As&lt;ValueSet&gt;();
+</a><a href="#h2-22-17" id="h2-22-17" class="i">+                        Assert.True(v.ContentEquals(actualValueSet), $&quot;ValueSets not equal: {name}\n---expected---:\n{v.ToYaml()}\n---actual---:\n{actualValueSet.ToYaml()}&quot;);
+</a>                         break;
+                     default:
+<a href="#h2-22-20" id="h2-22-20" class="d">-                        Assert.Fail($&quot;Add expected type `{expectedValue.GetType().Name}` to switch statement.&quot;);
+</a><a href="#h2-22-21" id="h2-22-21" class="i">+                        Assert.Fail($&quot;Add expected type `{expectedValue.GetType().Name}` to switch statement for {name}.&quot;);
+</a>                         break;
+                 }
+             }
+<b>diff --git a/<a id="h3" href="../file/src/Microsoft.Management.Configuration/ConfigurationSet.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSet.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSet.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSet.cpp</a></b>
+<a href="#h3-0" id="h3-0" class="h">@@ -283,6 +283,16 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         m_schemaUri = value;
+     }
+ 
+<a href="#h3-0-3" id="h3-0-3" class="i">+    Configuration::ConfigurationEnvironment ConfigurationSet::Environment()
+</a><a href="#h3-0-4" id="h3-0-4" class="i">+    {
+</a><a href="#h3-0-5" id="h3-0-5" class="i">+        return *m_environment;
+</a><a href="#h3-0-6" id="h3-0-6" class="i">+    }
+</a><a href="#h3-0-7" id="h3-0-7" class="i">+
+</a><a href="#h3-0-8" id="h3-0-8" class="i">+    implementation::ConfigurationEnvironment&amp; ConfigurationSet::EnvironmentInternal()
+</a><a href="#h3-0-9" id="h3-0-9" class="i">+    {
+</a><a href="#h3-0-10" id="h3-0-10" class="i">+        return *m_environment;
+</a><a href="#h3-0-11" id="h3-0-11" class="i">+    }
+</a><a href="#h3-0-12" id="h3-0-12" class="i">+
+</a>     std::vector&lt;Configuration::ConfigurationEnvironment&gt; ConfigurationSet::GetUnitEnvironmentsInternal()
+     {
+         std::vector&lt;impl::EnvironmentData&gt; uniqueEnvironments;
+<b>diff --git a/<a id="h4" href="../file/src/Microsoft.Management.Configuration/ConfigurationSet.h.html">src/Microsoft.Management.Configuration/ConfigurationSet.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSet.h.html">src/Microsoft.Management.Configuration/ConfigurationSet.h</a></b>
+<a href="#h4-0" id="h4-0" class="h">@@ -2,6 +2,7 @@
+</a> // Licensed under the MIT License.
+ #pragma once
+ #include &quot;ConfigurationSet.g.h&quot;
+<a href="#h4-0-3" id="h4-0-3" class="i">+#include &quot;ConfigurationEnvironment.h&quot;
+</a> #include &quot;ConfigurationSetChangeData.h&quot;
+ #include &quot;ConfigurationStatus.h&quot;
+ #include &lt;winget/ILifetimeWatcher.h&gt;
+<a href="#h4-1" id="h4-1" class="h">@@ -25,6 +26,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         void Units(std::vector&lt;Configuration::ConfigurationUnit&gt;&amp;&amp; units);
+         void Parameters(std::vector&lt;Configuration::ConfigurationParameter&gt;&amp;&amp; value);
+         void ConfigurationSetChange(com_ptr&lt;ConfigurationSetChangeData&gt;&amp; data, const std::optional&lt;guid&gt;&amp; unitInstanceIdentifier);
+<a href="#h4-1-3" id="h4-1-3" class="i">+        implementation::ConfigurationEnvironment&amp; EnvironmentInternal();
+</a>         std::vector&lt;Configuration::ConfigurationEnvironment&gt; GetUnitEnvironmentsInternal();
+ #endif
+ 
+<a href="#h4-2" id="h4-2" class="h">@@ -68,6 +70,8 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         Windows::Foundation::Uri SchemaUri();
+         void SchemaUri(const Windows::Foundation::Uri&amp; value);
+ 
+<a href="#h4-2-3" id="h4-2-3" class="i">+        Configuration::ConfigurationEnvironment Environment();
+</a><a href="#h4-2-4" id="h4-2-4" class="i">+
+</a>         Windows::Foundation::Collections::IVector&lt;Configuration::ConfigurationEnvironment&gt; GetUnitEnvironments();
+ 
+         HRESULT STDMETHODCALLTYPE SetLifetimeWatcher(IUnknown* watcher);
+<a href="#h4-3" id="h4-3" class="h">@@ -91,6 +95,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         Windows::Foundation::Uri m_schemaUri = nullptr;
+         std::string m_inputHash;
+         std::shared_ptr&lt;ConfigurationStatus::SetChangeRegistration&gt; m_setChangeRegistration;
+<a href="#h4-3-3" id="h4-3-3" class="i">+        com_ptr&lt;implementation::ConfigurationEnvironment&gt; m_environment{ make_self&lt;implementation::ConfigurationEnvironment&gt;() };
+</a> #endif
+     };
+ }
+<b>diff --git a/<a id="h5" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.cpp</a></b>
+<a href="#h5-0" id="h5-0" class="h">@@ -23,14 +23,13 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         CHECK_ERROR(ParseValueSet(m_document, ConfigurationField::Metadata, false, result-&gt;Metadata()));
+ 
+<a href="#h5-0-3" id="h5-0-3" class="d">-        m_setEnvironment = make_self&lt;implementation::ConfigurationEnvironment&gt;();
+</a><a href="#h5-0-4" id="h5-0-4" class="d">-        CHECK_ERROR(ExtractEnvironmentFromMetadata(result-&gt;Metadata(), *m_setEnvironment));
+</a><a href="#h5-0-5" id="h5-0-5" class="i">+        CHECK_ERROR(ExtractEnvironmentFromMetadata(result-&gt;Metadata(), result-&gt;EnvironmentInternal()));
+</a> 
+         CHECK_ERROR(ParseParameters(result));
+         CHECK_ERROR(ParseValueSet(m_document, ConfigurationField::Variables, false, result-&gt;Variables()));
+ 
+         std::vector&lt;Configuration::ConfigurationUnit&gt; units;
+<a href="#h5-0-11" id="h5-0-11" class="d">-        CHECK_ERROR(ParseConfigurationUnitsFromField(m_document, ConfigurationField::Resources, *m_setEnvironment, units));
+</a><a href="#h5-0-12" id="h5-0-12" class="i">+        CHECK_ERROR(ParseConfigurationUnitsFromField(m_document, ConfigurationField::Resources, units));
+</a>         result-&gt;Units(std::move(units));
+ 
+         result-&gt;SchemaVersion(GetSchemaVersion());
+<a href="#h5-1" id="h5-1" class="h">@@ -177,17 +176,17 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         }
+     }
+ 
+<a href="#h5-1-3" id="h5-1-3" class="d">-    void ConfigurationSetParser_0_3::ParseConfigurationUnitsFromField(const Node&amp; document, ConfigurationField field, const ConfigurationEnvironment&amp; defaultEnvironment, std::vector&lt;Configuration::ConfigurationUnit&gt;&amp; result)
+</a><a href="#h5-1-4" id="h5-1-4" class="i">+    void ConfigurationSetParser_0_3::ParseConfigurationUnitsFromField(const Node&amp; document, ConfigurationField field, std::vector&lt;Configuration::ConfigurationUnit&gt;&amp; result)
+</a>     {
+         ParseSequence(document, field, false, Node::Type::Mapping, [&amp;](const Node&amp; item)
+             {
+                 auto configurationUnit = make_self&lt;ConfigurationUnit&gt;();
+<a href="#h5-1-9" id="h5-1-9" class="d">-                ParseConfigurationUnit(configurationUnit.get(), item, defaultEnvironment);
+</a><a href="#h5-1-10" id="h5-1-10" class="i">+                ParseConfigurationUnit(configurationUnit.get(), item);
+</a>                 result.emplace_back(*configurationUnit);
+             });
+     }
+ 
+<a href="#h5-1-15" id="h5-1-15" class="d">-    void ConfigurationSetParser_0_3::ParseConfigurationUnit(ConfigurationUnit* unit, const Node&amp; unitNode, const ConfigurationEnvironment&amp; defaultEnvironment)
+</a><a href="#h5-1-16" id="h5-1-16" class="i">+    void ConfigurationSetParser_0_3::ParseConfigurationUnit(ConfigurationUnit* unit, const Node&amp; unitNode)
+</a>     {
+         // Set unknown intent as the new schema doesn&#39;t express it directly
+         unit-&gt;Intent(ConfigurationUnitIntent::Unknown);
+<a href="#h5-2" id="h5-2" class="h">@@ -195,7 +194,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         CHECK_ERROR(GetStringValueForUnit(unitNode, ConfigurationField::Name, true, unit, &amp;ConfigurationUnit::Identifier));
+         CHECK_ERROR(GetStringValueForUnit(unitNode, ConfigurationField::Type, true, unit, &amp;ConfigurationUnit::Type));
+         CHECK_ERROR(ParseValueSet(unitNode, ConfigurationField::Metadata, false, unit-&gt;Metadata()));
+<a href="#h5-2-3" id="h5-2-3" class="d">-        CHECK_ERROR(ExtractEnvironmentForUnit(unit, defaultEnvironment));
+</a><a href="#h5-2-4" id="h5-2-4" class="i">+        CHECK_ERROR(ExtractEnvironmentForUnit(unit));
+</a>         CHECK_ERROR(ValidateType(unit, unitNode, ConfigurationField::Type, false, true));
+         CHECK_ERROR(GetStringArrayForUnit(unitNode, ConfigurationField::DependsOn, false, unit, &amp;ConfigurationUnit::Dependencies));
+ 
+<a href="#h5-3" id="h5-3" class="h">@@ -212,7 +211,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             if (propertiesNode)
+             {
+                 std::vector&lt;Configuration::ConfigurationUnit&gt; units;
+<a href="#h5-3-3" id="h5-3-3" class="d">-                CHECK_ERROR(ParseConfigurationUnitsFromField(propertiesNode, ConfigurationField::Resources, unit-&gt;EnvironmentInternal(), units));
+</a><a href="#h5-3-4" id="h5-3-4" class="i">+                CHECK_ERROR(ParseConfigurationUnitsFromField(propertiesNode, ConfigurationField::Resources, units));
+</a>                 unit-&gt;Units(std::move(units));
+             }
+         }
+<a href="#h5-4" id="h5-4" class="h">@@ -294,13 +293,10 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         }
+     }
+ 
+<a href="#h5-4-3" id="h5-4-3" class="d">-    void ConfigurationSetParser_0_3::ExtractEnvironmentForUnit(ConfigurationUnit* unit, const ConfigurationEnvironment&amp; defaultEnvironment)
+</a><a href="#h5-4-4" id="h5-4-4" class="i">+    void ConfigurationSetParser_0_3::ExtractEnvironmentForUnit(ConfigurationUnit* unit)
+</a>     {
+<a href="#h5-4-6" id="h5-4-6" class="d">-        auto&amp; environmentInternal = unit-&gt;EnvironmentInternal();
+</a><a href="#h5-4-7" id="h5-4-7" class="d">-        environmentInternal.DeepCopy(defaultEnvironment);
+</a><a href="#h5-4-8" id="h5-4-8" class="d">-
+</a>         // Get unnested security context
+<a href="#h5-4-10" id="h5-4-10" class="d">-        ExtractSecurityContext(unit, defaultEnvironment.Context());
+</a><a href="#h5-4-11" id="h5-4-11" class="i">+        ExtractSecurityContext(unit);
+</a> 
+         // Get nested environment
+         ExtractEnvironmentFromMetadata(unit-&gt;Metadata(), unit-&gt;EnvironmentInternal());
+<b>diff --git a/<a id="h6" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.h.html">src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.h.html">src/Microsoft.Management.Configuration/ConfigurationSetParser_0_3.h</a></b>
+<a href="#h6-0" id="h6-0" class="h">@@ -53,8 +53,8 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             ConfigurationParameter* parameter,
+             void(ConfigurationParameter::* propertyFunction)(const Windows::Foundation::IInspectable&amp; value));
+ 
+<a href="#h6-0-3" id="h6-0-3" class="d">-        void ParseConfigurationUnitsFromField(const AppInstaller::YAML::Node&amp; document, ConfigurationField field, const ConfigurationEnvironment&amp; defaultEnvironment, std::vector&lt;Configuration::ConfigurationUnit&gt;&amp; result);
+</a><a href="#h6-0-4" id="h6-0-4" class="d">-        virtual void ParseConfigurationUnit(ConfigurationUnit* unit, const AppInstaller::YAML::Node&amp; unitNode, const ConfigurationEnvironment&amp; defaultEnvironment);
+</a><a href="#h6-0-5" id="h6-0-5" class="i">+        void ParseConfigurationUnitsFromField(const AppInstaller::YAML::Node&amp; document, ConfigurationField field, std::vector&lt;Configuration::ConfigurationUnit&gt;&amp; result);
+</a><a href="#h6-0-6" id="h6-0-6" class="i">+        virtual void ParseConfigurationUnit(ConfigurationUnit* unit, const AppInstaller::YAML::Node&amp; unitNode);
+</a>         // Determines if the given unit should be converted to a group.
+         bool ShouldConvertToGroup(ConfigurationUnit* unit);
+ 
+<a href="#h6-1" id="h6-1" class="h">@@ -63,10 +63,9 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         void ExtractEnvironmentFromMetadata(const Windows::Foundation::Collections::ValueSet&amp; metadata, ConfigurationEnvironment&amp; targetEnvironment);
+ 
+         // Extracts the environment for a unit.
+<a href="#h6-1-3" id="h6-1-3" class="d">-        void ExtractEnvironmentForUnit(ConfigurationUnit* unit, const ConfigurationEnvironment&amp; defaultEnvironment);
+</a><a href="#h6-1-4" id="h6-1-4" class="i">+        void ExtractEnvironmentForUnit(ConfigurationUnit* unit);
+</a> 
+         AppInstaller::YAML::Node m_document;
+<a href="#h6-1-7" id="h6-1-7" class="d">-        com_ptr&lt;ConfigurationEnvironment&gt; m_setEnvironment;
+</a>     };
+ 
+     std::optional&lt;std::pair&lt;Windows::Foundation::PropertyType, bool&gt;&gt; ParseWindowsFoundationPropertyType(std::string_view value);
+<b>diff --git a/<a id="h7" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer.cpp</a></b>
+<a href="#h7-0" id="h7-0" class="h">@@ -77,6 +77,13 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             {
+                 emitter &lt;&lt; BeginMap;
+ 
+<a href="#h7-0-3" id="h7-0-3" class="i">+                WriteValues(emitter, WriteYamlValue);
+</a><a href="#h7-0-4" id="h7-0-4" class="i">+
+</a><a href="#h7-0-5" id="h7-0-5" class="i">+                emitter &lt;&lt; EndMap;
+</a><a href="#h7-0-6" id="h7-0-6" class="i">+            }
+</a><a href="#h7-0-7" id="h7-0-7" class="i">+
+</a><a href="#h7-0-8" id="h7-0-8" class="i">+            void WriteValues(AppInstaller::YAML::Emitter&amp; emitter, void(*WriteYamlValue)(AppInstaller::YAML::Emitter&amp; emitter, const winrt::Windows::Foundation::IInspectable&amp; value))
+</a><a href="#h7-0-9" id="h7-0-9" class="i">+            {
+</a>                 if (m_valueSet)
+                 {
+                     for (const auto&amp; [key, value] : m_valueSet)
+<a href="#h7-1" id="h7-1" class="h">@@ -100,8 +107,6 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>                         WriteYamlValue(emitter, override.second);
+                     }
+                 }
+<a href="#h7-1-3" id="h7-1-3" class="d">-
+</a><a href="#h7-1-4" id="h7-1-4" class="d">-                emitter &lt;&lt; EndMap;
+</a>             }
+ 
+         private:
+<a href="#h7-2" id="h7-2" class="h">@@ -171,6 +176,12 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         writer.Write(emitter, WriteYamlValue);
+     }
+ 
+<a href="#h7-2-3" id="h7-2-3" class="i">+    void ConfigurationSetSerializer::WriteYamlValueSetValues(AppInstaller::YAML::Emitter&amp; emitter, const Windows::Foundation::Collections::ValueSet&amp; valueSet, const std::vector&lt;std::pair&lt;ConfigurationField, Windows::Foundation::IInspectable&gt;&gt;&amp; overrides)
+</a><a href="#h7-2-4" id="h7-2-4" class="i">+    {
+</a><a href="#h7-2-5" id="h7-2-5" class="i">+        anon::ValueSetWriter writer{ valueSet, overrides };
+</a><a href="#h7-2-6" id="h7-2-6" class="i">+        writer.WriteValues(emitter, WriteYamlValue);
+</a><a href="#h7-2-7" id="h7-2-7" class="i">+    }
+</a><a href="#h7-2-8" id="h7-2-8" class="i">+
+</a>     void ConfigurationSetSerializer::WriteYamlStringArray(AppInstaller::YAML::Emitter&amp; emitter, const Windows::Foundation::Collections::IVector&lt;hstring&gt;&amp; values)
+     {
+         emitter &lt;&lt; BeginSeq;
+<b>diff --git a/<a id="h8" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer.h.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer.h.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer.h</a></b>
+<a href="#h8-0" id="h8-0" class="h">@@ -36,6 +36,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         ConfigurationSetSerializer() = default;
+ 
+         static void WriteYamlValueSet(AppInstaller::YAML::Emitter&amp; emitter, const Windows::Foundation::Collections::ValueSet&amp; valueSet, const std::vector&lt;std::pair&lt;ConfigurationField, Windows::Foundation::IInspectable&gt;&gt;&amp; overrides = {});
+<a href="#h8-0-3" id="h8-0-3" class="i">+        static void WriteYamlValueSetValues(AppInstaller::YAML::Emitter&amp; emitter, const Windows::Foundation::Collections::ValueSet&amp; valueSet, const std::vector&lt;std::pair&lt;ConfigurationField, Windows::Foundation::IInspectable&gt;&gt;&amp; overrides = {});
+</a>         static void WriteYamlValueSetIfNotEmpty(AppInstaller::YAML::Emitter&amp; emitter, ConfigurationField key, const Windows::Foundation::Collections::ValueSet&amp; valueSet, const std::vector&lt;std::pair&lt;ConfigurationField, Windows::Foundation::IInspectable&gt;&gt;&amp; overrides = {});
+         static void WriteYamlValueSetAsArray(AppInstaller::YAML::Emitter&amp; emitter, const Windows::Foundation::Collections::ValueSet&amp; valueSetArray);
+ 
+<b>diff --git a/<a id="h9" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.cpp</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.cpp.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.cpp</a></b>
+<a href="#h9-0" id="h9-0" class="h">@@ -112,12 +112,10 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         void AddEnvironmentToMetadata(
+             Windows::Foundation::Collections::ValueSet&amp; metadata,
+<a href="#h9-0-3" id="h9-0-3" class="d">-            const Configuration::ConfigurationEnvironment&amp; environment,
+</a><a href="#h9-0-4" id="h9-0-4" class="d">-            const Configuration::ConfigurationEnvironment&amp; commonEnvironment)
+</a><a href="#h9-0-5" id="h9-0-5" class="i">+            const Configuration::ConfigurationEnvironment&amp; environment)
+</a>         {
+             AddEnvironmentToMetadata(metadata,
+<a href="#h9-0-8" id="h9-0-8" class="d">-                environment.Context(), environment.ProcessorIdentifier(), environment.ProcessorProperties(),
+</a><a href="#h9-0-9" id="h9-0-9" class="d">-                commonEnvironment.Context(), commonEnvironment.ProcessorIdentifier(), commonEnvironment.ProcessorProperties());
+</a><a href="#h9-0-10" id="h9-0-10" class="i">+                environment.Context(), environment.ProcessorIdentifier(), environment.ProcessorProperties());
+</a>         }
+     }
+ 
+<a href="#h9-1" id="h9-1" class="h">@@ -131,8 +129,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         // Prepare an override if necessary
+         Collections::ValueSet wingetMetadataOverride = nullptr;
+<a href="#h9-1-3" id="h9-1-3" class="d">-        auto commonEnvironment = ConfigurationEnvironment::CalculateCommonEnvironment(configurationSet-&gt;GetUnitEnvironmentsInternal());
+</a><a href="#h9-1-4" id="h9-1-4" class="d">-        AddEnvironmentToMetadata(wingetMetadataOverride, commonEnvironment);
+</a><a href="#h9-1-5" id="h9-1-5" class="i">+        AddEnvironmentToMetadata(wingetMetadataOverride, configurationSet-&gt;EnvironmentInternal());
+</a> 
+         WriteYamlValueSetIfNotEmpty(emitter, ConfigurationField::Metadata, configurationSet-&gt;Metadata(),
+             {
+<a href="#h9-2" id="h9-2" class="h">@@ -142,7 +139,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+         WriteYamlParameters(emitter, configurationSet-&gt;Parameters());
+         WriteYamlValueSetIfNotEmpty(emitter, ConfigurationField::Variables, configurationSet-&gt;Variables());
+<a href="#h9-2-3" id="h9-2-3" class="d">-        WriteYamlConfigurationUnits(emitter, configurationSet-&gt;Units(), *commonEnvironment);
+</a><a href="#h9-2-4" id="h9-2-4" class="i">+        WriteYamlConfigurationUnits(emitter, configurationSet-&gt;Units());
+</a> 
+         emitter &lt;&lt; EndMap;
+ 
+<a href="#h9-3" id="h9-3" class="h">@@ -220,8 +217,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a> 
+     void ConfigurationSetSerializer_0_3::WriteYamlConfigurationUnits(
+         AppInstaller::YAML::Emitter&amp; emitter,
+<a href="#h9-3-3" id="h9-3-3" class="d">-        const Windows::Foundation::Collections::IVector&lt;Configuration::ConfigurationUnit&gt;&amp; values,
+</a><a href="#h9-3-4" id="h9-3-4" class="d">-        const Configuration::ConfigurationEnvironment&amp; commonEnvironment)
+</a><a href="#h9-3-5" id="h9-3-5" class="i">+        const Windows::Foundation::Collections::IVector&lt;Configuration::ConfigurationUnit&gt;&amp; values)
+</a>     {
+         emitter &lt;&lt; Key &lt;&lt; GetConfigurationFieldName(ConfigurationField::Resources);
+ 
+<a href="#h9-4" id="h9-4" class="h">@@ -242,7 +238,7 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>             // Prepare an override if necessary
+             Collections::ValueSet wingetMetadataOverride = nullptr;
+             Configuration::ConfigurationEnvironment unitEnvironment = unit.Environment();
+<a href="#h9-4-3" id="h9-4-3" class="d">-            AddEnvironmentToMetadata(wingetMetadataOverride, unitEnvironment, commonEnvironment);
+</a><a href="#h9-4-4" id="h9-4-4" class="i">+            AddEnvironmentToMetadata(wingetMetadataOverride, unitEnvironment);
+</a> 
+             WriteYamlValueSetIfNotEmpty(emitter, ConfigurationField::Metadata, unit.Metadata(),
+                 { { ConfigurationField::WingetMetadataRoot, wingetMetadataOverride } });
+<a href="#h9-5" id="h9-5" class="h">@@ -272,7 +268,12 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>                     emitter &lt;&lt; Key &lt;&lt; GetConfigurationFieldName(ConfigurationField::Properties);
+                     emitter &lt;&lt; BeginMap;
+ 
+<a href="#h9-5-3" id="h9-5-3" class="d">-                    WriteYamlConfigurationUnits(emitter, groupUnits, unitEnvironment);
+</a><a href="#h9-5-4" id="h9-5-4" class="i">+                    // Write everything but the resources
+</a><a href="#h9-5-5" id="h9-5-5" class="i">+                    WriteYamlValueSetValues(emitter, unit.Settings(),
+</a><a href="#h9-5-6" id="h9-5-6" class="i">+                        { { ConfigurationField::Resources, nullptr } });
+</a><a href="#h9-5-7" id="h9-5-7" class="i">+
+</a><a href="#h9-5-8" id="h9-5-8" class="i">+                    // Write the resources from the individual units
+</a><a href="#h9-5-9" id="h9-5-9" class="i">+                    WriteYamlConfigurationUnits(emitter, groupUnits);
+</a> 
+                     emitter &lt;&lt; EndMap;
+                 }
+<b>diff --git a/<a id="h10" href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.h.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.h</a> b/<a href="../file/src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.h.html">src/Microsoft.Management.Configuration/ConfigurationSetSerializer_0_3.h</a></b>
+<a href="#h10-0" id="h10-0" class="h">@@ -24,7 +24,6 @@ namespace winrt::Microsoft::Management::Configuration::implementation
+</a>         void WriteYamlParameters(AppInstaller::YAML::Emitter&amp; emitter, const Windows::Foundation::Collections::IVector&lt;Configuration::ConfigurationParameter&gt;&amp; values);
+         void WriteYamlConfigurationUnits(
+             AppInstaller::YAML::Emitter&amp; emitter,
+<a href="#h10-0-3" id="h10-0-3" class="d">-            const Windows::Foundation::Collections::IVector&lt;Configuration::ConfigurationUnit&gt;&amp; values,
+</a><a href="#h10-0-4" id="h10-0-4" class="d">-            const Configuration::ConfigurationEnvironment&amp; commonEnvironment);
+</a><a href="#h10-0-5" id="h10-0-5" class="i">+            const Windows::Foundation::Collections::IVector&lt;Configuration::ConfigurationUnit&gt;&amp; values);
+</a>     };
+ }
+<b>diff --git a/<a id="h11" href="../file/src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl.html">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a> b/<a href="../file/src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl.html">src/Microsoft.Management.Configuration/Microsoft.Management.Configuration.idl</a></b>
+<a href="#h11-0" id="h11-0" class="h">@@ -432,6 +432,11 @@ namespace Microsoft.Management.Configuration
+</a> 
+         [contract(Microsoft.Management.Configuration.Contract, 3)]
+         {
+<a href="#h11-0-3" id="h11-0-3" class="i">+            // The environment in which to process the configuration set.
+</a><a href="#h11-0-4" id="h11-0-4" class="i">+            // This defines the initial processing environment state used by the configuration system,
+</a><a href="#h11-0-5" id="h11-0-5" class="i">+            // and may be overridden by the processor later.
+</a><a href="#h11-0-6" id="h11-0-6" class="i">+            ConfigurationEnvironment Environment{ get; };
+</a><a href="#h11-0-7" id="h11-0-7" class="i">+
+</a>             // Gets the union of environments as defined by all of the active units within the set.
+             Windows.Foundation.Collections.IVector&lt;ConfigurationEnvironment&gt; GetUnitEnvironments();
+         }
+</pre>
+</div>
+</body>
+</html>
